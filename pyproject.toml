@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "accsim"
+version = "0.0.1"
+description = "A modular, physics-correct particle accelerator simulator, grown in stages from linear beam optics upward."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "BoykoNeov" }]
+keywords = ["accelerator", "beam-dynamics", "physics", "optics", "simulation"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+# Development + the always-on analytic test suite (sympy is needed to derive
+# closed-form benchmarks symbolically, per the validation strategy).
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.4",
+    "sympy>=1.12",
+]
+# Interactive phase-space plotting.
+plot = ["plotly>=5.0"]
+# Validation-only reference codes. Gated behind the `reference` pytest marker so
+# the suite still runs when these are absent. NOTE: the full `xsuite` umbrella
+# fails to build on Python 3.14 (xcoll/FLUKA hits a pathlib change); the core
+# tracking package `xtrack` is what the optics cross-checks need. See
+# docs/CONVENTIONS.md for the current status on this interpreter.
+reference = ["xtrack>=0.65"]
+
+[project.urls]
+Homepage = "https://github.com/BoykoNeov/particle-accelerator"
+Repository = "https://github.com/BoykoNeov/particle-accelerator"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# A pragmatic, physics-friendly rule set: pyflakes (F), pycodestyle (E/W),
+# isort (I), pyupgrade (UP), bugbear (B), comprehensions (C4), naming (N).
+select = ["E", "W", "F", "I", "UP", "B", "C4", "N"]
+# Physics code legitimately uses short, paper-matching symbol names
+# (K1, L, mu, beta0, R56, ...). Don't fight the notation.
+ignore = [
+    "E741", # ambiguous variable name (l, I, O) — `l` for length appears in formulae
+    "N806", # variable in function should be lowercase — we use K1, R, M, ...
+    "N803", # argument should be lowercase — we use K1, L, ...
+    "N802", # function name should be lowercase — physics unit suffixes (momentum_eV, ...)
+    "N815", # mixedCase class attribute — physics unit suffixes (mass_eV, total_energy_eV, ...)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"] # allow long lines in tests (hand-computed expected values)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "reference: cross-checks against external reference codes (xtrack/MAD-X); skipped if the dep is absent",
+    "slow: long-running tracking-stability tests (>=1e4 turns)",
+]
