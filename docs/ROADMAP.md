@@ -41,6 +41,23 @@ skeletons, plotting, and the analytic test harness.
 Transfer-matrix formalism; `Drift`, `Quadrupole` (thin + thick), `Dipole`;
 one-turn map; Twiss propagation (β, α, dispersion, phase advance); tunes.
 
+> **Do these FIRST, before building Stage 1 physics:**
+> - **Get the Xsuite/xtrack cross-check live.** It is the project's real
+>   verification method, and it is currently dark (JIT compile broken — see
+>   CONVENTIONS.md). Building all of Stage 1 then enabling it risks a
+>   convention unwind across the whole stage. Try, in order: (a) a space-free
+>   working path; (b) `pip install xsuite-prebuilt-kernels` (ships precompiled
+>   kernels, sidesteps cffi/JIT entirely, if a 3.14 build exists); (c) re-debug
+>   the include path — note site-packages was not on the compiler `-I` list *at
+>   all*, so it is not only the spaced path.
+> - **Expect a `zeta` sign mismatch vs Xsuite as the first "discrepancy."** That
+>   is a convention reconciliation (adopt Xsuite's sign — it is part of "match
+>   Xsuite ordering"), **not** a physics bug. Do not "fix" correct physics here.
+> - **Add a composition-order test when `Quadrupole` lands.** The existing
+>   `test_drifts_compose_additively` cannot distinguish matrix order (drifts
+>   commute). Add an asymmetric drift+quad sequence whose result changes if the
+>   `M_last @ … @ M_first` order is reversed.
+
 - **Acceptance:** for a single FODO cell, the phase advance per cell `μ` (from
   `cos μ = ½·Tr M`) and the β-functions match the **symbolically-derived**
   closed-form thin-lens result (derive it, don't trust a remembered coefficient).

@@ -111,8 +111,16 @@ check, but it is flagged for the longitudinal stages (Stage 3+).
   `cl.exe` arguments and is a likely compounding factor. **Consequence:** the
   Stage 1 acceptance criterion "cross-check a small ring against Xsuite Twiss to
   < 1e-6" is blocked until this is resolved. Reference tests skip (not fail) in
-  the meantime. **To resolve before Stage 1** (candidates, untried): relocate the
-  working copy to a space-free path; pass xtrack's include dir explicitly to the
-  xobjects CPU context; or use a prebuilt-kernel context.
+  the meantime. **To resolve before Stage 1** (candidates, in rough priority):
+  (a) relocate the working copy to a space-free path; (b) `pip install
+  xsuite-prebuilt-kernels`, which ships precompiled kernels and sidesteps the
+  cffi/JIT compile entirely (if a 3.14 build exists); (c) re-debug the include
+  path. Diagnostic for (c): the package `site-packages` directory was **not on
+  the compiler `-I` list at all**, so the spaced path is not the only cause —
+  xobjects is not adding xtrack's include dir.
+- **Expect a `zeta` sign mismatch vs Xsuite when the cross-check first runs.**
+  That is a convention reconciliation, not a physics bug: matching the reference's
+  sign is part of "match Xsuite ordering," so adopt Xsuite's sign if it differs —
+  do not change correct physics to chase it.
 - Until the JIT works, the drift convention rests on the **symbolic derivation**
   (two independent routes agree), which is itself a gold-standard analytic check.
