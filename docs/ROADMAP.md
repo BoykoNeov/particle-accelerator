@@ -37,10 +37,15 @@ skeletons, plotting, and the analytic test harness.
   `R56 = L/γ₀²`, derived symbolically), a symplecticity check, and a
   gracefully-skipping xtrack cross-check scaffold.
 
-## Stage 1 — Beam optics (linear transverse) ⬅ NEXT
+## Stage 1 — Beam optics (linear transverse) ⬅ IN PROGRESS
 
 Transfer-matrix formalism; `Drift`, `Quadrupole` (thin + thick), `Dipole`;
 one-turn map; Twiss propagation (β, α, dispersion, phase advance); tunes.
+
+**Status:** the FODO acceptance gate below is **met** ✅ — `Quadrupole`
+(thin + thick), Twiss matching/propagation, and tunes are done and
+xtrack-validated. **Remaining:** the `Dipole` (sector bend) + dispersion to round
+out the stage's element set before Stage 2.
 
 > **Do these FIRST, before building Stage 1 physics:**
 > - ✅ **Get the Xsuite/xtrack cross-check live.** DONE (2026-06-29). The JIT
@@ -61,7 +66,10 @@ one-turn map; Twiss propagation (β, α, dispersion, phase advance); tunes.
   `cos μ = ½·Tr M`) and the β-functions match the **symbolically-derived**
   closed-form thin-lens result (derive it, don't trust a remembered coefficient).
   β should oscillate between a maximum at the focusing quad and a minimum at the
-  defocusing quad. Cross-check a small ring against Xsuite Twiss to < 1e-6.
+  defocusing quad. Cross-check a small ring against Xsuite Twiss to < 1e-6. ✅
+  **MET** — `tests/analytic/test_fodo_cell.py` (symbolic `μ`, `β_max`, `β_min`,
+  max-at-F/min-at-D oscillation) and `tests/reference/test_fodo_twiss_xtrack.py`
+  (thick-quad FODO ring vs xtrack 4D Twiss, agreement ~1e-14 ≪ 1e-6).
 
 ## Stage 2 — Magnetic lenses
 

@@ -97,10 +97,49 @@ drifts). A pure quadrupole has no curvature ⇒ no dispersion.
   no longitudinal slip (`R56 = 0`). It is the `L → 0` limit of the thick quad at
   fixed `k1l`; the leading correction to the thin kick is `+k1l²·L/6` (O(L)).
 
-## Phase advance vs tune (Stage 1)
+## Twiss / phase advance / tune (Stage 1 — implemented)
 
-`Q = μ_total / 2π`. Keep all 2π factors explicit. Phase advance per cell `μ` from
-`cos μ = ½·Tr(M)` of the one-turn matrix.
+Linear Courant-Snyder optics live in `src/accsim/twiss.py`. Conventions:
+
+- **Matched (periodic) Twiss** comes from the 2×2 transverse blocks of the
+  one-turn 6×6: `cos μ = ½·Tr(block)`; `β = M12/sin μ`; `α = (M11−M22)/(2 sin μ)`.
+  The matched `β` is **positive by construction** — the sign of `sin μ` is fixed
+  by `sign(M12)`, i.e. `sin μ = sign(M12)·√(1−cos²μ)`. Holds even when
+  `μ ∈ (π, 2π)` makes `M12 < 0`.
+- **Stability** of a plane requires `|½·Tr(block)| < 1` (`|Tr| < 2`). An unstable
+  plane has no real matched `β`; `match_periodic`/`closed_twiss` raise
+  `UnstableLatticeError` rather than returning a complex β.
+- **Propagation** is `B₁ = C·B₀·Cᵀ` with `B = [[β, −α], [−α, γ]]`,
+  `γ = (1+α²)/β`. This is exact and preserves the invariant `γβ − α² = 1` when
+  `det C = 1` (verified symbolically).
+- **`Q = μ_total / 2π`**, and the phase is **accumulated continuously** along the
+  lattice — `Δμ = atan2(C12, β₀·C11 − α₀·C12)` per element, summed — **not** taken
+  from `acos` of the one-turn matrix. `acos` yields only the *fractional* tune
+  (it aliases `μ` into `[0, π]`) and loses the integer part; continuous
+  accumulation recovers the full tune. Keep all 2π factors explicit.
+- **Scope:** transverse `x`/`y` only (drifts + quads neither couple the planes
+  nor disperse, so the 2×2 reduction is exact). Dispersion (coupling to `delta`)
+  arrives with the `Dipole`.
+- **Cross-check:** a thick-quad FODO ring matches xtrack's 4D Twiss
+  (`β`, `α`, `μ/2π`, `Q` in both planes) to **machine precision** (~1e-14, gate
+  is <1e-6) — `tests/reference/test_fodo_twiss_xtrack.py`.
+
+### Thin-lens FODO closed form (acceptance gate)
+
+For the symmetric cell `QF/2 − drift(L) − QD − drift(L) − QF/2` (full-quad focal
+length `f`, half-cell drift `L`, F split into 2f halves at the ends), derived
+symbolically (`tests/analytic/test_fodo_cell.py`):
+
+```
+cos μ = 1 − L²/(2f²)        ⇒  sin(μ/2) = L/(2f)
+β_max = L_cell·(1 + sin(μ/2)) / sin μ      (at the F centre)
+β_min = L_cell·(1 − sin(μ/2)) / sin μ      (at the D centre,  L_cell = 2L)
+```
+
+`β_x` peaks at the F quad and troughs at the D quad; `β_y` is the mirror image
+(`β_y(F) = β_min`). Because the D quad is a single thin kick (not split), no
+element boundary sits exactly at its centre: `β` is continuous across it while
+`α` flips sign antisymmetrically, so `α ≠ 0` at the recorded D-centre boundary.
 
 ## Symplecticity
 
