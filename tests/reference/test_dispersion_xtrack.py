@@ -15,7 +15,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from accsim import Dipole, Lattice, ReferenceParticle, ThinQuadrupole, closed_twiss, propagate_twiss
+from accsim import (
+    Dipole,
+    Lattice,
+    ReferenceParticle,
+    ThinQuadrupole,
+    closed_twiss,
+    propagate_twiss,
+    tunes,
+)
 
 pytestmark = pytest.mark.reference
 
@@ -72,6 +80,17 @@ def test_dispersion_matches_xtrack() -> None:
     # Same momentum convention (ratio 1, not 1/beta0): agree to < 1e-6.
     np.testing.assert_allclose(dx, np.array(tw.dx), rtol=1e-6, atol=1e-9)
     np.testing.assert_allclose(dpx, np.array(tw.dpx), rtol=1e-6, atol=1e-9)
+
+    # Also pin beta-propagation and the tune THROUGH the dipoles directly (the
+    # quad-only FODO cross-check cannot exercise a bend): B = C B C^T transport
+    # and continuous phase must match xtrack on this dipole-containing cell.
+    betx = np.array([p.beta_x for p in pts])
+    bety = np.array([p.beta_y for p in pts])
+    np.testing.assert_allclose(betx, np.array(tw.betx), rtol=1e-6, atol=1e-9)
+    np.testing.assert_allclose(bety, np.array(tw.bety), rtol=1e-6, atol=1e-9)
+    qx, qy = tunes(lat)
+    assert qx == pytest.approx(tw.qx, abs=1e-6)
+    assert qy == pytest.approx(tw.qy, abs=1e-6)
 
     # Pin the convention explicitly: ratio is 1, decisively not 1/beta0 (~1.02).
     beta0 = ref.beta0
