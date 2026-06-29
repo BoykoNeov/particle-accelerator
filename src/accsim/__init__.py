@@ -13,6 +13,15 @@ from .lattice import Lattice, matrix_of
 from .reference import ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
 from .symplectic import J6, is_symplectic
 from .tracking import Bunch, Particle, Tracker
+from .twiss import (
+    Twiss,
+    UnstableLatticeError,
+    closed_twiss,
+    is_stable,
+    match_periodic,
+    propagate_twiss,
+    tunes,
+)
 
 __version__ = "0.0.1"
 
@@ -45,5 +54,13 @@ __all__ = [
     # symplectic helpers
     "is_symplectic",
     "J6",
+    # twiss / optics
+    "Twiss",
+    "UnstableLatticeError",
+    "match_periodic",
+    "closed_twiss",
+    "propagate_twiss",
+    "tunes",
+    "is_stable",
     "__version__",
 ]
