@@ -40,9 +40,11 @@ plot = ["plotly>=5.0"]
 # Validation-only reference codes. Gated behind the `reference` pytest marker so
 # the suite still runs when these are absent. NOTE: the full `xsuite` umbrella
 # fails to build on Python 3.14 (xcoll/FLUKA hits a pathlib change); the core
-# tracking package `xtrack` is what the optics cross-checks need. See
-# docs/CONVENTIONS.md for the current status on this interpreter.
-reference = ["xtrack>=0.65"]
+# tracking package `xtrack` (+ `xpart` for R-matrix/Twiss helpers) is what the
+# optics cross-checks need. On Windows the xtrack JIT C-kernel build additionally
+# requires clang-cl (`winget install LLVM.LLVM`); the `_xtrack_jit` test fix-up
+# wires it in. See docs/CONVENTIONS.md for the full toolchain diagnosis.
+reference = ["xtrack>=0.65", "xpart>=0.18"]
 
 [project.urls]
 Homepage = "https://github.com/BoykoNeov/particle-accelerator"

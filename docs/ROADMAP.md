@@ -20,10 +20,11 @@ physics* phase (what comes out of a collision — orchestration, not rebuilding)
   test (`pytest -m slow`).
 - **Gate** — a stage's acceptance tests must pass before the next stage starts.
 
-> The Stage 1+ Xsuite cross-checks currently depend on the `xtrack` JIT compiler,
-> which is blocked on this machine — see the toolchain notes in
-> [`CONVENTIONS.md`](CONVENTIONS.md). Resolve before relying on Stage 1's
-> Xsuite acceptance.
+> The Stage 1+ Xsuite cross-checks depend on the `xtrack` JIT compiler. This was
+> blocked on this machine and is now **resolved** (built via clang-cl; the Stage 0
+> drift cross-check passes) — see the toolchain notes in
+> [`CONVENTIONS.md`](CONVENTIONS.md). The `zeta`-sign reconciliation remains open
+> for quads/dipoles/full-ring until Stage 1 exercises them.
 
 ## Stage 0 — Scaffold ✅ COMPLETE
 
@@ -42,14 +43,12 @@ Transfer-matrix formalism; `Drift`, `Quadrupole` (thin + thick), `Dipole`;
 one-turn map; Twiss propagation (β, α, dispersion, phase advance); tunes.
 
 > **Do these FIRST, before building Stage 1 physics:**
-> - **Get the Xsuite/xtrack cross-check live.** It is the project's real
->   verification method, and it is currently dark (JIT compile broken — see
->   CONVENTIONS.md). Building all of Stage 1 then enabling it risks a
->   convention unwind across the whole stage. Try, in order: (a) a space-free
->   working path; (b) `pip install xsuite-prebuilt-kernels` (ships precompiled
->   kernels, sidesteps cffi/JIT entirely, if a 3.14 build exists); (c) re-debug
->   the include path — note site-packages was not on the compiler `-I` list *at
->   all*, so it is not only the spaced path.
+> - ✅ **Get the Xsuite/xtrack cross-check live.** DONE (2026-06-29). The JIT
+>   compile, previously dark, now builds via clang-cl (`tests/reference/_xtrack_jit.py`);
+>   `test_drift_xtrack.py` passes with the full 6×6 drift map matching xtrack to
+>   ~1.5e-10. Full diagnosis in CONVENTIONS.md. This validates the Stage 0 drift
+>   convention against the reference; the Stage 1 FODO Twiss `<1e-6` check is the
+>   remaining acceptance gate.
 > - **Expect a `zeta` sign mismatch vs Xsuite as the first "discrepancy."** That
 >   is a convention reconciliation (adopt Xsuite's sign — it is part of "match
 >   Xsuite ordering"), **not** a physics bug. Do not "fix" correct physics here.

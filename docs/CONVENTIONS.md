@@ -102,22 +102,49 @@ check, but it is flagged for the longitudinal stages (Stage 3+).
   `pathlib` change (`UnsupportedOperation: cannot instantiate 'FsPath'`). The core
   tracker `xtrack` installs and imports fine, and is all the optics cross-checks
   need. The `reference` optional dependency is therefore `xtrack`.
-- **xtrack JIT compilation currently fails on this machine.** `xtrack` compiles C
-  kernels on first use via `cffi`; on Python 3.14 it needs `setuptools` in the
-  venv (stdlib `distutils` is gone), and even then the compile fails with
-  `fatal error C1083: Cannot open include file 'xtrack/multisetter/multisetter.h'`
-  — xtrack's package include directory is not placed on the compiler's `-I` path.
-  The spaced project path (`...\particle accelerator\...`) appears unquoted in the
-  `cl.exe` arguments and is a likely compounding factor. **Consequence:** the
-  Stage 1 acceptance criterion "cross-check a small ring against Xsuite Twiss to
-  < 1e-6" is blocked until this is resolved. Reference tests skip (not fail) in
-  the meantime. **To resolve before Stage 1** (candidates, in rough priority):
-  (a) relocate the working copy to a space-free path; (b) `pip install
-  xsuite-prebuilt-kernels`, which ships precompiled kernels and sidesteps the
-  cffi/JIT compile entirely (if a 3.14 build exists); (c) re-debug the include
-  path. Diagnostic for (c): the package `site-packages` directory was **not on
-  the compiler `-I` list at all**, so the spaced path is not the only cause —
-  xobjects is not adding xtrack's include dir.
+- **xtrack JIT compilation — RESOLVED 2026-06-29 (now live via clang-cl).**
+  `xtrack` compiles C kernels on first use via `cffi` → the platform C compiler.
+  On Windows that path had three independent failure layers; all are now handled
+  by the `tests/reference/_xtrack_jit.py` fix-up (applied from
+  `tests/reference/conftest.py`). The diagnosis, kept for the record:
+  1. Needs `setuptools` in the venv (stdlib `distutils` gone on 3.12+) — installed.
+  2. **xobjects discards compiler flags on Windows.** In
+     `xobjects/context_cpu.py::compile_kernel`, the `os.name == "nt"` branch sets
+     `xtr_compile_args = []` (literal comment `# TODO: to be handled properly`),
+     throwing away **both** the computed `-I<site-packages>` include flag (→
+     `C1083: cannot open 'xtrack/multisetter/multisetter.h'`) **and** the
+     `-DXO_CONTEXT_CPU` / `-DXO_CONTEXT_CPU_SERIAL` context defines (→ `C1189:
+     Unknown context`). The spaced project path is **not** the cause — it is passed
+     to the compiler as a single argv element correctly (corrects the earlier
+     "spaced path" hypothesis).
+  3. **xtrack's own C source is not MSVC-clean.** Past layers 1–2, MSVC `cl.exe`
+     rejects xtrack source with `C2166: l-value specifies const object`
+     (`track_misalignments.h`, the `S_SHIFT(part0, -mis_s)` macro on a negated
+     `const`). GCC/Clang accept this; MSVC's stricter front-end is the outlier —
+     xsuite is developed on Linux.
+  - **Fix that worked:** compile with **clang-cl** instead of `cl.exe`. clang-cl is
+    a cl-compatible front-end that reproduces the reference toolchain's GCC/Clang
+    behaviour (clearing the `C2166`) while emitting MSVC-ABI objects the MSVC
+    linker links. The `_xtrack_jit` fix-up monkeypatches the distutils MSVC
+    compiler to: swap `self.cc → clang-cl`, re-add `site-packages` to the include
+    path, restore the `XO_CONTEXT_CPU*` defines, and drop `/GL`+`/LTCG` (clang-cl
+    bitcode is incompatible with the MSVC linker's LTCG). It is a **no-op** off
+    Windows and when clang-cl is absent, so reference tests skip gracefully there.
+    Requires `winget install LLVM.LLVM` (clang-cl 22.x verified); `xpart` must also
+    be installed (xtrack's R-matrix/Twiss helpers import it).
+  - **Dead ends checked:** `pip install xsuite-prebuilt-kernels` → no PyPI
+    distribution. Relocating to a space-free path → would not help (layer 2 is
+    path-independent).
+  - **Status:** `tests/reference/test_drift_xtrack.py` now **passes** (not skips) —
+    the full 6×6 drift map agrees with xtrack to ~1.5e-10 (`R56 = L/γ₀²`, the
+    momentum-variable value `0.5` for `γ₀=2`, confirming it over the energy-variable
+    `0.667`; sign `+`). This validates the **Stage 0** drift convention against the
+    reference. It is **not** Stage 1 acceptance (the FODO Twiss `<1e-6` check is
+    still ahead), and the `zeta`-sign reconciliation is settled **for the drift
+    R56 only** — keep the flag live for quads/dipoles/full-ring in Stage 1.
+  - **CI note:** CI runs ruff + the analytic suite only; the `reference` marker is
+    not exercised in CI (and clang-cl is not installed there). This cross-check is
+    therefore a **local Windows gate**, not a per-push CI regression catch.
 - **Expect a `zeta` sign mismatch vs Xsuite when the cross-check first runs.**
   That is a convention reconciliation, not a physics bug: matching the reference's
   sign is part of "match Xsuite ordering," so adopt Xsuite's sign if it differs —

@@ -13,6 +13,14 @@ build/
 dist/
 *.so
 
+# xtrack/cffi JIT C-kernel build artifacts (Windows clang-cl/MSVC intermediates,
+# emitted into the CWD by xobjects' compile and not auto-cleaned on Windows)
+Release/
+*.obj
+*.exp
+*.lib
+*.pyd
+
 # Testing / coverage
 .pytest_cache/
 .ruff_cache/
