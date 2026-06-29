@@ -97,6 +97,59 @@ drifts). A pure quadrupole has no curvature ⇒ no dispersion.
   no longitudinal slip (`R56 = 0`). It is the `L → 0` limit of the thick quad at
   fixed `k1l`; the leading correction to the thin kick is `+k1l²·L/6` (O(L)).
 
+## Dipole — sector bend (Stage 1 — implemented)
+
+`Dipole(length, angle)`: a **pure sector** bend (no pole-face/edge angles, no
+gradient `k1`), bending horizontally. Curvature `h = 1/ρ = θ/L`, `θ = angle`.
+Edge focusing and combined-function gradients are **Stage 2**, not here. The 6×6
+is `exp(L·A)` of the sector-bend Hamiltonian generator (symplectic by
+construction); with `C = cos θ`, `S = sin θ`:
+
+```
+R11 = R22 = C          R12 = S/h = ρS         R21 = −hS = −S/ρ
+R16 = (1−C)/h = ρ(1−C) R26 = S                (dispersion; R16 > 0 ⇒ outward)
+R34 = L                                        (vertical = plain drift)
+R51 = −S               R52 = (C−1)/h = −R16    (symplectic partners of dispersion)
+R56 = ρS − L + L/γ₀²   = L/γ₀² − ρ(θ − S)
+```
+
+- **Dispersion sign:** a higher-momentum particle (`δ > 0`) bends less, so it is
+  displaced **outward** ⇒ `R16 > 0`.
+- **`R51`/`R52` are forced by symplecticity** from the dispersion:
+  `R51 = R21·R16 − R11·R26`, `R52 = R22·R16 − R12·R26`. Deriving the map as
+  `exp(L·A)` makes this automatic — a hand-built map that gets these wrong fails
+  `is_symplectic`.
+- **`R56`** is the drift slip `L/γ₀²` (same momentum-variable coefficient as the
+  drift/quad) **minus** the extra arc the design orbit travels, `ρ(θ − S)`. The
+  momentum-compaction interpretation of this term belongs to Stage 3 — not built
+  here.
+- **θ → 0 limit:** every curvature term vanishes and the map is exactly a
+  `Drift(L)` (`R56 → L/γ₀²`).
+- Cross-checked entrywise against xtrack's `Bend` configured as a pure sector
+  (`edge_entry/exit_active = 0`, `k1 = 0`) to ~1e-6
+  (`tests/reference/test_dipole_xtrack.py`).
+
+## Dispersion in Twiss (Stage 1 — implemented)
+
+The matched linear dispersion `D = (Dx, Dpx, Dy, Dpy) = d(x,px,y,py)/dδ` is the
+first-order off-momentum closed orbit. Conventions:
+
+- **Variable is `δ` (momentum):** `D = dx/dδ`. **xtrack's `twiss.dx` uses the
+  same `δ` variable** — verified ratio `xtrack.dx / D = 1.0` at γ₀ = 5
+  (β₀ ≈ 0.98), decisively **not** the MAD-X `pt`-based `DX = (1/β₀)·dx/dδ`
+  (which would differ by ≈ 2% there). Tested at γ₀ = 5 deliberately, so a stray
+  `1/β₀` would be an unmistakable 2% gap rather than a 0.1% one
+  (`tests/reference/test_dispersion_xtrack.py`).
+- **Matched:** `D = (I₄ − M₄)⁻¹·[R16, R26, R36, R46]ᵀ` from the one-turn 4×4
+  transverse block `M₄` and its `δ`-column. For an uncoupled lattice with no
+  vertical bending, `Dy = Dpy = 0` falls out (the vertical `δ`-column is zero).
+- **Propagation is affine:** `D(s₊) = M₄ᵉˡᵉᵐ·D(s) + [R16, R26, R36, R46]ᵀ` —
+  matrix transport plus the element's dispersive kick. This is **not** the
+  quadratic `B = C·B·Cᵀ` rule used for `β`/`α`; dispersion is an orbit, not a
+  second moment.
+- A lattice with no bending magnet has `D ≡ 0` everywhere (the `Twiss`
+  dispersion fields default to `0.0`).
+
 ## Twiss / phase advance / tune (Stage 1 — implemented)
 
 Linear Courant-Snyder optics live in `src/accsim/twiss.py`. Conventions:

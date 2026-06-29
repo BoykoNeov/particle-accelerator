@@ -27,8 +27,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .coords import PX, PY, X, Y
+from .coords import DELTA, PX, PY, X, Y
 from .lattice import Lattice
+
+_TRANSVERSE = [X, PX, Y, PY]  # the 4D transverse subspace (x, px, y, py)
 
 
 class UnstableLatticeError(ValueError):
@@ -45,6 +47,10 @@ class Twiss:
 
     ``gamma_x``/``gamma_y`` are derived (``gamma = (1 + alpha^2)/beta``) and the
     phases ``mu_x``/``mu_y`` are in radians, accumulated from the lattice start.
+
+    ``D*`` are the linear dispersion ``(Dx, Dpx, Dy, Dpy) = d(x, px, y, py)/ddelta``
+    [m, rad, m, rad] of the matched off-momentum closed orbit. They default to
+    zero (a dispersion-free lattice — e.g. drifts + quads only).
     """
 
     s: float
@@ -54,6 +60,10 @@ class Twiss:
     beta_y: float
     alpha_y: float
     mu_y: float
+    disp_x: float = 0.0
+    disp_px: float = 0.0
+    disp_y: float = 0.0
+    disp_py: float = 0.0
 
     @property
     def gamma_x(self) -> float:
@@ -107,6 +117,28 @@ def _blocks(M: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return M[np.ix_([X, PX], [X, PX])], M[np.ix_([Y, PY], [Y, PY])]
 
 
+def _transverse_4d(M: np.ndarray) -> np.ndarray:
+    """The 4x4 transverse block ``(x, px, y, py)`` of a 6x6 map."""
+    return M[np.ix_(_TRANSVERSE, _TRANSVERSE)]
+
+
+def _dispersive_kick(M: np.ndarray) -> np.ndarray:
+    """The transverse coupling to ``delta``: ``[R16, R26, R36, R46]``."""
+    return M[_TRANSVERSE, DELTA]
+
+
+def _matched_dispersion(one_turn: np.ndarray) -> np.ndarray:
+    """Matched 4D dispersion ``D = (I - M4)^-1 d`` of a periodic map.
+
+    The off-momentum closed orbit obeys ``D = M4 @ D + d`` (it must close on
+    itself each turn), so ``D = (I - M4)^-1 d``. For an uncoupled lattice with no
+    vertical bending the vertical components come out zero automatically.
+    """
+    m4 = _transverse_4d(one_turn)
+    d = _dispersive_kick(one_turn)
+    return np.linalg.solve(np.eye(4) - m4, d)
+
+
 def match_periodic(one_turn: np.ndarray) -> Twiss:
     """Matched (periodic) Twiss at the start of a ring from its one-turn matrix.
 
@@ -116,7 +148,8 @@ def match_periodic(one_turn: np.ndarray) -> Twiss:
     cx, cy = _blocks(one_turn)
     beta_x, alpha_x = _matched_block(cx)
     beta_y, alpha_y = _matched_block(cy)
-    return Twiss(0.0, beta_x, alpha_x, 0.0, beta_y, alpha_y, 0.0)
+    d = _matched_dispersion(one_turn)
+    return Twiss(0.0, beta_x, alpha_x, 0.0, beta_y, alpha_y, 0.0, d[0], d[1], d[2], d[3])
 
 
 def closed_twiss(lattice: Lattice) -> Twiss:
@@ -135,14 +168,20 @@ def propagate_twiss(lattice: Lattice, twiss0: Twiss) -> list[Twiss]:
     s = twiss0.s
     bx, ax, mux = twiss0.beta_x, twiss0.alpha_x, twiss0.mu_x
     by, ay, muy = twiss0.beta_y, twiss0.alpha_y, twiss0.mu_y
+    disp = np.array([twiss0.disp_x, twiss0.disp_px, twiss0.disp_y, twiss0.disp_py])
     for elem in lattice.elements:
-        cx, cy = _blocks(elem.matrix(lattice.ref))
+        M = elem.matrix(lattice.ref)
+        cx, cy = _blocks(M)
         bx, ax, dmux = _propagate_block(cx, bx, ax)
         by, ay, dmuy = _propagate_block(cy, by, ay)
+        # Dispersion is the first-order off-momentum orbit: propagate it affinely,
+        # D -> M4 @ D + d (matrix transport plus the element's dispersive kick),
+        # NOT the quadratic B = C B C^T form used for beta/alpha.
+        disp = _transverse_4d(M) @ disp + _dispersive_kick(M)
         mux += dmux
         muy += dmuy
         s += elem.length
-        points.append(Twiss(s, bx, ax, mux, by, ay, muy))
+        points.append(Twiss(s, bx, ax, mux, by, ay, muy, disp[0], disp[1], disp[2], disp[3]))
     return points
 
 

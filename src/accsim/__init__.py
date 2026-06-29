@@ -8,7 +8,7 @@ whole codebase depends on.
 from __future__ import annotations
 
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
-from .elements import Drift, Element, Quadrupole, ThinQuadrupole
+from .elements import Dipole, Drift, Element, Quadrupole, ThinQuadrupole
 from .lattice import Lattice, matrix_of
 from .reference import ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
 from .symplectic import J6, is_symplectic
@@ -44,6 +44,7 @@ __all__ = [
     "Drift",
     "Quadrupole",
     "ThinQuadrupole",
+    "Dipole",
     # lattice
     "Lattice",
     "matrix_of",
