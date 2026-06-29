@@ -70,11 +70,32 @@ straight section produces no longitudinal slip.
 > often-quoted `L/(β₀²γ₀²)` is correct for the *energy* variable `ptau`. They
 > agree only as `β₀ → 1`. Using the wrong one is a silent low-energy bug.
 
-## Magnet strength sign (Stage 1 — not yet implemented)
+## Quadrupole strength sign (Stage 1 — implemented)
 
-Planned: `K1 > 0` ⇒ focusing in `x`. Keep the focusing/defocusing sign consistent
-between thin- and thick-lens forms. Record the exact convention here when the
-`Quadrupole` lands.
+`k1 = (1/Bρ)(∂B_y/∂x)` [m⁻²], the MAD-X / Xsuite normalised gradient. The
+linearised equations of motion are
+
+```
+x'' + k1·x = 0      y'' − k1·y = 0
+```
+
+so **`k1 > 0` focuses in `x` and defocuses in `y`** (R21 = −ω·sin ωL < 0 in the
+focusing plane). Cross-checked against xtrack's `Quadrupole`
+(`tests/reference/test_quadrupole_xtrack.py`): the full 6×6 agrees to ~1e-6,
+the focusing/defocusing signs match, and the longitudinal slip
+**`R56 = L/γ₀²` is carried *inside* the thick quad** (not sliced into adjacent
+drifts). A pure quadrupole has no curvature ⇒ no dispersion.
+
+- **Thick** (`Quadrupole(length, k1)`): closed-form trig block in the focusing
+  plane, cosh/sinh in the defocusing plane, with `ω = √|k1|`. Written as one
+  analytic family `_focusing_block(g, L)` so `k1 → 0` reduces *exactly* to a
+  `Drift` and the sign of `k1` simply swaps the planes. Symplectic by
+  construction: it is `exp(L·A)` of the Hamiltonian generator `A` (pinned
+  symbolically in `tests/analytic/test_quadrupole.py`).
+- **Thin** (`ThinQuadrupole(k1l)`): integrated strength `k1l = k1·L = 1/f`
+  [m⁻¹], a zero-length kick `px → px − k1l·x`, `py → py + k1l·y`. No length ⇒
+  no longitudinal slip (`R56 = 0`). It is the `L → 0` limit of the thick quad at
+  fixed `k1l`; the leading correction to the thin kick is `+k1l²·L/6` (O(L)).
 
 ## Phase advance vs tune (Stage 1)
 

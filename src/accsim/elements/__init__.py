@@ -4,5 +4,6 @@ from __future__ import annotations
 
 from .drift import Drift
 from .element import Element
+from .quadrupole import Quadrupole, ThinQuadrupole
 
-__all__ = ["Element", "Drift"]
+__all__ = ["Element", "Drift", "Quadrupole", "ThinQuadrupole"]
