@@ -231,6 +231,61 @@ quadrupole gradient, `k1 → k1/(1+δ)`. Conventions:
   finite-difference tune derivative (always-on) and xtrack's real-particle
   tracking to `rel ≈ 1e-4`.
 
+## Sextupole (Stage 2 — implemented)
+
+A normal sextupole (`Sextupole(length, k2)`, thin `ThinSextupole(k2l)`) applies
+the nonlinear kick
+
+```
+Δpx = −½ k2l (x² − y²),     Δpy = +k2l (x·y),
+```
+
+with `k2 = (1/Bρ)(∂²B_y/∂x²)` [m⁻³] (MAD-X / Xsuite convention) and integrated
+strength `k2l = k2·L` [m⁻²]. Conventions:
+
+- **Linear map is a drift.** The Jacobian of the kick at the closed orbit
+  `(x, y) = 0` is the identity, so `Sextupole.matrix()` is a drift of length `L`
+  (incl. the longitudinal slip `R56 = L/γ₀²`) and `ThinSextupole.matrix()` is the
+  identity. A sextupole therefore leaves `β`, dispersion, and the tunes of the
+  linear lattice **unchanged** (asserted to `rel 1e-14`). The full nonlinear kick
+  (amplitude-dependent tune, dynamic aperture) is **out of Stage 2 scope** — no
+  nonlinear tracking map is implemented.
+- **Chromaticity feed-down** is the Stage-2 "linear effect." At dispersion
+  `x = x_β + D_x·δ`, the quadratic kick yields a `δ`-dependent linear gradient
+  `k1_eff = k2·D_x·δ`, shifting the chromaticity by
+  ```
+  Q'_x += +(1/4π) ∮ β_x k2 D_x ds
+  Q'_y += −(1/4π) ∮ β_y k2 D_x ds
+  ```
+  The per-plane signs are **opposite to the quad** natural term (`+k2·D_x` vs
+  `−k1`), which is exactly what lets a sextupole at `D_x > 0` push a negative
+  natural chromaticity back toward zero. Vanishes on a dispersion-free (drift +
+  quad) lattice.
+- **`natural_chromaticity` vs `chromaticity`.** `natural_chromaticity` keeps its
+  term-of-art meaning — the **bare quad-gradient** chromaticity (the negative
+  number sextupoles correct); since a sextupole's map is a drift it contributes
+  zero there, untouched. `chromaticity(lattice)` = `natural_chromaticity` + the
+  sextupole feed-down. **Neither is a complete absolute total:** both omit the
+  dipole's own weak-focusing / edge chromaticity (out of scope), and feed-down is
+  nonzero only when bends are present — so an uncomputed dipole term always
+  coexists with it. The validated deliverables are the *feed-down term itself*,
+  the accsim-internal *correction* (feed-down cancels the quad natural term), and
+  the *difference* cross-check below.
+- **Thin vs thick.** Thin sextupoles are exact single-point contributions (`β` and
+  `D_x` continuous across the zero-length kick); thick sextupoles integrate
+  `β·D_x` by trapezoidal sub-slicing across the drift-like body (`slices=64`), which
+  converges to the thin value quadratically in the length.
+- **Independent validation.** The coefficient and per-plane sign are pinned to
+  **machine precision** by the symbolic `δ`-dependent trace derivative — modelling
+  the sextupole as the thin quad `k1l_eff = k2l·D_x·δ`, never touching `β` or `4π`
+  (`tests/analytic/test_sextupole.py`). That check shares the feed-down *model*
+  (sextupole ≡ extra quad) with the formula, so the **xtrack cross-check** is the
+  one that validates the model itself: it tracks the real nonlinear kick and
+  compares the **with-minus-without-sextupole difference** (toggling `k2` at fixed
+  geometry, so `β`/dispersion/tunes — hence the shared dipole term — cancel
+  exactly). accsim's feed-down matches xtrack's `Δdqx`/`Δdqy` to `rel ≈ 2e-3`
+  (`tests/reference/test_sextupole_xtrack.py`).
+
 ## Stability boundary (Stage 2 — validated)
 
 A transverse plane is stable iff its one-turn 2×2 block obeys `|½·Tr| < 1`

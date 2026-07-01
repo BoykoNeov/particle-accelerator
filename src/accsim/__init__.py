@@ -8,7 +8,15 @@ whole codebase depends on.
 from __future__ import annotations
 
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
-from .elements import Dipole, Drift, Element, Quadrupole, ThinQuadrupole
+from .elements import (
+    Dipole,
+    Drift,
+    Element,
+    Quadrupole,
+    Sextupole,
+    ThinQuadrupole,
+    ThinSextupole,
+)
 from .lattice import Lattice, matrix_of
 from .reference import ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
 from .symplectic import J6, is_symplectic
@@ -16,6 +24,7 @@ from .tracking import Bunch, Particle, Tracker
 from .twiss import (
     Twiss,
     UnstableLatticeError,
+    chromaticity,
     closed_twiss,
     is_stable,
     match_periodic,
@@ -46,6 +55,8 @@ __all__ = [
     "Quadrupole",
     "ThinQuadrupole",
     "Dipole",
+    "Sextupole",
+    "ThinSextupole",
     # lattice
     "Lattice",
     "matrix_of",
@@ -65,5 +76,6 @@ __all__ = [
     "tunes",
     "is_stable",
     "natural_chromaticity",
+    "chromaticity",
     "__version__",
 ]

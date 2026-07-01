@@ -6,5 +6,14 @@ from .dipole import Dipole
 from .drift import Drift
 from .element import Element
 from .quadrupole import Quadrupole, ThinQuadrupole
+from .sextupole import Sextupole, ThinSextupole
 
-__all__ = ["Element", "Drift", "Quadrupole", "ThinQuadrupole", "Dipole"]
+__all__ = [
+    "Element",
+    "Drift",
+    "Quadrupole",
+    "ThinQuadrupole",
+    "Dipole",
+    "Sextupole",
+    "ThinSextupole",
+]

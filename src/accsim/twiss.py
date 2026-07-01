@@ -260,3 +260,89 @@ def natural_chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, flo
             bx, ax, _ = _propagate_block(cx, bx, ax)
             by, ay, _ = _propagate_block(cy, by, ay)
     return xi_x, xi_y
+
+
+def _sextupole_feeddown(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
+    r"""Sextupole feed-down chromaticity ``(dQ_x/ddelta, dQ_y/ddelta)`` at dispersion.
+
+    A sextupole at a point of dispersion sees ``x = x_beta + D_x delta``; its
+    quadratic kick ``Delta px = -1/2 k2l (x^2 - y^2)`` then contains a
+    ``delta``-dependent *linear* gradient ``k1_eff = k2 D_x delta`` (and the mirror
+    term in ``y``). Feeding that through the same tune-shift bookkeeping as the
+    quadrupole natural chromaticity gives
+
+        dQ_x/ddelta = +(1/4pi) ∮ beta_x(s) k2(s) D_x(s) ds,
+        dQ_y/ddelta = -(1/4pi) ∮ beta_y(s) k2(s) D_x(s) ds
+
+    (opposite signs to the ``x^2 - y^2`` structure; the ``+``/``-`` split is what
+    lets a sextupole at ``D_x > 0`` push a negative natural chromaticity back
+    toward zero). ``D_x`` is the matched dispersion transported to each sextupole,
+    so this vanishes on a dispersion-free (drift + quad) lattice.
+
+    Thin sextupoles are exact single-point contributions (``beta`` and ``D_x`` are
+    continuous across the zero-length kick); thick sextupoles are integrated by
+    trapezoidal sub-slicing of ``beta_x D_x`` / ``beta_y D_x`` across the body,
+    whose linear map is a drift (so ``beta`` and ``D_x`` transport as through a
+    drift).
+    """
+    from .elements.quadrupole import _focusing_block
+    from .elements.sextupole import Sextupole, ThinSextupole
+
+    tw0 = closed_twiss(lattice)
+    bx, ax = tw0.beta_x, tw0.alpha_x
+    by, ay = tw0.beta_y, tw0.alpha_y
+    disp = np.array([tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py])
+    xi_x = xi_y = 0.0
+    for elem in lattice.elements:
+        M = elem.matrix(lattice.ref)
+        if isinstance(elem, ThinSextupole):
+            dx = float(disp[0])
+            xi_x += +_INV_4PI * bx * elem.k2l * dx
+            xi_y += -_INV_4PI * by * elem.k2l * dx
+        elif isinstance(elem, Sextupole) and elem.k2 != 0.0 and elem.length > 0.0:
+            ds = elem.length / slices
+            db = _focusing_block(0.0, ds)  # sextupole linear map is a drift: [[1,ds],[0,1]]
+            int_x = 0.5 * bx * float(disp[0])  # trapezoid: half-weight entrance
+            int_y = 0.5 * by * float(disp[0])
+            for i in range(slices):
+                bx, ax, _ = _propagate_block(db, bx, ax)
+                by, ay, _ = _propagate_block(db, by, ay)
+                # Drift transport of dispersion: D_x += D_px ds, D_y += D_py ds.
+                disp[0] += disp[1] * ds
+                disp[2] += disp[3] * ds
+                w = 0.5 if i == slices - 1 else 1.0  # half-weight exit
+                int_x += w * bx * float(disp[0])
+                int_y += w * by * float(disp[0])
+            xi_x += +_INV_4PI * elem.k2 * int_x * ds
+            xi_y += -_INV_4PI * elem.k2 * int_y * ds
+            continue  # beta / disp already advanced across the body
+        # Advance beta and dispersion across this element (non-thick-sextupole).
+        cx, cy = _blocks(M)
+        bx, ax, _ = _propagate_block(cx, bx, ax)
+        by, ay, _ = _propagate_block(cy, by, ay)
+        disp = _transverse_4d(M) @ disp + _dispersive_kick(M)
+    return xi_x, xi_y
+
+
+def chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
+    r"""Total first-order chromaticity ``(Q'_x, Q'_y)`` = quads + sextupole feed-down.
+
+    Adds the sextupole feed-down term (:func:`_sextupole_feeddown`) to the
+    quadrupole :func:`natural_chromaticity`. This is the quantity sextupoles exist
+    to control: with the right ``k2`` at a dispersive location, the feed-down
+    cancels the (negative) natural chromaticity.
+
+    **Not a complete absolute total.** Like :func:`natural_chromaticity`, this omits
+    the dipole's own weak-focusing / edge chromaticity (out of Stage 2 scope), so on
+    any lattice where the feed-down is nonzero — which *requires* bends for
+    dispersion — an uncomputed dipole term is also present. The validated
+    deliverables are therefore: (a) the *feed-down term itself*, pinned to a
+    symbolic ``dQ/ddelta``; (b) accsim-internal *correction* (feed-down cancels the
+    quad natural term); and (c) an xtrack cross-check of the *with-minus-without
+    sextupoles difference*, in which the shared dipole term cancels exactly (a
+    sextupole's linear map is a drift, so adding it leaves beta, dispersion, and the
+    tunes — hence every other chromaticity term — untouched).
+    """
+    nx, ny = natural_chromaticity(lattice, slices)
+    fx, fy = _sextupole_feeddown(lattice, slices)
+    return nx + fx, ny + fy

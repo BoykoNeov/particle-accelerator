@@ -99,7 +99,16 @@ chromaticity correction (linear effect); beam-envelope plots.
   the independent `tunes()` atan2 path sends `Q → ½` as `f → f_crit⁺`
   (`tests/analytic/test_stability_boundary.py`). See CONVENTIONS.md → *Stability
   boundary*.
-- ☐ `Sextupole` element (chromaticity correction, linear effect).
+- ✅ **`Sextupole` element (chromaticity correction, linear effect)** — `Sextupole`
+  (thick) + `ThinSextupole`, whose *linear* map is a drift (identity for thin), so
+  they leave β/dispersion/tunes untouched. The Stage-2 effect is chromaticity
+  **feed-down** at dispersion: `chromaticity(lattice)` = quad `natural_chromaticity`
+  `+ (1/4π)∮β_x k2 D_x ds` (x) `− (1/4π)∮β_y k2 D_x ds` (y). Pinned to machine
+  precision by a symbolic δ-dependent trace derivative and cross-checked against
+  xtrack's real-tracking `Δdqx`/`Δdqy` via a with-minus-without-sextupole
+  difference (so accsim's uncomputed dipole term cancels) to `rel≈2e-3`
+  (`tests/analytic/test_sextupole.py`, `tests/reference/test_sextupole_xtrack.py`).
+  See CONVENTIONS.md → *Sextupole*.
 - ☐ Beam-envelope plots.
 
 ## Stage 3 — Synchrotron motion (longitudinal)
