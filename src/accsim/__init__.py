@@ -19,6 +19,7 @@ from .twiss import (
     closed_twiss,
     is_stable,
     match_periodic,
+    natural_chromaticity,
     propagate_twiss,
     tunes,
 )
@@ -63,5 +64,6 @@ __all__ = [
     "propagate_twiss",
     "tunes",
     "is_stable",
+    "natural_chromaticity",
     "__version__",
 ]

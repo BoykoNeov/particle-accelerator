@@ -194,6 +194,43 @@ cos μ = 1 − L²/(2f²)        ⇒  sin(μ/2) = L/(2f)
 element boundary sits exactly at its centre: `β` is continuous across it while
 `α` flips sign antisymmetrically, so `α ≠ 0` at the recorded D-centre boundary.
 
+## Natural chromaticity (Stage 2 — implemented)
+
+`natural_chromaticity(lattice)` returns `(Q'_x, Q'_y) = (dQ_x/dδ, dQ_y/dδ)`, the
+tune's first-order momentum dependence from the off-momentum weakening of the
+quadrupole gradient, `k1 → k1/(1+δ)`. Conventions:
+
+- **Definition is the *un-normalised* derivative** `Q' = dQ/dδ` — **not** the
+  normalised `ξ = Q'/Q`. This matches **xtrack's `twiss.dqx`/`dqy`**, pinned by a
+  convention guard that finite-differences xtrack's *own* tunes at `δ = ±h` and
+  recovers `tw.dqx` (`tests/reference/test_chromaticity_xtrack.py`). A stray `Q`
+  or `2π` would show up there.
+- **Per-plane signs are opposite** because a quad focuses `x` with `+k1` and `y`
+  with `−k1`:
+  ```
+  Q'_x = −(1/4π) ∮ β_x(s) k1(s) ds
+  Q'_y = +(1/4π) ∮ β_y(s) k1(s) ds
+  ```
+  Both come out **negative** for an ordinary FODO of pure quads (off-momentum
+  particles are under-focused). For the FODO cell here `ξ/Q ≈ −1.0` per plane.
+- **Thin vs thick.** Thin quads are exact single-point contributions — `β` is
+  continuous across a thin kick, so `β·k1l` at the quad is exact. Thick quads are
+  integrated by trapezoidal sub-slicing of `β` across the body (`slices=64`
+  default): the β-at-the-quad point value is *not* exact when `β` varies over the
+  magnet length. Keep the analytic closed-form on thin quads; the thick path is
+  cross-checked against xtrack.
+- **Scope: quadrupole gradients only.** Drifts contribute nothing; dipole
+  weak-focusing / edge chromaticity is **not** computed (flagged — a lattice with
+  bends carries an extra, uncomputed dipole term). The Stage 2 FODO acceptance
+  lattice is quads + drifts, so this is exact there.
+- **Independent validation.** The coefficient and per-plane sign are pinned to
+  **machine precision** by differentiating the `δ`-dependent thin one-turn map
+  symbolically (`cos μ(δ) = ½ Tr M(δ)`, `Q = μ/2π`, `dQ/dδ|₀`) — a check that
+  never touches `β` or `4π`, so it is not circular with the β-sum
+  (`tests/analytic/test_chromaticity.py`). The thick β-integration path matches a
+  finite-difference tune derivative (always-on) and xtrack's real-particle
+  tracking to `rel ≈ 1e-4`.
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

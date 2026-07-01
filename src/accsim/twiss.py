@@ -200,3 +200,63 @@ def is_stable(one_turn: np.ndarray) -> bool:
     """True if both transverse planes are stable (``|1/2 Tr(block)| < 1``)."""
     cx, cy = _blocks(one_turn)
     return abs(0.5 * (cx[0, 0] + cx[1, 1])) < 1.0 and abs(0.5 * (cy[0, 0] + cy[1, 1])) < 1.0
+
+
+_INV_4PI = 1.0 / (4.0 * math.pi)
+
+
+def natural_chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
+    r"""Natural chromaticity ``(Q'_x, Q'_y) = (dQ_x/ddelta, dQ_y/ddelta)``.
+
+    An off-momentum particle sees a quadrupole gradient weakened as
+    ``k1 -> k1/(1 + delta)``, which shifts the tune. To first order this is the
+    textbook β-weighted integral of the gradient over the matched lattice:
+
+        Q'_x = -(1 / 4 pi) ∮ beta_x(s) k1(s) ds,
+        Q'_y = +(1 / 4 pi) ∮ beta_y(s) k1(s) ds,
+
+    (opposite signs because the quad focuses x with ``+k1`` and y with ``-k1``);
+    both come out **negative** for an ordinary FODO. Only quadrupole gradients
+    contribute here — drifts add nothing, and dipole weak-focusing / edge
+    chromaticity is out of Stage 2 scope (flagged: a lattice with bends will have
+    an additional, uncomputed dipole term).
+
+    Thin quads are exact single-point contributions (``beta`` is continuous across
+    a thin kick); thick quads are integrated by ``slices``-fold trapezoidal
+    sub-stepping of ``beta`` across the body. The integer part of the tune is
+    irrelevant to ``dQ/ddelta``, so no phase unwrapping is needed.
+    """
+    from .elements.quadrupole import Quadrupole, ThinQuadrupole, _focusing_block
+
+    tw0 = closed_twiss(lattice)
+    bx, ax = tw0.beta_x, tw0.alpha_x
+    by, ay = tw0.beta_y, tw0.alpha_y
+    xi_x = xi_y = 0.0
+    for elem in lattice.elements:
+        if isinstance(elem, ThinQuadrupole):
+            # beta is continuous across a thin kick, so the entrance beta is the
+            # value "at" the quad; k1l is the signed integrated gradient.
+            xi_x += -_INV_4PI * bx * elem.k1l
+            xi_y += +_INV_4PI * by * elem.k1l
+            cx, cy = _blocks(elem.matrix(lattice.ref))
+            bx, ax, _ = _propagate_block(cx, bx, ax)
+            by, ay, _ = _propagate_block(cy, by, ay)
+        elif isinstance(elem, Quadrupole) and elem.k1 != 0.0 and elem.length > 0.0:
+            ds = elem.length / slices
+            xb = _focusing_block(elem.k1, ds)  # x'' + k1 x = 0
+            yb = _focusing_block(-elem.k1, ds)  # y'' - k1 y = 0
+            int_bx = 0.5 * bx  # trapezoid: half-weight the entrance sample
+            int_by = 0.5 * by
+            for i in range(slices):
+                bx, ax, _ = _propagate_block(xb, bx, ax)
+                by, ay, _ = _propagate_block(yb, by, ay)
+                w = 0.5 if i == slices - 1 else 1.0  # half-weight the exit sample
+                int_bx += w * bx
+                int_by += w * by
+            xi_x += -_INV_4PI * elem.k1 * int_bx * ds
+            xi_y += +_INV_4PI * elem.k1 * int_by * ds
+        else:
+            cx, cy = _blocks(elem.matrix(lattice.ref))
+            bx, ax, _ = _propagate_block(cx, bx, ax)
+            by, ay, _ = _propagate_block(cy, by, ay)
+    return xi_x, xi_y

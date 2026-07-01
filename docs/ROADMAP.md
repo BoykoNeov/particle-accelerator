@@ -69,7 +69,7 @@ combined-function gradients (Stage 2), momentum compaction (Stage 3).
   max-at-F/min-at-D oscillation) and `tests/reference/test_fodo_twiss_xtrack.py`
   (thick-quad FODO ring vs xtrack 4D Twiss, agreement ~1e-14 ≪ 1e-6).
 
-## Stage 2 — Magnetic lenses
+## Stage 2 — Magnetic lenses (in progress)
 
 FODO lattices; thin vs thick lens; natural chromaticity; sextupoles for
 chromaticity correction (linear effect); beam-envelope plots.
@@ -77,6 +77,20 @@ chromaticity correction (linear effect); beam-envelope plots.
 - **Acceptance:** the FODO cell's natural chromaticity matches the analytic
   estimate; the stability boundary (`|Tr M| < 2`) matches the analytic
   phase-advance limit.
+
+**Progress:**
+- ✅ **Natural chromaticity** — `natural_chromaticity(lattice)` returns
+  `(Q'_x, Q'_y) = dQ/dδ` from quad off-momentum weakening `k1 → k1/(1+δ)`, as the
+  β-weighted integral `Q'_x = −(1/4π)∮β_x k1 ds` (opposite sign for `y`); thin
+  quads exact, thick quads sub-sliced. Independently validated to machine
+  precision by the symbolically-differentiated `δ`-dependent one-turn map
+  (`tests/analytic/test_chromaticity.py`, **not** the circular sum-vs-sum), and
+  cross-checked against xtrack's `dqx`/`dqy` real-particle tracking to `rel≈1e-4`
+  with a convention guard (`tests/reference/test_chromaticity_xtrack.py`). See
+  CONVENTIONS.md → *Natural chromaticity*.
+- ☐ Stability boundary `|Tr M| < 2` vs the analytic phase-advance limit.
+- ☐ `Sextupole` element (chromaticity correction, linear effect).
+- ☐ Beam-envelope plots.
 
 ## Stage 3 — Synchrotron motion (longitudinal)
 
