@@ -24,6 +24,7 @@ from .tracking import Bunch, Particle, Tracker
 from .twiss import (
     Twiss,
     UnstableLatticeError,
+    beam_sigma,
     chromaticity,
     closed_twiss,
     is_stable,
@@ -77,5 +78,6 @@ __all__ = [
     "is_stable",
     "natural_chromaticity",
     "chromaticity",
+    "beam_sigma",
     "__version__",
 ]

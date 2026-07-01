@@ -23,6 +23,7 @@ Conventions (see ``docs/CONVENTIONS.md``):
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -183,6 +184,40 @@ def propagate_twiss(lattice: Lattice, twiss0: Twiss) -> list[Twiss]:
         s += elem.length
         points.append(Twiss(s, bx, ax, mux, by, ay, muy, disp[0], disp[1], disp[2], disp[3]))
     return points
+
+
+def beam_sigma(
+    twiss: Sequence[Twiss],
+    emit_x: float,
+    emit_y: float | None = None,
+    sigma_delta: float = 0.0,
+) -> tuple[list[float], list[float]]:
+    r"""1-sigma transverse beam envelopes ``(sigma_x, sigma_y)`` along a Twiss table.
+
+    The RMS beam size at each point adds the betatron width and the
+    momentum-spread offset **in quadrature** (they are statistically independent
+    in a matched beam):
+
+        sigma_u(s) = sqrt(emit_u * beta_u(s) + (D_u(s) * sigma_delta)^2),  u in {x, y}.
+
+    Inputs (not computed — there is no radiation/RF yet to set an equilibrium):
+
+    - ``emit_x`` / ``emit_y``: geometric (not normalised) emittances [m·rad].
+      ``emit_y`` defaults to ``emit_x`` (round beam).
+    - ``sigma_delta``: RMS relative momentum spread ``sigma(delta)`` (dimensionless);
+      default ``0`` gives the pure betatron envelope ``sqrt(emit_u * beta_u)``.
+
+    Each plane uses its own dispersion, so vertical dispersion is included for free
+    if a lattice ever produces it (a flat, uncoupled lattice has ``D_y = 0``, so
+    the vertical envelope is betatron-only there). Units: ``D_u`` [m], ``sigma_delta``
+    dimensionless, ``emit_u * beta_u`` [m] — consistent, ``sigma_u`` in [m].
+    """
+    if emit_y is None:
+        emit_y = emit_x
+    sd2 = sigma_delta * sigma_delta
+    sx = [math.sqrt(emit_x * t.beta_x + (t.disp_x * t.disp_x) * sd2) for t in twiss]
+    sy = [math.sqrt(emit_y * t.beta_y + (t.disp_y * t.disp_y) * sd2) for t in twiss]
+    return sx, sy
 
 
 def tunes(lattice: Lattice) -> tuple[float, float]:

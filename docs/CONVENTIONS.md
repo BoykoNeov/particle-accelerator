@@ -312,6 +312,33 @@ acceptance ties this trace test to the analytic **phase-advance limit**:
   target μ past π. Also `β_max ∝ 1/sin μ` diverges at the boundary, so μ-target
   checks stay off it (μ ≈ 0.9π).
 
+## Beam envelope / beam size (Stage 2 — implemented)
+
+The 1-σ transverse beam envelope adds the betatron width and the momentum-spread
+offset **in quadrature** — they are statistically independent in a matched beam,
+so there is no cross term and no coefficient to remember:
+
+    σ_u(s) = √( ε_u · β_u(s) + (D_u(s) · σ_δ)² ),   u ∈ {x, y}.
+
+- `ε_x`, `ε_y` are **geometric** (not normalised) emittances [m·rad]; `σ_δ` is the
+  RMS relative *momentum* spread `σ(δ)` (dimensionless, same `δ` as the state
+  vector). All three are **inputs**, not computed — there is no radiation/RF yet to
+  set an equilibrium (that arrives in Stages 3/5). `σ_δ = 0` gives the pure
+  betatron envelope `√(ε_u β_u)`.
+- Each plane uses **its own** dispersion `D_u`, so vertical dispersion is included
+  for free if a lattice ever produces it; a flat, uncoupled lattice has `D_y = 0`,
+  so `σ_y` is betatron-only there.
+- Units check: `D_u` [m], `σ_δ` dimensionless, `ε_u·β_u` [m·rad] ≈ [m] → `σ_u` [m].
+- The physics lives in `accsim.beam_sigma` (testable); `plotting.plot_beam_envelope`
+  and the `emittance=` branch of `plot_beta_functions` (betatron-only, `σ_δ = 0`)
+  both call it — there is deliberately **one** σ formula in the codebase.
+- **Validation:** the discriminating check needs dispersion, so it runs on an arc
+  cell *with a dipole* (`D_x ≠ 0`) and asserts the exact decomposition
+  `σ_x² − ε_x β_x == (D_x σ_δ)²` at every point, plus `σ → √(εβ)` when `σ_δ = 0`
+  (`tests/analytic/test_beam_envelope.py`). **No xtrack cross-check** is warranted:
+  the envelope is pure algebra over `β` and `D`, both already xtrack-validated in
+  Stage 1; the analytic quadrature test covers the only new thing.
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

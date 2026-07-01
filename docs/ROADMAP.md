@@ -69,14 +69,15 @@ combined-function gradients (Stage 2), momentum compaction (Stage 3).
   max-at-F/min-at-D oscillation) and `tests/reference/test_fodo_twiss_xtrack.py`
   (thick-quad FODO ring vs xtrack 4D Twiss, agreement ~1e-14 ≪ 1e-6).
 
-## Stage 2 — Magnetic lenses (in progress)
+## Stage 2 — Magnetic lenses ✅ COMPLETE
 
 FODO lattices; thin vs thick lens; natural chromaticity; sextupoles for
 chromaticity correction (linear effect); beam-envelope plots.
 
 - **Acceptance:** the FODO cell's natural chromaticity matches the analytic
   estimate; the stability boundary (`|Tr M| < 2`) matches the analytic
-  phase-advance limit.
+  phase-advance limit. ✅ **MET** (chromaticity + stability boundary below); the
+  beam-envelope deliverable closes the stage.
 
 **Progress:**
 - ✅ **Natural chromaticity** — `natural_chromaticity(lattice)` returns
@@ -109,7 +110,15 @@ chromaticity correction (linear effect); beam-envelope plots.
   difference (so accsim's uncomputed dipole term cancels) to `rel≈2e-3`
   (`tests/analytic/test_sextupole.py`, `tests/reference/test_sextupole_xtrack.py`).
   See CONVENTIONS.md → *Sextupole*.
-- ☐ Beam-envelope plots.
+- ✅ **Beam-envelope plots** — `beam_sigma(twiss, emit_x, emit_y, sigma_delta)`
+  returns the 1-σ envelopes `σ_u = √(ε_u β_u + (D_u σ_δ)²)` (betatron + dispersive
+  offset added **in quadrature**), plotted by `plotting.plot_beam_envelope`; the
+  `emittance=` branch of `plot_beta_functions` now delegates to the same helper
+  (σ_δ=0), so there is a single σ formula. Physics gated by the exact
+  decomposition `σ_x² − ε_x β_x == (D_x σ_δ)²` on a dispersive (dipole) arc cell
+  (`tests/analytic/test_beam_envelope.py`); ε and σ_δ are inputs (no equilibrium
+  emittance until Stages 3/5), and no xtrack test is warranted (pure algebra over
+  β and D, both already Stage-1 validated). See CONVENTIONS.md → *Beam envelope*.
 
 ## Stage 3 — Synchrotron motion (longitudinal)
 
