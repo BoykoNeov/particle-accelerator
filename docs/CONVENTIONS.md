@@ -231,6 +231,32 @@ quadrupole gradient, `k1 → k1/(1+δ)`. Conventions:
   finite-difference tune derivative (always-on) and xtrack's real-particle
   tracking to `rel ≈ 1e-4`.
 
+## Stability boundary (Stage 2 — validated)
+
+A transverse plane is stable iff its one-turn 2×2 block obeys `|½·Tr| < 1`
+(`|Tr M| < 2`); an unstable plane has no real matched `β` and `match_periodic`/
+`closed_twiss` raise `UnstableLatticeError` (see *Twiss* above). Stage 2's
+acceptance ties this trace test to the analytic **phase-advance limit**:
+
+- For the symmetric thin FODO (full-quad focal length `f`, half-cell drift `L`),
+  `cos μ = 1 − L²/(2f²)`. The upper edge `cos μ = +1` is just the no-focusing
+  `f → ∞` limit, so the *only reachable* instability is the over-focusing edge
+  `cos μ = −1`, at `f_crit = L/2`, where the phase advance per cell reaches
+  `μ = π`. A symmetric FODO therefore has **one** boundary, not two, and both
+  planes hit it together (`μ_x = μ_y`).
+- **Anti-circularity:** `is_stable` *is* `|½·Tr| < 1`, so `f_crit` is derived
+  **symbolically** from `Tr M = −2` (hand-built thin matrices, no accsim) and the
+  element chain must reproduce it: `½·Tr → −1` in both planes at `f_crit`,
+  `is_stable` flips across it, the stable region matches the hand criterion
+  `sin(μ/2) = L/(2f) < 1` over a focal-length sweep, and the **independent**
+  `tunes()` atan2 accumulation sends `Q → ½` (μ → π) as `f → f_crit⁺`. Pinned by
+  `tests/analytic/test_stability_boundary.py`.
+- **Caveat (parametrising by target μ):** `f = L/(2 sin(μ/2))` maps `μ` and
+  `2π − μ` to the *same* `f`, so it only reaches the stable range `(0, π)` — the
+  unstable side is reached by lowering `f` below `f_crit`, never by pushing a
+  target μ past π. Also `β_max ∝ 1/sin μ` diverges at the boundary, so μ-target
+  checks stay off it (μ ≈ 0.9π).
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

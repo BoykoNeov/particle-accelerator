@@ -88,7 +88,17 @@ chromaticity correction (linear effect); beam-envelope plots.
   cross-checked against xtrack's `dqx`/`dqy` real-particle tracking to `rel≈1e-4`
   with a convention guard (`tests/reference/test_chromaticity_xtrack.py`). See
   CONVENTIONS.md → *Natural chromaticity*.
-- ☐ Stability boundary `|Tr M| < 2` vs the analytic phase-advance limit.
+- ✅ **Stability boundary `|Tr M| < 2` vs the analytic phase-advance limit** —
+  for the symmetric thin FODO, `cos μ = 1 − L²/(2f²)`, so the one *reachable*
+  boundary is the over-focusing edge `f_crit = L/2` where `cos μ = −1`, i.e. the
+  phase advance per cell hits its analytic limit `μ = π`. `f_crit` is derived
+  symbolically from `Tr M = −2` (no accsim — avoids the `is_stable`≡`½Tr`
+  circularity), and the element chain reproduces it: `½Tr → −1` in both planes at
+  `f_crit`, `is_stable` flips across it (`closed_twiss` raising just beyond), the
+  `is_stable` region matches `sin(μ/2)=L/(2f)<1` over a focal-length sweep, and
+  the independent `tunes()` atan2 path sends `Q → ½` as `f → f_crit⁺`
+  (`tests/analytic/test_stability_boundary.py`). See CONVENTIONS.md → *Stability
+  boundary*.
 - ☐ `Sextupole` element (chromaticity correction, linear effect).
 - ☐ Beam-envelope plots.
 
