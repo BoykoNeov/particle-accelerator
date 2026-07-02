@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements import (
+    Aperture,
+    Collimator,
     Dipole,
     Drift,
     Element,
@@ -69,6 +71,8 @@ __all__ = [
     "Sextupole",
     "ThinSextupole",
     "RFCavity",
+    "Aperture",
+    "Collimator",
     # lattice
     "Lattice",
     "matrix_of",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .aperture import Aperture, Collimator
 from .dipole import Dipole
 from .drift import Drift
 from .element import Element
@@ -18,4 +19,6 @@ __all__ = [
     "Sextupole",
     "ThinSextupole",
     "RFCavity",
+    "Aperture",
+    "Collimator",
 ]
