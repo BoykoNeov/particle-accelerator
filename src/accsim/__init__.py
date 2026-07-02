@@ -21,6 +21,7 @@ from .elements import (
     ThinSextupole,
 )
 from .lattice import Lattice, matrix_of
+from .lifetime import quantum_lifetime
 from .longitudinal import (
     longitudinal_hamiltonian,
     rf_bucket_height,
@@ -81,6 +82,8 @@ __all__ = [
     "Bunch",
     "Tracker",
     "LossResult",
+    # lifetime models
+    "quantum_lifetime",
     # symplectic helpers
     "is_symplectic",
     "J6",

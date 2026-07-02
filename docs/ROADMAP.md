@@ -161,7 +161,7 @@ longitudinal phase-space tracking, separatrix.
   conserve `H` over 1e4 turns; outside, `zeta` runs away (rotation). See
   CONVENTIONS.md → *RF bucket / nonlinear longitudinal tracking*.
 
-## Stage 4 — Beam losses
+## Stage 4 — Beam losses ✅ COMPLETE
 
 Geometric apertures + collimators with survival/loss accounting; simple lifetime
 models (aperture and quantum lifetime). **Touschek and intrabeam scattering are
@@ -169,7 +169,33 @@ advanced/optional — stub, don't build, unless asked.**
 
 - **Acceptance:** a particle outside the aperture is flagged at the correct
   longitudinal location; transmission through a known aperture matches a hand
-  calculation; the loss map reproduces a simple analytic case.
+  calculation; the loss map reproduces a simple analytic case. ✅ **MET** — all
+  three gates in `tests/analytic/test_beam_losses.py`.
+
+**Progress:**
+- ✅ **`Aperture` / `Collimator` element** — optics-transparent (identity 6×6)
+  geometric acceptance boundary (circular / elliptical / rectangular), with a
+  vectorised `survives(states)` predicate and an inclusive on-boundary convention
+  matching xtrack. `Collimator` is the finite-length jaw (entry/exit check only —
+  the interior-peak miss is flagged). Predicate geometry pinned with hand-placed,
+  off-knife-edge particles (`tests/analytic/test_aperture.py`). See CONVENTIONS.md
+  → *Beam losses / apertures*.
+- ✅ **Loss-aware tracking + `LossResult`** — `Tracker.track_bunch_losses(bunch,
+  n_turns)` walks the lattice accumulating geometric `s`, tests survivors at each
+  aperture, records `(loss_turn, loss_s, loss_element)` and freezes/skips lost
+  particles; `LossResult` exposes `transmission` and `loss_map()`. Meets all three
+  acceptance gates: loss flagged at correct geometric `s` (not `zeta`);
+  round-Gaussian circular transmission `1 − exp(−R²/2σ²)` (sympy-proven) + the
+  separable rectangular `erf`-product, both vs a binomial tolerance; two-aperture
+  loss map reproduces the analytic per-location counts.
+- ✅ **Quantum (aperture-limited) lifetime** — `quantum_lifetime(aperture, sigma,
+  amplitude_damping_time)` = `τ_d·e^ξ/(2ξ)`, `ξ = A²/2σ²`, **derived** from the
+  amplitude-diffusion Fokker–Planck MFPT (not a remembered constant): the exact
+  `(τ_d/2)∫₀^ξ (e^w−1)/w dw` verified symbolically and matched by the closed form
+  to `O(1/ξ)`. The amplitude-vs-emittance factor-of-2 damping-time convention is
+  documented and pinned (`tests/analytic/test_quantum_lifetime.py`). See
+  CONVENTIONS.md → *Quantum lifetime*.
+- Out of scope by design (roadmap): Touschek / IBS (advanced — not built).
 
 ## Stage 5 — RF cavities
 

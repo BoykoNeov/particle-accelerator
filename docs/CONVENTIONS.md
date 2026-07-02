@@ -469,6 +469,62 @@ map — a kick-drift pair, each a symplectic shear:
   **Stage 5**. `rf_bucket_height`/`separatrix` assume a single RF harmonic
   (cavities may share `frequency`/`φ_s`, summing voltage); double-RF raises.
 
+## Beam losses / apertures (Stage 4 — implemented)
+
+Geometric transverse acceptance with survival/loss accounting.
+
+- **`Aperture(shape, half_x, half_y=None, length=0.0)`** — an **optics-transparent**
+  element: `matrix()` is the identity, so inserting one never perturbs Twiss,
+  tunes, dispersion, or the one-turn map. Its physics is a *predicate*,
+  `survives(states)`, on the transverse `(x, y)`:
+  - `"circular"` (radius `R = half_x`): `x² + y² ≤ R²`;
+  - `"elliptical"`: `(x/half_x)² + (y/half_y)² ≤ 1`;
+  - `"rectangular"`: `|x| ≤ half_x` **and** `|y| ≤ half_y`.
+  Centred on the reference orbit. **Boundary convention:** on-boundary **survives**
+  (inclusive `≤`), matching xtrack `LimitRect`/`LimitEllipse`; tests stay off the
+  knife-edge. `survives` is vectorised: `(6,)→bool`, `(6,N)→(N,)`.
+- **`Collimator`** — the same geometric test with finite `length` (default 1 mm)
+  and a label. **Approximation (flagged):** survival is checked at the element
+  only, not continuously along the jaw, so a particle whose transverse excursion
+  *peaks inside* a finite jaw and returns within the aperture at the exit is not
+  caught. Negligible for pencil-thin collimators; costs accuracy only for long
+  jaws with large local betatron slope.
+- **Loss accounting is separate from the element.** `Tracker.track_bunch_losses(
+  bunch, n_turns)` walks the lattice element-by-element (linear optics),
+  accumulating the **geometric** `s`. At each aperture the surviving particles are
+  tested; a failure is recorded and the particle is **frozen** (state stops
+  advancing) and skipped on all later elements/turns. Keeping the aperture in the
+  element sequence is what makes its `s` well-defined. Returns a `LossResult`:
+  `alive` mask, `loss_turn`, `loss_s` (the aperture's geometric `s` in `[0, C)`,
+  **not** the particle's `zeta`), `loss_element`, plus `transmission` and
+  `loss_map()` (counts by location, summed over turns).
+- **Transmission closed forms** (`tests/analytic/test_beam_losses.py`). Round
+  Gaussian beam through a *circular* aperture radius `R`: survival
+  `T = 1 − exp(−R²/2σ²)` (Rayleigh radial CDF, **sympy-proven**) — valid **only**
+  for `σ_x = σ_y` + circular. Independent separable case (different shape):
+  rectangular acceptance, `T = erf(a_x/√2σ_x)·erf(a_y/√2σ_y)`. Both compared to the
+  empirical survival with a **binomial** tolerance `√(T(1−T)/N)`, not a tuned
+  number.
+
+## Quantum lifetime (Stage 4 — implemented)
+
+Aperture-limited lifetime `quantum_lifetime(aperture, sigma, amplitude_damping_time)`.
+**Derived, not remembered** (`tests/analytic/test_quantum_lifetime.py`): with the
+normalized action `w = a²/2σ²` the radiation-damped, quantum-excited betatron
+distribution has equilibrium `e^{-w}`; the amplitude-diffusion Fokker–Planck
+mean-first-passage time from the core to an aperture at `w = ξ = A²/2σ²` is
+exactly `τ_q = (τ_d/2)∫₀^ξ (e^w−1)/w dw`, whose `ξ≫1` asymptote is the standard
+
+    τ_q = τ_d · e^ξ / (2ξ),    ξ = A²/2σ².
+
+The MFPT solution is verified against its backward equation symbolically (residual
+`= −1`) and the closed form matches the exact integral to `O(1/ξ)` (error halves as
+`ξ` doubles). **Factor-of-2 convention:** `τ_d` is the **amplitude** damping time
+(amplitude `∝ e^{−t/τ_d}`); the emittance damps twice as fast (`τ_ε = τ_d/2`), so if
+you hold `τ_ε` pass `2·τ_ε`. `τ_d` is a caller input — accsim has no radiation model
+until Stage 5+. `ξ = A²/2σ²` shares its `·/2σ²` structure with the circular
+transmission formula (same aperture-to-sigma ratio governs both).
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

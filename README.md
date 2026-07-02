@@ -15,14 +15,18 @@ a research-grade machine-design package.
 
 ## Status
 
-**Stages 0–2 complete, xtrack-validated.** Stage 0 (Scaffold): core abstractions
+**Stages 0–4 complete, xtrack-validated.** Stage 0 (Scaffold): core abstractions
 (`Element`, `Lattice`, `Tracker`, `Particle`/`Bunch`, `ReferenceParticle`), a
 fully-derived `Drift`, the analytic test harness, and CI. Stage 1 (linear
 transverse beam optics): thin/thick `Quadrupole`, `Dipole`, FODO Twiss (β, α, tune,
 dispersion). Stage 2 (magnetic lenses): natural chromaticity, `Sextupole`
-(chromaticity feed-down), stability boundary, and beam-envelope plots. Each stage's
-6×6 maps are cross-checked against [Xsuite](https://xsuite.readthedocs.io/). See the
-roadmap for the staged plan and what's next.
+(chromaticity feed-down), stability boundary, and beam-envelope plots. Stage 3
+(synchrotron motion): momentum compaction / slip factor, `RFCavity`, synchrotron
+tune `Qs`, and the nonlinear RF bucket / separatrix. Stage 4 (beam losses):
+`Aperture`/`Collimator` with loss-aware tracking (transmission + loss map) and the
+aperture-limited quantum lifetime. Each stage's 6×6 maps are cross-checked against
+[Xsuite](https://xsuite.readthedocs.io/). See the roadmap for the staged plan and
+what's next.
 
 ## Quick start
 
