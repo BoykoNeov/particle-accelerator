@@ -250,7 +250,7 @@ wakefields are out of scope** unless a milestone adds them.
   the same rationale as the Stage-2 beam-envelope. See CONVENTIONS.md →
   *Acceleration / energy ramp*.
 
-## Stage 6 — Collider design
+## Stage 6 — Collider design ✅ COMPLETE
 
 Two beams, interaction point(s), low-β insertion, luminosity from beam parameters,
 crossing angle; weak-strong beam-beam kick and beam-beam tune shift.
@@ -259,7 +259,9 @@ research-grade and out of scope** unless explicitly requested.
 
 - **Acceptance:** the luminosity formula reproduces a textbook worked example for
   a known machine; the beam-beam tune shift `ξ` matches the analytic expression;
-  a head-on weak-strong kick conserves the expected invariants.
+  a head-on weak-strong kick conserves the expected invariants. ✅ **MET** — all
+  three gates below (`tests/analytic/test_luminosity.py`, `test_beam_beam.py`,
+  `test_beam_beam_tune_shift.py`).
 
 **Progress:**
 - ✅ **Luminosity (gate 1)** — `luminosity(N1, N2, σ_x, σ_y, f_rev, n_bunches, …)`
@@ -283,8 +285,18 @@ research-grade and out of scope** unless explicitly requested.
   bare-`1/r` closed form (`tests/analytic/test_beam_beam.py`). Elliptical
   Bassetti–Erskine flagged out of scope. See CONVENTIONS.md → *Weak-strong
   beam-beam kick*.
-- ⏳ **Beam-beam tune shift ξ (gate 2)** — next: the small-amplitude limit of the
-  above kick, tested through a ring.
+- ✅ **Beam-beam tune shift ξ (gate 2)** — `beam_beam_tune_shift(bb, ref, β_x, β_y)`
+  returns the **signed** `ΔQ_u = −β_u K/(4π)`, the small-amplitude limit of the
+  BeamBeam kick (`|ΔQ_u| = ξ_u = N r0 β_u*/(4πγσ²)`, round). The `β/(4π)`
+  coefficient is **derived** symbolically from the one-turn trace (`½Tr = cos μ −
+  k1l β sin μ/2`), and the shift is validated **through a real ring** — inserting
+  the linearised element into a FODO and reading `tunes()` reproduces `−βK/(4π)`
+  with an O(K²) residual (quadratic-convergence check). Sign follows the kick:
+  pp defocus ⇒ `ΔQ < 0`; LHC nominal `ξ ≈ 0.0037` per IP. See CONVENTIONS.md →
+  *Beam-beam tune shift ξ*.
+- **Low-β insertion** needed no new code: the IP waist `β(s) = β* + s²/β*` is
+  exactly the Stage-1 drift Twiss propagation around a zero-`α` point. Hourglass /
+  strong-strong / crab cavities / dynamic aperture remain out of scope.
 
 ## Phase 2 (optional) — Collision event physics
 

@@ -684,6 +684,34 @@ strong bunch is rigid). Per plane, regularised on the axis:
   round beam enjoys. Hourglass / crossing-angle geometry in the kick is likewise
   out of scope (the crossing angle enters *luminosity* only).
 
+## Beam-beam tune shift ξ (Stage 6 — implemented)
+
+`beam_beam_tune_shift(beambeam, ref, beta_x, beta_y=None)` (`accsim.collider`)
+returns the **signed** small-amplitude tune shift `(ΔQx, ΔQy)` the head-on
+beam-beam kick produces at an IP with beta functions `β_x, β_y` (`β_y` defaults to
+`β_x`, round IP). It is the **small-amplitude limit of the [BeamBeam
+kick](#weak-strong-beam-beam-kick-stage-6--implemented)**, not a standalone
+remembered formula:
+
+    ΔQ_u = -β_u K/(4π),   K = (q2/q1) N r0/(γ σ²)   ⇒   |ΔQ_u| = ξ_u.
+
+- **Coefficient `β/(4π)` is derived, not remembered.** A thin lens
+  `[[1,0],[−k1l,1]]` composed with a Courant-Snyder rotation `R(μ;β,α)` has
+  `½Tr = cos μ − k1l·β·sin μ/2`, so `dμ/dk1l = β/2` (implicit differentiation, no
+  `Abs`) and `dQ/dk1l = β/(4π)` (sympy, `test_beam_beam_tune_shift.py`). The
+  beam-beam linear part is `k1l = −K`, giving `ΔQ = −βK/(4π)`.
+- **Sign (follows the kick's Lorentz-force sign).** Like charges (pp) defocus ⇒
+  `K > 0` ⇒ `ΔQ < 0` (defocusing lowers the tune); opposite charges (e+e-, p-pbar)
+  focus ⇒ `ΔQ > 0`. The **magnitude** is the conventional beam-beam parameter
+  `ξ_u = N r0 β_u*/(4π γ σ²)` (round beam; the general elliptic form is
+  `N r0 β_u*/(2πγ σ_u(σx+σy))`). LHC nominal → `ξ ≈ 0.0037` per IP.
+- **First-order only.** Validated *through a real ring*: inserting the linearised
+  `BeamBeam` into a FODO and reading `tunes()` (independent `atan2` accumulation)
+  reproduces `−βK/(4π)` as `K → 0`, with the residual scaling **quadratically** in
+  `K` (the O(ξ²) amplitude-detuning term the full nonlinear kick carries, out of
+  scope here). No xtrack cross-check is warranted — a closed form derived over the
+  Stage-1-validated Twiss/tune machinery and pinned by the through-ring measurement.
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

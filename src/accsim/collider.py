@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import math
 
-__all__ = ["luminosity", "piwinski_reduction"]
+from .elements.beambeam import BeamBeam
+from .reference import ReferenceParticle
+
+__all__ = ["luminosity", "piwinski_reduction", "beam_beam_tune_shift"]
 
 
 def piwinski_reduction(
@@ -92,3 +95,37 @@ def luminosity(
         lum *= piwinski_reduction(crossing_angle, sigma_z, sigma_cross)
 
     return lum
+
+
+def beam_beam_tune_shift(
+    beambeam: BeamBeam,
+    ref: ReferenceParticle,
+    beta_x: float,
+    beta_y: float | None = None,
+) -> tuple[float, float]:
+    r"""Linear (small-amplitude) head-on beam-beam tune shift ``(dQx, dQy)``.
+
+    The :class:`~accsim.elements.beambeam.BeamBeam` kick linearises at the axis to
+    a thin lens ``px -> px + K x`` (both planes), i.e. an effective thin-quad
+    strength ``k1l = -K`` with ``K = beambeam.strength(ref)``. A thin lens of
+    strength ``k1l`` at a point with beta ``beta_u`` shifts the tune by
+    ``dQ_u = beta_u * k1l / (4 pi)`` (derived symbolically from the one-turn
+    trace), so
+
+        dQ_u = - beta_u * K / (4 pi),   K = (q2/q1) N r0 / (gamma sigma^2).
+
+    ``beta_x``/``beta_y`` are the *unperturbed* beta functions at the interaction
+    point [m] (``beta_y`` defaults to ``beta_x`` for a round IP). The shift is
+    **signed**: negative for like charges (defocusing, e.g. proton-proton),
+    positive for opposite charges (focusing). Its magnitude is the standard
+    **beam-beam parameter** ``xi_u = N r0 beta_u* / (4 pi gamma sigma^2)`` (round
+    beam) — e.g. ``xi ~ 0.0037`` per IP at the LHC.
+
+    This is the first-order tune shift; the amplitude-dependent detuning carried by
+    the full nonlinear kick is out of scope here.
+    """
+    if beta_y is None:
+        beta_y = beta_x
+    k = beambeam.strength(ref)
+    coeff = k / (4.0 * math.pi)
+    return -beta_x * coeff, -beta_y * coeff
