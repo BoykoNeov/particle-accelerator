@@ -645,6 +645,45 @@ sigma_z=0, crossing_plane="x")` returns the peak luminosity in **`m^-2 s^-1`**
   radius `r0 = r_e·(m_e c²/m c²)·q²` (`ReferenceParticle.classical_radius_m`,
   `r_e = ELECTRON_RADIUS_M`) is added for the Stage-6 beam-beam kick / tune shift.
 
+## Weak-strong beam-beam kick (Stage 6 — implemented)
+
+`BeamBeam(n_particles, sigma, strong_charge=1.0)` (`accsim.elements.beambeam`) is
+a **thin** head-on kick from a **round** Gaussian strong bunch (weak-strong: the
+strong bunch is rigid). Per plane, regularised on the axis:
+
+    Delta px = K x g(u),   Delta py = K y g(u),
+    u = (x^2+y^2)/(2 sigma^2),   g(u) = (1 - e^{-u})/u  (-> 1 as u -> 0),
+    K = (q2/q1) N r0 / (gamma sigma^2)   [1/m].
+
+- **`r0` is the *test* particle's classical radius** (`ref.classical_radius_m`),
+  `gamma`/`q1` its Lorentz factor / charge; `N`/`q2` are the strong bunch's
+  population / charge. `g(u)` is coded as `-expm1(-u)/u` so the axis is
+  singularity-free (the `1/r^2` in the textbook form cancels).
+- **Sign is *derived* from the Lorentz force, not remembered.** `E` and `B` add for
+  counter-propagating beams (the `2N` — note `K` above already folds the `2` into
+  the `1/(2 sigma^2)` of `u`, so the small-`u` slope is `K`, see below). Like
+  charges (`q1 q2 > 0`, pp) **repel → defocus** (`K > 0`, `Delta px` has the sign of
+  `x`); opposite charges (`e+ e-`, p-pbar) **attract → focus** (`K < 0`). The
+  historical `-(2 N r0/gamma)(1/r)(...)` textbook form is the *opposite-charge*
+  case; the signed `q2/q1` reproduces both.
+- **Invariants (gate 3 — "conserves the expected invariants").** The kick derives
+  from a potential ⇒ **curl-free** `∂Δpx/∂y = ∂Δpy/∂x` (the property that keeps
+  long-term tracking symplectic; `is_symplectic` is **linear-only** so it is *not*
+  the right check for the nonlinear kick — use the Jacobian or this curl identity).
+  Being radial it exerts **no torque**, so the transverse angular momentum
+  `L_z = x py - y px` is **exactly** conserved (positions untouched by the thin
+  kick). Both hold **only for the round beam**.
+- **Linear map** (`matrix`) is the `u → 0` limit `px → px + K x`, `py → py + K y` —
+  a thin lens focusing **both** planes **equally** (round symmetry), unlike a
+  quadrupole (opposite signs). Effective thin-quad strength `k1l = -K`, same in
+  both planes. This `K` is what the Stage-6 beam-beam tune shift `ξ` is built on
+  (its small-amplitude limit). Cross-checked against an independent bare-`1/r`
+  closed form (`tests/analytic/test_beam_beam.py`).
+- **Elliptical Bassetti–Erskine (`scipy.special.wofz`) is out of scope** — optional
+  generality not needed for the gate, and it breaks the `L_z` conservation the
+  round beam enjoys. Hourglass / crossing-angle geometry in the kick is likewise
+  out of scope (the crossing angle enters *luminosity* only).
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

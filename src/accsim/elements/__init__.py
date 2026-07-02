@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .aperture import Aperture, Collimator
+from .beambeam import BeamBeam
 from .dipole import Dipole
 from .drift import Drift
 from .element import Element
@@ -21,4 +22,5 @@ __all__ = [
     "RFCavity",
     "Aperture",
     "Collimator",
+    "BeamBeam",
 ]

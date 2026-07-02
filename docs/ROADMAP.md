@@ -273,7 +273,18 @@ research-grade and out of scope** unless explicitly requested.
   hourglass is flagged out of scope. `ReferenceParticle.classical_radius_m`
   (`r0 = r_e·(m_e/m)·q²`) added for the beam-beam kick. See CONVENTIONS.md →
   *Luminosity*.
-- ⏳ **Weak-strong beam-beam kick (gate 3)** and **tune shift ξ (gate 2)** — next.
+- ✅ **Weak-strong beam-beam kick (gate 3)** — `BeamBeam(n_particles, sigma,
+  strong_charge)` (`accsim.elements.beambeam`): the thin head-on kick from a round
+  Gaussian strong bunch, `Δpx = K x g(u)`, `Δpy = K y g(u)`, `K = (q2/q1) N r0/(γσ²)`,
+  `g(u)=(1−e^{−u})/u` (axis-regular). The **sign is derived from the Lorentz force**
+  (like charges defocus, opposite focus), and the kick conserves the expected
+  invariants: **curl-free** `∂Δpx/∂y=∂Δpy/∂x` and **angular momentum** `L_z=x py−y px`
+  (radial ⇒ no torque), both round-beam properties, plus a match to an independent
+  bare-`1/r` closed form (`tests/analytic/test_beam_beam.py`). Elliptical
+  Bassetti–Erskine flagged out of scope. See CONVENTIONS.md → *Weak-strong
+  beam-beam kick*.
+- ⏳ **Beam-beam tune shift ξ (gate 2)** — next: the small-amplitude limit of the
+  above kick, tested through a ring.
 
 ## Phase 2 (optional) — Collision event physics
 

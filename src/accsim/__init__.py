@@ -17,6 +17,7 @@ from .collider import luminosity, piwinski_reduction
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements import (
     Aperture,
+    BeamBeam,
     Collimator,
     Dipole,
     Drift,
@@ -88,6 +89,7 @@ __all__ = [
     "RFCavity",
     "Aperture",
     "Collimator",
+    "BeamBeam",
     # lattice
     "Lattice",
     "matrix_of",
