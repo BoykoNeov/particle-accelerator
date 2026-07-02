@@ -498,6 +498,20 @@ adiabatic damping that must accompany it (`accsim.accelerate`).
   ``px' = Px/P0' = (P0/P0') px`` (and ``py``). Hence one factor ``r = P0(n)/P0(n+1)``
   multiplies ``(px, py, delta)`` once per turn; ``r = 1`` at zero gain, so
   ``accelerate`` reduces to Stage-3 nonlinear tracking **bit-for-bit**.
+- **The only approximation (flagged): the linearized energy→momentum conversion.**
+  The cavity kick converts an energy gain into ``Delta delta`` via the linear
+  coefficient ``A = qV/(beta0^2 E0)`` (i.e. ``delta P/P = A sin phi`` — first order in
+  ``delta`` and in ``qV/E0``), **inherited unchanged from Stage 3**, not introduced by
+  Stage 5. The ``-sin phi_s`` kick term and the ``(r - 1)`` in the re-referencing are
+  the *same* reference-bookkeeping term done once: ``delta *= r`` is the **exact**
+  partner of that kick (re-referencing the honestly-kicked coordinate
+  ``delta + A sin phi``), **not** a second approximation. Consequences: the
+  synchronous particle is exact to **all** orders (both the code and an
+  exact-momentum bookkeeping give ``delta = 0``); off-momentum particles carry the
+  ``O(delta^2, (qV/E0)^2)`` residual of the Stage-3 thin kick. (Correspondingly
+  ``A sin phi_s = Delta P_s/P0`` holds only to first order in ``Delta E_s/E0`` — the
+  code uses the *exact* ``r`` from ``from_total_energy`` with the *linear* ``A``, and
+  that tiny mismatch is part of the same first-order residual.)
 - **Position ``(x, y, zeta)`` is NOT rescaled** at the thin cavity — it is a spatial
   coordinate, not normalised by ``P0``. The betatron/synchrotron motion converts the
   momentum damping into overall amplitude damping over a period, conserving the

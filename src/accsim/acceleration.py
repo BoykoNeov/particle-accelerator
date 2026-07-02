@@ -165,11 +165,16 @@ def accelerate(lattice: Lattice, particle: Particle, n_turns: int) -> RampResult
     (the reference's own gain) gives
 
         delta' = (P - P0')/P0' = (P0/P0') (1 + delta_A) - 1
-               = (P0/P0') delta_A - Delta P_s/P0'   -> to the working order,
+               = (P0/P0') delta_A - Delta P_s/P0'
                = (P0/P0') * (delta + A[sin phi - sin phi_s]),
 
-    because ``Delta P_s/P0' = (P0/P0') * Delta P_s/P0`` and ``A sin phi_s`` is exactly
-    ``Delta P_s/P0``, so the reference-gain terms cancel. The physical ``Px, Py`` are
+    because ``Delta P_s/P0' = (P0/P0') * Delta P_s/P0`` and ``A sin phi_s = Delta P_s/P0``
+    (to first order in ``Delta E_s/E0`` -- the code uses the exact ``r`` with the linear
+    ``A``), so the reference-gain terms cancel and ``delta *= r`` is the **exact**
+    partner of the ``- sin phi_s`` kick, not a second approximation. The lone
+    approximation is the linear energy->momentum conversion ``A = qV/(beta0^2 E0)``
+    inherited from Stage 3: the synchronous particle stays exact to all orders while
+    off-momentum particles carry its ``O(delta^2, (qV/E0)^2)`` residual. The physical ``Px, Py`` are
     untouched by the longitudinal kick, so ``px' = Px/P0' = (P0/P0') px`` and likewise
     ``py``. Hence the single factor ``r = P0/P0'`` multiplies ``(px, py, delta)`` once
     per turn; ``r = 1`` when there is no gain, recovering Stage-3 tracking exactly.
