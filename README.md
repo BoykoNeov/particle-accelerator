@@ -15,10 +15,14 @@ a research-grade machine-design package.
 
 ## Status
 
-**Stage 0 (Scaffold) — complete.** Core abstractions (`Element`, `Lattice`,
-`Tracker`, `Particle`/`Bunch`, `ReferenceParticle`), a fully-derived `Drift`
-element, the analytic test harness, and CI are in place. See the roadmap for the
-staged plan.
+**Stages 0–2 complete, xtrack-validated.** Stage 0 (Scaffold): core abstractions
+(`Element`, `Lattice`, `Tracker`, `Particle`/`Bunch`, `ReferenceParticle`), a
+fully-derived `Drift`, the analytic test harness, and CI. Stage 1 (linear
+transverse beam optics): thin/thick `Quadrupole`, `Dipole`, FODO Twiss (β, α, tune,
+dispersion). Stage 2 (magnetic lenses): natural chromaticity, `Sextupole`
+(chromaticity feed-down), stability boundary, and beam-envelope plots. Each stage's
+6×6 maps are cross-checked against [Xsuite](https://xsuite.readthedocs.io/). See the
+roadmap for the staged plan and what's next.
 
 ## Quick start
 
@@ -74,4 +78,6 @@ docs/              # ROADMAP.md, CONVENTIONS.md
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+Boyko Non-Commercial License v1.0 (BNCL-1.0) — non-commercial use only; commercial
+use requires a separate license from the copyright holder. See [`LICENSE`](LICENSE)
+and [`NOTICE`](NOTICE).

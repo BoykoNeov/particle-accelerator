@@ -98,9 +98,12 @@ def _propagate_block(C: np.ndarray, beta: float, alpha: float) -> tuple[float, f
 
     Uses the sigma-matrix form ``B1 = C B C^T`` with ``B = [[beta, -alpha],
     [-alpha, gamma]]`` (exact and symplectic-faithful when ``det C = 1``), and the
-    phase advance ``dmu = atan2(C12, beta*C11 - alpha*C12)``. For drifts and
-    quadrupoles ``C12 >= 0``, so ``dmu in [0, pi)`` and the accumulated phase is
-    monotone.
+    phase advance ``dmu = atan2(C12, beta*C11 - alpha*C12)``. For drifts and thin
+    quadrupoles ``C12 >= 0`` gives ``dmu in [0, pi)``; the ``dmu < 0`` wrap below
+    exists for the rarer thick focusing quad with ``omega*L > pi``, where ``C12``
+    (which is ``sin(omega L)/omega``) goes negative. Note this recovers only per-
+    element advances up to ``2*pi`` — a single element with ``dmu > 2*pi`` (a thick
+    quad with ``omega*L > 2*pi``) would be undercounted; guard for that in Stage 3+.
     """
     gamma = (1.0 + alpha * alpha) / beta
     B = np.array([[beta, -alpha], [-alpha, gamma]])

@@ -403,9 +403,11 @@ check, but it is flagged for the longitudinal stages (Stage 3+).
   - **CI note:** CI runs ruff + the analytic suite only; the `reference` marker is
     not exercised in CI (and clang-cl is not installed there). This cross-check is
     therefore a **local Windows gate**, not a per-push CI regression catch.
-- **Expect a `zeta` sign mismatch vs Xsuite when the cross-check first runs.**
-  That is a convention reconciliation, not a physics bug: matching the reference's
-  sign is part of "match Xsuite ordering," so adopt Xsuite's sign if it differs —
-  do not change correct physics to chase it.
-- Until the JIT works, the drift convention rests on the **symbolic derivation**
-  (two independent routes agree), which is itself a gold-standard analytic check.
+- **(Historical, resolved)** The `zeta` sign was expected to possibly mismatch
+  Xsuite on first cross-check — a convention reconciliation, not a physics bug.
+  **Outcome:** no mismatch. Drift, quad, and dipole 6×6 maps agree with xtrack with
+  no sign flip (see the ROADMAP: the `zeta`-sign question is **settled**).
+- **(Historical)** Before the JIT was fixed the drift convention rested solely on
+  the **symbolic derivation** (two independent routes agree) — itself a gold-standard
+  analytic check. That derivation still stands and is now *also* corroborated by the
+  passing xtrack cross-check above.

@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "A modular, physics-correct particle accelerator simulator, grown in stages from linear beam optics upward."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "MIT"
+license = "LicenseRef-BNCL-1.0"
 license-files = ["LICENSE"]
 authors = [{ name = "BoykoNeov" }]
 keywords = ["accelerator", "beam-dynamics", "physics", "optics", "simulation"]
@@ -19,6 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [

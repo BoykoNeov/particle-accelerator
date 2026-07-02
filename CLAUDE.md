@@ -52,9 +52,11 @@ still produces convincing plots. Everything below defends against that.
 
 - Use the project `.venv` (Python 3.14). The reference dep is **`xtrack`**, not the
   `xsuite` umbrella (which fails to build on 3.14 — see `docs/CONVENTIONS.md`).
-- **Known issue:** xtrack's JIT C-compilation currently fails on this machine
-  (missing include path; spaced project path is a likely factor), so the Stage 1
-  Xsuite cross-check is blocked until resolved. Reference tests skip, not fail.
+- **xtrack JIT on Windows (resolved 2026-06-29):** the C-kernel build now compiles
+  via **clang-cl** (`winget install LLVM.LLVM`), wired in by the `_xtrack_jit`
+  test fix-up; the reference cross-checks pass locally. It is a no-op off Windows
+  and when clang-cl is absent, so reference tests still skip (not fail) elsewhere,
+  and CI runs only ruff + the analytic suite. See `docs/CONVENTIONS.md`.
 
 ## Coordinates (full detail in `docs/CONVENTIONS.md`)
 
