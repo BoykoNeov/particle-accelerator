@@ -7,6 +7,12 @@ whole codebase depends on.
 
 from __future__ import annotations
 
+from .acceleration import (
+    RampResult,
+    accelerate,
+    energy_gain_per_turn,
+    synchronous_phase,
+)
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements import (
     Aperture,
@@ -105,5 +111,10 @@ __all__ = [
     "rf_bucket_height",
     "separatrix",
     "beam_sigma",
+    # acceleration (Stage 5)
+    "energy_gain_per_turn",
+    "synchronous_phase",
+    "accelerate",
+    "RampResult",
     "__version__",
 ]

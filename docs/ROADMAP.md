@@ -197,14 +197,58 @@ advanced/optional — stub, don't build, unless asked.**
   CONVENTIONS.md → *Quantum lifetime*.
 - Out of scope by design (roadmap): Touschek / IBS (advanced — not built).
 
-## Stage 5 — RF cavities
+## Stage 5 — RF cavities ✅ COMPLETE
 
 Standalone `RFCavity` (voltage, harmonic number, phase), multi-cavity support,
 acceleration ramp, energy gain per turn. **Beam loading, higher-order modes, and
 wakefields are out of scope** unless a milestone adds them.
 
 - **Acceptance:** energy gain per turn equals `qV·sin(φs)`; the synchronous
-  particle stays synchronous; behaviour is consistent with the Stage 3 model.
+  particle stays synchronous; behaviour is consistent with the Stage 3 model. ✅
+  **MET** — all three gates in `tests/analytic/test_acceleration.py`.
+
+**Progress:**
+- ✅ **Harmonic-number interface + multi-cavity** — `RFCavity.from_harmonic(voltage,
+  harmonic, circumference, ref, phi_s)` sets `frequency = h·β₀c/C` (so `k_rf·C = 2πh`
+  exactly) and `harmonic_number()` inverts it. `energy_gain_per_turn(lattice)` sums
+  `q·V·sin(φs)` over **all** cavities (they may differ in voltage/phase), so
+  multi-cavity rings add contributions.
+- ✅ **Acceleration ramp + energy gain per turn** — the Stage-3 cavity kick already
+  carried the accelerating physics (its `−sin(φs)` term is the energy the reference
+  absorbs, so `zeta=0` gets zero net kick). Stage 5 turns the ramp on:
+  `accelerate(lattice, particle, n_turns)` tracks nonlinearly while the reference
+  energy climbs `E₀(n) = E₀(0) + n·ΔE_s`, `ΔE_s = ΣqV·sin(φs)`, rebuilding a fresh
+  `ReferenceParticle` each turn (the lattice's `ref` is never mutated). Returns a
+  `RampResult` (states + energy program). **Energy gain per turn == qV·sin(φs)**
+  (gate 1) is asserted both as the closed form and as the actual per-turn
+  increment; **the synchronous particle stays synchronous** (gate 2) is asserted
+  *together* with the ramp being real (origin→origin while E₀ climbs), below and
+  above transition; **consistency with Stage 3** (gate 3): with `sin φs = 0` the
+  ramp is a no-op and `accelerate` reproduces Stage-3 nonlinear tracking
+  **bit-for-bit**.
+- ✅ **Adiabatic damping (derived)** — re-referencing the normalised momenta to the
+  ramped `P₀'` multiplies `(px, py, delta)` by `r = P₀/P₀'` once per turn (derived
+  from the coordinate definitions in `docs/CONVENTIONS.md`, not a remembered
+  factor). Pinned by the exact telescoped closed form `px[n] = px0·P₀(0)/P₀(n)` on
+  a drift+cavity ring, and by an off-momentum neighbour executing a **damped**
+  synchrotron oscillation whose amplitude shrinks while the adiabatic invariant
+  (action `≈ δ_max²/Qs`) is conserved — the geometric amplitude shrinking is
+  physics, **not** a symplecticity leak, so the invariant (not raw action) is the
+  right thing to assert.
+- ✅ **`synchronous_phase(voltage, energy_gain, above_transition)`** — inverts
+  `ΔE_s = qV·sin(φs)` for the **stable** root (`η·cos φs < 0`): `φs ∈ (0, π/2)`
+  below transition, `(π/2, π)` above, reducing to the Stage-3 stationary `0`/`π` at
+  zero gain.
+- ✅ **Moving-bucket guard** — the Stage-3 `rf_bucket_height`/`separatrix`/
+  `longitudinal_hamiltonian` (which assume a *stationary* bucket symmetric about
+  `zeta=0`) now raise `NotImplementedError` for `sin φs ≠ 0` rather than return a
+  plausible-wrong curve; `φs ∈ {0, π}` (stationary) still works. The moving-bucket
+  *acceptance* (bucket area vs. φs), beam loading, and transition crossing are out
+  of scope.
+- No xtrack cross-check is warranted: the deliverables are derived closed forms
+  (`qV·sin φs`; the `P₀/P₀'` re-referencing) over already-validated Stage-1/3 maps —
+  the same rationale as the Stage-2 beam-envelope. See CONVENTIONS.md →
+  *Acceleration / energy ramp*.
 
 ## Stage 6 — Collider design
 

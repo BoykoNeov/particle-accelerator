@@ -65,6 +65,15 @@ def _effective_cavity(lattice: Lattice) -> _EffectiveCavity:
                 "rf_bucket_height/separatrix assume a single RF harmonic; the "
                 "cavities differ in frequency or phi_s (double-RF is out of scope)."
             )
+    if abs(math.sin(phi0)) > 1e-9:
+        raise NotImplementedError(
+            "rf_bucket_height/separatrix/longitudinal_hamiltonian model the "
+            "*stationary* bucket (phi_s = 0 below transition, pi above; "
+            "sin phi_s = 0). This lattice has a moving (accelerating) bucket "
+            f"(phi_s = {phi0}, sin phi_s = {math.sin(phi0):.3g} != 0); its "
+            "reduced acceptance is asymmetric about zeta = 0 and is out of scope. "
+            "Use accsim.accelerate for the acceleration ramp."
+        )
     ref = lattice.ref
     voltage = sum(cav.voltage for cav in cavities)
     amplitude = ref.charge * voltage / (ref.beta0**2 * ref.total_energy_eV)

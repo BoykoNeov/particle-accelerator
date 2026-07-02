@@ -22,13 +22,18 @@ momentum variable ``delta``, ``dE = beta0^2 E0 * delta`` at the reference, the s
 ``lag`` (xtrack takes ``lag`` in *degrees*; accsim uses radians, consistent with
 the rest of the codebase). Cross-checked in ``tests/reference/``.
 
-**Stationary bucket only (Stage 3).** The synchronous particle (``zeta = 0``)
-receives the constant offset ``-sin(phi_s)``; a stationary (non-accelerating)
-bucket takes ``phi_s = 0`` below transition and ``phi_s = pi`` above it, so the
-synchronous particle gets zero net kick and the small-amplitude motion is stable
-(``Qs^2 = -(h eta q V cos phi_s)/(2 pi beta0^2 E0) > 0``). The acceleration ramp
-and the ``q V sin(phi_s)`` energy gain per turn are **Stage 5**, not built here;
-the ``voltage``/``frequency``/``phi_s`` interface is forward-compatible with it.
+**Synchronous phase and acceleration.** The synchronous particle (``zeta = 0``)
+receives the constant offset ``-sin(phi_s)``, so its net kick is zero *in the
+frame that follows the reference energy*. A stationary (non-accelerating) bucket
+takes ``phi_s = 0`` below transition and ``phi_s = pi`` above it (``sin phi_s = 0``,
+no energy gain). For ``sin(phi_s) != 0`` the same ``[sin(phi_s - k_rf zeta) -
+sin(phi_s)]`` kick is the **accelerating** kick measured relative to a *ramping*
+reference: the synchronous particle still gets zero net Delta delta and stays at
+``delta = 0``, while the reference energy climbs by ``q V sin(phi_s)`` per turn.
+That ramp — plus the accompanying adiabatic damping — is driven by
+:func:`accsim.accelerate` (Stage 5); this element's ``matrix``/``slope``/
+``energy_kick_delta`` are unchanged. The small-amplitude motion is stable when
+``Qs^2 = -(h eta q V cos phi_s)/(2 pi beta0^2 E0) > 0``.
 
 The **linear** map (:meth:`matrix`) is the small-amplitude limit — a longitudinal
 shear ``R65 = d(Delta delta)/d(zeta)|_0 = -(q V k_rf cos phi_s)/(beta0^2 E0)`` —
@@ -69,9 +74,46 @@ class RFCavity(Element):
         self.frequency = float(frequency)
         self.phi_s = float(phi_s)
 
+    @classmethod
+    def from_harmonic(
+        cls,
+        voltage: float,
+        harmonic: int,
+        circumference: float,
+        ref: ReferenceParticle,
+        phi_s: float = 0.0,
+        name: str | None = None,
+    ) -> RFCavity:
+        """Build a cavity from the **harmonic number** ``h`` (Stage-5 interface).
+
+        The harmonic number is the (integer) number of RF wavelengths that fit in
+        one revolution: ``h = f * C / (beta0 c)``, so the frequency is
+
+            frequency = harmonic * beta0 * c / circumference    [Hz],
+
+        which makes ``k_rf * C = 2*pi*h`` exactly. ``circumference`` is the ring
+        length ``C`` [m] and ``ref`` fixes ``beta0``; ``harmonic`` must be a
+        positive integer. This is the natural way to specify a ring cavity, where
+        ``h`` (not the raw frequency) is the design quantity.
+        """
+        if harmonic <= 0:
+            raise ValueError(f"harmonic number must be a positive integer, got {harmonic}")
+        if circumference <= 0:
+            raise ValueError(f"circumference must be > 0, got {circumference}")
+        frequency = harmonic * ref.beta0 * CLIGHT / circumference
+        return cls(voltage=voltage, frequency=frequency, phi_s=phi_s, name=name)
+
     def k_rf(self, ref: ReferenceParticle) -> float:
         """RF wavenumber ``k_rf = 2*pi*frequency / (beta0 * c)`` [1/m]."""
         return 2.0 * math.pi * self.frequency / (ref.beta0 * CLIGHT)
+
+    def harmonic_number(self, ref: ReferenceParticle, circumference: float) -> float:
+        """Harmonic number ``h = f C / (beta0 c) = k_rf C / (2 pi)`` for this ring.
+
+        The inverse of :meth:`from_harmonic`. Returns a float; for a physical ring
+        cavity it should be (very close to) an integer.
+        """
+        return self.frequency * circumference / (ref.beta0 * CLIGHT)
 
     def slope(self, ref: ReferenceParticle) -> float:
         """Small-amplitude longitudinal focusing ``R65 = d(Delta delta)/d(zeta)|_0``.

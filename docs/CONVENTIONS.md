@@ -469,6 +469,72 @@ map — a kick-drift pair, each a symplectic shear:
   **Stage 5**. `rf_bucket_height`/`separatrix` assume a single RF harmonic
   (cavities may share `frequency`/`φ_s`, summing voltage); double-RF raises.
 
+## Acceleration / energy ramp (Stage 5 — implemented)
+
+Turning the RF ramp on. The Stage-3 cavity kick was already the accelerating kick —
+the ``- sin(phi_s)`` term is the energy the **reference** absorbs each turn, so a
+synchronous particle (``zeta = 0``) gets zero net ``Delta delta`` and stays at
+``delta = 0`` by construction. Stage 5 adds the reference-energy program and the
+adiabatic damping that must accompany it (`accsim.accelerate`).
+
+- **Energy gain per turn** ``Delta E_s = sum_cav q V sin(phi_s)`` [eV]
+  (``accsim.energy_gain_per_turn``). ``q = ref.charge`` (e-units), ``V`` in volts ⇒
+  ``qV`` in eV. Summed over **all** cavities (multi-cavity support), so a stationary
+  bucket (``phi_s = 0``/``pi``) gives zero — recovering Stage 3. This is the Stage-5
+  acceptance quantity; it is asserted both as this closed form *and* as the actual
+  constant first difference of the reference-energy program.
+- **The reference ramps; the lattice's ``ref`` does not mutate.** ``accelerate``
+  builds a fresh immutable :class:`ReferenceParticle` each turn from
+  ``E0(n) = E0(0) + n Delta E_s`` and tracks that turn's arc at the **turn-entry**
+  reference. Because the beam energy is constant around the ring *except* across the
+  cavity, this is exact when the cavity is the last element (the standard ring), and
+  correct to ``O(Delta E_s/E0)`` per turn otherwise — negligible (keV on GeV).
+- **Adiabatic damping factor is ``r = P0/P0'``, derived — not remembered.** With
+  ``px = Px/P0`` and ``delta = (P - P0)/P0``: after the cavity (at fixed ``P0``) the
+  particle is at ``P = P0(1 + delta_A)``; re-referencing to ``P0' = P0 + Delta P_s``
+  gives ``delta' = (P0/P0')(1 + delta_A) - 1 = (P0/P0')·(delta + A[sin phi - sin
+  phi_s])`` because ``A sin phi_s = Delta P_s/P0`` cancels the reference-gain terms.
+  The **physical** ``Px, Py`` are untouched by the longitudinal kick, so
+  ``px' = Px/P0' = (P0/P0') px`` (and ``py``). Hence one factor ``r = P0(n)/P0(n+1)``
+  multiplies ``(px, py, delta)`` once per turn; ``r = 1`` at zero gain, so
+  ``accelerate`` reduces to Stage-3 nonlinear tracking **bit-for-bit**.
+- **Position ``(x, y, zeta)`` is NOT rescaled** at the thin cavity — it is a spatial
+  coordinate, not normalised by ``P0``. The betatron/synchrotron motion converts the
+  momentum damping into overall amplitude damping over a period, conserving the
+  **adiabatic invariant** ``P0·J`` (canonical action). For a drift+cavity ring the
+  transverse momentum telescopes to the exact closed form ``px[n] = px0·P0(0)/P0(n)``
+  (pinned to ``rel 1e-12``).
+- **Assert the invariant, not the raw amplitude.** During the ramp the geometric
+  action/emittance genuinely **shrinks** — this *is* adiabatic damping, **not** a
+  symplecticity violation, so the Stage-3 raw-action smoke test does not carry over.
+  A neighbour's synchrotron oscillation damps in amplitude while the action
+  ``≈ delta_max^2 / Qs`` (area ~ amplitude²/frequency) is conserved (tested to a few
+  % window ripple over a 40%-energy ramp).
+- **Stable synchronous phase** (``accsim.synchronous_phase``): inverts
+  ``Delta E_s = qV sin phi_s`` for the root satisfying **both** net gain
+  (``sin phi_s > 0``) and small-amplitude stability ``Qs^2 = -(h eta qV cos
+  phi_s)/(2 pi beta0^2 E0) > 0`` ⇒ ``eta cos phi_s < 0``. So ``phi_s ∈ (0, pi/2)``
+  below transition, ``(pi/2, pi)`` above — derived from **accsim's own** kick
+  convention (``phi = phi_s - k_rf zeta``), reducing to the Stage-3 stationary
+  ``0``/``pi`` at zero gain. ``eta``'s sign is a lattice property independent of the
+  cavity phase, so it can be evaluated before the cavities are built.
+- **Harmonic-number interface** ``RFCavity.from_harmonic(voltage, harmonic,
+  circumference, ref, phi_s)`` sets ``frequency = harmonic·beta0·c/C`` so
+  ``k_rf·C = 2 pi h`` exactly; ``harmonic_number(ref, C)`` inverts it. ``frequency``
+  remains the stored canonical field (it is what enters ``k_rf``); the harmonic ctor
+  is the natural ring interface where ``h`` is the design integer.
+- **Moving-bucket guard.** The Stage-3 ``rf_bucket_height``/``separatrix``/
+  ``longitudinal_hamiltonian`` assume a *stationary* bucket (fixed points symmetric
+  about ``zeta = 0``); for ``sin phi_s != 0`` they now **raise**
+  ``NotImplementedError`` rather than return a plausible-wrong stationary curve. The
+  guard keys on ``|sin phi_s| > 1e-9``, so ``phi_s ∈ {0, pi}`` (``sin ~ 0``) stays
+  valid. The moving-bucket *acceptance* is out of scope.
+- **Scope.** Constant magnetic optics (``k1``/bend angles held fixed = magnets ramp
+  with the beam — the physical "tracking" ramp), so the transverse Twiss is
+  energy-invariant. Beam loading, higher-order modes, wakefields, and transition
+  crossing are **out of scope**. No xtrack cross-check is warranted (derived closed
+  forms over Stage-1/3-validated maps — the Stage-2 beam-envelope rationale).
+
 ## Beam losses / apertures (Stage 4 — implemented)
 
 Geometric transverse acceptance with survival/loss accounting.
