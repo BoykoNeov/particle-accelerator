@@ -294,9 +294,11 @@ research-grade and out of scope** unless explicitly requested.
   with an O(K²) residual (quadratic-convergence check). Sign follows the kick:
   pp defocus ⇒ `ΔQ < 0`; LHC nominal `ξ ≈ 0.0037` per IP. See CONVENTIONS.md →
   *Beam-beam tune shift ξ*.
-- **Low-β insertion** needed no new code: the IP waist `β(s) = β* + s²/β*` is
-  exactly the Stage-1 drift Twiss propagation around a zero-`α` point. Hourglass /
-  strong-strong / crab cavities / dynamic aperture remain out of scope.
+- ✅ **Low-β insertion** needed no new code: the IP waist `β(s) = β* + s²/β*`,
+  `α(s) = −s/β*` is exactly the Stage-1 drift Twiss propagation around a zero-`α`
+  point — pinned (both planes, waist-symmetric, `β` minimum at the IP) by
+  `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
+  cavities / dynamic aperture remain out of scope.
 
 ## Phase 2 (optional) — Collision event physics
 
