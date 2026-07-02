@@ -421,6 +421,54 @@ momentum variable `delta` the (nonlinear) kick is
   and cross-checked to xtrack at the coupling order
   (`tests/reference/test_synchrotron_tune_xtrack.py`).
 
+## RF bucket / nonlinear longitudinal tracking (Stage 3 — implemented)
+
+The synchrotron *tune* is linear, but the RF *bucket* is nonlinear (the cavity
+keeps its full `sin`). The one-turn longitudinal map is the pendulum / standard
+map — a kick-drift pair, each a symplectic shear:
+
+    zeta  ← zeta − ηC·delta                               (arc slip, from η)
+    delta ← delta + (qV/β₀²E₀)[sin(φ_s − k_rf·zeta) − sin φ_s]   (cavity kick)
+
+- **Nonlinear tracking seam.** `Element.track(state, ref)` maps one 6D state;
+  default is the linear `matrix(ref) @ state` (so element-by-element tracking of a
+  linear lattice equals the one-turn matrix). `RFCavity.track` overrides it with
+  the exact `sin` kick (`energy_kick_delta`). `Tracker.track` / `track_turns` take
+  `nonlinear=True` to push element-by-element. The kick + linear drift is
+  symplectic, so a bounded orbit conserves the Hamiltonian below (bounded ripple,
+  **no** secular drift over ≥1e4 turns — the longitudinal symplecticity smoke test,
+  the analogue of the transverse action-conservation run).
+- **Synchrotron Hamiltonian** (`longitudinal_hamiltonian(lattice)` → callable),
+  the smooth-approximation invariant:
+
+      H(zeta, delta) = −½ηC·delta² + U(zeta),
+      U(zeta) = −(qV/β₀²E₀)[(1/k_rf) cos(φ_s − k_rf·zeta) − zeta·sin φ_s],
+
+  with `dzeta/dn = ∂H/∂delta`, `ddelta/dn = −∂H/∂zeta`. Stable fixed point at the
+  synchronous particle `(0,0)`; unstable fixed point at `k_rf·zeta_u = 2φ_s − π`.
+- **Separatrix** (`separatrix(lattice)`): the level set `H = H(zeta_u, 0)`. Inside
+  ⇒ libration (bounded `zeta` **and** `delta`); outside ⇒ rotation — `delta` stays
+  bounded but **`zeta` runs away without bound** (the discriminator for the
+  ≥1e4-turn bounded test is unbounded `zeta`, *not* `delta`).
+- **Bucket height** (`rf_bucket_height(lattice)`): max `|delta|` on the separatrix
+  (at the centre `zeta=0`), `δ_max² = 2[U(0) − U(zeta_u)]/(ηC)`, which for a
+  stationary bucket reduces to the closed forms
+
+      δ_max = 2 Q_s / (h|η|) = √( 2qV / (π h |η| β₀² E₀) ).
+
+  Both are **derived symbolically** from `H` (no remembered coefficient) and pinned
+  in `tests/analytic/test_rf_bucket.py`.
+- **Reduced ⇒ needs no dispersion.** `H`/separatrix/bucket use the *reduced*
+  longitudinal dynamics (arc slip via `η`). They are exact when there is no
+  dispersion coupling; the bounded/unbounded tracking test therefore runs on a
+  **bend-free** ring (`α_c = 0`, `η = −1/γ₀²`, below transition, `φ_s = 0`) so the
+  separatrix is crisp. With bends the reduced model is the standard leading-order
+  approximation (the sub-percent synchro-betatron coupling seen in `Qs`).
+- **Stationary bucket only** (`φ_s = 0`/`π` below/above transition). The
+  accelerating moving bucket (`sin φ_s ≠ 0`) and the `qV sin φ_s` energy gain are
+  **Stage 5**. `rf_bucket_height`/`separatrix` assume a single RF harmonic
+  (cavities may share `frequency`/`φ_s`, summing voltage); double-RF raises.
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

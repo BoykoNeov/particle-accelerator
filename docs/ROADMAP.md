@@ -120,14 +120,17 @@ chromaticity correction (linear effect); beam-envelope plots.
   emittance until Stages 3/5), and no xtrack test is warranted (pure algebra over
   β and D, both already Stage-1 validated). See CONVENTIONS.md → *Beam envelope*.
 
-## Stage 3 — Synchrotron motion (longitudinal) 🚧 IN PROGRESS
+## Stage 3 — Synchrotron motion (longitudinal) ✅ COMPLETE
 
 RF bucket, synchronous phase, momentum-compaction factor, synchrotron tune,
 longitudinal phase-space tracking, separatrix.
 
 - **Acceptance:** the small-amplitude synchrotron tune `Qs` matches the analytic
   formula; the bucket height matches; particles launched inside the separatrix
-  stay bounded over ≥ 1e4 turns.
+  stay bounded over ≥ 1e4 turns. ✅ **MET** — symbolic `Qs`
+  (`tests/analytic/test_synchrotron_tune.py`) + xtrack `tw.qs`; symbolic bucket
+  height `δ_max = 2Qs/(h|η|)` and inside-bounded / outside-runs-away 1e4-turn
+  nonlinear tracking (`tests/analytic/test_rf_bucket.py`, `-m slow`).
 
 **Progress:**
 - ✅ **Momentum-compaction factor + slip factor** — `momentum_compaction(lattice)`
@@ -150,9 +153,13 @@ longitudinal phase-space tracking, separatrix.
   xtrack cross-check (accsim's own 6×6 eigen-tune matches `tw.qs` to ~1e-6; the
   lumped formula to the sub-percent synchro-betatron coupling order). See
   CONVENTIONS.md → *RF cavity / synchrotron tune*.
-- ⬜ Nonlinear longitudinal tracking, RF bucket height, separatrix, particles
-  launched inside the separatrix bounded over ≥1e4 turns (the nonlinear-tracking
-  seam, with the RF `sin` kick as its first user).
+- ✅ **Nonlinear longitudinal tracking + RF bucket / separatrix** — the
+  nonlinear-tracking seam (`Element.track`, `Tracker(..., nonlinear=True)`) with the
+  RF `sin` kick as its first user; the synchrotron `longitudinal_hamiltonian`,
+  `separatrix`, and `rf_bucket_height` (`δ_max = 2Qs/(h|η|) = √(2qV/(πh|η|β₀²E₀))`,
+  derived symbolically). Inside-the-separatrix particles librate bounded and
+  conserve `H` over 1e4 turns; outside, `zeta` runs away (rotation). See
+  CONVENTIONS.md → *RF bucket / nonlinear longitudinal tracking*.
 
 ## Stage 4 — Beam losses
 

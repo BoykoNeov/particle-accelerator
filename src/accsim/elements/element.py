@@ -33,6 +33,18 @@ class Element(abc.ABC):
         """
         raise NotImplementedError
 
+    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+        """Map a single 6D ``state`` through the element (returns a new array).
+
+        The default is the linear map ``matrix(ref) @ state`` — exact for every
+        linear element, so element-by-element tracking of a purely linear lattice
+        equals a single ``one_turn_matrix`` product. Nonlinear elements (e.g.
+        :class:`~accsim.elements.rfcavity.RFCavity`, whose ``sin`` kick gives the RF
+        bucket its separatrix) override this. This is the seam the long-term
+        (Stage 3+) tracker plugs into.
+        """
+        return self.matrix(ref) @ state
+
     def __repr__(self) -> str:
         name = f", name={self.name!r}" if self.name is not None else ""
         return f"{type(self).__name__}(length={self.length}{name})"

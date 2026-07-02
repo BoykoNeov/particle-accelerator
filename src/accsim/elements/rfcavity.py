@@ -101,6 +101,15 @@ class RFCavity(Element):
         M[DELTA, ZETA] = self.slope(ref)
         return M
 
+    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+        # Full nonlinear map: a thin momentum kick with the exact ``sin`` (not its
+        # R65 linearisation). Only ``delta`` changes; the kick depends on ``zeta``.
+        # This delta-kick is a symplectic shear -- composed with the linear arc it
+        # forms the pendulum whose separatrix is the RF bucket.
+        out = np.array(state, dtype=float, copy=True)
+        out[DELTA] += self.energy_kick_delta(float(out[ZETA]), ref)
+        return out
+
     def __repr__(self) -> str:
         name = f", name={self.name!r}" if self.name is not None else ""
         return (

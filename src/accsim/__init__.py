@@ -19,6 +19,11 @@ from .elements import (
     ThinSextupole,
 )
 from .lattice import Lattice, matrix_of
+from .longitudinal import (
+    longitudinal_hamiltonian,
+    rf_bucket_height,
+    separatrix,
+)
 from .reference import CLIGHT, ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
 from .symplectic import J6, is_symplectic
 from .tracking import Bunch, Particle, Tracker
@@ -87,6 +92,10 @@ __all__ = [
     "momentum_compaction",
     "slip_factor",
     "synchrotron_tune",
+    # longitudinal (nonlinear RF bucket)
+    "longitudinal_hamiltonian",
+    "rf_bucket_height",
+    "separatrix",
     "beam_sigma",
     "__version__",
 ]

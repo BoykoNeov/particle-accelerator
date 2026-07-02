@@ -93,29 +93,54 @@ class Tracker:
     def __init__(self, lattice: Lattice) -> None:
         self.lattice = lattice
 
-    def track(self, particle: Particle) -> Particle:
-        """Track a single particle once through the lattice."""
-        M = self.lattice.transfer_matrix()
-        return Particle.from_array(M @ particle.state)
+    def track(self, particle: Particle, nonlinear: bool = False) -> Particle:
+        """Track a single particle once through the lattice.
+
+        ``nonlinear=False`` (default) uses the accumulated linear transfer matrix.
+        ``nonlinear=True`` pushes the state element-by-element through each
+        element's :meth:`~accsim.elements.element.Element.track`, so nonlinear
+        maps (the RF cavity's ``sin`` kick) act exactly. For a purely linear
+        lattice the two agree to round-off.
+        """
+        if not nonlinear:
+            M = self.lattice.transfer_matrix()
+            return Particle.from_array(M @ particle.state)
+        return Particle.from_array(self._track_once(particle.state.copy()))
+
+    def _track_once(self, state: np.ndarray) -> np.ndarray:
+        """One element-by-element pass through the lattice (nonlinear)."""
+        for elem in self.lattice.elements:
+            state = elem.track(state, self.lattice.ref)
+        return state
 
     def track_bunch(self, bunch: Bunch) -> Bunch:
         """Track every particle in a bunch once through the lattice."""
         M = self.lattice.transfer_matrix()
         return Bunch(M @ bunch.states)
 
-    def track_turns(self, particle: Particle, n_turns: int) -> np.ndarray:
+    def track_turns(self, particle: Particle, n_turns: int, nonlinear: bool = False) -> np.ndarray:
         """Track a particle for ``n_turns`` turns of the (closed) lattice.
 
         Returns an ``(n_turns + 1, 6)`` array of states including the initial one
         — the trajectory used by the long-term symplecticity smoke test.
+
+        ``nonlinear=False`` (default) applies the one-turn matrix each turn (fast,
+        exact for linear lattices). ``nonlinear=True`` pushes element-by-element so
+        the RF cavity's ``sin`` kick acts exactly — the path for RF-bucket /
+        separatrix long-term tracking.
         """
         if n_turns < 0:
             raise ValueError(f"n_turns must be >= 0, got {n_turns}")
-        M = self.lattice.one_turn_matrix()
         history = np.empty((n_turns + 1, DIM))
         history[0] = particle.state
         s = particle.state.copy()
-        for turn in range(1, n_turns + 1):
-            s = M @ s
-            history[turn] = s
+        if nonlinear:
+            for turn in range(1, n_turns + 1):
+                s = self._track_once(s)
+                history[turn] = s
+        else:
+            M = self.lattice.one_turn_matrix()
+            for turn in range(1, n_turns + 1):
+                s = M @ s
+                history[turn] = s
         return history
