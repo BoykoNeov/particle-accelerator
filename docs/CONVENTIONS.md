@@ -605,6 +605,46 @@ you hold `τ_ε` pass `2·τ_ε`. `τ_d` is a caller input — accsim has no rad
 until Stage 5+. `ξ = A²/2σ²` shares its `·/2σ²` structure with the circular
 transmission formula (same aperture-to-sigma ratio governs both).
 
+## Luminosity (Stage 6 — implemented)
+
+`luminosity(N1, N2, sigma_x, sigma_y, f_rev, n_bunches, crossing_angle=0,
+sigma_z=0, crossing_plane="x")` returns the peak luminosity in **`m^-2 s^-1`**
+(`accsim.collider`). Head-on, equal Gaussian beams:
+
+    L = f_rev · n_bunches · N1 · N2 / (4 π σ_x σ_y).
+
+- **The `4π` is *derived*, not remembered.** `L` = (bunch-collision rate) ×
+  (transverse overlap `∮ ρ1 ρ2 d²r`); for two equal normalized 2D Gaussians the
+  overlap is `1/(4π σ_x σ_y)` (sympy-proven in `test_luminosity.py`). The `4π`
+  therefore **bakes in `σ_1 = σ_2`** per plane; the general two-size form replaces
+  `σ_u → √((σ_{1u}² + σ_{2u}²)/2)` and reduces to `4π` when equal. Gaussian profile
+  assumed.
+- **Units traps (both pinned):**
+  - *cm vs m.* `L` is `m^-2 s^-1` internally; textbooks quote `cm^-2 s^-1`
+    (× `1e-4`). The classic 10⁴ error.
+  - *geometric vs normalized emittance.* `σ_u* = √(ε_u β_u*)` needs the
+    **geometric** ε; machines quote **normalized** `ε_n = β₀γ₀·ε` (the stray-γ
+    trap — divide by `β₀γ₀`, not `γ₀`).
+- **Crossing angle (Piwinski).** A full crossing angle `φ` reduces `L` by the
+  multiplicative geometric factor
+  `S = 1/√(1 + (σ_z·tan(φ/2)/σ_cross)²)` (`piwinski_reduction`), `σ_cross` the
+  beam size in the crossing plane. **`tan(φ/2)`, not `tan φ`** — each beam tilts by
+  half the full angle. `S → 1` head-on or for a point bunch. The **hourglass**
+  effect (`β` varying across `σ_z` when `σ_z ≳ β*`) is a *separate* reduction and
+  is **out of scope**.
+- **Worked example (acceptance gate).** LHC nominal (LHC Design Report Vol I,
+  Table 2.1: `N=1.15e11`, `n_b=2808`, `f_rev=11245 Hz`, `β*=0.55 m`,
+  `ε_n=3.75 µm`, 7 TeV/beam) gives head-on **`1.20e34 cm^-2 s^-1`**, and with the
+  nominal 285 µrad crossing / 7.55 cm bunch the Piwinski `S≈0.84` brings it to the
+  design peak **`1.0e34 cm^-2 s^-1`** (`tests/analytic/test_luminosity.py`). No
+  xtrack cross-check is warranted — a closed-form overlap integral, validated
+  symbolically and against a published machine.
+- **Low-β insertion / classical radius.** The IP low-β *optics* need no new code:
+  the waist `β(s) = β* + s²/β*` is exactly what the Stage-1 drift Twiss
+  propagation already produces around a zero-`α` point. The classical particle
+  radius `r0 = r_e·(m_e c²/m c²)·q²` (`ReferenceParticle.classical_radius_m`,
+  `r_e = ELECTRON_RADIUS_M`) is added for the Stage-6 beam-beam kick / tune shift.
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

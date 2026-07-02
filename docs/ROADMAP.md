@@ -261,6 +261,20 @@ research-grade and out of scope** unless explicitly requested.
   a known machine; the beam-beam tune shift `ξ` matches the analytic expression;
   a head-on weak-strong kick conserves the expected invariants.
 
+**Progress:**
+- ✅ **Luminosity (gate 1)** — `luminosity(N1, N2, σ_x, σ_y, f_rev, n_bunches, …)`
+  = `f_rev·n_b·N1·N2/(4π σ_x σ_y)` [m⁻²s⁻¹] with the optional Piwinski crossing
+  reduction `S = 1/√(1+(σ_z tan(φ/2)/σ_cross)²)` (`accsim.collider`). The `4π`
+  (equal-beam) coefficient is **derived** from the Gaussian overlap integral
+  (sympy), not remembered; the acceptance number is the **LHC nominal** worked
+  example (LHC Design Report Vol I, Table 2.1): head-on `1.20e34 cm⁻²s⁻¹`, design
+  `1.0e34` with the 285 µrad crossing (`tests/analytic/test_luminosity.py`). The
+  cm/m 10⁴ trap and the normalized-vs-geometric-emittance stray-γ trap are pinned;
+  hourglass is flagged out of scope. `ReferenceParticle.classical_radius_m`
+  (`r0 = r_e·(m_e/m)·q²`) added for the beam-beam kick. See CONVENTIONS.md →
+  *Luminosity*.
+- ⏳ **Weak-strong beam-beam kick (gate 3)** and **tune shift ξ (gate 2)** — next.
+
 ## Phase 2 (optional) — Collision event physics
 
 **Do not rebuild event generators.** Orchestrate the established chain: event

@@ -22,6 +22,12 @@ PROTON_MASS_EV: float = 938.27208816e6
 # angular wavenumber ``k_rf = 2*pi*f/(beta0*c)`` (Stage 3+).
 CLIGHT: float = 299792458.0
 
+# Classical electron radius r_e = e^2 / (4 pi eps0 m_e c^2) [m], CODATA 2018.
+# The classical radius of any particle is r_e * (m_e c^2 / m c^2) * charge^2, so
+# expressing r0 via r_e and the eV rest-energy ratio (below) avoids importing
+# eps0/hbar and stays in the codebase's eV-mass style (Stage 6 beam-beam).
+ELECTRON_RADIUS_M: float = 2.8179403262e-15
+
 
 @dataclass(frozen=True)
 class ReferenceParticle:
@@ -95,3 +101,14 @@ class ReferenceParticle:
     @property
     def kinetic_energy_eV(self) -> float:
         return self.total_energy_eV - self.mass_eV
+
+    @property
+    def classical_radius_m(self) -> float:
+        """Classical particle radius ``r0 = q^2 e^2 / (4 pi eps0 m c^2)`` [m].
+
+        Written as ``r_e * (m_e c^2 / m c^2) * charge^2`` so it is exact given
+        the electron radius and the eV rest-energy ratio — no ``eps0``/``hbar``
+        import (see :data:`ELECTRON_RADIUS_M`). For a proton this is
+        ``r_p ~ 1.535e-18 m``; it sets the strength of the Stage-6 beam-beam kick.
+        """
+        return ELECTRON_RADIUS_M * (ELECTRON_MASS_EV / self.mass_eV) * self.charge**2

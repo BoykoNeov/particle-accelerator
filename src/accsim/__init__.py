@@ -13,6 +13,7 @@ from .acceleration import (
     energy_gain_per_turn,
     synchronous_phase,
 )
+from .collider import luminosity, piwinski_reduction
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements import (
     Aperture,
@@ -33,7 +34,13 @@ from .longitudinal import (
     rf_bucket_height,
     separatrix,
 )
-from .reference import CLIGHT, ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
+from .reference import (
+    CLIGHT,
+    ELECTRON_MASS_EV,
+    ELECTRON_RADIUS_M,
+    PROTON_MASS_EV,
+    ReferenceParticle,
+)
 from .symplectic import J6, is_symplectic
 from .tracking import Bunch, LossResult, Particle, Tracker
 from .twiss import (
@@ -68,6 +75,7 @@ __all__ = [
     "ReferenceParticle",
     "ELECTRON_MASS_EV",
     "PROTON_MASS_EV",
+    "ELECTRON_RADIUS_M",
     "CLIGHT",
     # elements
     "Element",
@@ -111,6 +119,9 @@ __all__ = [
     "rf_bucket_height",
     "separatrix",
     "beam_sigma",
+    # collider (Stage 6)
+    "luminosity",
+    "piwinski_reduction",
     # acceleration (Stage 5)
     "energy_gain_per_turn",
     "synchronous_phase",
