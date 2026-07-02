@@ -29,8 +29,10 @@ from .twiss import (
     closed_twiss,
     is_stable,
     match_periodic,
+    momentum_compaction,
     natural_chromaticity,
     propagate_twiss,
+    slip_factor,
     tunes,
 )
 
@@ -78,6 +80,8 @@ __all__ = [
     "is_stable",
     "natural_chromaticity",
     "chromaticity",
+    "momentum_compaction",
+    "slip_factor",
     "beam_sigma",
     "__version__",
 ]

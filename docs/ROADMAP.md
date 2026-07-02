@@ -120,7 +120,7 @@ chromaticity correction (linear effect); beam-envelope plots.
   emittance until Stages 3/5), and no xtrack test is warranted (pure algebra over
   β and D, both already Stage-1 validated). See CONVENTIONS.md → *Beam envelope*.
 
-## Stage 3 — Synchrotron motion (longitudinal)
+## Stage 3 — Synchrotron motion (longitudinal) 🚧 IN PROGRESS
 
 RF bucket, synchronous phase, momentum-compaction factor, synchrotron tune,
 longitudinal phase-space tracking, separatrix.
@@ -128,6 +128,19 @@ longitudinal phase-space tracking, separatrix.
 - **Acceptance:** the small-amplitude synchrotron tune `Qs` matches the analytic
   formula; the bucket height matches; particles launched inside the separatrix
   stay bounded over ≥ 1e4 turns.
+
+**Progress:**
+- ✅ **Momentum-compaction factor + slip factor** — `momentum_compaction(lattice)`
+  computes the geometric `α_c = (1/C)∮ D_x h ds` (dispersion transported and
+  integrated through thick dipoles; only bends contribute, so `α_c = 0` on a
+  straight lattice), and `slip_factor(lattice)` returns `η = α_c − 1/γ₀²`
+  (single-sourced `1/γ₀²`, matching xtrack's `slip_factor` sign). Pinned by the
+  symplecticity identity `α_c = 1/γ₀² − (R51 D_x + R52 D_px + R56)/C` (independent
+  matrix entries), a sympy proof that the integral and identity paths are
+  algebraically identical, and an xtrack cross-check of `momentum_compaction_factor`
+  /`slip_factor` (~1e-6). See CONVENTIONS.md → *Momentum compaction / slip factor*.
+- ⬜ RF bucket / synchronous phase, synchrotron tune `Qs`, longitudinal tracking,
+  separatrix (`Qs` will consume the slip factor above).
 
 ## Stage 4 — Beam losses
 

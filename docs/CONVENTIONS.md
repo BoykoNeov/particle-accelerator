@@ -339,6 +339,44 @@ so there is no cross term and no coefficient to remember:
   the envelope is pure algebra over `β` and `D`, both already xtrack-validated in
   Stage 1; the analytic quadrature test covers the only new thing.
 
+## Momentum compaction / slip factor (Stage 3 — implemented)
+
+The momentum-compaction factor is the fractional circumference change per unit
+momentum deviation — a purely **geometric** quantity (no `γ₀`):
+
+    α_c = (1/C) ∮ D_x(s) · h(s) ds,    h = 1/ρ,   C = circumference.
+
+- Only **bending magnets** contribute (`h = 0` in drifts, quads, sextupoles), so a
+  straight / dispersion-free lattice has `α_c = 0`. Sign: outward dispersion in a
+  normal focusing arc ⇒ the higher-momentum orbit is longer ⇒ `α_c > 0`.
+- `accsim.momentum_compaction` computes the integral directly: it transports the
+  matched dispersion along the lattice and, inside each thick dipole, integrates
+  `D_x(s)` by trapezoidal sub-slicing of the sector sub-bend map (`h` constant
+  across a body) — the same idiom as `natural_chromaticity`.
+- **Phase-slip factor** `η = α_c − 1/γ₀²` (`accsim.slip_factor`). The `1/γ₀²` is
+  taken from the reference particle — the *same single source* as the drift/dipole
+  `R56 = L/γ₀²` (see [Drift](#drift-transfer-matrix-derived-not-remembered)); do
+  **not** independently write `1/(β₀²γ₀²)`. `η` sets the sign of the longitudinal
+  restoring force and vanishes at transition (`γ₀ = 1/√α_c`); Stage 3's synchrotron
+  tune `Qs` is built on it. Sign convention matches xtrack's `slip_factor`.
+- **Validation.** CI runs only the analytic suite, so it must catch a sign flip on
+  its own. The load-bearing analytic net is the **symplecticity identity**
+
+      α_c = 1/γ₀² − (R51·D_x + R52·D_px + R56) / C
+
+  evaluated on the matched dispersion orbit from the **one-turn longitudinal row**
+  (`R51/R52/R56`, Stage-1 xtrack-pinned) — a *different* set of matrix entries than
+  the dispersion-generating ones the integral uses, so a sign error in the integral
+  makes it fail (the RHS never touches the integral). The drift limit (`D=0`,
+  `R56=C/γ₀²` ⇒ `α_c=0`) anchors the `1/γ₀²` term but can't test sign (both sides
+  zero) — the bending cases do. A sympy re-derivation proves the integral path and
+  the identity path are **algebraically identical** on a thick-dipole arc cell (so
+  the `1/γ₀²` cancels, confirming `α_c` is γ₀-free), and — because the identity is a
+  symplecticity *consequence*, not independent physics — the absolute value is
+  anchored externally by an **xtrack cross-check** of both `momentum_compaction_factor`
+  and `slip_factor` (~1e-6). See `tests/analytic/test_momentum_compaction.py` and
+  `tests/reference/test_momentum_compaction_xtrack.py`.
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

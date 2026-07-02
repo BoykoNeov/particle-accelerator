@@ -362,6 +362,65 @@ def _sextupole_feeddown(lattice: Lattice, slices: int = 64) -> tuple[float, floa
     return xi_x, xi_y
 
 
+def momentum_compaction(lattice: Lattice, slices: int = 64) -> float:
+    r"""Momentum-compaction factor ``alpha_c`` of a periodic ``lattice``.
+
+    A higher-momentum particle rides the dispersion orbit ``x = D_x delta`` and,
+    where the orbit is curved, travels a longer (or shorter) path. The fractional
+    circumference change per unit momentum deviation is the purely geometric
+    integral over the ring:
+
+        alpha_c = (1 / C) ∮ D_x(s) h(s) ds,   h(s) = 1/rho(s),  C = circumference.
+
+    Only bending magnets contribute (``h = 0`` in drifts, quads, sextupoles), so a
+    straight (dispersion-free) lattice has ``alpha_c = 0``. The matched dispersion
+    is transported along the lattice; inside each thick dipole ``D_x(s)`` is
+    integrated by ``slices``-fold trapezoidal sub-stepping of the sub-bend map
+    (``h`` is constant across a sector body). ``alpha_c`` carries **no** ``gamma0``
+    dependence — it is geometry only.
+
+    Cross-checked two independent ways (see ``tests/analytic/test_momentum_compaction.py``):
+    the symplecticity identity ``alpha_c = 1/gamma0^2 - (R51 D_x + R52 D_px + R56)/C``
+    from the one-turn longitudinal row (a different set of matrix entries than the
+    dispersion-generating ones this integral uses), and xtrack's
+    ``momentum_compaction_factor``.
+    """
+    from .elements.dipole import Dipole
+
+    tw0 = closed_twiss(lattice)
+    disp = np.array([tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py])
+    integral = 0.0  # ∮ D_x h ds
+    for elem in lattice.elements:
+        M = elem.matrix(lattice.ref)
+        if isinstance(elem, Dipole) and elem.angle != 0.0 and elem.length > 0.0:
+            h = elem.curvature
+            ds = elem.length / slices
+            sub = Dipole(ds, h * ds).matrix(lattice.ref)  # one sector sub-slice
+            sub4, subk = _transverse_4d(sub), _dispersive_kick(sub)
+            acc = 0.5 * disp[0]  # trapezoid: half-weight the entrance sample
+            for i in range(slices):
+                disp = sub4 @ disp + subk
+                w = 0.5 if i == slices - 1 else 1.0  # half-weight the exit sample
+                acc += w * disp[0]
+            integral += h * acc * ds
+            continue
+        disp = _transverse_4d(M) @ disp + _dispersive_kick(M)
+    return integral / lattice.length
+
+
+def slip_factor(lattice: Lattice, slices: int = 64) -> float:
+    r"""Phase-slip factor ``eta = alpha_c - 1/gamma0^2`` of a periodic ``lattice``.
+
+    Combines the geometric path-lengthening (:func:`momentum_compaction`) with the
+    velocity effect: a higher-momentum particle moves faster (``+``) but on a
+    longer orbit (``-``). ``eta`` sets the sign of the longitudinal restoring force
+    and vanishes at transition (``gamma0 = 1/sqrt(alpha_c)``); Stage 3's
+    synchrotron tune ``Qs`` is built on it. The ``1/gamma0^2`` is taken from the
+    reference particle, the same single source as the drift/dipole ``R56 = L/gamma0^2``.
+    """
+    return momentum_compaction(lattice, slices) - 1.0 / lattice.ref.gamma0**2
+
+
 def chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
     r"""Total first-order chromaticity ``(Q'_x, Q'_y)`` = quads + sextupole feed-down.
 
