@@ -191,14 +191,14 @@ def test_slip_factor_definition(ref: ReferenceParticle) -> None:
     )
 
 
-def test_thick_and_thin_quad_arcs_agree(ref: ReferenceParticle) -> None:
-    # alpha_c is set by the bends + dispersion; swapping thin quads for thick ones
-    # of the same integrated strength should barely move it (sanity on the
-    # dispersion transport through non-dipole elements).
+def test_identity_holds_for_thick_quad_arc(ref: ReferenceParticle) -> None:
+    # The integral<->identity consistency (the CI sign net) must survive finite-
+    # length quads, which transport beta AND dispersion through their bodies. This
+    # is NOT a thin-vs-thick alpha_c comparison: the thick variant has a different
+    # circumference (2.6 m vs 2.0 m) and focusing profile, so its alpha_c genuinely
+    # differs -- we only check each lattice reproduces its own matrix identity.
     thin = Lattice(_arc_cell(), ref)
-    a_thin = momentum_compaction(thin)
-    assert a_thin == pytest.approx(_identity_alpha_c(thin), rel=1e-5)
-    # A thick-quad variant still yields a positive, O(same) alpha_c via the identity.
+    assert momentum_compaction(thin) == pytest.approx(_identity_alpha_c(thin), rel=1e-5)
     kq = 1.0 / (F_FOCAL * 0.2)
     thick = Lattice(
         [
