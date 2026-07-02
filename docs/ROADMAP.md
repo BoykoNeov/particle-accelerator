@@ -139,8 +139,20 @@ longitudinal phase-space tracking, separatrix.
   matrix entries), a sympy proof that the integral and identity paths are
   algebraically identical, and an xtrack cross-check of `momentum_compaction_factor`
   /`slip_factor` (~1e-6). See CONVENTIONS.md → *Momentum compaction / slip factor*.
-- ⬜ RF bucket / synchronous phase, synchrotron tune `Qs`, longitudinal tracking,
-  separatrix (`Qs` will consume the slip factor above).
+- ✅ **RF cavity + synchrotron tune `Qs`** — `RFCavity(voltage, frequency, phi_s)`,
+  a thin longitudinal kick `Δδ = (qV/β₀²E₀)[sin(φs−k_rf·zeta)−sin φs]` whose phase
+  convention matches xtrack's `Cavity` (`φ = φs − k_rf·zeta`, `k_rf = 2πf/β₀c`).
+  `synchrotron_tune(lattice)` builds the reduced one-turn 2×2 from the **slip
+  factor** (not the bare `R56` — flag A) and the cavity slope `R65`, giving
+  `Qs = arccos(½Tr Ms)/2π`, which reproduces the symbolic closed form
+  `Qs² = −(hηqV cosφs)/(2πβ₀²E₀)`. Stationary bucket only (`φs=0`/`π`
+  below/above transition; wrong side raises). Pinned by a sympy derivation and an
+  xtrack cross-check (accsim's own 6×6 eigen-tune matches `tw.qs` to ~1e-6; the
+  lumped formula to the sub-percent synchro-betatron coupling order). See
+  CONVENTIONS.md → *RF cavity / synchrotron tune*.
+- ⬜ Nonlinear longitudinal tracking, RF bucket height, separatrix, particles
+  launched inside the separatrix bounded over ≥1e4 turns (the nonlinear-tracking
+  seam, with the RF `sin` kick as its first user).
 
 ## Stage 4 — Beam losses
 

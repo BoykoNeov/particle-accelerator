@@ -377,6 +377,50 @@ momentum deviation — a purely **geometric** quantity (no `γ₀`):
   and `slip_factor` (~1e-6). See `tests/analytic/test_momentum_compaction.py` and
   `tests/reference/test_momentum_compaction_xtrack.py`.
 
+## RF cavity / synchrotron tune (Stage 3 — implemented)
+
+`RFCavity(voltage, frequency, phi_s)` is a **thin** longitudinal kick. In the
+momentum variable `delta` the (nonlinear) kick is
+
+    Δδ = (q V / (β₀² E₀)) · [ sin(φ_s − k_rf·zeta) − sin(φ_s) ],
+    k_rf = 2π·frequency / (β₀ c)   [1/m],   φ_s  [rad].
+
+- **Energy factor is `β₀² E₀`, not `E₀`.** With the *momentum* variable,
+  `dE = β₀² E₀ · δ` at the reference, so `Δδ = ΔE/(β₀² E₀)` — the same `β₀²` that
+  separates `R56 = L/γ₀²` (momentum) from `L/(β₀²γ₀²)` (energy). `V` in volts, `E₀`
+  in eV, `q = ref.charge` (e-units) ⇒ `qV` in eV, ratio dimensionless.
+- **Phase convention matches xtrack's `Cavity` exactly:** xtrack applies
+  `energy_kick = qV·sin(lag_rad − (2πf/c)·zeta/β₀)`, i.e. `φ = φ_s − k_rf·zeta`
+  with accsim's `φ_s` = xtrack's `lag` (xtrack in **degrees**, accsim in
+  **radians** — pass `lag = degrees(φ_s)` when cross-checking). Verified: accsim's
+  full 6×6 one-turn map equals xtrack's on the `(zeta, delta)` block, so the
+  coupled synchrotron eigen-tune matches `tw.qs` to ~1e-6.
+- **Linear map** (`RFCavity.matrix`) is the small-amplitude shear
+  `R65 = ∂δ/∂zeta|₀ = −(q V k_rf cos φ_s)/(β₀² E₀)` (only `M[DELTA, ZETA]`); it is
+  symplectic (a shear, det = 1). The full `sin` kick (`energy_kick_delta`) is the
+  tracking map (the pendulum whose separatrix is the bucket) — Stage-3 nonlinear
+  tracking. **Stationary bucket only**: `φ_s = 0` below transition, `φ_s = π` above;
+  the accelerating `qV·sin(φ_s)` energy gain per turn is **Stage 5**.
+- **Synchrotron tune** `synchrotron_tune(lattice)` builds the reduced one-turn 2×2
+  `M_s = [[1,0],[R65_tot,1]] · [[1,−ηC],[0,1]]` and returns
+  `Qs = arccos(½ Tr M_s)/2π`, reproducing the closed form
+  `Qs² = −(h η qV cos φ_s)/(2π β₀² E₀)` (`k_rf C = 2π h`) — derived symbolically in
+  `tests/analytic/test_synchrotron_tune.py`, no remembered constant.
+- **The slip comes from `slip_factor()` (η), NOT the bare one-turn `R56`.** On a
+  dispersive ring the raw `(zeta, delta)` block's `R56` entry is *not* `−ηC` — it
+  omits the `R51 D_x + R52 D_px` dispersion coupling, and can even have the opposite
+  sign (on the Stage-3 test ring the bare block is itself *unstable*). Sourcing the
+  arc drift from `η` folds that coupling in; this is what makes `Qs` correct with
+  bends present. Stability requires `Qs²>0` ⇒ `−η cos φ_s > 0`, which selects
+  `φ_s = 0`/`π` below/above transition; the wrong side raises
+  `UnstableLatticeError`.
+- **Lumped ≠ exact.** The reduced-2×2 `Qs` is the textbook small-amplitude
+  *formula*; it omits second-order synchro-betatron coupling that the full 6D map
+  carries (sub-percent on the test ring). accsim's own 6×6 eigen-tune matches
+  `tw.qs` to ~1e-6; the lumped value is validated against the symbolic closed form
+  and cross-checked to xtrack at the coupling order
+  (`tests/reference/test_synchrotron_tune_xtrack.py`).
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

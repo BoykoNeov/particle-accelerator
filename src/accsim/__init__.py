@@ -13,12 +13,13 @@ from .elements import (
     Drift,
     Element,
     Quadrupole,
+    RFCavity,
     Sextupole,
     ThinQuadrupole,
     ThinSextupole,
 )
 from .lattice import Lattice, matrix_of
-from .reference import ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
+from .reference import CLIGHT, ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
 from .symplectic import J6, is_symplectic
 from .tracking import Bunch, Particle, Tracker
 from .twiss import (
@@ -33,6 +34,7 @@ from .twiss import (
     natural_chromaticity,
     propagate_twiss,
     slip_factor,
+    synchrotron_tune,
     tunes,
 )
 
@@ -52,6 +54,7 @@ __all__ = [
     "ReferenceParticle",
     "ELECTRON_MASS_EV",
     "PROTON_MASS_EV",
+    "CLIGHT",
     # elements
     "Element",
     "Drift",
@@ -60,6 +63,7 @@ __all__ = [
     "Dipole",
     "Sextupole",
     "ThinSextupole",
+    "RFCavity",
     # lattice
     "Lattice",
     "matrix_of",
@@ -82,6 +86,7 @@ __all__ = [
     "chromaticity",
     "momentum_compaction",
     "slip_factor",
+    "synchrotron_tune",
     "beam_sigma",
     "__version__",
 ]

@@ -18,6 +18,10 @@ from dataclasses import dataclass
 ELECTRON_MASS_EV: float = 0.51099895069e6
 PROTON_MASS_EV: float = 938.27208816e6
 
+# Speed of light in vacuum [m/s] — exact by the SI definition. Enters the RF
+# angular wavenumber ``k_rf = 2*pi*f/(beta0*c)`` (Stage 3+).
+CLIGHT: float = 299792458.0
+
 
 @dataclass(frozen=True)
 class ReferenceParticle:

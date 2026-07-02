@@ -421,6 +421,64 @@ def slip_factor(lattice: Lattice, slices: int = 64) -> float:
     return momentum_compaction(lattice, slices) - 1.0 / lattice.ref.gamma0**2
 
 
+def synchrotron_tune(lattice: Lattice, slices: int = 64) -> float:
+    r"""Small-amplitude synchrotron tune ``Qs`` of a periodic ``lattice`` with RF.
+
+    Longitudinal motion is a rotation in ``(zeta, delta)`` driven by two effects
+    per turn: the **arc slip** ``Delta zeta = -eta C delta`` (path-length +
+    velocity, via :func:`slip_factor`) and the **RF focusing** of the cavities,
+    ``Delta delta = R65 zeta`` with ``R65 = -(q V k_rf cos phi_s)/(beta0^2 E0)``
+    (see :class:`~accsim.elements.rfcavity.RFCavity`). The reduced one-turn
+    synchrotron matrix (cavities lumped after the arc) is
+
+        M_s = [[1, 0], [R65_tot, 1]] @ [[1, -eta C], [0, 1]],
+
+    a symplectic 2x2 whose tune is ``cos(2 pi Qs) = 1/2 Tr(M_s) = 1 - R65_tot eta C / 2``.
+    This reproduces the closed form
+
+        Qs^2 = -(h eta q V cos phi_s) / (2 pi beta0^2 E0)     (small amplitude)
+
+    to leading order (``k_rf C = 2 pi h``), and returns the exact ``arccos`` value.
+
+    **Sourced from the slip factor, not the bare ``R56``.** On a dispersive ring
+    the one-turn ``R56`` entry is *not* ``-eta C`` (it omits the ``R51 D_x +
+    R52 D_px`` dispersion coupling); the arc's true longitudinal restoring uses
+    ``eta``, which folds that coupling in. Building ``M_s`` from ``eta`` is what
+    makes ``Qs`` correct when bends are present.
+
+    Lumping all cavity slopes into a single thin kick is the standard smooth
+    approximation; it is *exact* for a single cavity (the Stage-3 acceptance case).
+    Raises :class:`UnstableLatticeError` if ``|1/2 Tr(M_s)| >= 1`` (no stable
+    bucket, e.g. ``phi_s`` on the wrong side of transition, or above the
+    synchrotron half-integer resonance).
+
+    This is the textbook small-amplitude *formula*, not the exact machine tune: it
+    omits the second-order synchro-betatron coupling that the full 6D one-turn map
+    carries. accsim's own 6x6 one-turn map reproduces xtrack's ``tw.qs`` (the
+    coupled eigen-tune) to ~1e-6; this lumped value differs from it at the
+    coupling order (sub-percent on the Stage-3 test ring). See
+    ``tests/reference/test_synchrotron_tune_xtrack.py``.
+    """
+    from .elements.rfcavity import RFCavity
+
+    cavities = [elem for elem in lattice.elements if isinstance(elem, RFCavity)]
+    if not cavities:
+        raise ValueError(
+            "synchrotron_tune requires at least one RFCavity in the lattice; "
+            "without RF there is no longitudinal focusing (Qs = 0)."
+        )
+    eta = slip_factor(lattice, slices)
+    circumference = lattice.length
+    r65_tot = sum(cav.slope(lattice.ref) for cav in cavities)
+    half_trace = 1.0 - 0.5 * r65_tot * eta * circumference
+    if abs(half_trace) >= 1.0:
+        raise UnstableLatticeError(
+            f"no stable RF bucket: 1/2 Tr(M_s) = {half_trace} (|.| >= 1). Check "
+            "phi_s vs transition (phi_s=0 below, pi above) and the voltage."
+        )
+    return math.acos(half_trace) / (2.0 * math.pi)
+
+
 def chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
     r"""Total first-order chromaticity ``(Q'_x, Q'_y)`` = quads + sextupole feed-down.
 
