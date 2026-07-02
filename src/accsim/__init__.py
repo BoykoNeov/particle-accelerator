@@ -28,7 +28,7 @@ from .longitudinal import (
 )
 from .reference import CLIGHT, ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
 from .symplectic import J6, is_symplectic
-from .tracking import Bunch, Particle, Tracker
+from .tracking import Bunch, LossResult, Particle, Tracker
 from .twiss import (
     Twiss,
     UnstableLatticeError,
@@ -80,6 +80,7 @@ __all__ = [
     "Particle",
     "Bunch",
     "Tracker",
+    "LossResult",
     # symplectic helpers
     "is_symplectic",
     "J6",
