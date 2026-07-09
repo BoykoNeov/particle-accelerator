@@ -44,3 +44,6 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# xtrack JIT-kernel spills (hex-named C sources dropped in CWD on first compile)
+[0-9a-f]*.c

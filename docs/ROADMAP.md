@@ -300,7 +300,7 @@ research-grade and out of scope** unless explicitly requested.
   `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
   cavities / dynamic aperture remain out of scope.
 
-## Phase 2 (optional) — Collision event physics
+## Phase 2 (optional) — Collision event physics ✅ TOY PATH COMPLETE (orchestration blocked)
 
 **Do not rebuild event generators.** Orchestrate the established chain: event
 generator (Pythia / MadGraph) → fast detector sim (Delphes) → analysis in the
@@ -310,6 +310,21 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
 - **Acceptance:** the toy generator's total cross-section for a known process
   matches the analytic value within Monte-Carlo error; the orchestrated pipeline
   runs end-to-end and produces a labelled distribution.
+  - ✅ **Toy generator (acceptance clause a) — MET.** `accsim.events`: a labelled
+    learning module for `e+ e- → μ+ μ-` (tree-level QED). Matrix element ×
+    RAMBO flat phase space × MC integration; the MC total cross-section matches the
+    analytic `σ = 4πα²/(3s)` (≈ 0.87 nb at √s = 10 GeV) within its Monte-Carlo
+    error. Three analytic gates ordered **phase-space volume → dσ/dΩ shape →
+    total σ** so a wrong `|M|²` and a wrong measure can't cancel; the `1/(8π)`
+    2-body volume and `4πα²/(3s)` σ are sympy-derived, not remembered
+    (`tests/analytic/test_toy_generator.py`). Process chosen leptonic (**no PDFs**)
+    to keep the analytic gate clean. See CONVENTIONS.md → *Toy event generator*.
+  - ⚠️ **Real orchestration (acceptance clause b) — BLOCKED on this host.**
+    Pythia/MadGraph/Delphes do not build on Windows/Python 3.14 (`pip` finds no
+    `pythia8` distribution; the spaced project path breaks C++ HEP toolchains).
+    Clause (b) is met **only** by the toy pipeline's labelled `cos θ` distribution
+    (`ee_to_mumu_events`), not the real chain. The Pythia→Delphes orchestration and
+    a hadronic (PDF) extension are deferred, not delivered.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

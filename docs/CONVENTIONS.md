@@ -712,6 +712,49 @@ remembered formula:
   scope here). No xtrack cross-check is warranted — a closed form derived over the
   Stage-1-validated Twiss/tune machinery and pinned by the through-ring measurement.
 
+## Toy event generator (Phase 2 — implemented, learning module)
+
+`accsim.events` is the **clearly-labelled learning module** the roadmap permits for
+Phase 2: a from-scratch Monte-Carlo generator for `e+ e- → μ+ μ-` (tree-level QED,
+s-channel photon). *Orchestrate, don't rebuild* still governs physics-grade work —
+this is the local realisation because Pythia/MadGraph/Delphes do **not** build on
+this Windows/Python 3.14 host (`pip` finds no `pythia8` distribution; see
+[[spaced-project-path]]). So Phase 2 acceptance clause (b) ("orchestrated pipeline
+runs end-to-end") is met **only** by the toy pipeline's labelled `cos θ`
+distribution, not the real chain — flagged, not glossed.
+
+- **Natural units, local to the module.** `accsim.events` works in `ħ = c = 1`,
+  GeV — the universal cross-section convention — *unlike* the SI/eV beam-dynamics
+  core ([Units](#units)). The single boundary crossing back to lab units is the
+  cross-section: **`1 GeV⁻² = 0.3893793721 mb = (ħc)²`** (`GEV2_TO_MBARN`), kept as
+  one tested constant so the `0.389` factor is never sprinkled inline.
+- **Metric.** Mostly-minus `(+,−,−,−)`; four-vectors are `(E, px, py, pz)` numpy
+  arrays with energy in index 0, so `p·p = m²`.
+- **Process picked by the acceptance gate.** `e+ e- → μ+ μ-` has the cleanest
+  closed form and **no PDFs** (leptonic initial state), so the analytic gate is
+  unmuddied. Massless limit (`√s ≫ m_μ`): `dσ/dΩ = α²(1+cos²θ)/(4s)`,
+  `σ = 4πα²/(3s)` (**≈ 0.87 nb at √s = 10 GeV**). Spin-averaged
+  `⟨|M|²⟩ = 32π²α²(t²+u²)/s² = 16π²α²(1+cos²θ)`. Hadronic Drell-Yan (needs LHAPDF)
+  is a deliberately-deferred extension, not the first cut.
+- **RAMBO (Kleiss-Stirling-Ellis 1986), massless.** Flat Lorentz-invariant phase
+  space with a **constant** weight = the total volume, so `∫f dΦ ≈ volume·⟨f⟩`.
+  Volume formula `Φ_n = (π/2)^{n-1} s^{n-2} (2π)^{4-3n} / (Γ(n)Γ(n-1))`; for `n=2`
+  it is `1/(8π)` (s-independent), for `n=3` it is `s/(256π³)`.
+- **Cross-section master formula.** `σ = (1/2s)∫⟨|M|²⟩dΦ₂ ≈ (weight/2s)⟨|M|²⟩`, flux
+  factor `F = 2s` (massless). Result in GeV⁻²; `gev2_to_barn` converts.
+- **Gate ordering guards against cancellation (advisor).** The three analytic gates
+  run **phase-space volume → dσ/dΩ shape → total σ** so a wrong `|M|²` and a wrong
+  phase-space measure cannot cancel into a right-looking σ. Gate 1 is validated
+  *independently of any matrix element*: the `1/(8π)` volume is derived from the β
+  factor (sympy), the general formula is checked against an independently-derived
+  three-body `s/(256π³)` (phase-space convolution), and the sampler is verified to
+  conserve four-momentum, stay massless, and fill 2-body phase space isotropically
+  (`cos θ` uniform, mean 0 / var ⅓). Gate 3 (MC σ vs analytic within MC error) is
+  the roadmap's Phase 2 acceptance clause. See `tests/analytic/test_toy_generator.py`.
+- **Out of scope (labelled):** running coupling, initial-state radiation, `Z`
+  interference/resonance, masses/thresholds, hadronic PDFs, higher orders, and the
+  real Pythia→Delphes orchestration.
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks
