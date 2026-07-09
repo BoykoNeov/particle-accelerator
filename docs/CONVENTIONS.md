@@ -724,8 +724,11 @@ labelled `cos θ` distribution; see that dir's README. Docker is used because
 Pythia/Delphes don't build natively on Win/Py3.14 (no Windows pip/conda `pythia8`;
 native-Windows pip finds no wheel), and a bind mount is avoided (spaced path) via
 `docker cp`. The two halves are complementary: the toy is pinned to `4πα²/(3s)`;
-the Pythia μ⁻ spectrum is compared to `1+cos²θ` only qualitatively (γ*/Z
-interference + all-flavour σ + fixed √s make it richer than the toy).
+the Pythia μ⁻ spectrum is compared to `1+cos²θ` only qualitatively (all-flavour σ
+≈ 6.15 nb vs the toy's 0.87 nb, plus QED FSR / fixed √s). At 10 GeV the process is
+γ\*-dominated, so the γ-Z forward-backward asymmetry is unresolved — *measured*
+`A_FB = −0.0022 ± 0.0074` on 18k events (consistent with zero), so it is not
+claimed as a visible distinguishing feature.
 
 - **Natural units, local to the module.** `accsim.events` works in `ħ = c = 1`,
   GeV — the universal cross-section convention — *unlike* the SI/eV beam-dynamics

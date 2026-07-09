@@ -58,11 +58,17 @@ they are **not** committed — they go to a temp directory.
   μ⁺μ⁻ subset by the **primary** pair (Pythia hard-process status code 23), which
   avoids counting muons produced in τ decays. The reported `σ ≈ 6.15 nb` at
   √s = 10 GeV is therefore the **all-flavour** total, not the μ⁺μ⁻ partial.
-- **No cross-section equality with the toy.** γ*/Z carries a small Z-interference
-  forward-backward asymmetry the pure-QED toy lacks, `σ` is summed over flavours,
-  and `PDF:lepton = off` fixes √s (no ISR). The cross-check is therefore
+- **No cross-section equality with the toy.** `σ` is summed over all flavours
+  (~6.15 nb at 10 GeV vs the toy's 0.87 nb for μ⁺μ⁻ alone), Pythia adds QED FSR /
+  running α, and `PDF:lepton = off` fixes √s (no ISR). The cross-check is therefore
   **qualitative** — the μ⁻ angular *shape* tracks `1 + cos²θ` — never a numerical
   match to `4πα²/(3s)`.
+- **Forward-backward asymmetry is NOT resolved here (measured, not assumed).** At
+  10 GeV the process is γ\*-dominated (the Z is far off), so the γ-Z interference
+  A_FB is only a few percent. Measured on an 18k-event μ⁺μ⁻ sample it is
+  `A_FB = −0.0022 ± 0.0074` — consistent with zero. So the honest statement is that
+  the Pythia and toy angular *shapes agree* at this energy; a visible A_FB is *not*
+  a distinguishing feature at this statistics.
 
 ## Out of scope (deliberately)
 

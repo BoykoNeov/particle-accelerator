@@ -15,12 +15,16 @@
 // select the mu+ mu- subset by the *primary* pair -- Pythia hard-process status
 // code 23 -- which avoids counting muons that come from tau decays.
 //
-// Physics note (why this does NOT reproduce the toy's number): gamma*/Z carries a
-// small Z-interference forward-backward asymmetry the pure-QED toy lacks, and the
-// reported cross-section is summed over all final flavours. We switch the lepton
-// beam PDF off so the collision sits at a fixed sqrt(s) (no ISR / energy spread),
-// giving a clean teaching plot. The cross-check is qualitative (angular shape vs
-// 1 + cos^2 theta), never a numerical cross-section equality.
+// Physics note (why this does NOT reproduce the toy's number): the reported
+// cross-section is summed over all outgoing flavours (~6.15 nb at 10 GeV, vs the
+// toy's 0.87 nb for mu+ mu- alone), and Pythia adds QED FSR / running alpha. At
+// 10 GeV the process is gamma*-dominated (the Z is far away), so gamma-Z
+// interference is tiny: the forward-backward asymmetry is only a few percent and
+// is NOT resolved at this statistics (measured A_FB = -0.002 +/- 0.007, ~18k
+// events -- consistent with zero). We switch the lepton beam PDF off so the
+// collision sits at a fixed sqrt(s) (no ISR / energy spread). The cross-check is
+// therefore qualitative (angular shape vs 1 + cos^2 theta), never a numerical
+// cross-section equality.
 //
 // Build: g++ generate_pythia.cc -o gen $(pythia8-config --cxxflags --libs)
 

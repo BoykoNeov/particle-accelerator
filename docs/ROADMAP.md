@@ -300,7 +300,13 @@ research-grade and out of scope** unless explicitly requested.
   `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
   cavities / dynamic aperture remain out of scope.
 
-## Phase 2 (optional) — Collision event physics ✅ COMPLETE (toy + real Pythia chain)
+## Phase 2 (optional) — Collision event physics — both clauses demonstrated (Delphes/hadronic optional; user to close)
+
+> **Milestone status:** clause (a) is analytically **met** (toy) and clause (b) is
+> **demonstrated end-to-end** (real Pythia chain). Whether to mark this optional
+> phase *closed* or to add the canonical **Delphes** detector step and/or a
+> **hadronic (LHAPDF) Drell-Yan** extension is a **user decision** — not marked ✅
+> unilaterally.
 
 **Do not rebuild event generators.** Orchestrate the established chain: event
 generator (Pythia / MadGraph) → fast detector sim (Delphes) → analysis in the
@@ -319,7 +325,7 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
     2-body volume and `4πα²/(3s)` σ are sympy-derived, not remembered
     (`tests/analytic/test_toy_generator.py`). Process chosen leptonic (**no PDFs**)
     to keep the analytic gate clean. See CONVENTIONS.md → *Toy event generator*.
-  - ✅ **Real orchestration (acceptance clause b) — MET via Pythia8 in Docker.**
+  - ✅ **Real orchestration (acceptance clause b) — DEMONSTRATED via Pythia8 in Docker.**
     `pipelines/ee_mumu_pythia/` drives an **established** generator (Pythia8 8.3),
     not the toy: `run_pipeline.py` starts a `hepstore/rivet-pythia` container,
     compiles a small C++ generator (`generate_pythia.cc`, process
@@ -327,8 +333,10 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
     copies the `cos θ` data out, and `analyze.py` renders the **labelled
     distribution** on the host. Runs end-to-end in one command; the μ⁻ angular
     spectrum tracks the toy's `1+cos²θ` law (qualitative cross-check — **not** a
-    σ-equality, since γ*/Z interference + all-flavour σ + fixed √s make Pythia
-    richer than the pure-QED toy). Docker is used because Pythia/Delphes don't
+    σ-equality: all-flavour σ ≈ 6.15 nb vs the toy's 0.87 nb, plus QED FSR / fixed
+    √s. The γ-Z forward-backward asymmetry is *measured* `A_FB = −0.0022 ± 0.0074`
+    on 18k events — consistent with zero, i.e. **not** resolved at 10 GeV, so it is
+    not claimed as a distinguishing feature). Docker is used because Pythia/Delphes don't
     build natively on Win/Py3.14 and there is no Windows pip/conda `pythia8`; a
     bind mount is avoided (spaced path) via `docker cp`. See
     `pipelines/ee_mumu_pythia/README.md`.
