@@ -717,15 +717,15 @@ remembered formula:
 `accsim.events` is the **clearly-labelled learning module** the roadmap permits for
 Phase 2: a from-scratch Monte-Carlo generator for `e+ e- → μ+ μ-` (tree-level QED,
 s-channel photon). *Orchestrate, don't rebuild* still governs physics-grade work —
-this is the current local realisation. The **one** probe run — `pip install
---dry-run pythia8` — proves only that **native-Windows pip has no `pythia8`
-wheel**, *not* that Pythia/MadGraph/Delphes are unavailable here: **WSL2**,
-**Docker**, and **conda-forge `pythia8`** are all untried. So Phase 2 acceptance
-clause (b) ("orchestrated pipeline runs end-to-end") is currently met **only** by
-the toy pipeline's rendered, labelled `cos θ` distribution
-(`plot_angular_distribution`), not the real chain — flagged, not glossed. Whether
-to build the real chain (via WSL/Docker) or accept the toy as terminal is a user
-decision.
+the toy is the analytically-gated half (clause a). The **real** orchestration
+(clause b) is met separately by `pipelines/ee_mumu_pythia/` — Pythia8 8.3 in the
+`hepstore/rivet-pythia` Docker image, driven end-to-end (`run_pipeline.py`) to a
+labelled `cos θ` distribution; see that dir's README. Docker is used because
+Pythia/Delphes don't build natively on Win/Py3.14 (no Windows pip/conda `pythia8`;
+native-Windows pip finds no wheel), and a bind mount is avoided (spaced path) via
+`docker cp`. The two halves are complementary: the toy is pinned to `4πα²/(3s)`;
+the Pythia μ⁻ spectrum is compared to `1+cos²θ` only qualitatively (γ*/Z
+interference + all-flavour σ + fixed √s make it richer than the toy).
 
 - **Natural units, local to the module.** `accsim.events` works in `ħ = c = 1`,
   GeV — the universal cross-section convention — *unlike* the SI/eV beam-dynamics
