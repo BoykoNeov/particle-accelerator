@@ -300,7 +300,7 @@ research-grade and out of scope** unless explicitly requested.
   `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
   cavities / dynamic aperture remain out of scope.
 
-## Phase 2 (optional) — Collision event physics ✅ TOY PATH COMPLETE (orchestration blocked)
+## Phase 2 (optional) — Collision event physics ✅ TOY PATH COMPLETE (real orchestration: user decision pending)
 
 **Do not rebuild event generators.** Orchestrate the established chain: event
 generator (Pythia / MadGraph) → fast detector sim (Delphes) → analysis in the
@@ -319,12 +319,16 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
     2-body volume and `4πα²/(3s)` σ are sympy-derived, not remembered
     (`tests/analytic/test_toy_generator.py`). Process chosen leptonic (**no PDFs**)
     to keep the analytic gate clean. See CONVENTIONS.md → *Toy event generator*.
-  - ⚠️ **Real orchestration (acceptance clause b) — BLOCKED on this host.**
-    Pythia/MadGraph/Delphes do not build on Windows/Python 3.14 (`pip` finds no
-    `pythia8` distribution; the spaced project path breaks C++ HEP toolchains).
-    Clause (b) is met **only** by the toy pipeline's labelled `cos θ` distribution
-    (`ee_to_mumu_events`), not the real chain. The Pythia→Delphes orchestration and
-    a hadronic (PDF) extension are deferred, not delivered.
+  - ⚠️ **Real orchestration (acceptance clause b) — NOT ATTEMPTED (user decision pending).**
+    The only probe run was `pip install --dry-run pythia8`, which proves exactly
+    one thing: **native-Windows pip has no `pythia8` wheel.** It does **not** show
+    Pythia/MadGraph/Delphes are unavailable on this machine — the standard HEP
+    paths (**WSL2**, **Docker**, **conda-forge `pythia8`**) are all untried. Clause
+    (b) is currently met **only** by the toy pipeline's rendered, labelled `cos θ`
+    distribution (`ee_to_mumu_events` + `plot_angular_distribution`), not the real
+    chain. Whether to pursue the real Pythia→Delphes chain (via WSL/Docker) or
+    accept the toy as the terminal Phase 2 deliverable is a **user decision**, so
+    Phase 2 is **not** marked fully ✅ on the strength of the toy alone.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

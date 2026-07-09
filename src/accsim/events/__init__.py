@@ -34,6 +34,7 @@ from .kinematics import (
 )
 from .matrix_element import ALPHA_EM, EEtoMuMu
 from .phase_space import RamboResult, massless_phase_space_volume, rambo
+from .plotting import plot_angular_distribution
 
 __all__ = [
     "ALPHA_EM",
@@ -45,6 +46,7 @@ __all__ = [
     "ee_to_mumu_cross_section",
     "ee_to_mumu_events",
     "gev2_to_barn",
+    "plot_angular_distribution",
     "invariant_mass_squared",
     "mandelstam_s",
     "mandelstam_t",

@@ -45,5 +45,8 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 
-# xtrack JIT-kernel spills (hex-named C sources dropped in CWD on first compile)
-[0-9a-f]*.c
+# xtrack JIT-kernel spills: 32-hex-char C sources dropped in the repo root (CWD)
+# on first kernel compile. Anchored to root and pure-Python repo, so this can't
+# hide a real source file; the glob is still broader than "hex-only 32 chars"
+# (globs lack quantifiers), which is harmless here since the repo has no .c files.
+/[0-9a-f]*.c

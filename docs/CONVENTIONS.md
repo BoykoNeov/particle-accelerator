@@ -717,11 +717,15 @@ remembered formula:
 `accsim.events` is the **clearly-labelled learning module** the roadmap permits for
 Phase 2: a from-scratch Monte-Carlo generator for `e+ e- → μ+ μ-` (tree-level QED,
 s-channel photon). *Orchestrate, don't rebuild* still governs physics-grade work —
-this is the local realisation because Pythia/MadGraph/Delphes do **not** build on
-this Windows/Python 3.14 host (`pip` finds no `pythia8` distribution; see
-[[spaced-project-path]]). So Phase 2 acceptance clause (b) ("orchestrated pipeline
-runs end-to-end") is met **only** by the toy pipeline's labelled `cos θ`
-distribution, not the real chain — flagged, not glossed.
+this is the current local realisation. The **one** probe run — `pip install
+--dry-run pythia8` — proves only that **native-Windows pip has no `pythia8`
+wheel**, *not* that Pythia/MadGraph/Delphes are unavailable here: **WSL2**,
+**Docker**, and **conda-forge `pythia8`** are all untried. So Phase 2 acceptance
+clause (b) ("orchestrated pipeline runs end-to-end") is currently met **only** by
+the toy pipeline's rendered, labelled `cos θ` distribution
+(`plot_angular_distribution`), not the real chain — flagged, not glossed. Whether
+to build the real chain (via WSL/Docker) or accept the toy as terminal is a user
+decision.
 
 - **Natural units, local to the module.** `accsim.events` works in `ħ = c = 1`,
   GeV — the universal cross-section convention — *unlike* the SI/eV beam-dynamics

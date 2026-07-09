@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pytest
 import sympy as sp
 
 from accsim.events import (
@@ -197,3 +198,17 @@ def test_generator_determinism_and_labelled_distribution() -> None:
     n = len(dist.counts)
     central = dist.counts[n // 2 - 1] + dist.counts[n // 2]
     assert outer > central
+
+
+def test_angular_distribution_renders_a_figure() -> None:
+    """Clause (b) literal deliverable: the pipeline *produces* a labelled distribution."""
+    mpl = pytest.importorskip("matplotlib")
+    mpl.use("Agg")  # headless
+    from accsim.events import plot_angular_distribution
+
+    _, dist = ee_to_mumu_events(10.0, 20_000, np.random.default_rng(5), n_bins=16)
+    ax = plot_angular_distribution(dist)
+    # A real Axes came back, the histogram bars are drawn, and it is labelled.
+    assert ax.get_xlabel() != ""
+    assert ax.get_title() == dist.label
+    assert len(ax.patches) == len(dist.counts)
