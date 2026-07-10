@@ -300,6 +300,51 @@ research-grade and out of scope** unless explicitly requested.
   `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
   cavities / dynamic aperture remain out of scope.
 
+## Stage 7 — Synchrotron radiation & radiation damping ✅ COMPLETE
+
+The radiation the beam emits on its curved orbit: energy loss, the damping it
+produces (transverse and longitudinal), and the quantum excitation that balances it
+into an equilibrium emittance and energy spread. Delivered as `src/accsim/radiation.py`
+(baseline core physics — numpy only, **not** gated). This was expansion axis **B1**,
+chosen 2026-07-11.
+
+- **Acceptance:** Robinson's theorem `J_x + J_y + J_z = 4` holds exactly; the
+  isomagnetic energy-loss / integral closed forms match; the equilibrium emittance and
+  energy spread scale as `γ²` / `γ`; and the whole set cross-checks against xtrack's
+  radiation twiss. ✅ **MET** — `tests/analytic/test_radiation.py` (11 gates) and
+  `tests/reference/test_radiation_xtrack.py`.
+
+**Progress:**
+- ✅ **Radiation integrals `I1..I5`** — `radiation_integrals(lattice)`
+  (`RadiationIntegrals` dataclass), reusing the thick-dipole dispersion sub-slicing of
+  `momentum_compaction` and the β-transport of `natural_chromaticity`. Pure sector
+  bends (no combined-function gradient, no pole-face edge — Stage-1 scope), so
+  `I4 = ∮ D_x h³ ds` and `I5 = ∮ curlyH |h|³ ds` with the dispersion invariant
+  `curlyH = γ_x D_x² + 2α_x D_x D_x' + β_x D_x'²`. `I1 == α_c·C` is the independent
+  within-baseline check on the dispersion transport; slice-converged.
+- ✅ **Energy loss + partition numbers + damping times** — `energy_loss_per_turn`
+  `U0 = (C_γ/2π)E⁴I2`; `damping_partition_numbers` `(1−I4/I2, 1, 2+I4/I2)` (Robinson
+  exact by construction); `damping_times` `τ_i = 2E·T0/(J_i U0)` (**amplitude**
+  convention — retroactively completes Stage 4, whose `quantum_lifetime` took the
+  damping time as an input and can now source it from the lattice). Constants
+  `C_γ = 4π r0/(3(mc²)³)`, `C_q = (55/32√3)ħc/(mc²)` computed from the reference species
+  (electron `8.846e-5 m/GeV³`, `3.832e-13 m`).
+- ✅ **Equilibrium emittance + energy spread** — `equilibrium_emittance`
+  `ε_x = C_q γ² I5/(J_x I2)` (geometric); `equilibrium_energy_spread`
+  `σ_δ = √(C_q γ² I3/(J_z I2))`. `I5` (curly-H) has **no clean absolute closed form**,
+  so its analytic gate is the energy **scaling** (`ε_x ∝ γ²`, `σ_δ ∝ γ`, machine
+  precision, since the integrals are pure geometry) + the xtrack absolute — stated as
+  the gate, not a loosened tolerance (mirrors the Phase-2 A_FB magnitude handling).
+- ✅ **xtrack cross-check** — `U0` and the convention-invariant `τ_y` match to
+  `1e-4`/`2e-3`; `α_c`(=I1) to `1e-7`. Partition numbers (~1%) and `ε_x` (~3-4%) agree
+  within a **documented** tolerance: accsim uses the textbook MAD-X/Sands pure-sector
+  `I4`/`I5`, xtrack's `Bend` adds a curvature correction from its exact body map (since
+  `I1`/`I2` match to `1e-6`, the residual is squarely that integrand convention). See
+  CONVENTIONS.md → *Synchrotron radiation / radiation damping*.
+- **Flat-lattice scope:** `J_y ≡ 1` and equilibrium `ε_y ≈ 0` (no vertical bending or
+  betatron coupling). Combined-function damping partition, edge/coupling `ε_y`, and
+  intra-beam effects remain out of scope.
+
 ## Phase 2 (optional) — Collision event physics — both clauses + Delphes + hadronic Drell-Yan + Collins-Soper A_FB done
 
 > **Milestone status:** clause (a) is analytically **met** (toy), clause (b) is
@@ -414,14 +459,11 @@ sustained arc.
 
 ### B. Synchrotron radiation & radiation damping — a real "Stage 7" (accelerator core)
 
-- **B1 — radiation integrals, damping, equilibrium emittance.** [M] ⭐ The one genuine
-  piece of physics *missing* from the beam-dynamics arc. Synchrotron-radiation integrals
-  `I₁…I₅`, damping times, partition numbers, quantum excitation → **equilibrium emittance**
-  and energy spread. **Gates:** Robinson's theorem `J_x + J_y + J_z = 4`; the
-  closed-form damping-time and equilibrium-emittance formulae; xtrack cross-check.
-  **Payoff:** retroactively completes Stage 4 — `quantum_lifetime` currently takes the
-  amplitude damping time as a hand-fed input; B1 would *compute* it from the lattice,
-  making it self-contained. Most "physics-correct-codebase"-satisfying addition available.
+- **B1 — radiation integrals, damping, equilibrium emittance.** ✅ **DONE (2026-07-11)** —
+  delivered as **Stage 7** (`src/accsim/radiation.py`); see the Stage 7 section above.
+  Robinson exact, isomagnetic/energy-loss closed forms, `ε_x ∝ γ²` / `σ_δ ∝ γ` scaling,
+  and the xtrack radiation cross-check all met; it completes Stage 4's `quantum_lifetime`
+  (now sources the amplitude damping time from the lattice).
 
 ### C. Collider / beam-beam deepening (items explicitly deferred in Stage 6)
 

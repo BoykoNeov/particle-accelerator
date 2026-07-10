@@ -601,9 +601,48 @@ The MFPT solution is verified against its backward equation symbolically (residu
 `= −1`) and the closed form matches the exact integral to `O(1/ξ)` (error halves as
 `ξ` doubles). **Factor-of-2 convention:** `τ_d` is the **amplitude** damping time
 (amplitude `∝ e^{−t/τ_d}`); the emittance damps twice as fast (`τ_ε = τ_d/2`), so if
-you hold `τ_ε` pass `2·τ_ε`. `τ_d` is a caller input — accsim has no radiation model
-until Stage 5+. `ξ = A²/2σ²` shares its `·/2σ²` structure with the circular
-transmission formula (same aperture-to-sigma ratio governs both).
+you hold `τ_ε` pass `2·τ_ε`. `τ_d` was a caller input at Stage 4; **as of Stage 7 it
+is computable from the lattice** — `radiation.damping_times(lattice)` returns exactly
+this amplitude damping time (same convention, so they compose without a stray 2).
+`ξ = A²/2σ²` shares its `·/2σ²` structure with the circular transmission formula
+(same aperture-to-sigma ratio governs both).
+
+## Synchrotron radiation / radiation damping (Stage 7 — implemented)
+
+`src/accsim/radiation.py` (baseline core physics, **not** gated). Five lattice
+integrals (Sands, SLAC-121) and the damping/equilibrium quantities they feed, in **SI**
+(eV, m, s): so `C_γ` is in `m/eV³`, `U0` in eV, `C_q` in m.
+
+- **Integrals** `radiation_integrals(lattice) → RadiationIntegrals(I1..I5)`:
+  `I1 = ∮ D_x h ds` (`= α_c·C`), `I2 = ∮ h² ds`, `I3 = ∮ |h|³ ds`, `I4 = ∮ D_x h³ ds`,
+  `I5 = ∮ curlyH |h|³ ds` with `curlyH = γ_x D_x² + 2α_x D_x D_x' + β_x D_x'²`. `h = 1/ρ`
+  is signed; `I3`/`I5` use `|h|³` (excitation is bend-sign-blind), `I4` keeps `h³`'s
+  sign. Reuses the thick-dipole dispersion sub-slicing of `momentum_compaction`; `I5`
+  additionally **co-transports `β_x,α_x`** through the dipole body (the one bug-prone
+  spot). Slice-converged (64 ≡ 1024 to 6 digits).
+- **Pure-sector-bend `I4`/`I5`.** Dipoles are pure sector bends (no combined-function
+  gradient, no pole-face edge — Stage-1 scope), so the `2k1` body term and the
+  `−D_x h² tan(edge)` face term both vanish. This is the **textbook MAD-X/Sands**
+  definition. xtrack's `Bend` adds a small curvature correction from its exact body map,
+  so `I4`/`I5` (hence partition numbers ~1%, `ε_x` ~3-4%) differ from xtrack at that
+  level while `I1`/`I2`/`U0` match to `1e-6` — a documented integrand-convention
+  difference, not a bug (`tests/reference/test_radiation_xtrack.py`).
+- **Constants (species-general, from the reference particle):**
+  `C_γ = 4π r0/(3(mc²)³)`, `C_q = (55/32√3)·ħc/(mc²)` with `ħc = 1.9732698045e-7 eV·m`.
+  Electron: `8.846e-5 m/GeV³`, `3.832e-13 m` (pinned symbolic-rational + numeric).
+- **Energy loss** `U0 = (C_γ/2π)E⁴ I2` [eV] (isomagnetic `= C_γ E⁴/ρ`, the 88.5 keV
+  formula). **Partition numbers** `(J_x,J_y,J_z) = (1−I4/I2, 1, 2+I4/I2)`; Robinson
+  `J_x+J_y+J_z = 4` is exact by construction — the structural gate. **Damping times**
+  `τ_i = 2E·T0/(J_i U0)` [s], `T0 = C/(β0 c)` — the **amplitude** damping time (action/
+  emittance damp at `τ_i/2`); matches Stage-4 `quantum_lifetime`'s input convention.
+- **Equilibrium** `ε_x = C_q γ² I5/(J_x I2)` (**geometric** m·rad; ×β0γ0 for normalized)
+  and `σ_δ = √(C_q γ² I3/(J_z I2))`. No clean absolute closed form for `ε_x` (curly-H),
+  so its analytic gate is the **energy scaling** (`ε_x ∝ γ²`, `σ_δ ∝ γ` to machine
+  precision — the integrals are pure geometry) + the xtrack absolute; stated as the
+  gate, not a loosened tolerance (as with the Phase-2 A_FB magnitude).
+- **Flat-lattice scope:** `J_y ≡ 1` and equilibrium `ε_y ≈ 0` (no vertical bending or
+  betatron coupling — real rings set `ε_y` by coupling/vertical dispersion, out of
+  scope).
 
 ## Luminosity (Stage 6 — implemented)
 
