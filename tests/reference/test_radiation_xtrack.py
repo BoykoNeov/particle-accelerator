@@ -18,16 +18,19 @@ the ones that do:
   and the ``2 E T0`` assembly against an external code. xtrack's own
   ``momentum_compaction_factor`` also matches accsim's ``I1`` to ~1e-7 (checked in
   ``test_momentum_compaction_xtrack.py``), so the dispersion transport is identical.
-- **Looser (bend-body convention): partition numbers ``J_x``/``J_z`` (~1-2%) and the
-  equilibrium emittance ``eps_x`` (~3-4%).** These flow from ``I4 = ∮ D_x h^3 ds`` and
-  ``I5 = ∮ curlyH |h|^3 ds``. accsim uses the **textbook pure-sector-bend** definitions
-  (MAD-X/Sands: no combined-function ``2 k1`` term, no pole-face edge term — accsim's
-  documented dipole scope), whereas xtrack's ``Bend`` evaluates the integrals over its
-  exact curved-body map, which adds a small curvature correction. Since ``I1`` and
-  ``I2`` match to 1e-6 while ``I4`` differs ~1.4%, the residual is squarely this
-  integrand convention, **not** a dispersion or numerics error (accsim's integrals are
-  slice-converged). The agreement confirms the right magnitude, sign, and scaling; the
-  exact absolute is pinned by the analytic definitions, not this tolerance.
+- **Looser (different method): partition numbers ``J_x``/``J_z`` (~1-2%) and the
+  equilibrium emittance ``eps_x`` (~3-4%).** accsim computes these from the standard
+  **radiation-integral formulae** (``J = 1 -/+ I4/I2``, ``eps_x = C_q gamma^2 I5/(J_x
+  I2)``). xtrack's ``radiation_analysis`` instead computes them from the **damped
+  one-turn-map eigen/envelope analysis** — it does *not* expose radiation integrals at
+  all (``tw`` has no ``rad_int*`` attributes). The two methods coincide in the weak-
+  bending limit but differ at the 1-3% level in a ring this strong (``I4/I2 ~ 0.38``,
+  ~5x a normal ring). This is **not** an accsim error: accsim's ``I5`` is independently
+  pinned within the baseline against ``propagate_twiss`` (xtrack-validated Twiss) to
+  1e-6, ``I4 = h^2 alpha_c C`` to 1e-10, and ``I1``/``I2`` match xtrack to 1e-6 — so the
+  integrals are right; the residual is integral-formula vs exact-eigenanalysis. The
+  cross-check confirms magnitude, sign, and scaling; the absolute is pinned by the
+  analytic gates, not this tolerance.
 """
 
 from __future__ import annotations
@@ -118,16 +121,16 @@ def test_radiation_matches_xtrack() -> None:
     assert tau_y == pytest.approx(2.0 * e * t0 / u0, rel=1e-10)  # accsim self-consistent
     assert tau_y == pytest.approx(xt_tau[1], rel=2e-3)  # and matches xtrack
 
-    # --- Looser tier: bend-body I4/I5 convention (documented in the module docstring). ---
+    # --- Looser tier: integral-formulae vs xtrack's damped-map eigenanalysis (docstring). ---
     jx, jy, jz = damping_partition_numbers(ring)
     xt_jx, xt_jy, xt_jz = tw.partition_numbers
     assert jy == pytest.approx(xt_jy, rel=1e-4)  # both exactly 1
-    assert jx == pytest.approx(xt_jx, abs=0.01)  # ~1% (I4 sector-bend convention)
+    assert jx == pytest.approx(xt_jx, abs=0.01)  # ~1% (method difference, strong ring)
     assert jz == pytest.approx(xt_jz, abs=0.01)
     assert tau_x == pytest.approx(xt_tau[0], rel=2e-2)
     assert tau_z == pytest.approx(xt_tau[2], rel=2e-2)
 
     # Equilibrium geometric horizontal emittance — right magnitude/scaling; the ~3-4%
-    # residual is the I5 curly-H bend convention (see docstring).
+    # residual is the integral-formula vs eigen-analysis method difference (see docstring).
     eps_x = equilibrium_emittance(ring)
     assert eps_x == pytest.approx(tw.eq_gemitt_x, rel=4e-2)

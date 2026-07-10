@@ -622,11 +622,15 @@ integrals (Sands, SLAC-121) and the damping/equilibrium quantities they feed, in
   spot). Slice-converged (64 ≡ 1024 to 6 digits).
 - **Pure-sector-bend `I4`/`I5`.** Dipoles are pure sector bends (no combined-function
   gradient, no pole-face edge — Stage-1 scope), so the `2k1` body term and the
-  `−D_x h² tan(edge)` face term both vanish. This is the **textbook MAD-X/Sands**
-  definition. xtrack's `Bend` adds a small curvature correction from its exact body map,
-  so `I4`/`I5` (hence partition numbers ~1%, `ε_x` ~3-4%) differ from xtrack at that
-  level while `I1`/`I2`/`U0` match to `1e-6` — a documented integrand-convention
-  difference, not a bug (`tests/reference/test_radiation_xtrack.py`).
+  `−D_x h² tan(edge)` face term both vanish — the **textbook MAD-X/Sands** definition.
+  `I4` is pinned within-baseline by the isomagnetic identity `I4 = h²·α_c·C`; `I5`
+  (curly-H, on the new β/α co-transport) is pinned by an independent `propagate_twiss`
+  integration to `1e-6`. So the integrals are validated. xtrack's `radiation_analysis`
+  computes `ε_x`/partition numbers by a **different method** — the damped one-turn-map
+  eigen/envelope analysis, **not** radiation integrals (it exposes none) — so it differs
+  ~1% (partitions) / ~3-4% (`ε_x`) in this strong ring (`I4/I2≈0.38`, ~5× normal) while
+  `I1`/`I2`/`U0` match to `1e-6`. Integral-formula vs exact-eigenanalysis, not a bug
+  (`tests/reference/test_radiation_xtrack.py`).
 - **Constants (species-general, from the reference particle):**
   `C_γ = 4π r0/(3(mc²)³)`, `C_q = (55/32√3)·ħc/(mc²)` with `ħc = 1.9732698045e-7 eV·m`.
   Electron: `8.846e-5 m/GeV³`, `3.832e-13 m` (pinned symbolic-rational + numeric).

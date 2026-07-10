@@ -1,30 +1,30 @@
-r"""Analytic gates — synchrotron radiation & radiation damping (Stage 7, commit 1).
+r"""Analytic gates — synchrotron radiation & radiation damping (Stage 7).
 
-Radiation integrals ``I1..I4`` and the damping quantities built on them, on a
-periodic **isomagnetic** ring (all bends the same ``|rho|``, total bend ``2*pi``).
-The gates, ordered so a wrong integrand can't hide:
+Radiation integrals ``I1..I5``, the damping quantities, and the equilibrium
+emittance/energy spread, on a periodic **isomagnetic** ring (all bends the same
+``|rho|``, total bend ``2*pi``). The gates, ordered so a wrong integrand can't hide:
 
   1. **Robinson's theorem** ``J_x + J_y + J_z = 4`` — an exact algebraic identity for
      *any* lattice (the ``I4/I2`` cancels), machine precision. The structural gate.
   2. **Isomagnetic closed forms** ``I2 = 2*pi/rho`` and ``I3 = 2*pi/rho^2`` (a
      restatement of total-bend ``= 2*pi`` + isomagnetic) — pins the ``h^2`` / ``|h|^3``
      integrands and the arc-length weighting.
-  3. ``I1 == alpha_c * C`` — an **independent within-baseline** check of the
-     dispersion transport (``momentum_compaction`` computes the same ``∮ D_x h ds`` by a
-     path this reuses, but it is separately validated vs the symplecticity identity
-     and xtrack in ``test_momentum_compaction.py``).
-  4. **Energy loss** ``U0 = C_gamma * E^4 / rho`` (isomagnetic) — the ``88.5 keV``
+  3. ``I1 == alpha_c * C`` and (isomagnetic) ``I4 == h^2 * alpha_c * C`` — pin ``I1``
+     and ``I4`` within the baseline against the validated ``momentum_compaction``.
+  4. ``I5`` **vs an independent ``propagate_twiss`` integration** — the one integral on
+     the new beta/alpha co-transport, so it is anchored (not just gamma-scaled) by
+     re-integrating curly-H over a pre-sliced ring with the xtrack-validated Twiss.
+  5. **Energy loss** ``U0 = C_gamma * E^4 / rho`` (isomagnetic) — the ``88.5 keV``
      electron formula; pins ``C_gamma`` and the ``I2`` assembly together.
-  5. **Constants** ``C_gamma``, ``C_q`` — the exact rational coefficients (``4*pi/3``,
-     ``55/(32*sqrt3)``) pinned symbolically (sympy, tight), and the assembled constants
-     pinned against the textbook electron values ``8.846e-5 m/GeV^3`` / ``3.832e-13 m``
-     (loose — those are rounded). Symbolic pins the factor, numeric pins the units.
-  6. **Damping times** ``tau_i = 2 E T0 / (J_i U0)`` — the common-factor invariant
-     ``tau_x J_x = tau_y J_y = tau_z J_z`` and ``tau_y = 2 E T0 / U0`` (``J_y = 1``),
-     pinning the ``2`` and the revolution period.
-
-There is **no** clean absolute closed form for the equilibrium emittance (``I5``); it
-is gated separately by energy-scaling + xtrack in commit 2.
+  6. **Constants** ``C_gamma``, ``C_q`` — the exact rational coefficients (``4*pi/3``,
+     ``55/(32*sqrt3)``) pinned symbolically (sympy, tight) + the textbook electron
+     values (loose — rounded). Symbolic pins the factor, numeric pins the units.
+  7. **Damping times** ``tau_i = 2 E T0 / (J_i U0)`` — the common-factor invariant
+     ``tau_x J_x = tau_y J_y = tau_z J_z`` and ``tau_y = 2 E T0 / U0`` (``J_y = 1``).
+  8. **Equilibrium** — the integrals are energy-independent geometry, so ``eps_x ∝
+     gamma^2`` and ``sigma_delta ∝ gamma`` to machine precision (the scaling gate; there
+     is no clean absolute closed form for ``eps_x`` — the absolute is anchored by gate 4
+     within-baseline and by xtrack in ``tests/reference/``).
 """
 
 from __future__ import annotations
@@ -39,10 +39,13 @@ from accsim import (
     Lattice,
     ReferenceParticle,
     ThinQuadrupole,
+    closed_twiss,
     momentum_compaction,
+    propagate_twiss,
 )
 from accsim.radiation import (
     HBAR_C_EV_M,
+    _curly_h,
     damping_partition_numbers,
     damping_times,
     energy_loss_per_turn,
@@ -94,12 +97,56 @@ def test_isomagnetic_I2_I3() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Gate 3 — I1 equals alpha_c * C (independent dispersion-transport path).
+# Gate 3 — I1 and I4 pinned to alpha_c * C within the baseline.
 # ---------------------------------------------------------------------------
 def test_I1_matches_momentum_compaction() -> None:
     ring = _electron_ring()
     ri = radiation_integrals(ring)
     assert ri.i1 == pytest.approx(momentum_compaction(ring) * ring.length, rel=1e-10)
+
+
+def test_I4_isomagnetic_equals_h2_alpha_c_C() -> None:
+    # Isomagnetic (single |h|): I4 = ∮ D_x h^3 ds = h^2 ∮ D_x h ds = h^2 * alpha_c * C.
+    # Pins I4 within the baseline via the validated I1 = alpha_c * C (so the partition
+    # numbers rest on a validated integral, not just Robinson's structural identity).
+    ring = _electron_ring()
+    ri = radiation_integrals(ring)
+    h = ANGLE / L_BEND
+    assert ri.i4 == pytest.approx(h**2 * momentum_compaction(ring) * ring.length, rel=1e-10)
+
+
+def test_I5_matches_independent_propagate_twiss_integration() -> None:
+    # I5 is the one integral riding on the NEW beta/alpha co-transport through the
+    # dipole body, and curly-H varies through the bend so it does NOT reduce to a
+    # validated factor times I1 (unlike I4). Independent within-baseline check: build
+    # the ring with each dipole pre-sliced into K REAL sub-dipoles, get (beta, alpha,
+    # D, D') at every sub-boundary from propagate_twiss (validated vs xtrack Twiss to
+    # 1e-14), trapezoid-integrate curly_H |h|^3 over the dipoles, and compare to
+    # radiation_integrals().i5. A match proves the co-transported optics equal
+    # propagate_twiss's, so I5's absolute value is anchored (not only its gamma scaling).
+    k = 64
+    ref = ReferenceParticle.from_total_energy(ELECTRON_MASS_EV, 1.0e9)
+    sub_cell = [
+        ThinQuadrupole(0.5 / F_FOCAL),
+        *[Dipole(L_BEND / k, ANGLE / k) for _ in range(k)],
+        ThinQuadrupole(-1.0 / F_FOCAL),
+        *[Dipole(L_BEND / k, ANGLE / k) for _ in range(k)],
+        ThinQuadrupole(0.5 / F_FOCAL),
+    ]
+    sliced = Lattice(sub_cell * N_CELLS, ref=ref)
+    pts = propagate_twiss(sliced, closed_twiss(sliced))  # len(elements)+1 boundaries
+    h = ANGLE / L_BEND
+    ds = L_BEND / k
+    i5_indep = 0.0
+    for i, elem in enumerate(sliced.elements):
+        if isinstance(elem, Dipole) and elem.angle != 0.0:
+            h0 = _curly_h(pts[i].beta_x, pts[i].alpha_x, pts[i].disp_x, pts[i].disp_px)
+            h1 = _curly_h(
+                pts[i + 1].beta_x, pts[i + 1].alpha_x, pts[i + 1].disp_x, pts[i + 1].disp_px
+            )
+            i5_indep += abs(h) ** 3 * 0.5 * (h0 + h1) * ds  # composite trapezoid
+    i5_code = radiation_integrals(_electron_ring(1.0e9)).i5
+    assert i5_indep == pytest.approx(i5_code, rel=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +237,9 @@ def test_integrals_are_energy_independent_geometry() -> None:
     # geometry, not accidentally energy-coupled).
     lo = radiation_integrals(_electron_ring(0.7e9))
     hi = radiation_integrals(_electron_ring(2.1e9))
-    for a, b in zip((lo.i1, lo.i2, lo.i3, lo.i4, lo.i5), (hi.i1, hi.i2, hi.i3, hi.i4, hi.i5)):
+    for a, b in zip(
+        (lo.i1, lo.i2, lo.i3, lo.i4, lo.i5), (hi.i1, hi.i2, hi.i3, hi.i4, hi.i5), strict=True
+    ):
         assert a == pytest.approx(b, rel=1e-12)
 
 

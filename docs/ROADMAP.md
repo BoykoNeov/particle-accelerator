@@ -336,11 +336,12 @@ chosen 2026-07-11.
   precision, since the integrals are pure geometry) + the xtrack absolute — stated as
   the gate, not a loosened tolerance (mirrors the Phase-2 A_FB magnitude handling).
 - ✅ **xtrack cross-check** — `U0` and the convention-invariant `τ_y` match to
-  `1e-4`/`2e-3`; `α_c`(=I1) to `1e-7`. Partition numbers (~1%) and `ε_x` (~3-4%) agree
-  within a **documented** tolerance: accsim uses the textbook MAD-X/Sands pure-sector
-  `I4`/`I5`, xtrack's `Bend` adds a curvature correction from its exact body map (since
-  `I1`/`I2` match to `1e-6`, the residual is squarely that integrand convention). See
-  CONVENTIONS.md → *Synchrotron radiation / radiation damping*.
+  `1e-4`/`2e-3`; `α_c`(=I1) to `1e-7`. Partition numbers (~1%) and `ε_x` (~3-4%) differ
+  because xtrack's `radiation_analysis` uses the **damped one-turn-map eigenanalysis**,
+  not radiation integrals (it exposes none); the two methods differ at that level in this
+  strong ring (`I4/I2≈0.38`). accsim's integrals are independently pinned within-baseline
+  (`I4=h²α_c·C` to `1e-10`; `I5` vs a `propagate_twiss` integration to `1e-6`), so this is
+  a method difference, not a bug. See CONVENTIONS.md → *Synchrotron radiation*.
 - **Flat-lattice scope:** `J_y ≡ 1` and equilibrium `ε_y ≈ 0` (no vertical bending or
   betatron coupling). Combined-function damping partition, edge/coupling `ε_y`, and
   intra-beam effects remain out of scope.
