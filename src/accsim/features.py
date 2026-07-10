@@ -48,7 +48,7 @@ __all__ = [
 # The fixed set of known addon switches. Add a name here when — and only when —
 # real gated code lands behind it; do not scaffold empty flags for additions
 # that do not exist yet (one feature per change).
-KNOWN_ADDONS: frozenset[str] = frozenset({"pythia", "delphes"})
+KNOWN_ADDONS: frozenset[str] = frozenset({"pythia", "delphes", "lhapdf"})
 
 # Programmatic overrides: name -> bool. A name absent here falls back to the
 # environment. This is process-global state; tests reset it via an autouse

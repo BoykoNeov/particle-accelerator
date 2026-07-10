@@ -300,14 +300,16 @@ research-grade and out of scope** unless explicitly requested.
   `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
   cavities / dynamic aperture remain out of scope.
 
-## Phase 2 (optional) — Collision event physics — both clauses + Delphes detector step done (hadronic optional; user to close)
+## Phase 2 (optional) — Collision event physics — both clauses + Delphes + hadronic Drell-Yan done
 
 > **Milestone status:** clause (a) is analytically **met** (toy), clause (b) is
-> **demonstrated end-to-end** (real Pythia chain), and the canonical **Delphes**
-> fast-detector step is now **added** (`pipelines/ee_mumu_delphes/`, ILD @ 250 GeV,
-> truth-vs-reco). The remaining optional extension is a **hadronic (LHAPDF)
-> Drell-Yan** chain. Whether to mark this optional phase *closed* or add that
-> extension is a **user decision** — not marked ✅ unilaterally.
+> **demonstrated end-to-end** (real Pythia chain), the canonical **Delphes**
+> fast-detector step is **added** (`pipelines/ee_mumu_delphes/`, ILD @ 250 GeV,
+> truth-vs-reco), and the **hadronic (LHAPDF) Drell-Yan** extension — the last
+> named next step — is now **added** too (`pipelines/pp_mumu_drellyan/`, CMS @ 13 TeV,
+> real proton PDFs, truth-vs-reco Z peak). Every named Phase-2 deliverable is now
+> built; whether to mark this optional phase formally *closed* remains a **user
+> decision** — not marked ✅ unilaterally.
 
 **Do not rebuild event generators.** Orchestrate the established chain: event
 generator (Pythia / MadGraph) → fast detector sim (Delphes) → analysis in the
@@ -353,8 +355,22 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
     signal μ⁻ is isolated by an angle-neutral `|p| > 100 GeV` cut (status 23 is lost
     through the HepMC round-trip). Gated addon (`ACCSIM_ENABLE_DELPHES`). See
     `pipelines/ee_mumu_delphes/README.md` and CONVENTIONS.md → *Delphes detector step*.
-  - **Out of scope (deliberately):** a hadronic (LHAPDF Drell-Yan) extension — the
-    remaining natural next step if wanted.
+  - ✅ **Hadronic Drell-Yan extension — ADDED (`pipelines/pp_mumu_drellyan/`).** The
+    same generator→**fast detector sim**→analysis chain, now **hadronic**: Pythia8
+    `pp → γ*/Z → μ+μ-` at **√s = 13 TeV** with a **real LHAPDF6 proton PDF**
+    (`NNPDF31_lo_as_0118`, LO to match Pythia's LO ME; downloaded at run time) → **HepMC3**
+    → **Delphes 3.5.0** with the **CMS** card → a **truth-vs-reco** di-muon
+    invariant-mass spectrum. The deliverable is the canonical Drell-Yan **Z peak** at
+    `M_Z ≈ 91.19 GeV`: the truth peak *mode* recovers `M_Z` to ~1 GeV (with an FSR
+    low-side tail — not a clean Breit-Wigner), and the detector leaves two marks —
+    **reco ⊆ truth** (`acceptance × ε² ≈ 0.36`, both muons must be in CMS acceptance) and
+    a **modest peak broadening** (CMS muon momentum resolution, reco RMS > truth). The
+    honest cross-check is `σ(DY×BR, 60<m<120) ≈ 1.5 nb`, matching the measured LHC value
+    (~1.9 nb NNLO, LO ÷ K≈1.25) — a *real* PDF doing physical work. The resonance is
+    forced to `Z→μμ`, so no τ→μ contamination and no `|p|` cut (leading OS pair suffices);
+    `A_FB` is *not* claimed (needs the Collins-Soper frame — out of scope). Gated addon
+    (`ACCSIM_ENABLE_LHAPDF`). See `pipelines/pp_mumu_drellyan/README.md` and
+    CONVENTIONS.md → *Drell-Yan hadronic step*.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

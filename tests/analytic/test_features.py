@@ -102,4 +102,4 @@ def test_override_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_unknown_addon_is_rejected() -> None:
     for fn in (features.is_enabled, features.enable, features.disable, features.require):
         with pytest.raises(features.UnknownAddonError):
-            fn("lhapdf")  # not a known addon — no code behind it (typo guard)
+            fn("nonexistent")  # not a known addon — no code behind it (typo guard)

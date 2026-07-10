@@ -810,6 +810,59 @@ IRIS-HEP) runs `DelphesHepMC3` with the **ILD** card. We decouple through HepMC3
   beam backgrounds, jet/b-tag performance, and full ILD reco (Delphes features left
   unused — the deliverable is the muon channel truth-vs-reco).
 
+## Drell-Yan hadronic step (Phase 2 — hadronic extension)
+
+`pipelines/pp_mumu_drellyan/` is the **hadronic** analogue of the leptonic Delphes
+chain: the same Pythia8 → **HepMC3** → Delphes → analysis orchestration, but with a
+**real proton PDF (LHAPDF6)** in the initial state, so the partonic √ŝ is a
+*distribution* — the point of "with real PDFs". Process `WeakSingleBoson:ffbar2gmZ`
+(`q q̄ → γ*/Z → μ+μ-`, textbook Drell-Yan) at **√s = 13 TeV**, run through the Delphes
+**CMS** hadron-collider card. Gated addon (`ACCSIM_ENABLE_LHAPDF` /
+`features.require("lhapdf")`); see the dir's README.
+
+- **Why the 2→1 resonant process works here (it did *not* leptonically).** The
+  leptonic chains had to use the 2→2 continuum `ffbar2ffbar(s:gmZ)` because the 2→1
+  resonant `ffbar2gmZ` *underflows to zero* at a fixed partonic √s below the Z (its
+  Breit-Wigner integrates over a δ-function `mHat`). With protons the **PDFs spread
+  the partonic mHat across a continuum**, so `ffbar2gmZ` is exactly the right tool —
+  this is the concrete physics difference the PDFs make.
+- **Real LO PDF, downloaded at run time.** Default `NNPDF31_lo_as_0118`, member 0
+  (recorded in `meta.dat`). **LO** to match Pythia's LO matrix element. The image ships
+  LHAPDF *without* grids, so `run_pipeline.py` runs `lhapdf get <set>` first (clean
+  error on no network). ISR/FSR stay **on**; we do **not** set `PDF:lepton = off` (a
+  lepton-beam toggle, irrelevant to protons).
+- **Clean dimuon sample by forced decay — no `|p|` cut.** Because this is a *resonance*
+  process we force `23:onMode=off; 23:onIfMatch=13 -13` (`Z→μμ`), so the only prompt
+  muons *are* the signal pair — no τ→μ / heavy-flavour contamination, hence no
+  monochromatic-`|p|` trick (which the leptonic Delphes chain needed). Both truth and
+  reco take the **leading opposite-sign muon pair** (robust to >2 muons from FSR).
+- **Deliverable = the Z peak in `m(μμ)`, truth vs reco.** Invariant mass via
+  `TLorentzVector`: truth from the `Particle` branch `(Px,Py,Pz,E)`; reco from the
+  `Muon` branch via `SetPtEtaPhiM(PT,Eta,Phi,m_μ)`. Both from the **same** Delphes file
+  (`extract_mass.C`), so one population up to detector response.
+- **The truth peak is *not* a clean Breit-Wigner.** FSR pulls `m(μμ)` below the pole →
+  a **low-side radiative tail**, so the truth peak *mode* recovers `M_Z ≈ 91.19` only
+  to ~1 GeV (a bin). Interpret mode, not a δ — this is physics, do not tighten to force
+  a sharp `M_Z`.
+- **The detector leaves two marks (this is a mass spectrum, so no acceptance *edge*).**
+  (1) **reco ⊆ truth** — both muons must be reconstructed inside CMS acceptance, so
+  `reco/truth = acceptance × ε² ≈ 0.36` (a 13 TeV Z is longitudinally boosted by the
+  PDF asymmetry, pushing one muon forward of `|η|<2.4`); a detector never *adds* muons.
+  (2) **reco peak broader than truth** — CMS momentum-resolution smearing (reco RMS >
+  truth RMS), but **modest** (excellent CMS muon resolution at `pT≈45 GeV` adds sub-GeV
+  on top of `Γ_Z≈2.49 GeV`).
+- **The honest cross-check is σ, not the (semi-circular) peak position.**
+  `σ(DY×BR(Z→μμ), 60<m<120) ≈ 1.5 nb` at 13 TeV, matching the measured LHC value
+  (~1.9 nb NNLO per flavour; LO ÷ K≈1.25) — a *real global-fit PDF* convolved with the
+  LO ME doing physical work. The magnitude also settles a convention: `sigmaGen()` here
+  is production σ **times** BR (the μ-channel σ in the window), not the full production
+  σ. No analytic pin (a fast-sim response is not a closed form).
+- **`A_FB` is deliberately NOT measured.** Hadronic DY `A_FB` needs the **Collins-Soper**
+  frame + quark-direction **dilution** (`pp` does not fix the quark direction) —
+  research-grade, out of scope. Contrast the leptonic 250 GeV chain, which *does* measure
+  `A_FB` (the `e⁻` direction is known). Also out of scope: pile-up, NLO/NNLO + K-factors,
+  PDF-uncertainty bands, jet/b-tag. See `pipelines/pp_mumu_drellyan/README.md`.
+
 ## Feature switches (optional addons — implemented)
 
 **The rule:** the pure-Python **baseline** — the accelerator optics/tracking core
@@ -821,8 +874,8 @@ behind an explicit **runtime switch, default OFF** (`accsim.features`). This is 
 standing project contract, not a per-stage note.
 
 - **One source of truth, two surfaces.** `accsim.features` holds a fixed set of
-  known addon names (`KNOWN_ADDONS`, currently just `pythia`) and a
-  process-global override table. Both entry surfaces read it:
+  known addon names (`KNOWN_ADDONS = {pythia, delphes, lhapdf}` — one per real
+  gated pipeline) and a process-global override table. Both entry surfaces read it:
   - **In-package callers** guard the heavy entry point with
     `features.require("<name>")`, which raises `AddonDisabledError` (carrying the
     enable instruction) when off. Call it **before** importing the optional
@@ -843,10 +896,11 @@ standing project contract, not a per-stage note.
   (`tests/conftest.py`) calls `features.reset()` around every test for the same
   reason (the override table is process-global).
 - **No empty scaffolding.** A name enters `KNOWN_ADDONS` only when real gated code
-  lands behind it (one feature per change); `delphes`/`lhapdf` are *not* known
-  addons yet — `require("delphes")` raises `UnknownAddonError` (typo guard), not a
-  silent pass. Gated behavior (defaults OFF, baseline green with everything off,
-  `require` raises-off/passes-on, precedence) is pinned by
+  lands behind it (one feature per change): `pythia` (leptonic chains), `delphes`
+  (the ILD detector step), and `lhapdf` (the hadronic Drell-Yan chain) each front a
+  live pipeline. An *unknown* name still raises `UnknownAddonError` (typo guard),
+  not a silent pass. Gated behavior (defaults OFF, baseline green with everything
+  off, `require` raises-off/passes-on, precedence) is pinned by
   `tests/analytic/test_features.py` — behavioral, not a physics derivation.
 
 ## Symplecticity
