@@ -52,6 +52,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 GEN_SRC = HERE / "generate_hepmc.cc"
 KIN_MACRO = HERE / "extract_kinematics.C"
 ANALYZE = HERE / "analyze.py"
+ANALYZE_ANGULAR = HERE / "analyze_angular.py"
 
 GEN_IMAGE = "hepstore/rivet-pythia"
 DELPHES_IMAGE = "scailfin/delphes-python-centos:3.5.0"
@@ -180,6 +181,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--m-min", type=float, default=60.0, help="min m_hat [GeV] (Z window)")
     ap.add_argument("--m-max", type=float, default=120.0, help="max m_hat [GeV] (Z window)")
     ap.add_argument("--seed", type=int, default=20260710)
+    ap.add_argument(
+        "--angular-only",
+        action="store_true",
+        help="Lam-Tung fast path: run GEN + angular A0(q_T)/A2(q_T) analysis on the "
+        "generator truth only, SKIP Delphes (the moment inversion needs 4-pi "
+        "acceptance, so it is a truth-level observable — no detector step needed)",
+    )
     ap.add_argument("--gen-image", default=GEN_IMAGE)
     ap.add_argument("--delphes-image", default=DELPHES_IMAGE)
     ap.add_argument(
@@ -212,6 +220,7 @@ def main(argv: list[str]) -> int:
     truth_gen = out_dir / "truth_gen.dat"  # generator truth + true quark direction
     mass_png = out_dir / "drellyan_truth_vs_reco.png"
     afb_png = out_dir / "drellyan_afb_vs_mass.png"
+    angular_png = out_dir / "drellyan_lamtung_a0_a2.png"
 
     # Stage 1: generation container.
     cid = run(
@@ -223,6 +232,19 @@ def main(argv: list[str]) -> int:
         generate(cid, args, meta, hepmc, truth_gen)
     finally:
         subprocess.run(["docker", "rm", "-f", cid], stdout=subprocess.DEVNULL)
+
+    # Lam-Tung fast path: angular coefficients are a TRUTH-level (4-pi) observable,
+    # so skip Delphes entirely and analyse the generator truth four-vectors.
+    if args.angular_only:
+        proc = subprocess.run(
+            [sys.executable, str(ANALYZE_ANGULAR), str(truth_gen), str(angular_png), str(meta)],
+            text=True,
+        )
+        print(
+            f"\nPhase 2 (Drell-Yan Lam-Tung demo) done:\n"
+            f"  meta:  {meta}\n  truth_gen: {truth_gen}\n  angular plot: {angular_png}"
+        )
+        return proc.returncode
 
     # Stage 2: Delphes container (override entrypoint so it idles).
     cid = run(
@@ -258,10 +280,16 @@ def main(argv: list[str]) -> int:
         ],
         text=True,
     )
+    # Third deliverable: the Lam-Tung A0(q_T)/A2(q_T) angular coefficients, from the
+    # same generator-truth four-vectors (truth level, 4-pi — see analyze_angular.py).
+    subprocess.run(
+        [sys.executable, str(ANALYZE_ANGULAR), str(truth_gen), str(angular_png), str(meta)],
+        text=True,
+    )
     print(
         f"\nPhase 2 (hadronic Drell-Yan chain) done:\n"
         f"  meta:  {meta}\n  truth: {truth}\n  reco:  {reco}\n"
-        f"  mass plot:  {mass_png}\n  A_FB plot:  {afb_png}"
+        f"  mass plot:  {mass_png}\n  A_FB plot:  {afb_png}\n  Lam-Tung plot:  {angular_png}"
     )
     # analyze.py returns non-zero if the A_FB sign guard fails — surface it.
     return proc.returncode

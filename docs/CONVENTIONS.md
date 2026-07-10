@@ -948,8 +948,78 @@ pipeline and the container macro only feed it four-vectors.
   by below/above cancellation over the near-symmetric window — correct physics, *not*
   the headline; `A_FB(m)` binned is the deliverable.
 - **Out of scope (labelled):** the theory dilution-correction unfolding (recovering
-  parton-level `A_FB` from data without the generator truth), `sin²θ_W` extraction,
-  and the Collins-Soper *azimuthal* `φ*` / angular coefficients `A_0..A_7`.
+  parton-level `A_FB` from data without the generator truth) and `sin²θ_W` extraction.
+  The Collins-Soper *azimuthal* `φ*` and angular coefficients `A_0..A_7` were previously
+  out of scope; they are now **built** — see *DY angular coefficients A₀–A₇ & Lam–Tung*
+  below.
+
+## DY angular coefficients A₀–A₇ & Lam–Tung (Phase 2 — extends Collins-Soper A_FB)
+
+The full Drell-Yan lepton angular distribution in the Collins-Soper frame,
+decomposed into the eight coefficients `A₀..A₇`:
+
+```
+dσ/dΩ ∝ (1 + cos²θ) + A₀·½(1 − 3cos²θ) + A₁·sin2θ cosφ + A₂·½sin²θ cos2φ
+        + A₃·sinθ cosφ + A₄·cosθ + A₅·sin²θ sin2φ + A₆·sin2θ sinφ + A₇·sinθ sinφ
+```
+
+All frame physics stays in **one tested module** — `accsim.events` (pure numpy,
+always-on baseline); the gated pipeline only feeds it four-vectors.
+
+- **The CS angles `(cosθ*, φ*)` — `collins_soper_angles`.** The sibling of
+  `collins_soper_costheta`, adding the azimuth `φ*` by explicit frame construction:
+  boost `ℓ⁻,ℓ⁺` into the di-lepton rest frame, then build the CS axes — `ẑ_CS`
+  bisects beam1 and the reversed beam2 (the standard CS bisector), `ŷ_CS ∝ k̂₁ × k̂₂`
+  (normal to the production plane), `x̂_CS = ŷ_CS × ẑ_CS`. Then `cosθ* = ẑ_CS·ℓ̂⁻`,
+  `φ* = atan2(ŷ_CS·ℓ̂⁻, x̂_CS·ℓ̂⁻)`. Pinned to `collins_soper_costheta` to 2e-14 in the
+  massless limit (`tests/analytic/test_angular_coefficients.py`).
+- **Extraction by moment projection — `angular_coefficients`.** Each `Aᵢ = ⟨Pᵢ⟩`,
+  the solid-angle average of an orthogonal weight polynomial `Pᵢ(θ,φ)`:
+  `P₀ = 4 − 10cos²θ`, `P₁ = 5·sin2θ cosφ`, `P₂ = 10·sin²θ cos2φ`, `P₃ = 4·sinθ cosφ`,
+  `P₄ = 4·cosθ`, `P₅ = 5·sin²θ sin2φ`, `P₆ = 5·sin2θ sinφ`, `P₇ = 4·sinθ sinφ`. The
+  coefficients are **derived by symbolic closure** (⟨Pᵢ·(basis)⟩ = δ, norm 16π/3;
+  `test_angular_coefficients.py`), not memorised. **Requires 4π acceptance** — it is a
+  truth-level observable, so the pipeline analyses generator truth and **skips
+  Delphes** (`--angular-only`). Consistency anchor: `A_FB = 3/8·A₄`.
+- **Quark-flip parity.** Swapping the quark/antiquark direction sends
+  `cosθ* → −cosθ*`, `φ* → −φ*`; so `{A₀,A₂,A₃,A₆}` are parity-**even** (immune to the
+  `pp` sign(Q_z) dilution) and `{A₁,A₄,A₅,A₇}` are **odd** (diluted, like `A_FB`).
+  `A₀,A₂` and hence Lam–Tung are therefore robust to the `pp` proxy. Pinned in
+  `test_angular_coefficients.py`.
+- **The physics gate — the Lam–Tung relation `A₀ = A₂`.** *Dynamical* (the DY analog
+  of Callan–Gross `2xF₁ = F₂`): it follows from the spin-½ quark coupling, not from
+  kinematics or current conservation. **Exact at O(α_s), violated only at O(α_s²)** —
+  so it is a genuine closed-form gate. Proven in `tests/analytic/test_lam_tung.py`
+  from **explicit Dirac-γ matrices** (Dirac basis, metric `diag(+,−,−,−)`), no
+  remembered helicity constants:
+  - Build the production hadronic tensor `Wᵘᵛ` for single-parton emission via the two
+    Feynman diagrams (quark spin sums + gluon-polarisation sum `−g_αβ` as traces),
+    for **both** `qq̄→Vg` and the crossed `qg→Vq`; contract with the leptonic tensor
+    `Lᵘᵛ = Tr[l̸⁻γᵘl̸⁺γᵛ]` to get `dσ/dΩ`; project `A₀,A₂`.
+  - **Closed-form symbolic proof (`qq̄→Vg`):** on the gluon on-shell surface `k²=0`,
+    `A₀−A₂` vanishes because **`k²` divides the `A₀−A₂` numerator** (polynomial
+    remainder in `Q` is exactly 0). The `sinθ` solid-angle Jacobian is **required**
+    (dropping it gives an unphysical `A₀<0` — a bug caught during development).
+  - **Both channels** also confirmed to **~1e-14** by exact Gauss-Legendre quadrature
+    (the intensity is a bounded-degree trig polynomial → integrated exactly, no
+    Monte-Carlo ratio bias).
+  - Correctness anchors so a wrong `W` can't sneak through: `W` is real, symmetric and
+    V-current-conserved (`q_μ Wᵘᵛ = 0`), and the extracted `A₀` is a nonzero physical
+    (`0 ≤ A₀ ≤ 2`) number — so `A₀ = A₂` is not vacuous.
+- **Runtime note (symbolic proof kept always-run).** The naive route — `sp.cancel` on
+  the fully contracted rational intensity — takes **~2 h** (multivariate GCD) and
+  would break the always-green analytic suite. Two factorisations fix it to **~12 s**,
+  keeping the closed-form proof in the always-run tier: (i) `Wᵘᵛ` is θ,φ-independent,
+  so integrate the small leptonic basis once and contract after (linearity); (ii) each
+  `Wᵘᵛ` has the **known** common denominator `DA²·DB²`, so clear it to get pure
+  polynomial numerators (`A₀−A₂ = (P₀−P₂)/Pₙ`) and prove divisibility by polynomial
+  remainder — **no `cancel`/GCD**.
+- **The pipeline demo (`--angular-only`).** `run_pipeline.py --angular-only` runs GEN
+  only (Pythia8 + LHAPDF, gated `ACCSIM_ENABLE_LHAPDF`) and `analyze_angular.py` bins
+  `A₀(q_T)`/`A₂(q_T)` in the Z window `80<m<100`. Measured (13 TeV, 200k events):
+  `A₀` rises from ~0 at low `q_T` to `+0.225±0.029` at `q_T≈57` GeV, with `A₂`
+  tracking it within statistics; low-`q_T` `⟨|A₀−A₂|⟩ = 0.023 ± 0.019`
+  (`LAM-TUNG DEMO: PASS`). Both coefficients vanish as `q_T→0`, as expected.
 
 ## Feature switches (optional addons — implemented)
 

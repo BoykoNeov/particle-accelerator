@@ -26,6 +26,8 @@ from .generator import (
     gev2_to_barn,
 )
 from .kinematics import (
+    angular_coefficients,
+    collins_soper_angles,
     collins_soper_costheta,
     forward_backward_asymmetry,
     invariant_mass_squared,
@@ -45,6 +47,8 @@ __all__ = [
     "CrossSectionEstimate",
     "EEtoMuMu",
     "RamboResult",
+    "angular_coefficients",
+    "collins_soper_angles",
     "collins_soper_costheta",
     "ee_to_mumu_cross_section",
     "ee_to_mumu_events",

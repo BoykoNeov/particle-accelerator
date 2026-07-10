@@ -27,6 +27,8 @@ __all__ = [
     "mandelstam_t",
     "mandelstam_u",
     "collins_soper_costheta",
+    "collins_soper_angles",
+    "angular_coefficients",
     "forward_backward_asymmetry",
 ]
 
@@ -139,6 +141,182 @@ def collins_soper_costheta(
     else:
         orient = np.sign(np.asarray(quark_direction, dtype=np.float64))
     return raw * orient
+
+
+def _boost_to_rest(
+    p: npt.NDArray[np.float64], q: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]:
+    r"""Lorentz-boost four-vector(s) ``p`` into the rest frame of ``q`` (batched).
+
+    Both ``(..., 4)`` with matching leading shape (or ``q`` broadcastable to ``p``).
+    Pure active boost by ``-vec β`` with ``vec β = vec q / E_q``; where ``q`` is
+    already at rest (``|vec β| = 0``) the vector is returned unchanged.
+    """
+    p = np.asarray(p, dtype=np.float64)
+    q = np.asarray(q, dtype=np.float64)
+    e_q = q[..., 0]
+    q_vec = q[..., 1:]
+    m = np.sqrt(np.maximum(e_q**2 - np.sum(q_vec**2, axis=-1), 0.0))
+    beta = q_vec / e_q[..., None]  # (..., 3)
+    b2 = np.sum(beta**2, axis=-1)  # (...,)
+    gamma = np.where(m > 0.0, e_q / np.where(m > 0.0, m, 1.0), 1.0)
+
+    e_p = p[..., 0]
+    p_vec = p[..., 1:]
+    bp = np.sum(beta * p_vec, axis=-1)  # (...,)
+    safe_b2 = np.where(b2 > 0.0, b2, 1.0)
+    coeff = ((gamma - 1.0) * bp / safe_b2 - gamma * e_p)[..., None]
+    p_new = np.where(b2[..., None] > 0.0, p_vec + coeff * beta, p_vec)
+    return p_new
+
+
+def collins_soper_angles(
+    p_minus: npt.NDArray[np.float64],
+    p_plus: npt.NDArray[np.float64],
+    quark_direction: npt.NDArray[np.float64] | float | None = None,
+) -> tuple[npt.NDArray[np.float64] | float, npt.NDArray[np.float64] | float]:
+    r"""``(cos θ*, φ*)`` of the ``ℓ⁻`` in the **Collins–Soper frame**, by construction.
+
+    Unlike :func:`collins_soper_costheta` (a memorised-free but *closed-form*
+    massless-lepton projection), this builds the CS frame **explicitly** and
+    projects — the geometric route, which needs no closed form for the
+    error-prone azimuth ``φ*``. Both muons and the two beam directions are boosted
+    into the di-lepton rest frame; there the axes are
+
+    .. math::
+
+        \hat z_{\rm CS} = \widehat{\hat k_1 - \hat k_2}, \quad
+        \hat y_{\rm CS} = \widehat{\hat k_1 \times \hat k_2}, \quad
+        \hat x_{\rm CS} = \hat y_{\rm CS} \times \hat z_{\rm CS},
+
+    with ``k̂₁, k̂₂`` the boosted directions of beam 1 (``+ẑ`` in the lab) and beam 2
+    (``−ẑ``). ``ẑ_CS`` bisects beam 1 and the *reversed* beam 2 (the CS choice that
+    minimises ``Q_T`` sensitivity); ``ŷ_CS`` is normal to the beam plane; ``x̂_CS``
+    completes a right-handed triad and points along ``+Q_T``. Then
+
+    .. math::
+
+        \cos\theta^* = \hat p_{\ell^-}\cdot\hat z_{\rm CS}, \qquad
+        \varphi^* = \operatorname{atan2}(\hat p_{\ell^-}\cdot\hat y_{\rm CS},\;
+                                          \hat p_{\ell^-}\cdot\hat x_{\rm CS}),
+
+    with ``p̂`` the ``ℓ⁻`` direction in the rest frame. ``φ* ∈ (−π, π]``.
+
+    **Quark-direction orientation (``pp`` dilution).** As for
+    :func:`collins_soper_costheta`, the axis must be oriented by a proxy in a
+    symmetric ``pp`` collision. Swapping which beam is the "quark" side sends
+    ``ẑ_CS → −ẑ_CS`` and ``ŷ_CS → −ŷ_CS`` (``x̂_CS`` invariant), hence
+    ``cos θ* → −cos θ*`` and ``φ* → −φ*``. ``quark_direction=None`` (default) uses
+    ``sign(Q_z)``; a passed ``±1`` orients exactly (the undiluted parton-level
+    angles). This construction uses the **full lepton kinematics** (no ``m_ℓ → 0``
+    approximation): its ``cos θ*`` equals the massless closed form to ``O(β_ℓ)``,
+    pinned in ``tests/analytic/test_angular_coefficients.py``.
+
+    Four-vectors are ``(E, px, py, pz)`` in natural units (GeV); single ``(4,)`` or
+    batched ``(..., 4)``. Returns ``(cos θ*, φ*)`` with the matching shape.
+    """
+    p_minus = np.asarray(p_minus, dtype=np.float64)
+    p_plus = np.asarray(p_plus, dtype=np.float64)
+    q = p_minus + p_plus
+
+    # Lightlike beam reference directions in the lab (only their directions enter
+    # the CS axes, so unit lightlike vectors suffice — beam energy cancels).
+    beam_a = np.array([1.0, 0.0, 0.0, 1.0])  # beam 1, +ẑ (default quark side)
+    beam_b = np.array([1.0, 0.0, 0.0, -1.0])  # beam 2, −ẑ
+
+    def _unit(v: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        n = np.linalg.norm(v, axis=-1, keepdims=True)
+        return v / np.where(n > 0.0, n, 1.0)
+
+    k1 = _unit(_boost_to_rest(np.broadcast_to(beam_a, q.shape), q))
+    k2 = _unit(_boost_to_rest(np.broadcast_to(beam_b, q.shape), q))
+    z_cs = _unit(k1 - k2)
+    y_cs = _unit(np.cross(k1, k2))
+    x_cs = np.cross(y_cs, z_cs)  # already unit (ŷ ⟂ ẑ, both unit)
+
+    pm = _unit(_boost_to_rest(p_minus, q))
+    cos_theta = np.sum(pm * z_cs, axis=-1)
+    p_y = np.sum(pm * y_cs, axis=-1)
+    p_x = np.sum(pm * x_cs, axis=-1)
+
+    if quark_direction is None:
+        orient = np.sign(q[..., 3])  # proxy: di-lepton boost direction
+    else:
+        orient = np.sign(np.asarray(quark_direction, dtype=np.float64))
+
+    cos_theta = orient * cos_theta
+    phi = np.arctan2(orient * p_y, p_x)  # φ* → −φ* under the same flip
+    if cos_theta.ndim == 0:
+        return float(cos_theta), float(phi)
+    return cos_theta, phi
+
+
+# ---------------------------------------------------------------------------
+# Angular-coefficient (A_0..A_7) moment-projection weights.
+#
+# The Drell-Yan CS-frame angular distribution is
+#   dσ/dΩ ∝ (1+cos²θ) + A₀·½(1−3cos²θ) + A₁ sin2θ cosφ + A₂·½ sin²θ cos2φ
+#           + A₃ sinθ cosφ + A₄ cosθ + A₅ sin²θ sin2φ + A₆ sin2θ sinφ + A₇ sinθ sinφ.
+# Each coefficient is recovered as the sample mean of a weight polynomial P_i(θ,φ):
+# by orthogonality over 4π, ⟨P_i⟩ = A_i and every other term integrates to zero.
+# The prefactors below are DERIVED symbolically (not memorised) — the derivation
+# is pinned in tests/analytic/test_angular_coefficients.py (moment closure gate).
+# ---------------------------------------------------------------------------
+def _moment_weights(
+    cos_theta: npt.NDArray[np.float64], phi: npt.NDArray[np.float64]
+) -> dict[str, npt.NDArray[np.float64]]:
+    """The eight projection polynomials ``P_i(θ, φ)`` evaluated per event."""
+    ct = np.asarray(cos_theta, dtype=np.float64)
+    st = np.sqrt(np.maximum(1.0 - ct**2, 0.0))  # sin θ ≥ 0
+    ph = np.asarray(phi, dtype=np.float64)
+    sin2t = 2.0 * st * ct  # sin 2θ
+    return {
+        # A₀: ⟨P₀⟩ = A₀ directly, P₀ = 4 − 10 cos²θ (⟨cos²θ⟩ = (4−A₀)/10).
+        "A0": 4.0 - 10.0 * ct**2,
+        "A1": 5.0 * sin2t * np.cos(ph),
+        "A2": 10.0 * st**2 * np.cos(2.0 * ph),
+        "A3": 4.0 * st * np.cos(ph),
+        "A4": 4.0 * ct,
+        "A5": 5.0 * st**2 * np.sin(2.0 * ph),
+        "A6": 5.0 * sin2t * np.sin(ph),
+        "A7": 4.0 * st * np.sin(ph),
+    }
+
+
+def angular_coefficients(
+    cos_theta: npt.NDArray[np.float64],
+    phi: npt.NDArray[np.float64],
+) -> dict[str, float]:
+    r"""Extract the Drell-Yan angular coefficients ``A₀ … A₇`` by moment projection.
+
+    Given per-event Collins–Soper ``cos θ*`` and ``φ*`` of the ``ℓ⁻`` (from
+    :func:`collins_soper_angles`) for events distributed as ``dσ/dΩ``, returns the
+    eight coefficients of the standard decomposition
+
+    .. math::
+
+        \frac{d\sigma}{d\Omega} \propto (1+\cos^2\theta)
+          + A_0\,\tfrac12(1-3\cos^2\theta) + A_1\,\sin2\theta\cos\varphi
+          + A_2\,\tfrac12\sin^2\theta\cos2\varphi + A_3\,\sin\theta\cos\varphi
+          + A_4\,\cos\theta + A_5\,\sin^2\theta\sin2\varphi
+          + A_6\,\sin2\theta\sin\varphi + A_7\,\sin\theta\sin\varphi .
+
+    Each ``A_i`` is the sample mean of a projection polynomial; by orthogonality of
+    the polynomials over the full solid angle every other term integrates to zero,
+    so ``⟨P_i⟩ = A_i``. The polynomial prefactors are derived symbolically (moment
+    closure gate). **This requires full ``4π`` acceptance** — the inversion is
+    biased by detector cuts, so extract at truth level; acceptance-corrected
+    (folded) reco extraction is out of scope. Events must be distributed as
+    ``dσ/dΩ`` (unweighted, or accept-rejected to it).
+
+    Returns ``{"A0": …, …, "A7": …}`` (Python floats). The forward-backward
+    asymmetry is ``A_FB = (3/8) A₄``.
+    """
+    w = _moment_weights(np.asarray(cos_theta), np.asarray(phi))
+    out: dict[str, float] = {}
+    for key, poly in w.items():
+        out[key] = float(np.mean(poly))
+    return out
 
 
 def forward_backward_asymmetry(

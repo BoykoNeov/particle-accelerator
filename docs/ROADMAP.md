@@ -443,14 +443,19 @@ sustained arc.
 
 ### A. Drell-Yan angular physics (extends the Collins-Soper A_FB, Phase 2)
 
-- **A1 — DY angular coefficients A₀–A₄ + the Lam–Tung relation.** [S–M] Decompose the
-  full Collins-Soper angular distribution
+- **A1 — DY angular coefficients A₀–A₇ + the Lam–Tung relation.** ✅ **DONE (2026-07-11)**
+  — decomposes the full Collins-Soper angular distribution
   `dσ/dΩ ∝ (1+cos²θ) + A₀·½(1−3cos²θ) + A₁·sin2θ cosφ + A₂·½sin²θ cos2φ + A₃·sinθ cosφ + A₄·cosθ`.
-  Needs the CS **azimuthal φ*** (add to `collins_soper_costheta`'s sibling) and a
-  moment-projection fit. **Gate:** the **Lam–Tung relation `A₀ = A₂`** — exact at
-  O(α_s), violated only at O(α_s²) — a genuine closed-form check at low q_T. Four-vectors
-  are already emitted; mostly a host-side tested decomposition. Builds on
-  [*Collins-Soper A_FB*].
+  Delivered: the CS **azimuthal φ*** sibling `collins_soper_angles` and a moment-projection
+  extractor `angular_coefficients` (A₀–A₇), both in `accsim.events` (always-on baseline);
+  machinery pinned by `tests/analytic/test_angular_coefficients.py` (moment closure,
+  round-trip, quark-flip parity, `A_FB = 3/8·A₄`). **Gate met — the Lam–Tung relation
+  `A₀ = A₂`** (exact at O(α_s), violated at O(α_s²)) proven *both* ways
+  (`tests/analytic/test_lam_tung.py`): a closed-form symbolic proof from explicit
+  Dirac-γ hadronic tensors (k² divides the A₀−A₂ numerator, remainder = 0) for `qq̄→Vg`,
+  plus exact Gauss-quadrature confirmation (`qq̄→Vg` and `qg→Vq`, ~1e-14). The Pythia demo
+  (`--angular-only`, 200k events) shows measured `A₀(q_T)≈A₂(q_T)`. See CONVENTIONS.md →
+  *DY angular coefficients A₀–A₇ & Lam–Tung*. Built on [*Collins-Soper A_FB*].
 - **A2 — sin²θ_W extraction from A_FB(m).** [S] Fit the measured A_FB(m) for the
   effective weak mixing angle (how LEP/LHC actually measure it). **Gate:** recover the
   `sin²θ_W` value Pythia was configured with, within the fit error.

@@ -7,14 +7,18 @@ This is the **hadronic** extension of Phase 2: the leptonic chains
 **established** tools as the leptonic detector chain — Pythia8 and Delphes — coupled
 through a **HepMC3** file, honouring the roadmap's *orchestrate, don't rebuild* rule.
 
-Two deliverables, from the **same** truth/reco di-muon four-vectors:
+Three deliverables, from the **same** generator/reco di-muon four-vectors:
 1. the canonical **di-muon invariant-mass spectrum** with the **Z resonance peak** at
-   `M_Z ≈ 91.19 GeV`, and
+   `M_Z ≈ 91.19 GeV`,
 2. the **forward-backward asymmetry `A_FB(m)`** in the **Collins-Soper frame** — the
    γ*/Z-interference signature (negative below the Z pole, positive above), with the
-   `pp` **dilution** made explicit,
+   `pp` **dilution** made explicit, and
+3. the **DY angular coefficients `A₀(q_T)`, `A₂(q_T)`** and the **Lam–Tung relation
+   `A₀ = A₂`** (see the Lam–Tung section below) — a truth-level `4π` observable, so
+   this one **skips Delphes** (`--angular-only`).
 
-each shown **truth (generator) vs reco (after Delphes CMS)**.
+The first two are shown **truth (generator) vs reco (after Delphes CMS)**; the third is
+generator-truth only.
 
 ## The chain (two images, decoupled via HepMC3)
 
@@ -28,7 +32,8 @@ Pythia8 + LHAPDF (gen)  ──HepMC3 file──►  Delphes CMS (fast sim)  ─�
 | `generate_hepmc.cc` | **rivet-pythia container** | Pythia8 `pp → γ*/Z → μ+μ-` at 13 TeV with an LHAPDF6 proton set, forced `Z→μμ`, `60<m<120 GeV` → a **HepMC3** file + `meta.dat` (σ, PDF set, params) **+ `truth_gen.dat`** (the *true* incoming-quark `p_z` sign per event, for the `A_FB` dilution reference) |
 | `extract_kinematics.C` | **delphes container** (ROOT) | reads the Delphes ROOT file, writes the **μ⁻/μ⁺ four-vectors** for **both** truth (`Particle` branch) and reco (`Muon` branch) of the *same* events — raw kinematics only; all physics is computed on the host |
 | `analyze.py`        | **host** (`.venv`) | from the four-vectors computes `m(μμ)` **and** `cos θ*_CS` via the tested `accsim.events.collins_soper_costheta`; overlays truth-vs-reco for the **mass spectrum** and **`A_FB(m)`** (with the undiluted true-direction overlay); enforces the `A_FB` **sign guard** |
-| `run_pipeline.py`   | **host** | orchestrates the whole two-container chain (incl. the runtime `lhapdf get`) |
+| `analyze_angular.py`| **host** (`.venv`) | from `truth_gen.dat` computes `(cos θ*, φ*)` via `accsim.events.collins_soper_angles`, bins **`A₀(q_T)`, `A₂(q_T)`** via `angular_coefficients`, plots them, and enforces the **Lam–Tung demo guard** (`A₀ ≈ A₂` at low `q_T`). Truth-level `4π`, so **no Delphes** |
+| `run_pipeline.py`   | **host** | orchestrates the chain (incl. the runtime `lhapdf get`); `--angular-only` runs GEN + `analyze_angular.py` only |
 
 ### Two established images
 
@@ -139,6 +144,24 @@ undiluted `+0.289 ± 0.010` vs proxy `+0.108` → **dilution factor ≈ 0.37**. 
 **detector effect on `A_FB` ≪ the dilution**. (The leptonic 250 GeV chain measures `A_FB`
 undiluted, because there the incoming `e-` direction *is* known — the contrast is the point.)
 
+## A₀(q_T)/A₂(q_T) and Lam–Tung — the third deliverable
+
+The full CS lepton angular distribution decomposes into coefficients `A₀..A₇`; the
+headline is the **Lam–Tung relation `A₀ = A₂`** — the Drell-Yan analog of Callan–Gross,
+**exact at O(α_s)** and violated only at O(α_s²). Because the moment inversion needs
+**`4π` acceptance**, this is a **truth-level** observable: `run_pipeline.py --angular-only`
+runs GEN only and `analyze_angular.py` extracts `A₀(q_T)`, `A₂(q_T)` in the Z window
+(`80<m<100`) from the same `accsim.events` frame code (`collins_soper_angles`,
+`angular_coefficients` — both analytic-gated on the host, `tests/analytic/`).
+
+**The signature (and the gate).** Both coefficients **vanish as `q_T → 0`** and grow with
+`q_T`; Lam–Tung holds across `q_T` within statistics. Measured (13 TeV, 200k events):
+`A₀` rises from ~0 to `+0.225 ± 0.029` at `q_T ≈ 57` GeV, `A₂` tracking it; low-`q_T`
+`⟨|A₀−A₂|⟩ = 0.023 ± 0.019` → `LAM-TUNG DEMO: PASS`. The *closed-form* O(α_s) proof of
+`A₀ = A₂` (from explicit Dirac-γ hadronic tensors) is the always-run analytic gate
+`tests/analytic/test_lam_tung.py`; this pipeline is the on-data demonstration of it. See
+CONVENTIONS.md → *DY angular coefficients A₀–A₇ & Lam–Tung*.
+
 ## Gated addon
 
 Like the other Phase-2 chains, this whole pipeline is an **opt-in runtime switch** (project
@@ -152,6 +175,7 @@ chain introduces (**LHAPDF**), consistent with the `pythia` / `delphes` switches
 Pile-up (the `_PileUp` CMS card), NLO/NNLO matrix elements + K-factors, the full γ*/Z/W
 Drell-Yan family, PDF-uncertainty bands (the error-set members), and jet/b-tag performance.
 For `A_FB`: the theory **dilution-correction unfolding** (recovering parton-level `A_FB` from
-data *without* the generator truth), the `sin²θ_W` extraction, and the CS **azimuthal** `φ*` /
-angular coefficients `A_0..A_7`. The deliverables are the truth-vs-reco **Z-peak** and
-**`A_FB(m)`** in the muon channel with a real PDF.
+data *without* the generator truth) and the `sin²θ_W` extraction. (The CS **azimuthal** `φ*`
+and angular coefficients `A_0..A_7` were previously out of scope; they are now the **third
+deliverable** above.) The deliverables are the truth-vs-reco **Z-peak** and **`A_FB(m)`**, plus
+the truth-level **`A₀(q_T)`/`A₂(q_T)`** Lam–Tung demo, in the muon channel with a real PDF.
