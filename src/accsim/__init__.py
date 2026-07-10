@@ -31,6 +31,11 @@ from .elements import (
 )
 from .lattice import Lattice, matrix_of
 from .lifetime import quantum_lifetime
+from .longitudinal import (
+    longitudinal_hamiltonian,
+    rf_bucket_height,
+    separatrix,
+)
 from .radiation import (
     RadiationIntegrals,
     damping_partition_numbers,
@@ -41,11 +46,6 @@ from .radiation import (
     quantum_constant_cq,
     radiation_constant_cgamma,
     radiation_integrals,
-)
-from .longitudinal import (
-    longitudinal_hamiltonian,
-    rf_bucket_height,
-    separatrix,
 )
 from .reference import (
     CLIGHT,
