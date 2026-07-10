@@ -385,8 +385,78 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
     was previously listed out of scope; it is now **built** (user-requested). See
     CONVENTIONS.md → *Collins-Soper A_FB*.
 
+## Future expansion axes (candidate milestones — not started)
+
+Directions the project could grow next, each written as a *candidate milestone*:
+defined, as always, by its **analytic gate** (a direction without a closed-form
+check is not worth building here — see the working agreement). None is started;
+picking one promotes it to an open milestone and, where it overlaps *Out of scope*
+below, pulls that item into scope. Ordered by proximity to what is already built,
+not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
+sustained arc.
+
+### A. Drell-Yan angular physics (extends the Collins-Soper A_FB, Phase 2)
+
+- **A1 — DY angular coefficients A₀–A₄ + the Lam–Tung relation.** [S–M] Decompose the
+  full Collins-Soper angular distribution
+  `dσ/dΩ ∝ (1+cos²θ) + A₀·½(1−3cos²θ) + A₁·sin2θ cosφ + A₂·½sin²θ cos2φ + A₃·sinθ cosφ + A₄·cosθ`.
+  Needs the CS **azimuthal φ*** (add to `collins_soper_costheta`'s sibling) and a
+  moment-projection fit. **Gate:** the **Lam–Tung relation `A₀ = A₂`** — exact at
+  O(α_s), violated only at O(α_s²) — a genuine closed-form check at low q_T. Four-vectors
+  are already emitted; mostly a host-side tested decomposition. Builds on
+  [*Collins-Soper A_FB*].
+- **A2 — sin²θ_W extraction from A_FB(m).** [S] Fit the measured A_FB(m) for the
+  effective weak mixing angle (how LEP/LHC actually measure it). **Gate:** recover the
+  `sin²θ_W` value Pythia was configured with, within the fit error.
+- **A3 — dilution unfolding.** [S] Recover parton-level A_FB from the diluted proxy via a
+  rapidity-dependent dilution factor `D(y, m)`. **Gate:** the unfolded proxy reproduces
+  the undiluted true-quark-direction curve the pipeline already computes.
+
+### B. Synchrotron radiation & radiation damping — a real "Stage 7" (accelerator core)
+
+- **B1 — radiation integrals, damping, equilibrium emittance.** [M] ⭐ The one genuine
+  piece of physics *missing* from the beam-dynamics arc. Synchrotron-radiation integrals
+  `I₁…I₅`, damping times, partition numbers, quantum excitation → **equilibrium emittance**
+  and energy spread. **Gates:** Robinson's theorem `J_x + J_y + J_z = 4`; the
+  closed-form damping-time and equilibrium-emittance formulae; xtrack cross-check.
+  **Payoff:** retroactively completes Stage 4 — `quantum_lifetime` currently takes the
+  amplitude damping time as a hand-fed input; B1 would *compute* it from the lattice,
+  making it self-contained. Most "physics-correct-codebase"-satisfying addition available.
+
+### C. Collider / beam-beam deepening (items explicitly deferred in Stage 6)
+
+- **C1 — Bassetti–Erskine elliptical beam-beam kick.** [M] Generalises the round head-on
+  kick (Stage 6) to `σ_x ≠ σ_y` via the complex error function. **Gate:** reduces to the
+  round `g(u)` in the `σ_x → σ_y` limit. Pulls "elliptical Bassetti–Erskine" into scope.
+- **C2 — hourglass effect on luminosity.** [S] The finite-`β*`/bunch-length luminosity
+  reduction. **Gate:** the analytic hourglass reduction factor vs `σ_z/β*`. Pulls
+  "hourglass" into scope; composes with the Stage-6 Piwinski crossing factor.
+
+### D. Integration, validation & teaching (no new physics, high leverage)
+
+- **D1 — end-to-end "build a machine" worked example.** [S] One narrated script/notebook:
+  inject → accelerate (Stage 5) → store with radiation damping (B1) → collide (Stage 6) →
+  account losses (Stage 4). **Gate:** each stage's existing analytic invariant still holds
+  in the chained run — surfaces any seam between stages. Best done after B1.
+- **D2 — tracking-based tune measurement (FFT/NAFF).** [S] Independent of the matrix
+  `tunes()`. **Gate:** tracked tune == analytic one-turn-map tune to ~1e-5; also the
+  symplecticity smoke test's natural home.
+- **D3 — MAD-X as a second reference** alongside xtrack. [M] **Gate:** element R-matrices /
+  Twiss agree across *two* independent codes — catches a convention error a single
+  reference could share. Behind the existing `reference` marker.
+
+### E. Event-physics siblings (new processes on the established chain)
+
+- **E1 — W production + the W-mass Jacobian peak.** [M] Sibling to the Z chain; the
+  neutrino escapes, so the observable is the **transverse mass** `m_T`. **Gate:** the
+  Jacobian edge at `M_W` (Sudakov-smeared). Reuses the LHAPDF/Delphes orchestration.
+- **E2 — jets / QCD** via FastJet clustering in Delphes (jet multiplicity, b-tag
+  performance), or an **ATLAS-vs-CMS card** detector comparison. [M] **Gate:** for b-tag,
+  the ROC / efficiency-vs-mistag curve reproduces the card's configured working points.
+
 ## Out of scope (unless a milestone explicitly calls for it)
 
-Touschek / IBS, strong-strong beam-beam, crab cavities, wakefields, higher-order
-modes, beam loading, full GEANT4, dynamic-aperture studies, research-grade
-machine design.
+Beyond even the expansion axes above — research-grade unless a milestone explicitly
+pulls it in: Touschek / IBS, strong-strong beam-beam, crab cavities, wakefields,
+higher-order modes, beam loading, full GEANT4, dynamic-aperture / frequency-map
+studies, PDF-uncertainty bands, and research-grade machine design.
