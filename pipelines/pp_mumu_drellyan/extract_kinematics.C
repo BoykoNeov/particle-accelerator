@@ -14,9 +14,12 @@
 //
 // BOTH levels come from the SAME events and the SAME Delphes file -- truth from the
 // generator "Particle" branch (status-1, post-FSR muons), reco from the "Muon"
-// branch -- so they are one population up to detector response, and Delphes
-// preserves HepMC event order, so line i of truth and line i of reco are the same
-// event when both have a pair (a per-event flag column records which).
+// branch -- so they are one population up to detector response. NOTE the two files
+// are INDEPENDENT subsets: a line is written only when THAT level has an OS pair, so
+// truth (all events) and reco (~acceptance*eff^2 of them) differ in length and line i
+// of truth is NOT line i of reco. analyze.py histograms/bins each independently and
+// never joins on line index; a per-event truth<->reco join would need an emitted
+// event-index column (not done -- no current deliverable needs it).
 //
 // SIGNAL SELECTION -- the leading opposite-sign muon pair (highest-pT mu+ and
 // highest-pT mu-), applied identically to truth and reco. The generator forced the
