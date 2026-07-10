@@ -160,10 +160,14 @@ def _moments_from_W(W: np.ndarray, Q: float) -> tuple[float, float]:
 # Correctness anchor — W is a valid hadronic tensor (real, symmetric, conserved).
 # ---------------------------------------------------------------------------
 def test_hadronic_tensor_is_physical() -> None:
-    W, Q = _W_qqbar(2.0, 3.0, 0.8)
-    assert np.abs(W - W.T).max() < 1e-10  # symmetric
-    qlow = MET * np.array([Q, 0, 0, 0.0])
-    assert np.abs(qlow @ W).max() < 1e-9  # V-current conservation q_mu W^{mu nu} = 0
+    # Both channels independently: the symbolic proof covers only qq̄->Vg, so the
+    # "both channels" A0=A2 result leans on _W_qg being a valid tensor too -- anchor
+    # it here (different propagators SH, D2) rather than trust the A0=A2 match alone.
+    for name, Wf in (("qqbar->Vg", _W_qqbar), ("qg->Vq", _W_qg)):
+        W, Q = Wf(2.0, 3.0, 0.8)
+        assert np.abs(W - W.T).max() < 1e-10, f"{name}: W not symmetric"
+        qlow = MET * np.array([Q, 0, 0, 0.0])
+        assert np.abs(qlow @ W).max() < 1e-9, f"{name}: q_mu W^{{mu nu}} != 0"
 
 
 # ---------------------------------------------------------------------------

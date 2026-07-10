@@ -1018,8 +1018,14 @@ always-on baseline); the gated pipeline only feeds it four-vectors.
   only (Pythia8 + LHAPDF, gated `ACCSIM_ENABLE_LHAPDF`) and `analyze_angular.py` bins
   `A₀(q_T)`/`A₂(q_T)` in the Z window `80<m<100`. Measured (13 TeV, 200k events):
   `A₀` rises from ~0 at low `q_T` to `+0.225±0.029` at `q_T≈57` GeV, with `A₂`
-  tracking it within statistics; low-`q_T` `⟨|A₀−A₂|⟩ = 0.023 ± 0.019`
-  (`LAM-TUNG DEMO: PASS`). Both coefficients vanish as `q_T→0`, as expected.
+  tracking it; the guard is low-`q_T` `⟨|A₀−A₂|⟩ = 0.023 ± 0.019`
+  (`LAM-TUNG DEMO: PASS`). **The compelling evidence is the mid-`q_T` bins, not the
+  low-`q_T` average**: as `q_T→0` the distribution → pure `(1+cos²θ)` so `A₀,A₂→0`
+  *regardless* of the frame construction (a broken `φ*` would still pass a low-`q_T`
+  guard). Where both coefficients are substantially nonzero they still agree —
+  `q_T≈12.5`: `A₀=0.074`, `A₂=0.077`; `q_T≈37.5`: `A₀=0.165`, `A₂=0.166` — which is the
+  real on-data confirmation. (Frame/extraction correctness is independently gated by
+  the analytic machinery tests; this demo is the physical illustration.)
 
 ## Feature switches (optional addons — implemented)
 

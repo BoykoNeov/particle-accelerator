@@ -156,8 +156,12 @@ runs GEN only and `analyze_angular.py` extracts `A₀(q_T)`, `A₂(q_T)` in the 
 
 **The signature (and the gate).** Both coefficients **vanish as `q_T → 0`** and grow with
 `q_T`; Lam–Tung holds across `q_T` within statistics. Measured (13 TeV, 200k events):
-`A₀` rises from ~0 to `+0.225 ± 0.029` at `q_T ≈ 57` GeV, `A₂` tracking it; low-`q_T`
-`⟨|A₀−A₂|⟩ = 0.023 ± 0.019` → `LAM-TUNG DEMO: PASS`. The *closed-form* O(α_s) proof of
+`A₀` rises from ~0 to `+0.225 ± 0.029` at `q_T ≈ 57` GeV, `A₂` tracking it; the guard is
+low-`q_T` `⟨|A₀−A₂|⟩ = 0.023 ± 0.019` → `LAM-TUNG DEMO: PASS`. But the low-`q_T` average is
+partly trivial (as `q_T→0` the distribution → pure `1+cos²θ`, so `A₀,A₂→0` regardless of the
+frame math); **the compelling numbers are the mid-`q_T` bins** where both are substantially
+nonzero and still agree — `q_T≈12.5`: 0.074 vs 0.077; `q_T≈37.5`: 0.165 vs 0.166. The
+*closed-form* O(α_s) proof of
 `A₀ = A₂` (from explicit Dirac-γ hadronic tensors) is the always-run analytic gate
 `tests/analytic/test_lam_tung.py`; this pipeline is the on-data demonstration of it. See
 CONVENTIONS.md → *DY angular coefficients A₀–A₇ & Lam–Tung*.
