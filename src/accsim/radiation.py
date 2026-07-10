@@ -37,7 +37,7 @@ import numpy as np
 
 from .lattice import Lattice
 from .reference import CLIGHT, ReferenceParticle
-from .twiss import _dispersive_kick, _transverse_4d, closed_twiss
+from .twiss import _blocks, _dispersive_kick, _propagate_block, _transverse_4d, closed_twiss
 
 # CODATA hbar*c = 197.3269804 MeV*fm = 1.9732698045e-7 eV*m. The one physical
 # constant the radiation module adds beyond the reference particle's own.
@@ -52,16 +52,19 @@ class RadiationIntegrals:
     - ``i2 = ∮ h^2 ds``             — sets the energy loss ``U0`` (and radiated power).
     - ``i3 = ∮ |h|^3 ds``           — sets the quantum-excitation / energy spread.
     - ``i4 = ∮ D_x h^3 ds``         — the damping-partition redistribution term.
+    - ``i5 = ∮ curlyH |h|^3 ds``    — sets the equilibrium horizontal emittance, with
+      the dispersion invariant ``curlyH = gamma_x D_x^2 + 2 alpha_x D_x D_x' +
+      beta_x D_x'^2``.
 
-    ``h = 1/rho`` is the signed orbit curvature; ``i3`` uses ``|h|^3`` (excitation is
-    bend-sign-blind) while ``i4`` keeps the sign of ``h^3``. ``i5`` (the curly-``H``
-    integral) is added in commit 2.
+    ``h = 1/rho`` is the signed orbit curvature; ``i3``/``i5`` use ``|h|^3``
+    (excitation is bend-sign-blind) while ``i4`` keeps the sign of ``h^3``.
     """
 
     i1: float
     i2: float
     i3: float
     i4: float
+    i5: float
 
 
 def radiation_constant_cgamma(ref: ReferenceParticle) -> float:
@@ -83,23 +86,37 @@ def quantum_constant_cq(ref: ReferenceParticle) -> float:
     return 55.0 / (32.0 * math.sqrt(3.0)) * HBAR_C_EV_M / ref.mass_eV
 
 
+def _curly_h(beta: float, alpha: float, dx: float, dpx: float) -> float:
+    r"""The dispersion invariant ``curlyH = gamma D_x^2 + 2 alpha D_x D_x' + beta D_x'^2``."""
+    gamma = (1.0 + alpha * alpha) / beta
+    return gamma * dx * dx + 2.0 * alpha * dx * dpx + beta * dpx * dpx
+
+
 def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegrals:
-    r"""Compute ``I1..I4`` for a periodic ``lattice``.
+    r"""Compute ``I1..I5`` for a periodic ``lattice``.
 
     Only bending magnets contribute (``h = 0`` elsewhere). Inside each thick sector
-    dipole the matched dispersion ``D_x(s)`` is transported by ``slices``-fold
-    trapezoidal sub-stepping of the sub-bend map (identical machinery to
-    :func:`accsim.twiss.momentum_compaction`), and ``h`` is constant across the body,
-    so ``∮ D_x h ds = h ∮ D_x ds`` and ``∮ D_x h^3 ds = h^3 ∮ D_x ds`` reuse the same
-    accumulated ``∮ D_x ds``; the ``h``-only pieces ``∮ h^2 ds`` and ``∮ |h|^3 ds`` are
-    just ``h^2 L`` / ``|h|^3 L`` per dipole. ``I1 == alpha_c * C`` is the independent
-    cross-check on the dispersion transport (``tests/analytic/test_radiation.py``).
+    dipole the matched dispersion ``D_x(s)`` **and** the beta functions ``beta_x,
+    alpha_x`` are co-transported by ``slices``-fold trapezoidal sub-stepping of the
+    sub-bend map (the dispersion machinery of
+    :func:`accsim.twiss.momentum_compaction` plus the ``beta`` transport of
+    :func:`accsim.twiss.natural_chromaticity`). ``h`` is constant across the body, so
+    ``∮ D_x h ds = h ∮ D_x ds`` and ``∮ D_x h^3 ds = h^3 ∮ D_x ds`` reuse one accumulated
+    ``∮ D_x ds``; ``I5 = |h|^3 ∮ curlyH ds`` needs ``curlyH`` re-evaluated per sub-slice
+    from the local ``beta_x, alpha_x, D_x, D_x'``. The ``h``-only pieces ``∮ h^2 ds`` /
+    ``∮ |h|^3 ds`` are ``h^2 L`` / ``|h|^3 L`` per dipole.
+
+    ``I1 == alpha_c * C`` cross-checks the dispersion transport within the baseline;
+    ``I5`` (curly-``H``, needing the co-transported ``beta``) has no clean within-baseline
+    absolute check, so it is gated by energy-scaling (``eps_x ∝ gamma^2``) + xtrack
+    (``tests/analytic/test_radiation.py``, ``tests/reference/``).
     """
     from .elements.dipole import Dipole
 
     tw0 = closed_twiss(lattice)
+    bx, ax = tw0.beta_x, tw0.alpha_x
     disp = np.array([tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py])
-    i1 = i2 = i3 = i4 = 0.0
+    i1 = i2 = i3 = i4 = i5 = 0.0
     for elem in lattice.elements:
         M = elem.matrix(lattice.ref)
         if isinstance(elem, Dipole) and elem.angle != 0.0 and elem.length > 0.0:
@@ -107,19 +124,26 @@ def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegral
             ds = elem.length / slices
             sub = Dipole(ds, h * ds).matrix(lattice.ref)  # one sector sub-slice
             sub4, subk = _transverse_4d(sub), _dispersive_kick(sub)
-            acc = 0.5 * disp[0]  # trapezoid: half-weight the entrance D_x sample
+            xblock = _blocks(sub)[0]  # x 2x2 of the sub-slice (incl. weak focusing)
+            acc_dx = 0.5 * disp[0]  # trapezoid: half-weight the entrance samples
+            acc_h = 0.5 * _curly_h(bx, ax, disp[0], disp[1])
             for i in range(slices):
                 disp = sub4 @ disp + subk
+                bx, ax, _ = _propagate_block(xblock, bx, ax)
                 w = 0.5 if i == slices - 1 else 1.0  # half-weight the exit sample
-                acc += w * disp[0]
-            int_dx = acc * ds  # ∮ D_x ds across the body
+                acc_dx += w * disp[0]
+                acc_h += w * _curly_h(bx, ax, disp[0], disp[1])
+            int_dx = acc_dx * ds  # ∮ D_x ds across the body
             i1 += h * int_dx
             i2 += h * h * elem.length
             i3 += abs(h) ** 3 * elem.length
             i4 += h**3 * int_dx  # pure sector bend: no 2*k1 body term, no edge term
+            i5 += abs(h) ** 3 * acc_h * ds  # ∮ curlyH |h|^3 ds
             continue
+        # Non-dipole: co-transport beta/alpha and dispersion across the element.
+        bx, ax, _ = _propagate_block(_blocks(M)[0], bx, ax)
         disp = _transverse_4d(M) @ disp + _dispersive_kick(M)
-    return RadiationIntegrals(i1, i2, i3, i4)
+    return RadiationIntegrals(i1, i2, i3, i4, i5)
 
 
 def energy_loss_per_turn(lattice: Lattice) -> float:
@@ -165,3 +189,40 @@ def damping_times(lattice: Lattice) -> tuple[float, float, float]:
     partitions = (1.0 - d, 1.0, 2.0 + d)
     t0 = lattice.length / (lattice.ref.beta0 * CLIGHT)
     return tuple(2.0 * e * t0 / (j * u0) for j in partitions)  # type: ignore[return-value]
+
+
+def equilibrium_energy_spread(lattice: Lattice) -> float:
+    r"""Equilibrium RMS relative energy spread ``sigma_delta`` (dimensionless).
+
+    ``sigma_delta^2 = C_q gamma^2 I3 / (J_z I2)`` — the balance between quantum
+    excitation (``I3``) and longitudinal radiation damping (``J_z``). Energy-only
+    dependence is the ``gamma^2`` prefactor (``I3``, ``I2``, ``J_z`` are geometry), so
+    ``sigma_delta ∝ gamma`` — the machine-precision scaling gate; the absolute value is
+    pinned against xtrack.
+    """
+    ri = radiation_integrals(lattice)
+    cq = quantum_constant_cq(lattice.ref)
+    g2 = lattice.ref.gamma0**2
+    jz = 2.0 + ri.i4 / ri.i2
+    return math.sqrt(cq * g2 * ri.i3 / (jz * ri.i2))
+
+
+def equilibrium_emittance(lattice: Lattice) -> float:
+    r"""Equilibrium **geometric** horizontal emittance ``eps_x`` [m·rad].
+
+    ``eps_x = C_q gamma^2 I5 / (J_x I2)`` — quantum excitation of the horizontal
+    betatron motion (the curly-``H`` integral ``I5``) balanced against horizontal
+    damping (``J_x``). Geometric (not normalized) emittance; multiply by ``beta0 gamma0``
+    for the normalized value. Energy dependence is the ``gamma^2`` prefactor, so
+    ``eps_x ∝ gamma^2`` — the machine-precision scaling gate (``I5``, ``I2``, ``J_x`` are
+    pure geometry); the absolute value is pinned against xtrack.
+
+    The equilibrium **vertical** emittance is ~0 here: with no vertical bending or
+    betatron coupling there is no vertical quantum excitation. Real rings set ``eps_y``
+    by coupling / vertical dispersion — out of scope (flat-lattice assumption).
+    """
+    ri = radiation_integrals(lattice)
+    cq = quantum_constant_cq(lattice.ref)
+    g2 = lattice.ref.gamma0**2
+    jx = 1.0 - ri.i4 / ri.i2
+    return cq * g2 * ri.i5 / (jx * ri.i2)

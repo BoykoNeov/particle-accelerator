@@ -36,6 +36,8 @@ from .radiation import (
     damping_partition_numbers,
     damping_times,
     energy_loss_per_turn,
+    equilibrium_emittance,
+    equilibrium_energy_spread,
     quantum_constant_cq,
     radiation_constant_cgamma,
     radiation_integrals,
@@ -117,6 +119,8 @@ __all__ = [
     "energy_loss_per_turn",
     "damping_partition_numbers",
     "damping_times",
+    "equilibrium_emittance",
+    "equilibrium_energy_spread",
     # symplectic helpers
     "is_symplectic",
     "J6",

@@ -46,6 +46,8 @@ from accsim.radiation import (
     damping_partition_numbers,
     damping_times,
     energy_loss_per_turn,
+    equilibrium_emittance,
+    equilibrium_energy_spread,
     quantum_constant_cq,
     radiation_constant_cgamma,
     radiation_integrals,
@@ -171,3 +173,42 @@ def test_damping_time_is_amplitude_convention() -> None:
     # finite quantum lifetime — just a smoke test that the convention plugs in.
     tau_q = quantum_lifetime(aperture=6.0, sigma=1.0, amplitude_damping_time=tau_x)
     assert tau_q > tau_x  # quantum lifetime >> damping time at 6 sigma
+
+
+# ---------------------------------------------------------------------------
+# Commit 2 — I5 curly-H, equilibrium emittance & energy spread.
+#
+# There is no clean absolute closed form for eps_x (the curly-H integral), so the
+# analytic gate is the ENERGY SCALING: I1..I5 are pure geometry (energy-independent
+# optics), so eps_x ∝ gamma^2 and sigma_delta ∝ gamma to machine precision. The
+# absolute magnitude is pinned against xtrack in tests/reference/.
+# ---------------------------------------------------------------------------
+def test_integrals_are_energy_independent_geometry() -> None:
+    # The transverse optics (beta, dispersion) don't depend on the reference energy,
+    # so every radiation integral is identical at two energies — the premise of the
+    # scaling gates below (and an independent check the I5 beta co-transport is
+    # geometry, not accidentally energy-coupled).
+    lo = radiation_integrals(_electron_ring(0.7e9))
+    hi = radiation_integrals(_electron_ring(2.1e9))
+    for a, b in zip((lo.i1, lo.i2, lo.i3, lo.i4, lo.i5), (hi.i1, hi.i2, hi.i3, hi.i4, hi.i5)):
+        assert a == pytest.approx(b, rel=1e-12)
+
+
+def test_equilibrium_emittance_scales_as_gamma_squared() -> None:
+    e1, e2 = 0.8e9, 2.4e9  # gamma ratio 3
+    ring1, ring2 = _electron_ring(e1), _electron_ring(e2)
+    g_ratio = ring2.ref.gamma0 / ring1.ref.gamma0
+    ratio = equilibrium_emittance(ring2) / equilibrium_emittance(ring1)
+    assert ratio == pytest.approx(g_ratio**2, rel=1e-10)
+    assert equilibrium_emittance(ring1) > 0.0  # geometric emittance, positive
+
+
+def test_equilibrium_energy_spread_scales_as_gamma() -> None:
+    e1, e2 = 0.8e9, 2.4e9
+    ring1, ring2 = _electron_ring(e1), _electron_ring(e2)
+    g_ratio = ring2.ref.gamma0 / ring1.ref.gamma0
+    ratio = equilibrium_energy_spread(ring2) / equilibrium_energy_spread(ring1)
+    assert ratio == pytest.approx(g_ratio, rel=1e-10)
+    # Sanity: a 1 GeV electron ring has a per-mille-ish relative energy spread.
+    sd = equilibrium_energy_spread(_electron_ring(1.0e9))
+    assert 1e-4 < sd < 1e-2
