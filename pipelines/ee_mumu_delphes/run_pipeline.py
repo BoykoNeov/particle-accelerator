@@ -139,9 +139,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument(
         "--p-min",
         type=float,
-        default=100.0,
-        help="signal |p| cut [GeV] isolating the ~125 GeV mu- (valley of the "
-        "bimodal spectrum; angle-neutral, so it does not bias cos theta)",
+        default=None,
+        help="signal |p| cut [GeV] isolating the ~sqrt(s)/2 mu- (valley of the "
+        "bimodal spectrum; angle-neutral, so it does not bias cos theta). Default "
+        "0.8*sqrt(s)/2, which scales with energy so off-250-GeV runs still cut in "
+        "the valley rather than above the signal.",
     )
     ap.add_argument("--seed", type=int, default=20260710)
     ap.add_argument("--gen-image", default=GEN_IMAGE)
@@ -152,6 +154,19 @@ def main(argv: list[str]) -> int:
         help="host directory for the .dat/.hepmc/.png artifacts",
     )
     args = ap.parse_args(argv)
+
+    # The signal mu- is monochromatic at |p| = sqrt(s)/2. Scale the cut with energy
+    # (default 0.8*that, in the spectrum's valley) so a run at another energy does
+    # not silently cut *above* the signal and produce an empty plot. Guard the
+    # explicit case too: a cut at/above sqrt(s)/2 removes all signal.
+    p_signal = args.sqrt_s / 2.0
+    if args.p_min is None:
+        args.p_min = 0.8 * p_signal
+    elif args.p_min >= p_signal:
+        raise SystemExit(
+            f"--p-min {args.p_min} >= signal |p| = sqrt(s)/2 = {p_signal}: "
+            f"this cut removes all signal muons (empty distribution)."
+        )
 
     # Optional addon (project rule: everything past the pure-Python toy baseline is
     # an opt-in runtime switch, default OFF). Running the script is the opt-in; gate
