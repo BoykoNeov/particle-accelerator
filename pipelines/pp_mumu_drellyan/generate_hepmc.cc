@@ -100,14 +100,20 @@ int main() {
   // HepMC3 ascii3 writer (Delphes 3.5.0 DelphesHepMC3 reads this format).
   Pythia8::Pythia8ToHepMC toHepMC(hepmcPath);
 
-  long nDimuon = 0;  // events with a hard-process (status 23) mu- : gen cross-check.
+  // Sanity counter: events carrying a hard-process (status 23) mu-. Because we
+  // FORCE 23 -> mu+ mu-, every successfully generated event has one, so this is
+  // just a "the forced decay fired everywhere" check (expect == n successful
+  // next()), NOT the independent truth yardstick it was in the leptonic chain
+  // (where the process summed all flavours). The real cross-check here is the
+  // cross section vs the known LHC value -- see the README.
+  long nHardMu = 0;
   for (int iE = 0; iE < nEvents; ++iE) {
     if (!pythia.next()) continue;
     toHepMC.writeNextEvent(pythia);  // Delphes sees the full event (incl. ISR/FSR).
     for (int i = 0; i < pythia.event.size(); ++i) {
       const Particle& p = pythia.event[i];
       if (p.id() == 13 && p.statusAbs() == 23) {
-        ++nDimuon;
+        ++nHardMu;
         break;
       }
     }
@@ -119,12 +125,12 @@ int main() {
 
   std::ofstream fh(metaPath);
   fh << "# process=pp->gmZ->mumu sqrt_s_GeV=" << sqrtS << " n_generated=" << nEvents
-     << " n_primary_mu=" << nDimuon << " mhat_min_GeV=" << mMin
+     << " n_hard_mu=" << nHardMu << " mhat_min_GeV=" << mMin
      << " mhat_max_GeV=" << mMax << " pdf_set=" << pdfSet << " pdf_member=0"
      << " sigma_mb=" << sigma_mb << " sigma_err_mb=" << sigma_err_mb
      << " pythia_version=" << version << "\n";
 
-  std::cerr << "wrote HepMC3 to " << hepmcPath << " (" << nDimuon
+  std::cerr << "wrote HepMC3 to " << hepmcPath << " (" << nHardMu
             << " hard mu- in " << nEvents << " events); PDF=" << pdfSet
             << "; Pythia sigma = " << sigma_mb * 1e6 << " +/- " << sigma_err_mb * 1e6
             << " nb (DY x BR(Z->mumu), " << mMin << "<m<" << mMax << ")\n";
