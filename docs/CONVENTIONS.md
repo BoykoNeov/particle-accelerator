@@ -836,10 +836,14 @@ chain: the same Pythia8 → **HepMC3** → Delphes → analysis orchestration, b
   muons *are* the signal pair — no τ→μ / heavy-flavour contamination, hence no
   monochromatic-`|p|` trick (which the leptonic Delphes chain needed). Both truth and
   reco take the **leading opposite-sign muon pair** (robust to >2 muons from FSR).
-- **Deliverable = the Z peak in `m(μμ)`, truth vs reco.** Invariant mass via
-  `TLorentzVector`: truth from the `Particle` branch `(Px,Py,Pz,E)`; reco from the
-  `Muon` branch via `SetPtEtaPhiM(PT,Eta,Phi,m_μ)`. Both from the **same** Delphes file
-  (`extract_mass.C`), so one population up to detector response.
+- **Deliverables = the Z peak in `m(μμ)` *and* `A_FB(m)`, truth vs reco.** The
+  container macro `extract_kinematics.C` dumps the **μ⁻/μ⁺ four-vectors** per event
+  (truth from the `Particle` branch `(Px,Py,Pz,E)`; reco from the `Muon` branch via
+  `SetPtEtaPhiM(PT,Eta,Phi,m_μ)`), both from the **same** Delphes file, so one
+  population up to detector response. *All* physics — `m(μμ)` and `cos θ*_CS` — is
+  then computed on the host by the **single tested** `accsim.events.collins_soper_costheta`
+  (see *Collins-Soper A_FB* below), so no sign-error-prone frame transform is
+  duplicated in untested C++. μ⁻ is **PID +13** (mu+ = −13), carried through exactly.
 - **The truth peak is *not* a clean Breit-Wigner.** FSR pulls `m(μμ)` below the pole →
   a **low-side radiative tail**, so the truth peak *mode* recovers `M_Z ≈ 91.19` only
   to ~1 GeV (a bin). Interpret mode, not a δ — this is physics, do not tighten to force
@@ -857,11 +861,52 @@ chain: the same Pythia8 → **HepMC3** → Delphes → analysis orchestration, b
   LO ME doing physical work. The magnitude also settles a convention: `sigmaGen()` here
   is production σ **times** BR (the μ-channel σ in the window), not the full production
   σ. No analytic pin (a fast-sim response is not a closed form).
-- **`A_FB` is deliberately NOT measured.** Hadronic DY `A_FB` needs the **Collins-Soper**
-  frame + quark-direction **dilution** (`pp` does not fix the quark direction) —
-  research-grade, out of scope. Contrast the leptonic 250 GeV chain, which *does* measure
-  `A_FB` (the `e⁻` direction is known). Also out of scope: pile-up, NLO/NNLO + K-factors,
-  PDF-uncertainty bands, jet/b-tag. See `pipelines/pp_mumu_drellyan/README.md`.
+- **`A_FB(m)` in the Collins-Soper frame — now measured (see *Collins-Soper A_FB*
+  below).** The second deliverable of this chain. Out of scope remains: pile-up,
+  NLO/NNLO + K-factors, PDF-uncertainty bands, jet/b-tag. See
+  `pipelines/pp_mumu_drellyan/README.md`.
+
+## Collins-Soper A_FB (Phase 2 — Drell-Yan angular observable)
+
+The forward-backward asymmetry `A_FB(m)` of the Drell-Yan chain, the classic
+γ*/Z-interference signature, measured in the **Collins-Soper (CS) frame**. All the
+frame physics lives in **one tested function**,
+`accsim.events.collins_soper_costheta` (pure numpy, always-on baseline); the gated
+pipeline and the container macro only feed it four-vectors.
+
+- **The closed form (massless-lepton).** For `ℓ⁻` (particle 1) and `ℓ⁺` with beams
+  along `±ẑ`, `cos θ*_CS = 2(p⁻_z E⁺ − E⁻ p⁺_z) / (m_ℓℓ √(m_ℓℓ² + Q_T²))`. This is
+  the CS bisector-axis projection; the `2/(Q√(Q²+Q_T²))` coefficient is **derived,
+  not memorised** — pinned by equality to an independent boost-into-rest-frame
+  bisector construction over 3000 random pairs (`tests/analytic/test_collins_soper.py`),
+  plus hand orientation configs (`cos θ* = ±1`). It is the standard **massless-lepton**
+  form; at the real muon mass vs ~45 GeV Z-decay momentum it is off by ~1e-6 (`β_μ`),
+  negligible, and is what every DY experiment uses.
+- **`μ⁻` is PID +13** (μ⁺ = −13); carried through `generate_hepmc.cc`,
+  `extract_kinematics.C`, and `analyze.py` identically — **one flip inverts `A_FB`**.
+- **The `pp` quark-direction proxy (dilution).** `pp` does not fix the quark
+  direction, so the CS axis is oriented by `sign(Q_z)` (the di-lepton boost — the
+  valence quark statistically carries more momentum than the sea antiquark). This
+  probabilistic assignment **dilutes** `A_FB` below parton level. The pipeline
+  quantifies it: `generate_hepmc.cc` emits the **true** incoming-quark `p_z` sign
+  (hard-process parton, status `-21`, id 1..6) per event, and `analyze.py` overlays
+  the **undiluted** `A_FB` (true direction) on the **diluted** proxy. Measured at 13
+  TeV, 100k events: above the pole undiluted `+0.289 ± 0.010` vs proxy `+0.108`, a
+  **dilution factor ≈ 0.37** (proxy suppresses `A_FB`), worst near central rapidity.
+  Reco (Delphes CMS, proxy only — an experiment never knows the true direction)
+  tracks the proxy truth, so the **detector effect on `A_FB` ≪ the dilution**.
+- **The physics gate is the sign, not a tolerance.** There is **no clean closed form**
+  for the `A_FB` *magnitude* (γ*/Z interference within the bin × the `pp` dilution),
+  so — unlike the beam-dynamics stages — the acceptance check is the **sign guard**:
+  `A_FB < 0` below `M_Z`, `> 0` above (zero-crossing just under the pole). This is the
+  analog of the xtrack sign cross-checks; the opposite sign means a flipped `μ⁻/μ⁺`
+  or axis orientation. Measured: below `−0.056 ± 0.007`, above `+0.108 ± 0.010`
+  (`SIGN GUARD: PASS`). The **integrated-over-60–120 `A_FB` is near zero** (`+0.018`)
+  by below/above cancellation over the near-symmetric window — correct physics, *not*
+  the headline; `A_FB(m)` binned is the deliverable.
+- **Out of scope (labelled):** the theory dilution-correction unfolding (recovering
+  parton-level `A_FB` from data without the generator truth), `sin²θ_W` extraction,
+  and the Collins-Soper *azimuthal* `φ*` / angular coefficients `A_0..A_7`.
 
 ## Feature switches (optional addons — implemented)
 

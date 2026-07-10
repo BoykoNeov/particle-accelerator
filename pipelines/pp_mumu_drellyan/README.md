@@ -7,22 +7,27 @@ This is the **hadronic** extension of Phase 2: the leptonic chains
 **established** tools as the leptonic detector chain — Pythia8 and Delphes — coupled
 through a **HepMC3** file, honouring the roadmap's *orchestrate, don't rebuild* rule.
 
-The deliverable is the canonical Drell-Yan signature: the **di-muon invariant-mass
-spectrum** with the **Z resonance peak** at `M_Z ≈ 91.19 GeV`, shown **truth (generator)
-vs reco (after Delphes CMS)**.
+Two deliverables, from the **same** truth/reco di-muon four-vectors:
+1. the canonical **di-muon invariant-mass spectrum** with the **Z resonance peak** at
+   `M_Z ≈ 91.19 GeV`, and
+2. the **forward-backward asymmetry `A_FB(m)`** in the **Collins-Soper frame** — the
+   γ*/Z-interference signature (negative below the Z pole, positive above), with the
+   `pp` **dilution** made explicit,
+
+each shown **truth (generator) vs reco (after Delphes CMS)**.
 
 ## The chain (two images, decoupled via HepMC3)
 
 ```
-Pythia8 + LHAPDF (gen)  ──HepMC3 file──►  Delphes CMS (fast sim)  ──►  truth.dat + reco.dat  ──►  plot
+Pythia8 + LHAPDF (gen)  ──HepMC3 file──►  Delphes CMS (fast sim)  ──►  *_kin.dat (4-vectors)  ──►  plots
  rivet-pythia                             scailfin/delphes-python-centos                          host .venv
 ```
 
 | File | Runs where | Role |
 |------|-----------|------|
-| `generate_hepmc.cc` | **rivet-pythia container** | Pythia8 `pp → γ*/Z → μ+μ-` at 13 TeV with an LHAPDF6 proton set, forced `Z→μμ`, `60<m<120 GeV` → a **HepMC3** file + `meta.dat` (σ, PDF set, params) |
-| `extract_mass.C`    | **delphes container** (ROOT) | reads the Delphes ROOT file, writes **both** truth (`Particle` branch) and reco (`Muon` branch) `m(μμ)` for the *same* events |
-| `analyze.py`        | **host** (`.venv`) | overlays truth vs reco `m(μμ)` + the `M_Z` marker; quantifies the peak mode + resolution broadening |
+| `generate_hepmc.cc` | **rivet-pythia container** | Pythia8 `pp → γ*/Z → μ+μ-` at 13 TeV with an LHAPDF6 proton set, forced `Z→μμ`, `60<m<120 GeV` → a **HepMC3** file + `meta.dat` (σ, PDF set, params) **+ `truth_gen.dat`** (the *true* incoming-quark `p_z` sign per event, for the `A_FB` dilution reference) |
+| `extract_kinematics.C` | **delphes container** (ROOT) | reads the Delphes ROOT file, writes the **μ⁻/μ⁺ four-vectors** for **both** truth (`Particle` branch) and reco (`Muon` branch) of the *same* events — raw kinematics only; all physics is computed on the host |
+| `analyze.py`        | **host** (`.venv`) | from the four-vectors computes `m(μμ)` **and** `cos θ*_CS` via the tested `accsim.events.collins_soper_costheta`; overlays truth-vs-reco for the **mass spectrum** and **`A_FB(m)`** (with the undiluted true-direction overlay); enforces the `A_FB` **sign guard** |
 | `run_pipeline.py`   | **host** | orchestrates the whole two-container chain (incl. the runtime `lhapdf get`) |
 
 ### Two established images
@@ -57,15 +62,17 @@ to protons).
 ## Run it
 
 ```bash
-# one command; artifacts land in <out-dir> (default a temp dir), NOT committed
+# one command; artifacts land in <out-dir> (default a temp dir), NOT committed.
+# ~100k events keeps the off-peak A_FB bins statistically meaningful.
 ACCSIM_ENABLE_LHAPDF=1 \
-.venv/Scripts/python.exe pipelines/pp_mumu_drellyan/run_pipeline.py --n 20000 \
+.venv/Scripts/python.exe pipelines/pp_mumu_drellyan/run_pipeline.py --n 100000 \
     --out-dir M:/claud_projects/temp/phase2_drellyan
 ```
 
-(This is a gated addon — see below.) Outputs `meta.dat`, `events.hepmc`, `truth_mass.dat`,
-`reco_mass.dat`, and the labelled `drellyan_truth_vs_reco.png`. All regenerable, so **not
-committed**.
+(This is a gated addon — see below.) Outputs `meta.dat`, `events.hepmc`, `truth_kin.dat`,
+`reco_kin.dat`, `truth_gen.dat`, and the labelled `drellyan_truth_vs_reco.png` (mass) and
+`drellyan_afb_vs_mass.png` (`A_FB`). All regenerable, so **not committed**. The run exits
+non-zero if the `A_FB` sign guard fails.
 
 ## The detector signature (why the plot proves the sim is live)
 
@@ -106,13 +113,31 @@ heavy-flavour contamination to reject, and hence **no** monochromatic-`|p|` cut 
 leptonic Delphes chain needed). Both truth and reco simply take the **leading opposite-sign
 muon pair** (robust when FSR occasionally yields more than two muons).
 
-## A_FB is deliberately *not* measured here
+## A_FB(m) in the Collins-Soper frame — the second deliverable
 
-Hadronic Drell-Yan `A_FB` requires the **Collins-Soper** frame and a **quark-direction
-dilution** correction (the `pp` initial state does not fix the quark direction) — that is
-research-grade and out of scope per the roadmap. The mass spectrum is the clean, correct
-deliverable. (The leptonic 250 GeV chain *does* measure `A_FB`, because there the incoming
-`e-` direction is known.)
+Hadronic Drell-Yan `A_FB` needs the **Collins-Soper (CS)** frame — the di-muon rest frame
+whose polar axis bisects beam-1 and reversed-beam-2 (minimising `Q_T` sensitivity). The
+frame transform is **one tested function**, `accsim.events.collins_soper_costheta` (pure
+numpy, analytic gate `tests/analytic/test_collins_soper.py`: the closed form equals an
+independent boost-into-rest-frame construction over 3000 random pairs). The container macro
+only dumps four-vectors, so no sign-error-prone frame math is duplicated in untested C++.
+
+**The signature (and the physics gate).** `A_FB(m)` is **negative below** `M_Z`, crosses
+**zero just under the pole**, and is **positive above** — the classic γ*/Z interference. The
+magnitude has no clean closed form (interference × the `pp` dilution), so the acceptance
+check is the **sign guard**: `A_FB < 0` below, `> 0` above. Measured (100k events): below
+`−0.056 ± 0.007`, above `+0.108 ± 0.010` → `SIGN GUARD: PASS`. (The integrated-over-60–120
+`A_FB` is ~0 by below/above cancellation — correct physics, not the headline.)
+
+**The `pp` dilution, made explicit.** `pp` does not fix the quark direction, so the CS axis
+is oriented by the `sign(Q_z)` proxy (the di-muon boost — the valence quark usually carries
+more momentum). This probabilistic guess **dilutes** `A_FB` below parton level. We quantify
+it: `generate_hepmc.cc` emits the **true** incoming-quark `p_z` sign, and `analyze.py`
+overlays the **undiluted** `A_FB` (true direction) on the diluted proxy. Above the pole:
+undiluted `+0.289 ± 0.010` vs proxy `+0.108` → **dilution factor ≈ 0.37**. The **reco** curve
+(proxy only — a detector never knows the true quark direction) tracks the proxy truth, so the
+**detector effect on `A_FB` ≪ the dilution**. (The leptonic 250 GeV chain measures `A_FB`
+undiluted, because there the incoming `e-` direction *is* known — the contrast is the point.)
 
 ## Gated addon
 
@@ -125,6 +150,8 @@ chain introduces (**LHAPDF**), consistent with the `pythia` / `delphes` switches
 ## Out of scope (deliberately)
 
 Pile-up (the `_PileUp` CMS card), NLO/NNLO matrix elements + K-factors, the full γ*/Z/W
-Drell-Yan family, PDF-uncertainty bands (the error-set members), jet/b-tag performance, and
-`A_FB` in the Collins-Soper frame. The deliverable is the truth-vs-reco Z-peak in the muon
-channel with a real PDF.
+Drell-Yan family, PDF-uncertainty bands (the error-set members), and jet/b-tag performance.
+For `A_FB`: the theory **dilution-correction unfolding** (recovering parton-level `A_FB` from
+data *without* the generator truth), the `sin²θ_W` extraction, and the CS **azimuthal** `φ*` /
+angular coefficients `A_0..A_7`. The deliverables are the truth-vs-reco **Z-peak** and
+**`A_FB(m)`** in the muon channel with a real PDF.

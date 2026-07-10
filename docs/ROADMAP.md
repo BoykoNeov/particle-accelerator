@@ -300,16 +300,17 @@ research-grade and out of scope** unless explicitly requested.
   `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
   cavities / dynamic aperture remain out of scope.
 
-## Phase 2 (optional) — Collision event physics — both clauses + Delphes + hadronic Drell-Yan done
+## Phase 2 (optional) — Collision event physics — both clauses + Delphes + hadronic Drell-Yan + Collins-Soper A_FB done
 
 > **Milestone status:** clause (a) is analytically **met** (toy), clause (b) is
 > **demonstrated end-to-end** (real Pythia chain), the canonical **Delphes**
 > fast-detector step is **added** (`pipelines/ee_mumu_delphes/`, ILD @ 250 GeV,
-> truth-vs-reco), and the **hadronic (LHAPDF) Drell-Yan** extension — the last
-> named next step — is now **added** too (`pipelines/pp_mumu_drellyan/`, CMS @ 13 TeV,
-> real proton PDFs, truth-vs-reco Z peak). Every named Phase-2 deliverable is now
-> built; whether to mark this optional phase formally *closed* remains a **user
-> decision** — not marked ✅ unilaterally.
+> truth-vs-reco), the **hadronic (LHAPDF) Drell-Yan** extension is **added**
+> (`pipelines/pp_mumu_drellyan/`, CMS @ 13 TeV, real proton PDFs, truth-vs-reco Z peak),
+> and its **Collins-Soper `A_FB(m)`** angular observable — with the `pp` dilution made
+> explicit — is now **added** too (user-requested; previously out of scope). Every named
+> Phase-2 deliverable plus the CS `A_FB` extension is now built; whether to mark this
+> optional phase formally *closed* remains a **user decision** — not marked ✅ unilaterally.
 
 **Do not rebuild event generators.** Orchestrate the established chain: event
 generator (Pythia / MadGraph) → fast detector sim (Delphes) → analysis in the
@@ -367,10 +368,22 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
     a **modest peak broadening** (CMS muon momentum resolution, reco RMS > truth). The
     honest cross-check is `σ(DY×BR, 60<m<120) ≈ 1.5 nb`, matching the measured LHC value
     (~1.9 nb NNLO, LO ÷ K≈1.25) — a *real* PDF doing physical work. The resonance is
-    forced to `Z→μμ`, so no τ→μ contamination and no `|p|` cut (leading OS pair suffices);
-    `A_FB` is *not* claimed (needs the Collins-Soper frame — out of scope). Gated addon
-    (`ACCSIM_ENABLE_LHAPDF`). See `pipelines/pp_mumu_drellyan/README.md` and
+    forced to `Z→μμ`, so no τ→μ contamination and no `|p|` cut (leading OS pair suffices).
+    Gated addon (`ACCSIM_ENABLE_LHAPDF`). See `pipelines/pp_mumu_drellyan/README.md` and
     CONVENTIONS.md → *Drell-Yan hadronic step*.
+  - ✅ **Collins-Soper `A_FB(m)` — ADDED (the second deliverable of the DY chain).** The
+    forward-backward asymmetry in the **Collins-Soper frame**, computed from the same
+    truth/reco four-vectors by **one tested** function `accsim.events.collins_soper_costheta`
+    (analytic gate: closed form == independent boost-into-rest-frame construction over 3000
+    random pairs, `tests/analytic/test_collins_soper.py`; the `2/(Q√(Q²+Q_T²))` coefficient
+    derived, not remembered). The physics gate is the **sign** (no clean closed form for the
+    magnitude): `A_FB < 0` below `M_Z`, `> 0` above — measured below `−0.056 ± 0.007`, above
+    `+0.108 ± 0.010` at 13 TeV / 100k (`SIGN GUARD: PASS`). The **`pp` dilution** is made
+    explicit: `generate_hepmc.cc` emits the *true* incoming-quark `p_z` sign, so the
+    **undiluted** `A_FB` (`+0.289` above pole) is overlaid on the `sign(Q_z)`-proxy diluted
+    one (`+0.108`, factor ≈ 0.37); reco tracks the proxy (detector effect ≪ dilution). This
+    was previously listed out of scope; it is now **built** (user-requested). See
+    CONVENTIONS.md → *Collins-Soper A_FB*.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

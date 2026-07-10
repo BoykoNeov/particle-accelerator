@@ -50,7 +50,7 @@ import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 GEN_SRC = HERE / "generate_hepmc.cc"
-MASS_MACRO = HERE / "extract_mass.C"
+KIN_MACRO = HERE / "extract_kinematics.C"
 ANALYZE = HERE / "analyze.py"
 
 GEN_IMAGE = "hepstore/rivet-pythia"
@@ -64,7 +64,13 @@ def run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=True, text=True, **kw)  # type: ignore[arg-type]
 
 
-def generate(cid: str, args: argparse.Namespace, meta: pathlib.Path, hepmc: pathlib.Path) -> None:
+def generate(
+    cid: str,
+    args: argparse.Namespace,
+    meta: pathlib.Path,
+    hepmc: pathlib.Path,
+    truth_gen: pathlib.Path,
+) -> None:
     """Stage 1 (GEN): fetch the PDF, compile + run the Pythia generator in ``cid``."""
     run(["docker", "cp", str(GEN_SRC), f"{cid}:/tmp/generate_hepmc.cc"])
     # Download the LHAPDF grid first, with a clean error if the network is down --
@@ -111,12 +117,15 @@ def generate(cid: str, args: argparse.Namespace, meta: pathlib.Path, hepmc: path
             "DY_META=/tmp/meta.dat",
             "-e",
             "DY_HEPMC=/tmp/events.hepmc",
+            "-e",
+            "DY_TRUTHGEN=/tmp/truth_gen.dat",
             cid,
             "/tmp/gen",
         ]
     )
     run(["docker", "cp", f"{cid}:/tmp/meta.dat", str(meta)])
     run(["docker", "cp", f"{cid}:/tmp/events.hepmc", str(hepmc)])
+    run(["docker", "cp", f"{cid}:/tmp/truth_gen.dat", str(truth_gen)])
 
 
 def simulate(
@@ -126,10 +135,10 @@ def simulate(
     truth: pathlib.Path,
     reco: pathlib.Path,
 ) -> None:
-    """Stage 2 (SIM): Delphes detector sim + truth/reco mass extraction in ``cid``."""
+    """Stage 2 (SIM): Delphes detector sim + truth/reco four-vector extraction in ``cid``."""
     card = f"{CARDS_DIR}/delphes_card_{args.card}.tcl"
     run(["docker", "cp", str(hepmc), f"{cid}:/tmp/events.hepmc"])
-    run(["docker", "cp", str(MASS_MACRO), f"{cid}:/tmp/extract_mass.C"])
+    run(["docker", "cp", str(KIN_MACRO), f"{cid}:/tmp/extract_kinematics.C"])
     # DelphesHepMC3 refuses to overwrite; ensure a clean out.root.
     run(
         [
@@ -151,11 +160,11 @@ def simulate(
             "bash",
             "-lc",
             "cd /tmp && root -l -b -q "
-            '\'extract_mass.C("/tmp/out.root","/tmp/truth.dat","/tmp/reco.dat")\'',
+            '\'extract_kinematics.C("/tmp/out.root","/tmp/truth_kin.dat","/tmp/reco_kin.dat")\'',
         ]
     )
-    run(["docker", "cp", f"{cid}:/tmp/truth.dat", str(truth)])
-    run(["docker", "cp", f"{cid}:/tmp/reco.dat", str(reco)])
+    run(["docker", "cp", f"{cid}:/tmp/truth_kin.dat", str(truth)])
+    run(["docker", "cp", f"{cid}:/tmp/reco_kin.dat", str(reco)])
 
 
 def main(argv: list[str]) -> int:
@@ -198,9 +207,11 @@ def main(argv: list[str]) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = out_dir / "meta.dat"
     hepmc = out_dir / "events.hepmc"
-    truth = out_dir / "truth_mass.dat"
-    reco = out_dir / "reco_mass.dat"
-    png = out_dir / "drellyan_truth_vs_reco.png"
+    truth = out_dir / "truth_kin.dat"
+    reco = out_dir / "reco_kin.dat"
+    truth_gen = out_dir / "truth_gen.dat"  # generator truth + true quark direction
+    mass_png = out_dir / "drellyan_truth_vs_reco.png"
+    afb_png = out_dir / "drellyan_afb_vs_mass.png"
 
     # Stage 1: generation container.
     cid = run(
@@ -209,7 +220,7 @@ def main(argv: list[str]) -> int:
     ).stdout.strip()
     print(f"[GEN] container {cid[:12]}")
     try:
-        generate(cid, args, meta, hepmc)
+        generate(cid, args, meta, hepmc, truth_gen)
     finally:
         subprocess.run(["docker", "rm", "-f", cid], stdout=subprocess.DEVNULL)
 
@@ -233,13 +244,27 @@ def main(argv: list[str]) -> int:
     finally:
         subprocess.run(["docker", "rm", "-f", cid], stdout=subprocess.DEVNULL)
 
-    # Stage 3: host-side analysis.
-    run([sys.executable, str(ANALYZE), str(meta), str(truth), str(reco), str(png)])
+    # Stage 3: host-side analysis (mass spectrum + Collins-Soper A_FB(m)).
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(ANALYZE),
+            str(meta),
+            str(truth),
+            str(reco),
+            str(mass_png),
+            str(afb_png),
+            str(truth_gen),  # optional: enables the A_FB dilution overlay
+        ],
+        text=True,
+    )
     print(
         f"\nPhase 2 (hadronic Drell-Yan chain) done:\n"
-        f"  meta:  {meta}\n  truth: {truth}\n  reco:  {reco}\n  plot:  {png}"
+        f"  meta:  {meta}\n  truth: {truth}\n  reco:  {reco}\n"
+        f"  mass plot:  {mass_png}\n  A_FB plot:  {afb_png}"
     )
-    return 0
+    # analyze.py returns non-zero if the A_FB sign guard fails — surface it.
+    return proc.returncode
 
 
 if __name__ == "__main__":

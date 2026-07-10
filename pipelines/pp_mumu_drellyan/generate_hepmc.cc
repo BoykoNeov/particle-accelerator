@@ -39,6 +39,7 @@
 
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 
 using namespace Pythia8;
@@ -65,6 +66,9 @@ int main() {
   const char* pdfSet = env_s("DY_PDF_SET", "NNPDF31_lo_as_0118");
   const char* metaPath = env_s("DY_META", "/tmp/meta.dat");
   const char* hepmcPath = env_s("DY_HEPMC", "/tmp/events.hepmc");
+  // Generator-level truth dump carrying the TRUE incoming-quark direction (see
+  // below) -- the reference the pp sign(Q_z) proxy is diluted against for A_FB.
+  const char* truthGenPath = env_s("DY_TRUTHGEN", "/tmp/truth_gen.dat");
 
   Pythia pythia;
   pythia.readString("Beams:idA = 2212");  // proton
@@ -100,6 +104,18 @@ int main() {
   // HepMC3 ascii3 writer (Delphes 3.5.0 DelphesHepMC3 reads this format).
   Pythia8::Pythia8ToHepMC toHepMC(hepmcPath);
 
+  // Generator-level truth dump for the A_FB *dilution* demonstration. Per event:
+  //   quark_pz_sign  Em pxm pym pzm  Ep pxp pyp pzp
+  // The quark_pz_sign is the sign of p_z of the TRUE incoming quark of the hard
+  // q qbar -> gamma*/Z process (status -21, i.e. statusAbs()==21, id in 1..6). In
+  // pp we normally do NOT know this -- the analysis proxies it by sign(Q_z), the
+  // di-lepton boost -- so comparing A_FB with this true sign vs the proxy sign is
+  // exactly the pp dilution (worst at central rapidity). mu- is id +13, mu+ id -13.
+  std::ofstream ftg(truthGenPath);
+  ftg << "# level=truth_gen source=Pythia observable=quark_pz_sign+mu-_mu+_fourvectors"
+      << " cols=qsign,Em,pxm,pym,pzm,Ep,pxp,pyp,pzp\n";
+  long nTruthGen = 0;
+
   // Sanity counter: events carrying a hard-process (status 23) mu-. Because we
   // FORCE 23 -> mu+ mu-, every successfully generated event has one, so this is
   // just a "the forced decay fired everywhere" check (expect == n successful
@@ -110,12 +126,30 @@ int main() {
   for (int iE = 0; iE < nEvents; ++iE) {
     if (!pythia.next()) continue;
     toHepMC.writeNextEvent(pythia);  // Delphes sees the full event (incl. ISR/FSR).
+
+    // True incoming-quark p_z sign + leading OS status-1 muon pair, from Pythia's
+    // own record (the parton-level truth; no HepMC/Delphes round-trip).
+    double quarkPz = 0.0;
+    int muMinus = -1, muPlus = -1;  // event indices of the leading mu-/mu+
     for (int i = 0; i < pythia.event.size(); ++i) {
       const Particle& p = pythia.event[i];
-      if (p.id() == 13 && p.statusAbs() == 23) {
-        ++nHardMu;
-        break;
+      if (p.statusAbs() == 21 && p.id() >= 1 && p.id() <= 6) {
+        quarkPz = p.pz();  // the hard incoming quark (not the antiquark)
       }
+      if (p.id() == 13 && p.statusAbs() == 23) ++nHardMu;
+      if (!p.isFinal()) continue;
+      if (p.id() == 13 && (muMinus < 0 || p.pT() > pythia.event[muMinus].pT()))
+        muMinus = i;  // mu- is id +13
+      else if (p.id() == -13 && (muPlus < 0 || p.pT() > pythia.event[muPlus].pT()))
+        muPlus = i;  // mu+ is id -13
+    }
+    if (quarkPz != 0.0 && muMinus >= 0 && muPlus >= 0) {
+      const Particle& m = pythia.event[muMinus];
+      const Particle& p = pythia.event[muPlus];
+      ftg << std::setprecision(9) << (quarkPz > 0 ? 1 : -1) << " " << m.e() << " "
+          << m.px() << " " << m.py() << " " << m.pz() << "  " << p.e() << " " << p.px()
+          << " " << p.py() << " " << p.pz() << "\n";
+      ++nTruthGen;
     }
   }
 
@@ -134,5 +168,7 @@ int main() {
             << " hard mu- in " << nEvents << " events); PDF=" << pdfSet
             << "; Pythia sigma = " << sigma_mb * 1e6 << " +/- " << sigma_err_mb * 1e6
             << " nb (DY x BR(Z->mumu), " << mMin << "<m<" << mMax << ")\n";
+  std::cerr << "wrote generator truth (quark dir + mu pair) for " << nTruthGen
+            << " events to " << truthGenPath << "\n";
   return 0;
 }
