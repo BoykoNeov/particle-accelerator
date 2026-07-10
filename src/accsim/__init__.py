@@ -31,6 +31,15 @@ from .elements import (
 )
 from .lattice import Lattice, matrix_of
 from .lifetime import quantum_lifetime
+from .radiation import (
+    RadiationIntegrals,
+    damping_partition_numbers,
+    damping_times,
+    energy_loss_per_turn,
+    quantum_constant_cq,
+    radiation_constant_cgamma,
+    radiation_integrals,
+)
 from .longitudinal import (
     longitudinal_hamiltonian,
     rf_bucket_height,
@@ -101,6 +110,13 @@ __all__ = [
     "LossResult",
     # lifetime models
     "quantum_lifetime",
+    "RadiationIntegrals",
+    "radiation_integrals",
+    "radiation_constant_cgamma",
+    "quantum_constant_cq",
+    "energy_loss_per_turn",
+    "damping_partition_numbers",
+    "damping_times",
     # symplectic helpers
     "is_symplectic",
     "J6",
