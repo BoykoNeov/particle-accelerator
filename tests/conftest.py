@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
-from accsim import ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle
+from accsim import ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle, features
+
+
+@pytest.fixture(autouse=True)
+def _reset_feature_switches() -> Iterator[None]:
+    """Keep optional-addon switches from leaking across tests.
+
+    ``accsim.features`` overrides are process-global; without this a test that
+    ``enable``s an addon would flip it on for every later test. Reset before and
+    after each test so every test starts from the default (all addons OFF).
+    """
+    features.reset()
+    yield
+    features.reset()
 
 
 @pytest.fixture

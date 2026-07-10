@@ -762,6 +762,45 @@ claimed as a visible distinguishing feature.
   interference/resonance, masses/thresholds, hadronic PDFs, higher orders, and the
   real Pythia→Delphes orchestration.
 
+## Feature switches (optional addons — implemented)
+
+**The rule:** the pure-Python **baseline** — the accelerator optics/tracking core
+(Stages 0–6) and the toy event generator (`accsim.events`), all numpy/scipy/
+matplotlib only — is always on and never gated. **Everything past that baseline**
+— any addon / expansion / module / component that pulls an external tool
+(Docker/Pythia/Delphes), a heavy dependency, or an optional extension — sits
+behind an explicit **runtime switch, default OFF** (`accsim.features`). This is a
+standing project contract, not a per-stage note.
+
+- **One source of truth, two surfaces.** `accsim.features` holds a fixed set of
+  known addon names (`KNOWN_ADDONS`, currently just `pythia`) and a
+  process-global override table. Both entry surfaces read it:
+  - **In-package callers** guard the heavy entry point with
+    `features.require("<name>")`, which raises `AddonDisabledError` (carrying the
+    enable instruction) when off. Call it **before** importing the optional
+    dependency, so "off" fails cleanly instead of crashing on a missing import.
+    This is the switch that earns its keep on *future* in-package additions
+    (a Delphes/LHAPDF step called from inside `accsim`).
+  - **Standalone scripts / CI** flip the same flag via the env var
+    `ACCSIM_ENABLE_<NAME>` (e.g. `ACCSIM_ENABLE_PYTHIA=1`). Running a pipeline
+    script *is* the opt-in, so its gate is deliberately light — the Pythia
+    `run_pipeline.py` `main()` calls `features.require("pythia")` right after
+    arg-parsing and bails with the enable instruction when off.
+- **Precedence** (single rule): a programmatic override
+  (`enable`/`disable`/`enabled`) beats the env var; with no override the env var
+  decides; absent both, OFF.
+- **Context manager is the primary API.** `with features.enabled(name):` restores
+  the prior override state — *including no override* — on exit, even on exception,
+  so a flag never leaks past its block. The suite's autouse fixture
+  (`tests/conftest.py`) calls `features.reset()` around every test for the same
+  reason (the override table is process-global).
+- **No empty scaffolding.** A name enters `KNOWN_ADDONS` only when real gated code
+  lands behind it (one feature per change); `delphes`/`lhapdf` are *not* known
+  addons yet — `require("delphes")` raises `UnknownAddonError` (typo guard), not a
+  silent pass. Gated behavior (defaults OFF, baseline green with everything off,
+  `require` raises-off/passes-on, precedence) is pinned by
+  `tests/analytic/test_features.py` — behavioral, not a physics derivation.
+
 ## Symplecticity
 
 A linear map is symplectic iff `Mᵀ J M = J` (`accsim.symplectic`). Thin-lens kicks

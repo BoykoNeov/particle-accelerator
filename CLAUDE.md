@@ -24,6 +24,13 @@ still produces convincing plots. Everything below defends against that.
 - **Validate, don't advance.** Do not start stage N+1 until stage N's acceptance
   tests pass (analytic + any applicable Xsuite cross-check).
 - One element or feature per change.
+- **Everything past the pure-Python baseline is an opt-in runtime switch.** The
+  baseline (accelerator core + toy event generator; numpy/scipy/matplotlib only)
+  is always on. Any addon / expansion / module / component that adds an external
+  tool, a heavy dependency, or an optional extension must sit behind
+  `accsim.features` (`require()` for in-package callers, the `ACCSIM_ENABLE_*` env
+  var for standalone scripts/CI), **default OFF**. Don't scaffold a switch until
+  real code lands behind it. See `docs/CONVENTIONS.md` → *Feature switches*.
 - Maintain `docs/CONVENTIONS.md`: record every sign / unit / coordinate choice the
   moment it is made.
 - Flag explicitly any approximation that breaks symplecticity or physical

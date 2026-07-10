@@ -7,6 +7,7 @@ whole codebase depends on.
 
 from __future__ import annotations
 
+from . import features
 from .acceleration import (
     RampResult,
     accelerate,
@@ -130,5 +131,7 @@ __all__ = [
     "synchronous_phase",
     "accelerate",
     "RampResult",
+    # runtime feature switches (optional addons; default OFF)
+    "features",
     "__version__",
 ]

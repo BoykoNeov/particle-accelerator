@@ -55,6 +55,20 @@ def main(argv: list[str]) -> int:
     )
     args = ap.parse_args(argv)
 
+    # This whole pipeline is an optional addon (project rule: everything past the
+    # pure-Python toy baseline is an opt-in runtime switch, default OFF). Running
+    # the script *is* the opt-in, so gate on the same flag the in-package API
+    # reads — the env var ``ACCSIM_ENABLE_PYTHIA=1`` — and bail with the enable
+    # instruction when off. The gate is deliberately light (near-ceremonial here);
+    # the mechanism earns its keep on future in-package additions.
+    from accsim import features
+
+    try:
+        features.require("pythia")
+    except features.AddonDisabledError as exc:
+        print(f"[gated addon] {exc}", file=sys.stderr)
+        return 2
+
     out_dir = pathlib.Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     dat = out_dir / "eemumu_costheta.dat"
