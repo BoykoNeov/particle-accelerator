@@ -300,13 +300,14 @@ research-grade and out of scope** unless explicitly requested.
   `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
   cavities / dynamic aperture remain out of scope.
 
-## Phase 2 (optional) — Collision event physics — both clauses demonstrated (Delphes/hadronic optional; user to close)
+## Phase 2 (optional) — Collision event physics — both clauses + Delphes detector step done (hadronic optional; user to close)
 
-> **Milestone status:** clause (a) is analytically **met** (toy) and clause (b) is
-> **demonstrated end-to-end** (real Pythia chain). Whether to mark this optional
-> phase *closed* or to add the canonical **Delphes** detector step and/or a
-> **hadronic (LHAPDF) Drell-Yan** extension is a **user decision** — not marked ✅
-> unilaterally.
+> **Milestone status:** clause (a) is analytically **met** (toy), clause (b) is
+> **demonstrated end-to-end** (real Pythia chain), and the canonical **Delphes**
+> fast-detector step is now **added** (`pipelines/ee_mumu_delphes/`, ILD @ 250 GeV,
+> truth-vs-reco). The remaining optional extension is a **hadronic (LHAPDF)
+> Drell-Yan** chain. Whether to mark this optional phase *closed* or add that
+> extension is a **user decision** — not marked ✅ unilaterally.
 
 **Do not rebuild event generators.** Orchestrate the established chain: event
 generator (Pythia / MadGraph) → fast detector sim (Delphes) → analysis in the
@@ -340,9 +341,20 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
     build natively on Win/Py3.14 and there is no Windows pip/conda `pythia8`; a
     bind mount is avoided (spaced path) via `docker cp`. See
     `pipelines/ee_mumu_pythia/README.md`.
-  - **Out of scope (deliberately):** the Delphes detector step and a hadronic
-    (LHAPDF Drell-Yan) extension — clause (b) needs only generation → labelled
-    distribution. These are natural next extensions if wanted.
+  - ✅ **Delphes fast-detector step — ADDED (`pipelines/ee_mumu_delphes/`).** The
+    canonical generator→**fast detector sim**→analysis chain: Pythia8
+    (`e+e- → γ*/Z → μ+μ-` at **√s = 250 GeV**) → **HepMC3** → **Delphes 3.5.0** with
+    the **ILD** card (`scailfin/delphes-python-centos`, IRIS-HEP) → a **truth-vs-reco**
+    `cos θ` distribution. 250 GeV (not the clause-(b) 10 GeV) because standard Delphes
+    e+e- cards are only valid ≥ 91 GeV. The plot *shows the detector*: reco ⊆ truth
+    (acceptance × ε ≈ 0.91), reco vanishes beyond the ILD `|η| < 2.4` edge
+    (`|cos θ| = 0.984`) while truth reaches ±1, and above the Z the μ⁻ is
+    forward-peaked (`A_FB ≈ +0.53`, *measured* — contrast the 10 GeV `A_FB ≈ 0`). The
+    signal μ⁻ is isolated by an angle-neutral `|p| > 100 GeV` cut (status 23 is lost
+    through the HepMC round-trip). Gated addon (`ACCSIM_ENABLE_DELPHES`). See
+    `pipelines/ee_mumu_delphes/README.md` and CONVENTIONS.md → *Delphes detector step*.
+  - **Out of scope (deliberately):** a hadronic (LHAPDF Drell-Yan) extension — the
+    remaining natural next step if wanted.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

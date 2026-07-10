@@ -19,7 +19,7 @@ import pytest
 
 from accsim import features
 
-ADDON = "pythia"  # the one currently-gated addon
+ADDON = "pythia"  # a representative gated addon (see KNOWN_ADDONS for the full set)
 
 
 def test_all_known_addons_default_off() -> None:
@@ -102,4 +102,4 @@ def test_override_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_unknown_addon_is_rejected() -> None:
     for fn in (features.is_enabled, features.enable, features.disable, features.require):
         with pytest.raises(features.UnknownAddonError):
-            fn("delphes")  # not (yet) a known addon — no code behind it
+            fn("lhapdf")  # not a known addon — no code behind it (typo guard)

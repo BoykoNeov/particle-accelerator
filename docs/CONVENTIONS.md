@@ -762,6 +762,54 @@ claimed as a visible distinguishing feature.
   interference/resonance, masses/thresholds, hadronic PDFs, higher orders, and the
   real Pythia→Delphes orchestration.
 
+## Delphes detector step (Phase 2 — detector extension)
+
+`pipelines/ee_mumu_delphes/` adds the canonical **fast detector simulation**
+(Delphes) after the generator, so the deliverable is a **generator-level (truth) vs
+detector-level (reco)** `cos θ` comparison — *what the detector does to the truth*.
+Two **established** tools, coupled through a **HepMC3** file (the standard
+generator→detector interchange): Pythia8 (`hepstore/rivet-pythia`) writes HepMC3 via
+`Pythia8Plugins/HepMC3.h`; Delphes 3.5.0 + ROOT (`scailfin/delphes-python-centos:3.5.0`,
+IRIS-HEP) runs `DelphesHepMC3` with the **ILD** card. We decouple through HepMC3
+(rather than `DelphesPythia8`) because no trustworthy single image ships both tools and
+`DelphesPythia8` needs Delphes compiled against this Pythia. Gated addon
+(`ACCSIM_ENABLE_DELPHES` / `features.require("delphes")`); see the dir's README.
+
+- **√s = 250 GeV, not the clause-(b) 10 GeV — a *card-validity* choice, not a whim.**
+  Standard Delphes e+e- cards (ILD/IDEA/CLIC) are parametrized for **≥ 91 GeV**; at
+  10 GeV *no* card is physically valid. 250 GeV (ILC) is the ILD card's designed range.
+  Bonus: above the Z, γ*-Z interference makes the μ⁻ **forward-peaked** — a *measured*
+  `A_FB ≈ +0.53` (contrast the 10 GeV chain's `A_FB ≈ 0`). The symmetric `1 + cos²θ`
+  toy law does **not** hold here (it is the far-below-Z limit), so no `1+cos²θ` overlay.
+- **`cos θ` conventions.** Truth from the generator `Particle` branch: `cos θ = pz/|p|`
+  (`|p| = √(px²+py²+pz²)`). Reco from the `Muon` branch: `cos θ = tanh(η)` (Delphes
+  stores pseudorapidity; `η = artanh cos θ`, exact for the ultra-relativistic 125 GeV
+  muons). Both are produced by the **same** ROOT macro (`extract_reco.C`) from the
+  **same** Delphes file, so truth and reco are one population up to detector response.
+- **Signal isolation by an *angle-neutral* `|p| > 100 GeV` cut.** The
+  `ffbar2ffbar(s:gmZ)` process sums all outgoing flavours, so the sample also makes
+  μ from τ→μ and b/c decays. Two facts: (1) Pythia's hard-outgoing **status 23 is not
+  preserved through the HepMC round-trip** (FSR → status 51/52 copies + a status-1
+  final), so it cannot tag the signal in the Delphes record; (2) the signal μ⁻ is
+  **monochromatic at |p| ≈ 125 GeV at every polar angle**, secondaries are soft — the
+  status-1 μ⁻ `|p|` spectrum is bimodal (~125 GeV spike + soft tail) with a wide empty
+  valley (≈ 60–110 GeV). So both truth and reco cut `|p| > 100 GeV` (`|p| = pT·cosh η`
+  for reco). **`|p|` not `pT`** is the crux: the signal is 125 GeV at *all* `cos θ`, so
+  the cut **cannot manufacture a forward edge** — the only edge is the detector's.
+- **Validation — the detector must *remove* muons, and the acceptance edge is the
+  proof.** The ILD card reconstructs muons at 95% efficiency for **|η| < 2.4**, zero
+  beyond. So: **reco ⊆ truth** (never adds muons; a bug where reco > truth from τ→μ
+  contamination was fixed by this design); `reco/truth = acceptance × ε ≈ 0.91`; **reco
+  vanishes beyond `|cos θ| = tanh(2.4) = 0.984`** while truth extends to ±1 — that edge
+  is the live-detector signature. Cross-check: the `|p|` cut yields `truth N ≈ 1908`,
+  matching the generator's independent status-23 primary-μ⁻ count (`≈ 1956`) to ~2.5%,
+  confirming the cut selects the signal. `A_FB` is preserved truth↔reco (forward-back
+  symmetric acceptance). No analytic pin (a fast-sim response is not a closed form); the
+  gates are the four above. See `pipelines/ee_mumu_delphes/README.md`.
+- **Out of scope (labelled):** hadronic/PDF (LHAPDF Drell-Yan) extension; pile-up,
+  beam backgrounds, jet/b-tag performance, and full ILD reco (Delphes features left
+  unused — the deliverable is the muon channel truth-vs-reco).
+
 ## Feature switches (optional addons — implemented)
 
 **The rule:** the pure-Python **baseline** — the accelerator optics/tracking core
