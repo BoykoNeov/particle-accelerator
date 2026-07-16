@@ -194,6 +194,69 @@ cos μ = 1 − L²/(2f²)        ⇒  sin(μ/2) = L/(2f)
 element boundary sits exactly at its centre: `β` is continuous across it while
 `α` flips sign antisymmetrically, so `α ≠ 0` at the recorded D-centre boundary.
 
+## Tracking-based tune / NAFF (D2 — implemented)
+
+`src/accsim/tune.py` measures the tune a second, independent way: track a particle
+for many turns and find the frequency of its betatron oscillation (what a real
+machine does with turn-by-turn BPM data). Baseline module — numpy/scipy only, so
+**no feature switch**.
+
+- **Only the fractional tune is observable.** Turn-by-turn data samples the phase
+  once per turn, so an integer number of full rotations is invisible.
+  `tracked_tunes` returns `Q mod 1`; `tunes()` returns the **full** integer+fractional
+  tune. **Always compare modulo 1** — they are not the same quantity.
+- **The signal must be complex.** A real signal (position only) has a symmetric
+  spectrum and cannot separate `Q` from `1−Q`; it can only ever yield `min(Q, 1−Q)`.
+  The phase-space pair gives a signed rotation direction. **In this codebase's phase
+  convention the forward (+Q) combination is `z = U − i·PU`** in normalised
+  coordinates — `U + i·PU` measures `1 − Q`. Pinned empirically by
+  `test_signal_sign_gives_forward_tune`, not remembered.
+- **β/α come from the tracked data, never from `twiss.py`.** Normalising with
+  `closed_twiss` would import the very module the check exists to cross-check — a bug
+  in `match_periodic` would corrupt both sides and cancel. Instead
+  `ellipse_from_trajectory` recovers the ellipse from the trajectory's own
+  covariance: over a non-resonant phase, `Σ = ⟨[[u², u·u'],[u·u', u'²]]⟩ = J·[[β, −α],
+  [−α, γ]]`, and since `βγ − α² = 1` exactly, `det Σ = J²` fixes the scale without
+  knowing `J`:
+
+  ```
+  J = √(det Σ),   β = Σ₁₁ / J,   α = −Σ₁₂ / J
+  ```
+
+  Normalised coordinates `U = u/√β`, `PU = (α·u + β·u')/√β` then turn the ellipse into
+  a circle, so the motion is a pure rotation with a single spectral line.
+- **Estimator = Hann-windowed NAFF (Laskar), with a derivative polish.** A windowed
+  FFT locates the peak bin (`1/N` resolution), Brent refines within ±1 bin, and the
+  result is then polished by **root-finding the derivative** of the projection
+  modulus. The polish is not optional dressing: locating a maximum by *comparing
+  values* is capped at `~√eps` in the argument (the modulus is quadratic at its peak,
+  so `eps` in the value maps to `√eps` in `f`; scipy's `fminbound` even floors its
+  tolerance at `√eps·|f|`). Measured: the tone gate stalls at **~1e-9** without the
+  polish and reaches **~1e-16** with it. The derivative crosses zero *linearly*, which
+  recovers the lost half of the digits.
+- **The normalisation need not be perfect.** Finite-turn phase sampling leaves an
+  `O(1/N)` error in the recovered β/α, so the normalised orbit is a slightly eccentric
+  near-circle, which leaks a small conjugate line at `−Q`. That line sits `2Q` away in
+  frequency, and Hann sidelobes fall off steeply, so it does **not** measurably shift
+  the `+Q` peak — hence β/α accurate to `~1e-4` still gives a tune good to `~1e-15`.
+- **Scope — do not oversell.** With `nonlinear=False` the tracking applies the *same*
+  one-turn matrix that `tunes()` is built from, so agreement validates the **extraction
+  method**, not the one-turn map itself. The map is pinned separately by the element
+  tests and the xtrack Twiss cross-check.
+- **Gate** (`tests/analytic/test_tracked_tune.py`, layered so a wrong estimator and a
+  wrong lattice cannot cancel): (1) a *synthetic* tone of known frequency recovered to
+  `<1e-12` — no optics in the test at all; (2) a known CS ellipse recovered from
+  exactly-sampled synthetic points to `1e-12`; (3) integration — tracked tune ==
+  `tunes() mod 1` to **1e-10** (ROADMAP D2 asks 1e-5; measured ~4e-15). The test ring
+  (28-cell FODO arc, `Qx = 2.2434`, `Qy = 1.7946`) is chosen to dodge every
+  degeneracy: non-zero and *differing* integer parts (so `frac(Q) ≠ Q` is exercised),
+  fractional parts far apart (no plane swap), clear of 0/0.5/1 — and `frac(Q_y) =
+  0.795 > 0.5`, which a real-signal estimator would alias to 0.205, so that plane
+  passes only because the signal is complex.
+- **Long-term symplecticity** (tracked motion neither damps nor blows up) is the
+  sibling check in `tests/analytic/test_tracking_stability.py` (marked `slow`) — see
+  *Symplecticity* below.
+
 ## Natural chromaticity (Stage 2 — implemented)
 
 `natural_chromaticity(lattice)` returns `(Q'_x, Q'_y) = (dQ_x/dδ, dQ_y/dδ)`, the

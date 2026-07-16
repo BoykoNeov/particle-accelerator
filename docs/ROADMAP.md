@@ -486,9 +486,27 @@ sustained arc.
   inject → accelerate (Stage 5) → store with radiation damping (B1) → collide (Stage 6) →
   account losses (Stage 4). **Gate:** each stage's existing analytic invariant still holds
   in the chained run — surfaces any seam between stages. Best done after B1.
-- **D2 — tracking-based tune measurement (FFT/NAFF).** [S] Independent of the matrix
-  `tunes()`. **Gate:** tracked tune == analytic one-turn-map tune to ~1e-5; also the
-  symplecticity smoke test's natural home.
+- **D2 — tracking-based tune measurement (FFT/NAFF).** ✅ **DONE (2026-07-16)** —
+  `src/accsim/tune.py` (always-on baseline: numpy/scipy only). Measures the tune the way
+  a real machine does — track a particle, read the betatron frequency of its
+  turn-by-turn record — as an independent route to `twiss.tunes()`. Delivered: `naff`
+  (Hann-windowed Laskar NAFF: windowed-FFT peak → Brent refinement → **derivative
+  root-find polish**), `ellipse_from_trajectory` (Courant-Snyder β/α from the
+  trajectory's own covariance via `det Σ = J²`), and `tracked_tunes`.
+  **Gate met and then some** (`tests/analytic/test_tracked_tune.py`, layered so a wrong
+  estimator and a wrong lattice can't cancel): a *synthetic* tone recovers to `~1e-16`
+  (no optics in the test), a known CS ellipse recovers to `1e-12`, and the integration
+  gate — tracked tune == `tunes()` **mod 1** — lands at **~4e-15** vs the 1e-5 asked
+  (asserted at 1e-10). Two design points worth keeping: β/α are taken from the *tracked
+  data*, never from `twiss.py`, so a `match_periodic` bug can't corrupt both sides and
+  cancel; and the `z = U − i·PU` sign was pinned **empirically**, not remembered. The
+  derivative polish is what buys the last 7 digits — maximising a modulus by comparing
+  values is capped at `√eps` (~1e-9). **Scope, stated honestly:** with `nonlinear=False`
+  the tracking uses the *same* one-turn matrix `tunes()` is built from, so this
+  validates the **extraction method**, not the map. The **symplecticity smoke test**
+  the original entry called for already existed
+  (`tests/analytic/test_tracking_stability.py`, `slow`) and was left alone. See
+  CONVENTIONS.md → *Tracking-based tune / NAFF*.
 - **D3 — MAD-X as a second reference** alongside xtrack. [M] **Gate:** element R-matrices /
   Twiss agree across *two* independent codes — catches a convention error a single
   reference could share. Behind the existing `reference` marker.

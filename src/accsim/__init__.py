@@ -56,6 +56,7 @@ from .reference import (
 )
 from .symplectic import J6, is_symplectic
 from .tracking import Bunch, LossResult, Particle, Tracker
+from .tune import ellipse_from_trajectory, naff, tracked_tunes
 from .twiss import (
     Twiss,
     UnstableLatticeError,
@@ -137,6 +138,10 @@ __all__ = [
     "momentum_compaction",
     "slip_factor",
     "synchrotron_tune",
+    # tracking-based tune (NAFF)
+    "naff",
+    "ellipse_from_trajectory",
+    "tracked_tunes",
     # longitudinal (nonlinear RF bucket)
     "longitudinal_hamiltonian",
     "rf_bucket_height",
