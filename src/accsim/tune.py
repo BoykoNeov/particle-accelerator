@@ -181,6 +181,11 @@ def _plane_tune(u: np.ndarray, up: np.ndarray) -> float:
     #     U = u / sqrt(beta),  PU = (alpha*u + beta*up) / sqrt(beta)
     # In this codebase's convention the phase advances so that z = U - i*PU rotates
     # with +Q (pinned by test_tracked_tune.py::test_signal_sign_gives_forward_tune).
+    #
+    # Normalising is not just for accuracy -- it protects the *sign*. Feeding raw
+    # (u, up) would leave a strongly eccentric ellipse, whose conjugate -Q line grows
+    # towards the +Q amplitude and can win the argmax outright, silently returning
+    # 1-Q. The near-circle keeps that line down at the O(1/n_turns) ellipse error.
     u_n = (u - u.mean()) / root_beta
     pu_n = (alpha * (u - u.mean()) + beta * (up - up.mean())) / root_beta
     return naff(u_n - 1.0j * pu_n)
@@ -204,6 +209,16 @@ def tracked_tunes(
     cannot see the integer part. ``n_turns`` need not be a power of two, but the FFT
     is fastest when it is. Amplitudes only set the signal scale in the linear map;
     they matter once ``nonlinear=True`` brings amplitude-dependent detuning.
+
+    **Accuracy degrades near the degenerate tunes and does so silently.** The result
+    is exact to round-off for a generic tune, but a fractional tune near ``0.5`` puts
+    the ``+Q`` and ``-Q`` lines on top of each other (they merge and bias the peak),
+    and one near ``0`` or ``1`` straddles the wrap where the refinement bracket and
+    the final ``% 1`` fold meet. Neither raises — the answer just quietly loses
+    digits. Treat a measured tune within roughly ``2/n_turns`` of ``0``, ``0.5`` or
+    ``1`` as suspect, and increase ``n_turns`` (which narrows the lines) before
+    believing it. A resonant tune is worse still: it samples only a few phases, so
+    :func:`ellipse_from_trajectory` sees a degenerate covariance and raises.
     """
     if x0 == 0.0 or y0 == 0.0:
         raise ValueError("x0 and y0 must be non-zero — a plane at rest has no tune")
