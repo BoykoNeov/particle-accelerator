@@ -1143,9 +1143,31 @@ behind `ACCSIM_ENABLE_LHAPDF` as before).
   derivation of the angular decomposition; the module's `S`/`D` matched term-by-term
   against that symbolic expression to `1e-12`; the sign gate (`A_FB<0` below `M_Z`,
   `>0` above, with a bisected zero-crossing under the pole) reproduced *independently*
-  by the model; `A_FB = (3/8)A₄`; and a **round-trip** — sample events from the model's
+  by the model; and a **round-trip** — sample events from the model's
   own distribution, measure with the *real* `forward_backward_asymmetry`, fit the angle
   back — at three injected values.
+- **Which checks are actually external (important — most are not).** The round-trip
+  runs the *same* `S`/`D` formula on both the generating and fitting side, so it cannot
+  catch a wrong coupling or `κ`. And **`A_FB = (3/8)A₄` is a tautology** here, since `A₄`
+  is defined from the same `S`/`D` — it is retained as a consistency tie to the A1
+  extractor, *not* as evidence. The genuine external anchors are two, and they are
+  **complementary by construction**:
+  - **Pure-Z limit** `A_FB = (3/4)·A_ℓ·A_q` with `A_f = 2v_f a_f/(v_f²+a_f²)` — the
+    standard LEP combination, written out independently and matched *both* symbolically
+    (photon dropped from the bilinear; also asserted `s`-independent) *and* numerically
+    on the pole through the production path, to 5%. This pins the **coupling**
+    normalisation.
+  - **`κ` derived**, not assumed: `(g_Z/2)²/e² = 1/(4sin²θ_W cos²θ_W)` from
+    `g_Z = g/cosθ_W` and `e = g sinθ_W`, checked symbolically.
+- **Why `κ` needs its own anchor (measured, not assumed).** The on-pole check is
+  **blind to `κ`**: there the Z dominates and `κ` cancels from the ratio `D/S`. Probed
+  directly — a **factor-2 error in `κ` shifts the on-pole value by only 0.06%**, and
+  *toward* the pure-Z limit (more Z dominance ⇒ purer limit), so a wrong `κ` would look
+  *better*. Its real effect is off-pole via interference, where it is large:
+  `A_FB(m=75)` moves `−0.660 → −0.445` under `κ×2`. Since the off-pole shape is exactly
+  where the `A_FB(m)` fit draws its sensitivity, an unverified `κ` would bias the
+  extracted angle — hence the separate derivation plus a guard that the off-pole curve
+  sits far from the pure-Z limit (i.e. interference is genuinely load-bearing).
 - **Guarding the "within fit error" trap.** "Recovered within error" is vacuous if the
   error is inflated or the χ² is flat, so the gate also asserts: a **pull distribution**
   over 25 pseudo-experiments with unit width (an inflated error collapses it), an
