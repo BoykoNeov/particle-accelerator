@@ -439,11 +439,12 @@ Directions the project could grow next, each written as a *candidate milestone*:
 defined, as always, by its **analytic gate** (a direction without a closed-form
 check is not worth building here — see the working agreement).
 
-**As of 2026-07-20 every candidate listed here is done** (A1–A3, B1, C1, C2, D1–D4,
-E1, E2 — each marked inline with what it delivered and what it deliberately did not).
-The next milestone therefore means writing a *new* candidate — either extending an
-axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
-item into scope. Ordered by proximity to what is already built, not by priority.
+**As of 2026-07-20 every candidate listed here is done** (A1–A3, B1, C1, C2, D1–D5,
+E1, E2, and the newly-opened **F1** — each marked inline with what it delivered and
+what it deliberately did not). The next milestone means writing a *new* candidate —
+either extending an axis below (e.g. **F2**, the full dipole chromaticity F1 left open)
+or opening one — and, where it overlaps *Out of scope* below, pulling that item into
+scope. Ordered by proximity to what is already built, not by priority.
 Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a sustained arc.
 
 ### A. Drell-Yan angular physics (extends the Collins-Soper A_FB, Phase 2)
@@ -924,6 +925,41 @@ Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a sustain
   `tests/analytic/test_btag_efficiency.py` (24 tests, synthetic jets + hand-written
   cards, no Docker; mutation-tested in two rounds, 13/13 caught). See CONVENTIONS.md →
   *b-tagging efficiency & the Delphes card* and `pipelines/pp_ttbar_btag/README.md`.
+
+### F. Combined-function magnets & pole-face edges (core, deferred from Stages 1–2)
+
+- **F1 — combined-function `Dipole` + pole-face edge focusing.** ✅ **DONE (2026-07-20)**
+  — the bending magnet refinements deferred out of Stage 1 (`Dipole` was a pure sector
+  bend). Delivered as three one-feature commits, all off by default so a plain sector
+  bend is byte-identical:
+  - **Pole-face edge angles `e1`/`e2`** (hard-edge): `R21 = +h·tan(e)` (horizontal
+    defocus), `R43 = −h·tan(e)` (vertical focus), sandwiching the body
+    `Edge(e2) @ Body @ Edge(e1)`. Sign/plane pinned empirically — whole 6×6 matches
+    MAD-X `sbend` (`fint=hgap=0`) to **2e-16** and xtrack `Bend` (linear edge) to ~1e-6.
+    Strongest gate: the **rectangular-bend identity** `e1=e2=θ/2` collapses the
+    horizontal block to a drift (`R21=0`, proven symbolically). Hard-edge only; the
+    vertical fringe correction stays out of scope.
+  - **Combined-function gradient `k1`**: body `exp(L·A)` with `K_x=h²+k1`, `K_y=−k1`;
+    branch-smooth dispersion integrals handle the removable `K_x=0` singularity (verified
+    vs `expm`). Reduces to sector (`k1=0`, byte-identical) and to `Quadrupole` (`h=0`);
+    matches MAD-X `sbend(k1)` ~1e-9 and xtrack `Bend(k1)` ~1e-6, both signs.
+  - **`I4` damping partition** now carries the general
+    `∮ D_x h(h²+2k1) ds − Σ_faces D_x h² tan(e)`. The `2k1` coefficient is pinned by a
+    **closed-form smooth constant-gradient ring** (`J_x = n/(1−n)` exactly) *and*
+    externally by MAD-X `synch_4` (~1%, decisively excluding the wrong coefficient which
+    is ~9% off); the edge term is pinned against MAD-X `synch_4` (self-consistent for the
+    sector-with-edges case). A strong gradient drives **`J_x < 0`** (horizontal
+    anti-damping), a signature a sector bend can't fake.
+  See CONVENTIONS.md → *Dipole — combined-function gradient*, *Dipole — pole-face edge
+  focusing*, and the `I4` update under *Synchrotron radiation*.
+  - **Deliberately NOT shipped: dipole chromaticity.** `natural_chromaticity` still omits
+    the whole dipole contribution. A gradient-only patch was tried and **reverted** — it
+    is measurably *worse* than omitting dipoles (the weak-focusing `h²` term is larger
+    than and opposite to the gradient term, so a partial fix moves `dqx` further from
+    xtrack truth). The full combined-function chromaticity (weak-focusing + gradient +
+    dispersion, xtrack-validated on a bendy lattice) is the natural **F2** milestone.
+    `momentum_compaction(method="quadrature")` likewise still sub-slices dipoles without
+    `k1` (default `identity` is exact, so low impact). See the memory note.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
