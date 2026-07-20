@@ -18,9 +18,16 @@ external tool, just the lattice already in hand.
 **m**, times in **s** (see ``docs/CONVENTIONS.md`` → *Units*). ``C_gamma`` is then
 in ``m/eV^3`` and ``U0`` comes out in **eV**; ``C_q`` is in **m**.
 
-**Scope.** Dipoles are **pure sector bends** (no combined-function gradient, no
-pole-face edge focusing — both out of Stage-1 scope), so ``I4 = ∮ D_x h^3 ds`` (the
-``2 k1`` body term and the ``-D_x h^2 tan(edge)`` face term both vanish). The lattice
+**Scope.** ``I4`` carries the general **combined-function + edge** form
+``I4 = ∮ D_x h (h^2 + 2 k1) ds - Σ_faces D_x h^2 tan(e)``: the ``2 k1`` body term
+(from the quadrupole gradient) and the ``-D_x h^2 tan(e)`` pole-face term now
+contribute, reducing to the pure-sector ``∮ D_x h^3 ds`` when ``k1 = e1 = e2 = 0``.
+The dispersion/beta transport inside a dipole is co-transported through the
+*actual* combined-function body and edge kicks, so ``I1``/``I4``/``I5`` are correct
+for such magnets; ``I2 = ∮ h^2 ds`` and ``I3 = ∮ |h|^3 ds`` are pure geometry and
+unchanged. The coefficient and edge sign are pinned against MAD-X's own
+integral-method ``synch_4`` (not xtrack, whose damped-map eigenanalysis differs
+from the integral method at the ~1% level — the size of the effect). The lattice
 is assumed a **periodic ring** (``closed_twiss`` enforces stability); the
 *isomagnetic* closed forms additionally assume total bend ``2*pi``. Vertical bending
 and betatron coupling are absent, so ``J_y = 1`` exactly and the equilibrium
@@ -95,23 +102,29 @@ def _curly_h(beta: float, alpha: float, dx: float, dpx: float) -> float:
 def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegrals:
     r"""Compute ``I1..I5`` for a periodic ``lattice``.
 
-    Only bending magnets contribute (``h = 0`` elsewhere). Inside each thick sector
-    dipole the matched dispersion ``D_x(s)`` **and** the beta functions ``beta_x,
+    Only bending magnets contribute (``h = 0`` elsewhere). Inside each thick dipole
+    the matched dispersion ``D_x(s)`` **and** the beta functions ``beta_x,
     alpha_x`` are co-transported by ``slices``-fold trapezoidal sub-stepping of the
     sub-bend map (the dispersion machinery of
     :func:`accsim.twiss.momentum_compaction` plus the ``beta`` transport of
-    :func:`accsim.twiss.natural_chromaticity`). ``h`` is constant across the body, so
-    ``∮ D_x h ds = h ∮ D_x ds`` and ``∮ D_x h^3 ds = h^3 ∮ D_x ds`` reuse one accumulated
-    ``∮ D_x ds``; ``I5 = |h|^3 ∮ curlyH ds`` needs ``curlyH`` re-evaluated per sub-slice
-    from the local ``beta_x, alpha_x, D_x, D_x'``. The ``h``-only pieces ``∮ h^2 ds`` /
-    ``∮ |h|^3 ds`` are ``h^2 L`` / ``|h|^3 L`` per dipole.
+    :func:`accsim.twiss.natural_chromaticity`). For a **combined-function** magnet the
+    sub-slices carry the gradient ``k1`` (so the focusing that reshapes ``D_x`` inside
+    the body is included), and the thin **pole-face edge** kicks are applied to
+    ``(D_x', alpha_x)`` at entry/exit (``D_x`` and ``beta_x`` are continuous across a
+    thin edge). ``h`` and ``k1`` are constant across the body, so ``∮ D_x h ds =
+    h ∮ D_x ds`` and the ``I4`` body term ``∮ D_x h (h^2 + 2 k1) ds =
+    h (h^2 + 2 k1) ∮ D_x ds`` reuse one accumulated ``∮ D_x ds``; the ``I4`` edge term
+    subtracts ``D_x h^2 tan(e)`` at each face using the face-local ``D_x``.
+    ``I5 = |h|^3 ∮ curlyH ds`` needs ``curlyH`` re-evaluated per sub-slice from the
+    local ``beta_x, alpha_x, D_x, D_x'``. The ``h``-only pieces ``∮ h^2 ds`` /
+    ``∮ |h|^3 ds`` are ``h^2 L`` / ``|h|^3 L`` per dipole (gradient/edge-independent).
 
     ``I1 == alpha_c * C`` cross-checks the dispersion transport within the baseline;
     ``I5`` (curly-``H``, needing the co-transported ``beta``) has no clean within-baseline
     absolute check, so it is gated by energy-scaling (``eps_x ∝ gamma^2``) + xtrack
     (``tests/analytic/test_radiation.py``, ``tests/reference/``).
     """
-    from .elements.dipole import Dipole
+    from .elements.dipole import Dipole, _edge_matrix
 
     tw0 = closed_twiss(lattice)
     bx, ax = tw0.beta_x, tw0.alpha_x
@@ -121,10 +134,20 @@ def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegral
         M = elem.matrix(lattice.ref)
         if isinstance(elem, Dipole) and elem.angle != 0.0 and elem.length > 0.0:
             h = elem.curvature  # 1/rho, signed
+            k1 = elem.k1
             ds = elem.length / slices
-            sub = Dipole(ds, h * ds).matrix(lattice.ref)  # one sector sub-slice
+            sub = Dipole(ds, h * ds, k1=k1).matrix(lattice.ref)  # combined-function sub-slice
             sub4, subk = _transverse_4d(sub), _dispersive_kick(sub)
-            xblock = _blocks(sub)[0]  # x 2x2 of the sub-slice (incl. weak focusing)
+            xblock = _blocks(sub)[0]  # x 2x2 of the sub-slice (incl. weak focusing + k1)
+
+            # Entrance pole face: a thin kick on (D_x', alpha_x); D_x, beta_x are
+            # continuous, so read the face-local D_x for the edge term either side.
+            dx_entrance = disp[0]
+            if elem.e1 != 0.0:
+                ent = _edge_matrix(h, elem.e1)
+                disp = _transverse_4d(ent) @ disp
+                bx, ax, _ = _propagate_block(_blocks(ent)[0], bx, ax)
+
             acc_dx = 0.5 * disp[0]  # trapezoid: half-weight the entrance samples
             acc_h = 0.5 * _curly_h(bx, ax, disp[0], disp[1])
             for i in range(slices):
@@ -134,10 +157,20 @@ def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegral
                 acc_dx += w * disp[0]
                 acc_h += w * _curly_h(bx, ax, disp[0], disp[1])
             int_dx = acc_dx * ds  # ∮ D_x ds across the body
+
+            # Exit pole face (D_x still continuous ⇒ read before the kick).
+            dx_exit = disp[0]
+            if elem.e2 != 0.0:
+                ext = _edge_matrix(h, elem.e2)
+                disp = _transverse_4d(ext) @ disp
+                bx, ax, _ = _propagate_block(_blocks(ext)[0], bx, ax)
+
             i1 += h * int_dx
             i2 += h * h * elem.length
             i3 += abs(h) ** 3 * elem.length
-            i4 += h**3 * int_dx  # pure sector bend: no 2*k1 body term, no edge term
+            # I4 = ∮ D_x h (h^2 + 2 k1) ds  -  Σ_faces D_x h^2 tan(e)
+            i4 += h * (h * h + 2.0 * k1) * int_dx
+            i4 -= h * h * (dx_entrance * math.tan(elem.e1) + dx_exit * math.tan(elem.e2))
             i5 += abs(h) ** 3 * acc_h * ds  # ∮ curlyH |h|^3 ds
             continue
         # Non-dipole: co-transport beta/alpha and dispersion across the element.

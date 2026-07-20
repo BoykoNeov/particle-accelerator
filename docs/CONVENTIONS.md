@@ -164,8 +164,8 @@ horizontal focusing a straight quad does not have.
   (`tests/reference/test_dipole_combined_{madx,xtrack}.py`); the symbolic
   `exp(L·A)` gate covers `K_x` >0, <0 and the singular =0
   (`tests/analytic/test_dipole_combined.py`).
-- **Out of scope here:** the gradient's contribution to the radiation damping
-  partition (`I4`'s `2 k1 D_x h` body term) is a separate milestone. Edge angles
+- The gradient's contribution to the radiation damping partition (`I4`'s
+  `2 k1 D_x h` body term) is handled in *Synchrotron radiation* below. Edge angles
   compose on top (`Edge @ combined-body @ Edge`) and are gated together.
 
 ## Dipole — pole-face (edge) focusing (implemented)
@@ -200,8 +200,8 @@ R43 = −h·tan(e)     (py -= h·tan(e)·y  — vertical FOCUS   for e > 0)
   (the edge map's longitudinal block is the identity). Symplectic by construction
   (each 2×2 kick block has unit determinant).
 - Analytic gates in `tests/analytic/test_dipole_edges.py`; the effect on the
-  radiation damping partition (`I4`'s `−D_x h² tan(e)` face term) is a separate
-  milestone.
+  radiation damping partition (`I4`'s `−D_x h² tan(e)` face term) is in
+  *Synchrotron radiation* below.
 
 ## Dispersion in Twiss (Stage 1 — implemented)
 
@@ -769,23 +769,40 @@ integrals (Sands, SLAC-121) and the damping/equilibrium quantities they feed, in
 (eV, m, s): so `C_γ` is in `m/eV³`, `U0` in eV, `C_q` in m.
 
 - **Integrals** `radiation_integrals(lattice) → RadiationIntegrals(I1..I5)`:
-  `I1 = ∮ D_x h ds` (`= α_c·C`), `I2 = ∮ h² ds`, `I3 = ∮ |h|³ ds`, `I4 = ∮ D_x h³ ds`,
+  `I1 = ∮ D_x h ds` (`= α_c·C`), `I2 = ∮ h² ds`, `I3 = ∮ |h|³ ds`,
+  `I4 = ∮ D_x h (h² + 2k1) ds − Σ_faces D_x h² tan(e)`,
   `I5 = ∮ curlyH |h|³ ds` with `curlyH = γ_x D_x² + 2α_x D_x D_x' + β_x D_x'²`. `h = 1/ρ`
   is signed; `I3`/`I5` use `|h|³` (excitation is bend-sign-blind), `I4` keeps `h³`'s
   sign. Reuses the thick-dipole dispersion sub-slicing of `momentum_compaction`; `I5`
   additionally **co-transports `β_x,α_x`** through the dipole body (the one bug-prone
   spot). Slice-converged (64 ≡ 1024 to 6 digits).
-- **Pure-sector-bend `I4`/`I5`.** Dipoles are pure sector bends (no combined-function
-  gradient, no pole-face edge — Stage-1 scope), so the `2k1` body term and the
-  `−D_x h² tan(edge)` face term both vanish — the **textbook MAD-X/Sands** definition.
-  `I4` is pinned within-baseline by the isomagnetic identity `I4 = h²·α_c·C`; `I5`
-  (curly-H, on the new β/α co-transport) is pinned by an independent `propagate_twiss`
-  integration to `1e-6`. So the integrals are validated. xtrack's `radiation_analysis`
-  computes `ε_x`/partition numbers by a **different method** — the damped one-turn-map
-  eigen/envelope analysis, **not** radiation integrals (it exposes none) — so it differs
-  ~1% (partitions) / ~3-4% (`ε_x`) in this strong ring (`I4/I2≈0.38`, ~5× normal) while
-  `I1`/`I2`/`U0` match to `1e-6`. Integral-formula vs exact-eigenanalysis, not a bug
-  (`tests/reference/test_radiation_xtrack.py`).
+- **Combined-function + edge `I4`.** `I4` carries the general form above: the `2k1`
+  body term (quadrupole gradient) and the `−D_x h² tan(e)` pole-face term, reducing to
+  the pure-sector `∮ D_x h³ ds` when `k1 = e1 = e2 = 0` (byte-identical transport, so the
+  Stage-7 gates are unmoved). Inside a dipole the dispersion/β are co-transported through
+  the **actual** combined-function body (sub-slices carry `k1`) and the thin edge kicks
+  (applied to `D_x',α_x`; `D_x,β_x` continuous). `I2`/`I3` are pure geometry, unchanged.
+  - **The `2k1` coefficient is pinned by a closed form**, not a remembered constant: a
+    **smooth constant-gradient ring** has the *exact* fixed-point dispersion `D_x = h/K_x`,
+    `D_x' = 0` (`K_x = h²+k1`; `R21 D_x + R26 = 0` identically — machine precision for any
+    segment count), giving `I4 = h²(h²+2k1)C/K_x` and `J_x = 1 − I4/I2 = −k1/K_x = n/(1−n)`
+    with field index `n = −k1/h²`. The wrong coefficient `h²+k1` (1 instead of 2) would
+    force `I4 ≡ I2` and `J_x ≡ 0` for every `n` — refuted by `I4 ≠ I2`
+    (`tests/analytic/test_radiation_combined.py`). A strong gradient can drive **`J_x < 0`
+    (horizontal anti-damping)**, a signature a sector bend cannot fake.
+  - **The edge term is pinned against MAD-X**, whose integral-method `synch_4` *is*
+    trustworthy for a pure-sector-with-edges ring — there MAD-X `synch_1 == alfa·C` to
+    `1e-15` (self-consistent), and accsim's `I4` matches `synch_4` to `~1e-3`
+    (`tests/reference/test_radiation_edges_madx.py`).
+  - **Why not MAD-X for the `2k1` term.** For a *combined-function* ring MAD-X's TWISS
+    `synch_*` disagree with its **own** `alfa` at the ~0.8% level (its synch integrals
+    treat the combined-function dispersion differently than `alfa` does) — the same order
+    as the effect, so MAD-X is not a clean anchor there. accsim is self-consistent
+    instead: `I1 == α_c·C` (exact identity) holds through combined-function + edge
+    transport to `1e-5`. Likewise xtrack's `radiation_analysis` uses damped-map
+    eigenanalysis (**not** integrals, it exposes none), differing ~1% (partitions) /
+    ~3-4% (`ε_x`) in a strong ring while `I1`/`I2`/`U0` match to `1e-6` — integral-formula
+    vs eigenanalysis, not a bug (`tests/reference/test_radiation_xtrack.py`).
 - **Constants (species-general, from the reference particle):**
   `C_γ = 4π r0/(3(mc²)³)`, `C_q = (55/32√3)·ħc/(mc²)` with `ħc = 1.9732698045e-7 eV·m`.
   Electron: `8.846e-5 m/GeV³`, `3.832e-13 m` (pinned symbolic-rational + numeric).
