@@ -118,9 +118,19 @@ reco `m_T` would be meaningless.
 ```bash
 # one command; artifacts land in <out-dir> (default a temp dir), NOT committed.
 ACCSIM_ENABLE_LHAPDF=1 \
-.venv/Scripts/python.exe pipelines/pp_W_mt/run_pipeline.py --n 60000 \
-    --out-dir M:/claud_projects/temp/e1_wmass/run_full
+.venv/Scripts/python.exe pipelines/pp_W_mt/run_pipeline.py --n 3000 \
+    --out-dir M:/claud_projects/temp/e1_wmass/run_smoke
 ```
+
+> **Disk warning — this one is worse than the other chains.** The HepMC3
+> interchange file is verbose ASCII and carries the *full* event (ISR/FSR +
+> underlying event), and W production has a large cross section, so the file grows
+> fast: **60 000 events is ≈ 12.5 GB** (measured), against ≈ 5.7 GB for 20 000
+> `t̄t` events in `../pp_ttbar_btag/`. It is written to `--out-dir`, `docker cp`-ed
+> into the Delphes container, and copied back — so budget ~30 GB free and two
+> copies of that size. **`--n 3000` (≈ 0.6 GB) fires every gate with margin** and is
+> the recommended default; larger samples only smooth the histogram, since the
+> gates are on edge *positions* and those are already well determined at 3k.
 
 This is a **gated addon** (`ACCSIM_ENABLE_LHAPDF=1`) — see
 `docs/CONVENTIONS.md` → *Feature switches*. Outputs `meta.dat`, `events.hepmc`,
