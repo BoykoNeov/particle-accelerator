@@ -492,9 +492,40 @@ sustained arc.
   against *generated* Pythia data is wired but **not yet run** — it needs LHAPDF/Docker,
   and a residual LO-vs-Pythia bias should be quoted rather than absorbed. See
   CONVENTIONS.md → *sin²θ_W from A_FB(m)*.
-- **A3 — dilution unfolding.** [S] Recover parton-level A_FB from the diluted proxy via a
-  rapidity-dependent dilution factor `D(y, m)`. **Gate:** the unfolded proxy reproduces
-  the undiluted true-quark-direction curve the pipeline already computes.
+- **A3 — dilution unfolding.** ✅ **DONE (2026-07-20)** — recover the parton-level
+  `A_FB` from the `sign(Q_z)`-proxy measurement. Delivered:
+  `src/accsim/events/dilution.py` (always-on baseline, numpy only) with `parton_x`,
+  `afb_diluted`, `dilution_factor`, `pdf_dilution` and `unfold_afb`, built on A2's
+  validated `_s_and_d` rather than a re-derivation.
+  **The physics in one line:** a mis-oriented event enters with `cos θ → −cos θ`, which
+  flips the antisymmetric term and leaves the symmetric one alone, so **dilution
+  reweights the numerator only** —
+  `A_FB^obs = (3/4)·Σ_q(L_q⁺−L_q⁻)D_q / Σ_q(L_q⁺+L_q⁻)S_q` against the undiluted
+  `(3/4)·Σ(L⁺+L⁻)D_q / Σ(L⁺+L⁻)S_q`. The denominator is untouched because a
+  mis-oriented event is still an event.
+  **Gate met** (`tests/analytic/test_dilution.py`, 13 tests), with the undiluted
+  reference being A2's `afb_hadronic` — a different code path from the unfolding, so the
+  two sides can't cancel. Layered: two exact limits (`L⁻=0` → `afb_hadronic` to `1e-15`;
+  `L⁻=L⁺` → exactly zero), the formula closure (unfold → `afb_hadronic`, `1e-14`), and a
+  **sampled MC closure** pushing real four-vectors through the actual
+  `collins_soper_costheta` proxy and `forward_backward_asymmetry`, asserted as a pull
+  (unit width over 12 seeds, max `|pull| = 2.8`) so an inflated error can't buy the pass.
+  **The trap that would have made this vacuous:** with a *single* flavour the naive
+  scalar divide is exact and the method goes untested. The toy proton therefore carries
+  up **and** down with different valence hardness *and* different `A_FB`, and the suite
+  asserts the flavour-blind `pdf_dilution` unfolding is **wrong by > 1e-3** on the same
+  input while the correct one closes to `1e-14`.
+  **Two things worth keeping.** (i) `D_eff` is **not** a PDF-only quantity: it carries
+  the per-flavour `D_q` and so depends on `sin²θ_W` — the very parameter A2 fits from
+  the unfolded curve (measured: a `0.2250 → 0.2380` shift moves it by up to `5e-2`). It
+  is a systematic, or the fit should be iterated. (ii) `D_eff → 0` at central rapidity
+  destroys the asymmetry outright rather than making it noisy, so those bins are masked
+  to `nan`, never divided by.
+  **Scope, stated honestly:** the luminosities are an *input* (the module never touches
+  a PDF set, matching `afb_hadronic`'s `flavour_weights`), so the analytic gate runs on
+  a toy proton. Reproducing the dilution against the Drell-Yan pipeline's own proxy/true
+  ratio needs Pythia + LHAPDF and **has not been run**; the pipeline is unchanged. See
+  CONVENTIONS.md → *pp dilution & unfolding*.
 
 ### B. Synchrotron radiation & radiation damping — a real "Stage 7" (accelerator core)
 

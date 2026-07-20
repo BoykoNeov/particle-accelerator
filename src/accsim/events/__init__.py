@@ -17,6 +17,14 @@ cross-section, converted from ``GeV^-2`` to barns via ``(hbar c)^2``.
 
 from __future__ import annotations
 
+from .dilution import (
+    MIN_DILUTION,
+    afb_diluted,
+    dilution_factor,
+    parton_x,
+    pdf_dilution,
+    unfold_afb,
+)
 from .electroweak import (
     CHARGED_LEPTON,
     DOWN_TYPE,
@@ -59,6 +67,7 @@ __all__ = [
     "DOWN_TYPE",
     "GAMMA_Z",
     "GEV2_TO_MBARN",
+    "MIN_DILUTION",
     "M_Z",
     "UP_TYPE",
     "AngularDistribution",
@@ -67,10 +76,15 @@ __all__ = [
     "Fermion",
     "RamboResult",
     "Sin2ThetaWFit",
+    "afb_diluted",
     "afb_hadronic",
     "afb_parton",
     "angular_coefficients",
+    "dilution_factor",
     "fit_sin2_theta_w",
+    "parton_x",
+    "pdf_dilution",
+    "unfold_afb",
     "neutral_current_couplings",
     "collins_soper_angles",
     "collins_soper_costheta",

@@ -1187,6 +1187,67 @@ behind `ACCSIM_ENABLE_LHAPDF` as before).
   effects the model does not, so a residual bias against generated data is expected and
   should be quoted, not absorbed into a loosened error.
 
+## pp dilution & unfolding (A3 — implemented)
+
+`src/accsim/events/dilution.py` — always-on baseline (numpy only). Recovers the
+parton-level `A_FB(m)` from the `sign(Q_z)`-proxy measurement. Reuses A2's
+`_s_and_d`, so the angular strengths are not re-derived here.
+
+- **Orientation split, not a beam split.** The luminosity of each flavour is split by
+  whether the quark travels **along** the proxy direction (`lum_aligned`, `L⁺`) or
+  against it (`lum_reversed`, `L⁻`). At LO the proxy `sign(Q_z)` equals `sign(x₁−x₂)`
+  — a *deterministic* function of the configuration, not a random draw — so for
+  `y > 0`, `L⁺ = q(x₁)q̄(x₂)` and `L⁻ = q̄(x₁)q(x₂)`; for `y < 0` the two swap. Stating
+  the split by orientation makes it rapidity-sign agnostic.
+- **The master formula.** A wrong orientation sends `cos θ → −cos θ`, flipping the
+  antisymmetric term and leaving the symmetric one alone:
+
+  ```
+  A_FB^obs (m) = (3/4) · Σ_q (L_q⁺ − L_q⁻) D_q / Σ_q (L_q⁺ + L_q⁻) S_q
+  A_FB^true(m) = (3/4) · Σ_q (L_q⁺ + L_q⁻) D_q / Σ_q (L_q⁺ + L_q⁻) S_q
+  ```
+
+  **Dilution reweights the numerator only** — the denominator (the rate) is untouched,
+  because a mis-oriented event is still an event. That one difference is all of A3.
+- **`D_eff` is not a PDF-only quantity.** `D_eff = Σ(L⁺−L⁻)D_q / Σ(L⁺+L⁻)D_q` carries
+  the per-flavour `D_q` and therefore **depends on `sin²θ_W`** — the parameter A2 fits
+  from the unfolded curve. It collapses to the clean PDF ratio `(L⁺−L⁻)/(L⁺+L⁻)` only
+  for a *single* flavour. `dilution_factor` takes `sin2_theta_w` for this reason;
+  `pdf_dilution` provides the flavour-blind ratio the literature usually plots, marked
+  as an approximation. Measured size of the coupling on the toy: shifting `sin²θ_W`
+  from `0.2250` to `0.2380` moves `D_eff` by up to `~5e-2` — weak, but not negligible
+  beside a per-mille `A_FB`, so it belongs in the systematic budget or the fit should
+  be iterated.
+- **Degenerate region.** At central rapidity `x₁ → x₂`, so `L⁺ → L⁻` and `D_eff → 0`:
+  the proxy is a coin flip and the asymmetry is *destroyed*, not merely noisy — no
+  statistics recover it. `dilution_factor`/`unfold_afb` mask `|D_eff| < min_dilution`
+  (default `1e-3`) to `nan` rather than returning a large number that reads as a
+  measurement; the `nan` then fails `fit_sin2_theta_w`'s `σ > 0` filter, so such bins
+  drop out downstream. Same failure mode as the `tracked_tunes` `Q ≈ 0, 0.5, 1` note.
+- **Error propagation.** `unfold_afb` divides the error by `|D_eff|` as well — the
+  honest statement that dilution destroys information rather than rescaling it.
+  `D_eff` is treated as an exact model input; its PDF and `sin²θ_W` uncertainties are
+  separate systematics, deliberately not folded in.
+- **Gate met** (`tests/analytic/test_dilution.py`, 13 tests). The undiluted reference
+  is A2's `afb_hadronic`, so the two sides of the closure are different code paths.
+  Layered: the two exact limits (`L⁻ = 0` reproduces `afb_hadronic` to `1e-15`;
+  `L⁻ = L⁺` gives exactly zero); the **formula closure** — unfold the diluted curve,
+  recover `afb_hadronic` to `1e-14`; and a **sampled MC closure** driving real
+  four-vectors through the actual `collins_soper_costheta` proxy and
+  `forward_backward_asymmetry`, asserted as a **pull** (unit-width over 12 seeds,
+  max `|pull| = 2.8`) so a wrong error can't hide.
+- **What stops the gate being vacuous.** With a *single* flavour the naive scalar
+  divide is exact and the whole physics content goes untested, so the toy proton
+  carries up **and** down with different valence hardness *and* different `A_FB`, and
+  the suite asserts the naive `pdf_dilution` unfolding is **wrong by > 1e-3** on the
+  same input while the correct one closes to `1e-14`. On the toy the dilution is
+  severe (`D_eff ≈ 0.13–0.19`); the raw proxy measurement sits 12–50σ from truth.
+- **Scope, stated honestly.** The luminosities are an *input* — the module never
+  touches a PDF set, exactly as `afb_hadronic` takes `flavour_weights`. The analytic
+  gate therefore runs on a toy proton, not a real PDF. Reproducing the dilution
+  against the Drell-Yan pipeline's own proxy/true ratio (`truth_gen.dat`) needs
+  Pythia + LHAPDF and **has not been run**; the pipeline is unchanged by A3.
+
 ## Feature switches (optional addons — implemented)
 
 **The rule:** the pure-Python **baseline** — the accelerator optics/tracking core
