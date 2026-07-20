@@ -240,11 +240,10 @@ wakefields are out of scope** unless a milestone adds them.
   below transition, `(π/2, π)` above, reducing to the Stage-3 stationary `0`/`π` at
   zero gain.
 - ✅ **Moving-bucket guard** — the Stage-3 `rf_bucket_height`/`separatrix`/
-  `longitudinal_hamiltonian` (which assume a *stationary* bucket symmetric about
-  `zeta=0`) now raise `NotImplementedError` for `sin φs ≠ 0` rather than return a
-  plausible-wrong curve; `φs ∈ {0, π}` (stationary) still works. The moving-bucket
-  *acceptance* (bucket area vs. φs), beam loading, and transition crossing are out
-  of scope.
+  `longitudinal_hamiltonian` (which assumed a *stationary* bucket symmetric about
+  `zeta=0`) raised `NotImplementedError` for `sin φs ≠ 0` rather than return a
+  plausible-wrong curve. **Superseded by D5**, which models the moving bucket; the
+  guard is gone. Beam loading and transition crossing remain out of scope.
 - No xtrack cross-check is warranted: the deliverables are derived closed forms
   (`qV·sin φs`; the `P₀/P₀'` re-referencing) over already-validated Stage-1/3 maps —
   the same rationale as the Stage-2 beam-envelope. See CONVENTIONS.md →
@@ -748,6 +747,69 @@ Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a sustain
   touches the dispersion-generating matrix entries where the identity touches only the
   longitudinal row, so it is the independent second route. Delete it, or compare the
   default against the identity, and the two cross-checks collapse into one.
+
+- **D5 — moving-bucket RF acceptance.** ✅ **DONE (2026-07-20)** —
+  *Surfaced by D1, deliberately deferred out of it (one feature per change).*
+  `rf_bucket_height` / `separatrix` / `longitudinal_hamiltonian` now model the
+  accelerating (`sin φs ≠ 0`) bucket; the `sin φs` `NotImplementedError` guard is gone
+  (the double-RF one stays). Always-on baseline — numpy/scipy only, no feature switch.
+
+  **Height vs. area was the open question, and area was refused.** The scope note said
+  "bucket area vs. `φs`", but every entry describing the actual debt names the three
+  functions above and calls the missing piece the *overvoltage factor* — a **height**.
+  Area is a non-elementary integral whose folklore form `(1−sin φs)/(1+sin φs)` is
+  *itself* an approximation, so there is nothing to gate it against exactly; building it
+  "for completeness" would have shipped the repo's first ungated number.
+
+  **The closed form, derived symbolically from accsim's own `H`, holds on all four
+  branches:** `δmax(φs)²/δmax(stationary)² = cos ψ − (π/2 − ψ)·sin ψ`, `ψ = asin|sin φs|`.
+  The above-transition case is **not** the same function of `φs` — it is this function of
+  `π − φs`; assuming the below-transition form transfers would have been wrong.
+
+  **The real find, and it refuted the plan this milestone started from.** The handoff
+  asserted `k_rf ζu = 2φs − π` was "already the general" unstable fixed point and only
+  `separatrix`'s `±ζu` mirror needed fixing. It is **not general**: the unstable family is
+  `k_rf ζ = 2φs + π + 2πn`, and the bucket is bounded by whichever of the two members
+  *adjacent* to `ζ=0` gives the **smaller positive `δmax²`**. For `qV < 0` — an electron
+  ring where a positive energy gain forces `sin φs < 0` — that is the other member, and the
+  hardcoded one returns a silently **too-large** `δmax`. Lifting the guard without this
+  would have mis-sized the acceptance of **exactly the machine D1 builds**. Found by
+  numerics, then proved symbolically on all four branches; three fixes, one atomic commit.
+
+  **The far turning point is transcendental, and is found, not assumed.** `separatrix`
+  spans `ζu` to the other root of `U(ζ) = U(ζu)`; `U` is periodic-plus-tilt so the roots are
+  many, but the right one is bracketed between `ζ=0` and the *other* adjacent unstable point
+  (`U` monotonic there ⇒ unique sign change) and located with `brentq`. The stationary
+  degeneracy is detected **relative to the bucket depth**, not against `0.0`: near that
+  double root the level set is quadratic, so a root-find reaches only `√eps` — which is
+  precisely how the symmetry test caught it (`0.09999999864` vs `0.1`).
+
+  **Gate met** (`tests/analytic/test_moving_bucket.py`, 26 tests over all four branches),
+  layered so a wrong fixed point and a wrong height formula cannot cancel: the ratio is
+  compared to an expression **re-derived from `U` inside the test**, never to another call
+  of the same code (D4's lesson); a **negative control** asserts the naive `2φs − π` is
+  measurably wrong (>5%) on both `qV < 0` branches and right on both `qV > 0` ones; the
+  separatrix is asserted genuinely **asymmetric** and to collapse to `±ζu` at zero gain; the
+  `δ² ≤ 0` `ValueError` fires on the unstable root **for both signs of `qV`** (the two roots
+  are indistinguishable by energy gain — asserted — so only stability separates them).
+  D1's `test_moving_bucket_functions_raise` became a positive cross-check rather than being
+  deleted.
+
+  **The tracking leg twice gave a meaningless pass, and now self-guards.** The
+  bounded/unbounded test is the only closed-form-free evidence, and on the electron branches
+  1e4 turns covered **0.27 synchrotron periods** — an outside particle "stayed bounded"
+  purely by not being tracked long enough to leave. The test now asserts `Qs·turns > 20`
+  and `δmax < 0.05` before trusting either verdict.
+
+  **`stationary_twin` is retired as a workaround** and kept only as the thing the real
+  bucket is measured against: `examples/build_a_machine.py` now quotes the true moving
+  acceptance, 1.46% shorter, with the reduction asserted against the closed form in
+  `test_end_to_end.py` rather than the 1.9% small parameter being waved at.
+
+  **Scope, stated honestly:** height only — **no bucket-area API**, for the reason above.
+  The smooth (per-turn) Hamiltonian is unchanged, so the usual lumped-cavity `O(Qs²)` error
+  applies; beam loading and transition crossing stay out of scope. See CONVENTIONS.md →
+  *Moving-bucket acceptance*.
 
 ### E. Event-physics siblings (new processes on the established chain)
 

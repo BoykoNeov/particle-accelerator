@@ -59,11 +59,13 @@ in ``docs/CONVENTIONS.md``:
 1. ``synchronous_phase`` keyed its stable branch on ``eta`` alone, which is the
    ``q V > 0`` (proton) special case. A lepton ring driven by a positive voltage has
    ``q V < 0`` and needs the other branch. Fixed before this example was written.
-2. ``rf_bucket_height`` / ``separatrix`` / ``longitudinal_hamiltonian`` model the
-   **stationary** bucket only. A store ring whose RF replenishes ``U0`` has
-   ``sin phi_s = U0 / (q V) != 0``, so they reject it. Here the small parameter is
-   ``U0 / |q V| ~ 1.9%``, and the acceptance is quoted from the stationary twin;
-   the moving-bucket overvoltage factor is out of scope.
+2. ``rf_bucket_height`` / ``separatrix`` / ``longitudinal_hamiltonian`` used to
+   model the **stationary** bucket only, and this chain is what surfaced it: a
+   store ring whose RF replenishes ``U0`` has ``sin phi_s = U0 / (q V) != 0``, so
+   they rejected it and the acceptance was quoted from a stationary twin. They now
+   model the **moving** bucket directly, so the acceptance below is the real one.
+   The twin is gone; here ``U0 / |q V| ~ 1.9%``, so the bucket is shorter than the
+   stationary one by only ~1.5% — small, but no longer an approximation.
 """
 
 from __future__ import annotations
@@ -185,9 +187,9 @@ def store_ring(total_energy_eV: float = E_STORE, voltage: float = V_STORE) -> La
 def stationary_twin(lattice: Lattice) -> Lattice:
     """The same ring with ``phi_s`` forced to the stationary value (no net gain).
 
-    :func:`rf_bucket_height` models the stationary bucket only, and the store ring's
-    is *moving* by ``sin phi_s = U0/(q V)``. The twin is what the acceptance is
-    quoted from; see the module docstring, limitation 2.
+    No longer needed for the acceptance — :func:`rf_bucket_height` models the moving
+    bucket directly (module docstring, limitation 2). Kept because the *ratio* of the
+    two is what makes the moving-bucket reduction visible in the narration.
     """
     return ring(lattice.ref.total_energy_eV, _voltage(lattice), 0.0)
 
@@ -224,7 +226,8 @@ class Machine:
     emit_eq_y: float
     sigma_delta: float
     sigma_z: float
-    bucket_height: float
+    bucket_height: float  # moving bucket (sin phi_s = U0/qV != 0)
+    bucket_height_stationary: float  # the sin phi_s = 0 twin, for the ratio only
     tau_x: float
     tau_y: float
     tau_z: float
@@ -373,7 +376,8 @@ def build() -> Machine:
         emit_eq_y=emit_eq_y,
         sigma_delta=sigma_delta,
         sigma_z=sigma_z,
-        bucket_height=rf_bucket_height(stationary_twin(lat)),
+        bucket_height=rf_bucket_height(lat),  # the real MOVING bucket
+        bucket_height_stationary=rf_bucket_height(stationary_twin(lat)),
         tau_x=tau_x,
         tau_y=tau_y,
         tau_z=tau_z,
@@ -469,6 +473,11 @@ def main() -> None:
     print(
         f"  RF acceptance     delta_max= {m.bucket_height:.3e} = "
         f"{m.bucket_height / m.sigma_delta:.1f} sigma_delta"
+    )
+    print(
+        f"    moving bucket, shorter than the stationary twin by "
+        f"{1.0 - m.bucket_height / m.bucket_height_stationary:.2%} "
+        f"(sin phi_s = U0/qV)"
     )
     print(
         f"  damping times   (x, y, z)  = ({m.tau_x * 1e3:.1f}, {m.tau_y * 1e3:.1f}, "

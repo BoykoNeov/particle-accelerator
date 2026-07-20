@@ -380,12 +380,32 @@ def test_from_harmonic_validates_inputs(ref: ReferenceParticle) -> None:
         RFCavity.from_harmonic(VOLTAGE, 5, 0.0, ref)
 
 
-# --- moving-bucket guard: Stage-3 bucket funcs refuse phi_s != 0/pi -------------
-def test_moving_bucket_functions_raise(ref: ReferenceParticle) -> None:
-    lat, _ = _accelerating_lattice(ref, _bend_free_arc(), 3.0e5)  # phi_s in (0, pi/2)
+# --- moving bucket: the Stage-3 funcs now MODEL it, and are cross-checked -------
+def test_moving_bucket_functions_accept_and_shrink_the_bucket(ref: ReferenceParticle) -> None:
+    """The guard these functions used to raise is gone; assert the physics instead.
+
+    A positive cross-check against an *independently written* closed form, not a
+    re-call of the same code: the accelerating bucket is shorter than the
+    stationary one by ``sqrt(cos psi - (pi/2 - psi) sin psi)``. The full
+    four-branch symbolic derivation lives in ``test_moving_bucket.py``; this is the
+    seam that the acceleration module's own ``phi_s`` feeds it correctly.
+    """
+    lat, phi_s = _accelerating_lattice(ref, _bend_free_arc(), 3.0e5)  # phi_s in (0, pi/2)
+    assert 0.0 < phi_s < math.pi / 2
+
     for fn in (rf_bucket_height, separatrix, longitudinal_hamiltonian):
-        with pytest.raises(NotImplementedError, match="stationary"):
-            fn(lat)
+        fn(lat)  # no longer raises
+
+    arc = _bend_free_arc()
+    C = sum(e.length for e in arc)
+    voltage = lat.elements[-1].voltage
+    stationary = Lattice([*arc, RFCavity.from_harmonic(voltage, HARMONIC, C, ref, 0.0)], ref)
+
+    psi = math.asin(abs(math.sin(phi_s)))
+    expected = math.sqrt(math.cos(psi) - (math.pi / 2 - psi) * math.sin(psi))
+    assert rf_bucket_height(lat) / rf_bucket_height(stationary) == pytest.approx(
+        expected, rel=1e-12
+    )
 
 
 def test_stationary_bucket_still_works(ref: ReferenceParticle) -> None:

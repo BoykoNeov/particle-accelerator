@@ -231,13 +231,20 @@ def test_store_bucket_accepts_the_equilibrium_energy_spread(machine) -> None:
     """The RF acceptance must swallow the radiation-set energy spread.
 
     ``delta_max`` is Stage 3/5, ``sigma_delta`` is Stage 7; the ring is only a store
-    ring if their ratio is comfortably large. Quoted from the **stationary twin**
-    because the real store bucket is moving by ``sin phi_s = U0/(qV)`` — a limitation
-    this chain surfaced, and the small parameter is asserted here so that the
-    substitution stays honest as parameters change.
+    ring if their ratio is comfortably large. This is now the **real moving bucket**
+    (``sin phi_s = U0/(qV) != 0``) — the limitation this chain surfaced has been
+    closed — so the stationary twin appears only as the thing it is shorter than.
     """
-    assert abs(machine.u0 / (machine.ref_store.charge * bm.V_STORE)) < 0.05
+    s = abs(machine.u0 / (machine.ref_store.charge * bm.V_STORE))
+    assert s < 0.05
     assert machine.bucket_height / machine.sigma_delta > 10.0
+    # shorter than the stationary twin by exactly the closed-form factor
+    psi = math.asin(s)
+    expected = math.sqrt(math.cos(psi) - (math.pi / 2 - psi) * math.sin(psi))
+    assert machine.bucket_height / machine.bucket_height_stationary == pytest.approx(
+        expected, rel=1e-9
+    )
+    assert 0.005 < 1.0 - expected < 0.05  # a real but small reduction, ~1.5%
 
 
 @pytest.mark.slow
@@ -501,7 +508,11 @@ def test_the_store_ring_is_the_one_the_example_narrates(machine) -> None:
     assert machine.qs == pytest.approx(synchrotron_tune(lat), rel=1e-12)
     assert machine.eta == pytest.approx(slip_factor(lat), rel=1e-12)
     assert machine.sigma_delta == pytest.approx(equilibrium_energy_spread(lat), rel=1e-12)
-    assert machine.bucket_height == pytest.approx(rf_bucket_height(bm.stationary_twin(lat)))
+    assert machine.bucket_height == pytest.approx(rf_bucket_height(lat))
+    assert machine.bucket_height_stationary == pytest.approx(
+        rf_bucket_height(bm.stationary_twin(lat))
+    )
+    assert machine.bucket_height < machine.bucket_height_stationary
     # ...and phi_s really was inverted from U0 on that lattice.
     phi_s = next(e.phi_s for e in lat.elements if isinstance(e, RFCavity))
     assert phi_s == pytest.approx(

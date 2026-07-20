@@ -1750,20 +1750,57 @@ Zero gain returns the branch's stationary phase: `0` when `sign(cos φ_s) > 0`,
 `π` when negative. The Stage-3 mnemonic "0 below transition, π above" is the
 `qV > 0` special case; a lepton ring above transition is stationary at `0`.
 
-## The store bucket is *moving*, and `rf_bucket_height` models only stationary ones
+## Moving-bucket acceptance (D5 — implemented)
 
-A storage ring whose RF replenishes `U0` has `sin φ_s = U0/(qV) ≠ 0`, so
-`rf_bucket_height` / `separatrix` / `longitudinal_hamiltonian` reject it
-(`NotImplementedError`). This is a **scope limit, not a bug** — the moving
-bucket's acceptance is asymmetric about `ζ = 0` and the overvoltage factor
-`Q(q) = 2[√(q²−1) − arccos(1/q)]` is out of scope.
+*Supersedes the former "the store bucket is moving, and `rf_bucket_height` models
+only stationary ones" scope limit, which D1 surfaced and this closed.*
 
-Where an acceptance is needed at a store point, quote it from the **stationary
-twin** (the same ring with `φ_s` forced to the stationary value) and state the
-small parameter `U0/|qV|` alongside it. In `examples/build_a_machine.py` that is
-1.9%, so the substitution costs little; the number is asserted in
-`tests/analytic/test_end_to_end.py` so the substitution cannot quietly stop being
-justified.
+`rf_bucket_height` / `separatrix` / `longitudinal_hamiltonian` now model the
+**moving** bucket (`sin φ_s ≠ 0`) on all four branches. The `sin φ_s` guard is
+gone; the double-RF / multi-harmonic guard stays.
+
+**Height.** The separatrix peaks where `dU/dζ = 0`, i.e. at `ζ = 0` for a moving
+bucket too, so `δ_max² = 2[U(0) − U(ζ_u)]/(ηC)` is unchanged in form. Against the
+same ring's stationary bucket it obeys, **exactly**,
+
+    δ_max(φ_s)² / δ_max(stationary)² = cos ψ − (π/2 − ψ)·sin ψ,   ψ = asin|sin φ_s|
+
+`= 1` at `ψ = 0` and `= 0` at `ψ = π/2`. **The same function of `ψ` on all four
+branches** (proton/electron × below/above transition) — the above-transition case
+is *not* the same function of `φ_s`; it is this function of `π − φ_s`. Derived
+symbolically from accsim's own `U` (`tests/analytic/test_moving_bucket.py`), never
+from a remembered constant.
+
+**The bounding unstable fixed point cannot be hardcoded.** `dU/dζ = 0` has the
+unstable family `k_rf ζ = 2φ_s + π + 2πn`. Stage 3 hardcoded the `n = −1` member,
+`k_rf ζ_u = 2φ_s − π`. That is right only for `qV > 0`: the bucket is bounded by
+whichever of the **two adjacent** unstable points (those straddling `ζ = 0`, taken
+mod `2π`) gives the **smaller positive `δ_max²`**, and for `qV < 0` — an electron
+ring driven by a positive voltage, where a positive energy gain forces
+`sin φ_s < 0` — that is the *other* one. Keeping the hardcoded member there
+returns a silently **too-large** `δ_max`. This is the same `sign(η·q·V)` keying as
+the synchronous-phase branch above, and it is exactly the machine D1 builds.
+
+**The bucket is asymmetric.** `separatrix()` spans from `ζ_u` to the **far turning
+point** — the other root of `U(ζ) = U(ζ_u)`, on the opposite side of `ζ = 0`. The
+potential is periodic-plus-tilt so this root is transcendental and there are many;
+the right one is bracketed between `ζ = 0` and the *other* adjacent unstable point
+(`U` is monotonic there, so the sign change is unique) and found with `brentq`. No
+`±ζ_u` mirror. In the stationary limit the two barriers are degenerate; that is
+detected **relative to the bucket depth**, not against `0.0`, and the far tip is
+set to `−ζ_u` exactly — near that double root the level set is quadratic, so a
+root-find would only reach `√eps`.
+
+**Bucket *area* is deliberately not provided.** It is a non-elementary
+(elliptic-type) integral, and the folklore `(1 − sin φ_s)/(1 + sin φ_s)` is itself
+an approximation, so there is no exact reference to gate it against. The scope note
+in `acceleration.py` that said "bucket area vs. `φ_s`" was loose wording for this
+height factor; it has been corrected.
+
+**Unstable branch.** With the guard gone, the `δ² ≤ 0` check is load-bearing: a
+`φ_s` on the unstable branch (same `sin φ_s`, hence the *same energy gain*, opposite
+`sign(cos φ_s)`) raises `ValueError` — asserted for both signs of `qV`, since only
+stability distinguishes the two roots.
 
 ## End-to-end chain (D1 — implemented)
 

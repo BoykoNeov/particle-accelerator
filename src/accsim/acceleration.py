@@ -40,9 +40,13 @@ Two things must then follow the ramp, and this module supplies them:
 **Scope (Stage 5).** Energy ramp, energy gain per turn, adiabatic damping, and the
 synchronous-phase relation. Constant magnetic optics are assumed (``k1``/bend
 angles held fixed — i.e. the magnets ramp with the beam energy, the physical
-"tracking" ramp), so the transverse Twiss is energy-invariant. The moving-bucket
-*acceptance* (bucket area vs. ``phi_s``), beam loading, and transition crossing
-are out of scope.
+"tracking" ramp), so the transverse Twiss is energy-invariant.
+
+The moving-bucket **acceptance** lives in :mod:`accsim.longitudinal`
+(:func:`accsim.rf_bucket_height` and :func:`accsim.separatrix` model
+``sin phi_s != 0`` directly). Bucket **area** — a non-elementary integral with no
+exact reference to gate against — beam loading, and transition crossing remain out
+of scope. See ``docs/CONVENTIONS.md`` -> *Moving-bucket acceptance*.
 """
 
 from __future__ import annotations

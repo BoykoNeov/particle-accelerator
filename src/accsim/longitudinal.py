@@ -18,11 +18,20 @@ is the level set through the unstable fixed point; the region it encloses is the
 bucket, and particles launched inside stay bounded (verified by ≥1e4-turn
 tracking). See ``docs/CONVENTIONS.md`` -> *RF cavity / synchrotron tune*.
 
-**Stationary bucket only (Stage 3).** ``phi_s = 0`` below transition, ``phi_s = pi``
-above; the accelerating (``sin phi_s != 0``) moving bucket is Stage 5. A single RF
-harmonic is assumed: multiple cavities are allowed only if they share ``frequency``
-and ``phi_s`` (their voltages add) — double-RF / multi-harmonic buckets are out of
-scope.
+**Moving buckets are supported.** For ``sin phi_s != 0`` the ``-zeta sin phi_s``
+tilt in ``U`` makes the bucket *asymmetric* about ``zeta = 0`` and shrinks it; the
+height obeys the closed form
+
+    delta_max(phi_s)^2 / delta_max(stationary)^2 = cos(psi) - (pi/2 - psi) sin(psi),
+    psi = asin |sin phi_s|,
+
+on **all four** branches (proton/electron x below/above transition) — derived
+symbolically, see ``docs/CONVENTIONS.md`` -> *Moving-bucket acceptance*. The
+bucket *area* is a non-elementary integral and is **not** provided.
+
+A single RF harmonic is assumed: multiple cavities are allowed only if they share
+``frequency`` and ``phi_s`` (their voltages add) — double-RF / multi-harmonic
+buckets are out of scope.
 """
 
 from __future__ import annotations
@@ -31,6 +40,7 @@ import math
 from collections.abc import Callable
 
 import numpy as np
+from scipy.optimize import brentq
 
 from .lattice import Lattice
 from .twiss import slip_factor
@@ -65,24 +75,59 @@ def _effective_cavity(lattice: Lattice) -> _EffectiveCavity:
                 "rf_bucket_height/separatrix assume a single RF harmonic; the "
                 "cavities differ in frequency or phi_s (double-RF is out of scope)."
             )
-    if abs(math.sin(phi0)) > 1e-9:
-        raise NotImplementedError(
-            "rf_bucket_height/separatrix/longitudinal_hamiltonian model the "
-            "*stationary* bucket (phi_s = 0 below transition, pi above; "
-            "sin phi_s = 0). This lattice has a moving (accelerating) bucket "
-            f"(phi_s = {phi0}, sin phi_s = {math.sin(phi0):.3g} != 0); its "
-            "reduced acceptance is asymmetric about zeta = 0 and is out of scope. "
-            "Use accsim.accelerate for the acceleration ramp."
-        )
     ref = lattice.ref
     voltage = sum(cav.voltage for cav in cavities)
     amplitude = ref.charge * voltage / (ref.beta0**2 * ref.total_energy_eV)
     return _EffectiveCavity(amplitude, cavities[0].k_rf(ref), phi0)
 
 
-def _unstable_fixed_point_zeta(cav: _EffectiveCavity) -> float:
-    """``zeta`` of the unstable fixed point: k_rf zeta_u = 2 phi_s - pi."""
-    return (2.0 * cav.phi_s - math.pi) / cav.k_rf
+def _adjacent_unstable_zetas(cav: _EffectiveCavity) -> tuple[float, float]:
+    """The two unstable fixed points straddling the bucket centre ``zeta = 0``.
+
+    ``dU/dzeta = A [sin phi_s - sin(phi_s - k_rf zeta)]`` vanishes on two families:
+    ``k_rf zeta = 2 pi n`` (stable, the bucket centre is ``n = 0``) and
+    ``k_rf zeta = 2 phi_s + pi + 2 pi n`` (unstable). Reducing the latter mod
+    ``2 pi`` picks the two that bracket ``zeta = 0``, with no assumption about the
+    sign or the range of ``phi_s``.
+    """
+    hi = (2.0 * cav.phi_s + math.pi) % (2.0 * math.pi)
+    return (hi - 2.0 * math.pi) / cav.k_rf, hi / cav.k_rf
+
+
+def _bucket_bounds(
+    cav: _EffectiveCavity, eta: float, circumference: float
+) -> tuple[float, float, float]:
+    """``(zeta_u, zeta_other, delta_max^2)`` for the bucket around ``zeta = 0``.
+
+    Both adjacent unstable points give a candidate separatrix; the bucket is the
+    **inner** one, i.e. the smaller positive ``delta_max^2``. Which one that is
+    depends on ``sign(eta q V)`` and on ``sign(sin phi_s)``, so it cannot be
+    hardcoded: for ``q V < 0`` (an electron ring driven by a positive voltage) it
+    is *not* the ``k_rf zeta_u = 2 phi_s - pi`` member that the stationary-only
+    Stage-3 code assumed. ``zeta_other`` is the outer one, used to bracket the far
+    turning point in :func:`separatrix`.
+    """
+
+    def potential(zeta: float) -> float:
+        return -cav.amplitude * (
+            math.cos(cav.phi_s - cav.k_rf * zeta) / cav.k_rf - zeta * math.sin(cav.phi_s)
+        )
+
+    u0 = potential(0.0)
+    best: tuple[float, float, float] | None = None
+    for zeta_u in _adjacent_unstable_zetas(cav):
+        delta2 = 2.0 * (u0 - potential(zeta_u)) / (eta * circumference)
+        if delta2 > 0.0 and (best is None or delta2 < best[2]):
+            other = [z for z in _adjacent_unstable_zetas(cav) if z != zeta_u][0]
+            best = (zeta_u, other, delta2)
+    if best is None:
+        raise ValueError(
+            "no stable RF bucket (delta_max^2 <= 0 at both unstable fixed points): "
+            f"phi_s = {cav.phi_s} is on the unstable branch for this lattice. "
+            "Stability needs sign(cos phi_s) = -sign(eta q V); see "
+            "accsim.synchronous_phase."
+        )
+    return best
 
 
 def longitudinal_hamiltonian(lattice: Lattice) -> Callable[[float, float], float]:
@@ -107,22 +152,20 @@ def longitudinal_hamiltonian(lattice: Lattice) -> Callable[[float, float], float
 
 
 def rf_bucket_height(lattice: Lattice) -> float:
-    """Half-height of the stationary RF bucket, ``delta_max`` (max ``|delta|``).
+    """Half-height of the RF bucket, ``delta_max`` (max ``|delta|``).
 
-    Evaluated at the bucket centre (``zeta = 0``) from the Hamiltonian level of the
-    separatrix: ``delta_max^2 = 2 [U(0) - U(zeta_u)] / (eta C)``. For a stationary
-    bucket this reduces to the closed form ``delta_max = 2 Qs / (h |eta|)`` (pinned
-    symbolically in the tests).
+    Evaluated at the bucket centre (``zeta = 0``, where ``dU/dzeta = 0`` puts the
+    maximum of the separatrix for a moving bucket too) from the Hamiltonian level
+    of the separatrix: ``delta_max^2 = 2 [U(0) - U(zeta_u)] / (eta C)``.
+
+    For a **stationary** bucket this reduces to ``delta_max = 2 Qs / (h |eta|)``;
+    for a **moving** one it is smaller by the factor ``sqrt(cos psi - (pi/2 - psi)
+    sin psi)``, ``psi = asin |sin phi_s|`` — both pinned symbolically in the tests.
+    Raises ``ValueError`` if ``phi_s`` is on the unstable branch (no bucket).
     """
     eta = slip_factor(lattice)
-    circumference = lattice.length
-    hamiltonian = longitudinal_hamiltonian(lattice)
     cav = _effective_cavity(lattice)
-    zeta_u = _unstable_fixed_point_zeta(cav)
-    # U(zeta) = H(zeta, 0); delta_max^2 = 2 (U(0) - U(zeta_u)) / (eta C).
-    delta2 = 2.0 * (hamiltonian(0.0, 0.0) - hamiltonian(zeta_u, 0.0)) / (eta * circumference)
-    if delta2 <= 0.0:
-        raise ValueError("no stable RF bucket (delta_max^2 <= 0): check phi_s vs transition.")
+    _, _, delta2 = _bucket_bounds(cav, eta, lattice.length)
     return math.sqrt(delta2)
 
 
@@ -130,22 +173,41 @@ def separatrix(lattice: Lattice, n_points: int = 400) -> tuple[np.ndarray, np.nd
     """Sample the RF-bucket separatrix as ``(zeta, delta)`` closed-curve arrays.
 
     Returns the upper (``delta >= 0``) branch followed by the lower branch reversed,
-    so plotting the pair traces the closed separatrix. ``zeta`` spans the bucket
-    between its two unstable fixed points (for a stationary bucket, symmetric about
-    ``zeta = 0``, one full RF wavelength wide).
+    so plotting the pair traces the closed separatrix.
+
+    ``zeta`` spans the bucket from the bounding unstable fixed point ``zeta_u`` to
+    the **far turning point** — the other root of ``U(zeta) = U(zeta_u)``, on the
+    opposite side of ``zeta = 0``. For a stationary bucket that root is ``-zeta_u``
+    and the curve is symmetric, one full RF wavelength wide; for a **moving** bucket
+    it is transcendental (the potential is periodic-plus-tilt) and the bucket is
+    asymmetric and narrower. It is bracketed between ``zeta = 0`` and the *other*
+    adjacent unstable point — ``U`` is monotonic there, so the sign change is unique
+    — and located with Brent's method rather than assumed.
     """
     eta = slip_factor(lattice)
     circumference = lattice.length
     hamiltonian = longitudinal_hamiltonian(lattice)
     cav = _effective_cavity(lattice)
-    zeta_u = _unstable_fixed_point_zeta(cav)
-    # The bucket is bounded by zeta_u and its mirror across the stable point zeta=0.
-    lo, hi = sorted((zeta_u, -zeta_u))
+    zeta_u, zeta_other, delta2 = _bucket_bounds(cav, eta, circumference)
+    h_u = hamiltonian(zeta_u, 0.0)
+
+    def barrier(zeta: float) -> float:
+        return hamiltonian(zeta, 0.0) - h_u
+
+    # For a stationary bucket the two unstable points are degenerate (equal barrier)
+    # and the far tip is exactly -zeta_u. Compare against the bucket *depth* rather
+    # than to 0.0: the residual is rounding, and near that double root the level set
+    # is quadratic, so brentq would only reach ~sqrt(eps) precision.
+    depth = abs(hamiltonian(0.0, 0.0) - h_u)
+    if abs(barrier(zeta_other)) <= 1e-12 * depth:
+        zeta_far = -zeta_u
+    else:
+        zeta_far = float(brentq(barrier, 0.0, zeta_other, xtol=1e-15, rtol=8.9e-16))
+    lo, hi = sorted((zeta_u, zeta_far))
     zetas = np.linspace(lo, hi, n_points)
-    h_sep = hamiltonian(zeta_u, 0.0)
-    # delta^2 = 2 (U(zeta) - h_sep) / (eta C), clipped to >= 0 at the tips.
+    # delta^2 = 2 (U(zeta) - U(zeta_u)) / (eta C), clipped to >= 0 at the tips.
     u = np.array([hamiltonian(z, 0.0) for z in zetas])
-    delta2 = np.clip(2.0 * (u - h_sep) / (eta * circumference), 0.0, None)
+    delta2 = np.clip(2.0 * (u - h_u) / (eta * circumference), 0.0, None)
     delta = np.sqrt(delta2)
     zeta_loop = np.concatenate([zetas, zetas[::-1]])
     delta_loop = np.concatenate([delta, -delta[::-1]])
