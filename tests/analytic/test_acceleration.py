@@ -52,8 +52,10 @@ from accsim import (
     separatrix,
     slip_factor,
     synchronous_phase,
+    synchrotron_tune,
 )
 from accsim.reference import CLIGHT
+from accsim.twiss import UnstableLatticeError
 
 MASS0 = 938.27208816e6
 GAMMA0 = 5.0
@@ -266,6 +268,99 @@ def test_synchronous_phase_round_trips_energy_gain(ref: ReferenceParticle) -> No
 def test_synchronous_phase_rejects_impossible_gain(ref: ReferenceParticle) -> None:
     with pytest.raises(ValueError, match="no synchronous phase"):
         synchronous_phase(1.0e5, 2.0e5, above_transition=False)  # need sin > 1
+
+
+# --- synchronous_phase: the branch is keyed on sign(eta q V), not on eta alone ----
+ELECTRON_MASS_EV = 0.51099895069e6
+
+
+def _electron_ref() -> ReferenceParticle:
+    """A 2 GeV electron — charge -1, so ``q V < 0`` for the usual positive voltage."""
+    return ReferenceParticle.from_total_energy(ELECTRON_MASS_EV, 2.0e9, charge=-1.0)
+
+
+def test_synchronous_phase_positive_qv_is_unchanged(ref: ReferenceParticle) -> None:
+    """Negative control: for ``q > 0, V > 0`` the signed rule reduces to the old one.
+
+    The generalisation must be a *pure extension* — a proton machine (``qV > 0``)
+    keeps ``asin(s)`` below transition and ``pi - asin(s)`` above, bit for bit.
+    """
+    dE, V = 3.0e5, VOLTAGE
+    s = dE / V
+    assert synchronous_phase(V, dE, above_transition=False) == math.asin(s)
+    assert synchronous_phase(V, dE, above_transition=True) == math.pi - math.asin(s)
+
+
+def test_synchronous_phase_branch_follows_sign_of_eta_q_v() -> None:
+    """``sign(cos phi_s) == -sign(eta * q * V)`` over all four sign combinations.
+
+    This is the stability condition ``Qs^2 > 0`` written out. Flipping *either*
+    ``eta`` or ``q V`` flips the branch; flipping both leaves it alone.
+    """
+    dE = 3.0e4
+    for above in (False, True):
+        for qv_sign, (charge, voltage) in enumerate(((1.0, VOLTAGE), (-1.0, VOLTAGE))):
+            phi = synchronous_phase(voltage, dE, above_transition=above, charge=charge)
+            qv = charge * voltage
+            eta_sign = 1.0 if above else -1.0
+            assert math.sin(phi) == pytest.approx(dE / qv)  # accelerates, either way
+            assert math.copysign(1.0, math.cos(phi)) == -math.copysign(1.0, eta_sign * qv), (
+                f"above={above}, qv_sign={qv_sign}: phi_s={phi} has the wrong cos sign"
+            )
+
+
+def test_electron_above_transition_takes_the_asin_branch() -> None:
+    """An electron ring above transition: only ``asin(s)`` gives a stable bucket.
+
+    Both roots deliver the *same* energy gain — ``Delta E_s = q V sin phi_s`` is
+    identical on the two branches — so the gain cannot tell them apart. Stability
+    can: the ``pi - asin(s)`` root that the eta-only rule would have returned makes
+    ``Qs^2 < 0`` and :func:`synchrotron_tune` refuses the lattice.
+    """
+    ref = _electron_ref()
+    arc = _above_transition_arc()
+    circumference = sum(e.length for e in arc)
+    eta = slip_factor(Lattice(arc, ref))
+    assert eta > 0.0  # above transition
+    dE, V = 3.0e4, VOLTAGE
+
+    phi = synchronous_phase(V, dE, above_transition=True, charge=ref.charge)
+    assert phi == pytest.approx(math.asin(dE / (ref.charge * V)))
+    assert -math.pi / 2 < phi < 0.0  # just below zero: RF replenishing a loss
+
+    stable = Lattice([*arc, RFCavity.from_harmonic(V, HARMONIC, circumference, ref, phi)], ref)
+    unstable = Lattice(
+        [*arc, RFCavity.from_harmonic(V, HARMONIC, circumference, ref, math.pi - phi)], ref
+    )
+    # Identical energy gain on both branches — the gain is blind to the choice.
+    assert energy_gain_per_turn(stable) == pytest.approx(dE, rel=1e-12)
+    assert energy_gain_per_turn(unstable) == pytest.approx(dE, rel=1e-12)
+    # Only the returned branch has a bucket.
+    assert synchrotron_tune(stable) > 0.0
+    with pytest.raises(UnstableLatticeError):
+        synchrotron_tune(unstable)
+
+
+def test_electron_zero_gain_stationary_phase_is_zero_above_transition() -> None:
+    """Zero gain, ``qV < 0``, above transition -> ``phi_s = 0`` (not ``pi``).
+
+    The Stage-3 "0 below, pi above" mnemonic is the ``qV > 0`` special case; the
+    lepton ring's stationary bucket sits at the other one, and
+    :func:`rf_bucket_height` accepts it (``sin phi_s = 0``, so it is stationary).
+    """
+    ref = _electron_ref()
+    arc = _above_transition_arc()
+    circumference = sum(e.length for e in arc)
+    phi = synchronous_phase(VOLTAGE, 0.0, above_transition=True, charge=ref.charge)
+    assert phi == 0.0
+    lat = Lattice([*arc, RFCavity.from_harmonic(VOLTAGE, HARMONIC, circumference, ref, phi)], ref)
+    assert energy_gain_per_turn(lat) == 0.0
+    assert rf_bucket_height(lat) > 0.0
+
+
+def test_synchronous_phase_rejects_zero_qv() -> None:
+    with pytest.raises(ValueError, match="non-zero"):
+        synchronous_phase(0.0, 0.0, above_transition=False)
 
 
 # --- harmonic-number interface --------------------------------------------------

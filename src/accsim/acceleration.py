@@ -88,26 +88,37 @@ def synchronous_phase(
     above_transition: bool,
     charge: float = 1.0,
 ) -> float:
-    """Stable synchronous phase ``phi_s`` for a target energy gain per turn.
+    r"""Stable synchronous phase ``phi_s`` for a target energy gain per turn.
 
-    Inverts ``Delta E_s = q V sin(phi_s)`` for the **stable** root. Requiring both
-    net acceleration (``sin phi_s > 0``) and a stable bucket fixes the branch: the
-    small-amplitude stability condition ``Qs^2 = -(h eta q V cos phi_s)/(2 pi
-    beta0^2 E0) > 0`` needs ``eta cos phi_s < 0``, so
+    Inverts ``Delta E_s = q V sin(phi_s)`` for the **stable** root. Net acceleration
+    fixes ``sin phi_s = s = Delta E_s / (q V)``, leaving two candidate phases —
+    ``asin(s)`` (``cos phi_s > 0``) and ``pi - asin(s)`` (``cos phi_s < 0``). Bucket
+    stability picks between them: ``Qs^2 = -(h eta q V cos phi_s)/(2 pi beta0^2 E0)``
+    must be positive, i.e.
 
-    - **below transition** (``eta < 0``): ``cos phi_s > 0`` -> ``phi_s in (0, pi/2)``
-      -> ``phi_s = asin(s)``;
-    - **above transition** (``eta > 0``): ``cos phi_s < 0`` -> ``phi_s in (pi/2, pi)``
-      -> ``phi_s = pi - asin(s)``,
+        sign(cos phi_s) = -sign(eta * q * V).
 
-    with ``s = Delta E_s / (q V)``. At zero gain this returns ``0`` below transition
-    and ``pi`` above — exactly the Stage-3 stationary phases. ``eta``'s sign is a
+    **The branch is keyed on ``eta * q * V``, not on ``eta`` alone.** For the
+    positive-charge, positive-voltage case (a proton machine, ``qV > 0``) this is
+    the familiar rule — ``phi_s = asin(s)`` below transition, ``pi - asin(s)``
+    above. A **negative charge driven by a positive voltage** (an electron ring:
+    ``qV < 0``) flips ``sign(q V)`` and therefore flips the branch: above transition
+    the stable phase is ``asin(s)``, sitting just *below* zero for a machine whose
+    RF replenishes a radiation loss. Keying on ``eta`` alone would hand back the
+    *unstable* root there, and :func:`accsim.synchrotron_tune` would refuse the
+    lattice (``|1/2 Tr M_s| >= 1``) even though the energy gain came out right —
+    ``Delta E_s`` is identical on both branches, so only stability distinguishes
+    them. The sign rule was pinned empirically on both branches, not remembered.
+
+    At zero gain this returns the Stage-3 stationary phases for the branch: ``0``
+    when ``sign(cos phi_s) > 0`` and ``pi`` when it is negative. ``eta``'s sign is a
     lattice property (:func:`accsim.slip_factor`), independent of the cavity phase,
-    so it can be evaluated before the cavities are built.
+    so it can be evaluated before the cavities are built; ``charge`` is signed
+    (``ReferenceParticle.charge``, ``-1`` for an electron).
     """
     qv = charge * voltage
-    if qv <= 0:
-        raise ValueError(f"charge*voltage must be > 0, got {qv}")
+    if qv == 0.0:
+        raise ValueError(f"charge*voltage must be non-zero, got {qv}")
     s = energy_gain_per_turn / qv
     if not -1.0 <= s <= 1.0:
         raise ValueError(
@@ -115,7 +126,10 @@ def synchronous_phase(
             f"q V ({qv}); |sin phi_s| = {abs(s)} > 1, no synchronous phase exists."
         )
     base = math.asin(s)  # in [-pi/2, pi/2]
-    return (math.pi - base) if above_transition else base
+    # Stability wants sign(cos phi_s) = -sign(eta q V). The `pi - .` branch is the
+    # cos < 0 one, so take it when eta and qV agree in sign.
+    negative_cosine = above_transition == (qv > 0.0)
+    return (math.pi - base) if negative_cosine else base
 
 
 @dataclass
