@@ -102,7 +102,15 @@ def test_isomagnetic_I2_I3() -> None:
 def test_I1_matches_momentum_compaction() -> None:
     ring = _electron_ring()
     ri = radiation_integrals(ring)
-    assert ri.i1 == pytest.approx(momentum_compaction(ring) * ring.length, rel=1e-10)
+    # I1 = ∮ D_x h ds is the *same* trapezoid alpha_c's quadrature route runs, so the
+    # two agree to round-off -- that is what pins the dispersion transport here.
+    assert ri.i1 == pytest.approx(
+        momentum_compaction(ring, method="quadrature") * ring.length, rel=1e-10
+    )
+    # And against alpha_c's exact (D4 default) route, to the trapezoid's own error:
+    # this is the physics check, and it is the arm that would catch a shared-machinery
+    # bug the round-off comparison above cannot see.
+    assert ri.i1 == pytest.approx(momentum_compaction(ring) * ring.length, rel=1e-5)
 
 
 def test_I4_isomagnetic_equals_h2_alpha_c_C() -> None:
@@ -112,7 +120,9 @@ def test_I4_isomagnetic_equals_h2_alpha_c_C() -> None:
     ring = _electron_ring()
     ri = radiation_integrals(ring)
     h = ANGLE / L_BEND
-    assert ri.i4 == pytest.approx(h**2 * momentum_compaction(ring) * ring.length, rel=1e-10)
+    assert ri.i4 == pytest.approx(
+        h**2 * momentum_compaction(ring, method="quadrature") * ring.length, rel=1e-10
+    )
 
 
 def test_I5_matches_independent_propagate_twiss_integration() -> None:

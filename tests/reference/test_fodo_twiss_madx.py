@@ -167,23 +167,31 @@ def test_momentum_compaction_matches_madx() -> None:
     """alpha_c against MAD-X, exact route first, then the quadrature's convergence.
 
     MAD-X evaluates ``(1/C) integral D_x/rho ds`` in closed form per element;
-    accsim's :func:`momentum_compaction` uses a trapezoid. Rather than loosen a
+    accsim's ``method="quadrature"`` route uses a trapezoid. Rather than loosen a
     tolerance to hide that, the exact identity is compared tightly, and the
     quadrature is then shown to *converge onto MAD-X's number* under refinement
     -- which upgrades the existing analytic convergence test from self-
     consistency to agreement with an independent code.
+
+    Since D4 the identity is also what ``momentum_compaction`` returns by default,
+    so the first assertion doubles as the shipped default's MAD-X check. The
+    convergence arm below must therefore ask for ``method="quadrature"``
+    explicitly -- on the default it would compare MAD-X against the same exact
+    number twice and the convergence demonstration would silently evaporate.
     """
     _, summ, _ = _madx_twiss()
     lat = _accsim_lattice()
     alfa_mx = summ["alfa"]
 
-    # Exact route: agrees with MAD-X to near machine precision.
+    # Exact route -- and, since D4, the default: agrees with MAD-X to near machine
+    # precision.
     assert _identity_alpha_c(lat) == pytest.approx(alfa_mx, rel=1e-10)
+    assert momentum_compaction(lat) == pytest.approx(alfa_mx, rel=1e-10)
 
-    # The shipped quadrature at its default slice count: close, but only ~1e-6,
-    # and that gap is quadrature error, not a convention disagreement.
-    coarse = abs(momentum_compaction(lat) / alfa_mx - 1.0)
-    fine = abs(momentum_compaction(lat, slices=1024) / alfa_mx - 1.0)
+    # The quadrature at its default slice count: close, but only ~1e-6, and that
+    # gap is quadrature error, not a convention disagreement.
+    coarse = abs(momentum_compaction(lat, method="quadrature") / alfa_mx - 1.0)
+    fine = abs(momentum_compaction(lat, slices=1024, method="quadrature") / alfa_mx - 1.0)
     assert coarse < 1e-5
     # Refining by 16x cuts the error by ~256x (trapezoid is O(ds^2)); assert a
     # conservative 50x so the claim is about convergence, not a lucky constant.

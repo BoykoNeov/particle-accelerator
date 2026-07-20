@@ -670,15 +670,31 @@ sustained arc.
   radiation / synchrotron-tune checks were deliberately not mirrored. See
   CONVENTIONS.md → *MAD-X reference frame*.
 
-- **D4 — make `momentum_compaction()` exact by default.** [S] *Surfaced by D3, deliberately
-  deferred out of it (one feature per change).* The function trapezoids `∮D_x/ρ ds` at
-  `slices=64` and is ~1.6e-6 off, while the **exact** identity
+- **D4 — make `momentum_compaction()` exact by default.** ✅ **DONE (2026-07-20)** —
+  *Surfaced by D3, deliberately deferred out of it (one feature per change).* The function
+  trapezoided `∮D_x/ρ ds` at `slices=64` and was ~1.6e-6 off, while the **exact** identity
   `alpha_c = 1/γ₀² − (R51·D_x + R52·D_px + R56)/C` needs only the one-turn matrix and the
-  matched dispersion — both already computed inside it. MAD-X (D3) and the analytic suite
-  both confirm the identity is the right answer. **Gate:** the default path reproduces the
-  identity to machine precision, `slip_factor`/`synchrotron_tune` still pass, and the
-  quadrature stays reachable (it is the independent second route that keeps the identity
-  honest — do *not* delete it, or the two cross-checks collapse into one).
+  matched dispersion — both already computed inside it. Now
+  `momentum_compaction(lattice, slices=64, method="identity")`: the default is the
+  identity (exact to machine precision, `slices` inert), and the trapezoid stays reachable
+  as `method="quadrature"`. `slip_factor` / `synchrotron_tune` simply consume the now-exact
+  default — `method` was deliberately *not* threaded through them (scope).
+
+  **The trap this milestone was really about, and it is not the arithmetic.** Flipping the
+  default silently converts every `momentum_compaction(lat) == identity(lat)` assertion
+  into a tautology: the same code on both sides, green forever, testing nothing. Five
+  assertions were in that state and are now explicit about the integral arm
+  (`method="quadrature"`) — four in `tests/analytic/test_momentum_compaction.py`, plus the
+  MAD-X coarse/fine convergence demonstration in `test_fodo_twiss_madx.py`, which would
+  otherwise have compared MAD-X to the same exact number twice and quietly stopped
+  demonstrating convergence at all. `radiation_integrals`' `I1` runs the same trapezoid, so
+  `I1 == α_c·C` now asserts *both* arms: round-off against the quadrature (pinning the
+  shared dispersion transport) and ~1e-5 against the exact default (the physics check, and
+  the only one of the two that could catch a bug living in the shared machinery).
+  The standing rule, recorded in CONVENTIONS.md: **the quadrature is not vestigial** — it
+  touches the dispersion-generating matrix entries where the identity touches only the
+  longitudinal row, so it is the independent second route. Delete it, or compare the
+  default against the identity, and the two cross-checks collapse into one.
 
 ### E. Event-physics siblings (new processes on the established chain)
 

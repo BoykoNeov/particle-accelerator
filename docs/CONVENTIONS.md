@@ -412,10 +412,28 @@ momentum deviation — a purely **geometric** quantity (no `γ₀`):
 - Only **bending magnets** contribute (`h = 0` in drifts, quads, sextupoles), so a
   straight / dispersion-free lattice has `α_c = 0`. Sign: outward dispersion in a
   normal focusing arc ⇒ the higher-momentum orbit is longer ⇒ `α_c > 0`.
-- `accsim.momentum_compaction` computes the integral directly: it transports the
-  matched dispersion along the lattice and, inside each thick dipole, integrates
-  `D_x(s)` by trapezoidal sub-slicing of the sector sub-bend map (`h` constant
-  across a body) — the same idiom as `natural_chromaticity`.
+- `accsim.momentum_compaction(lattice, slices=64, method="identity")` offers **two
+  routes to the same number** (D4, 2026-07-20):
+  - `method="identity"` (**default**) — the exact symplecticity identity
+    `α_c = 1/γ₀² − (R51·D_x + R52·D_px + R56)/C`, read off the one-turn
+    longitudinal row on the matched dispersion orbit. Both ingredients are
+    closed-form, so this is exact to machine precision and **`slices` is ignored**.
+  - `method="quadrature"` — the path integral evaluated directly: transport the
+    matched dispersion along the lattice and, inside each thick dipole, integrate
+    `D_x(s)` by trapezoidal sub-slicing of the sector sub-bend map (`h` constant
+    across a body) — the same idiom as `natural_chromaticity`. Converges onto the
+    identity at `O((h·ds)²)`: ~1.6e-6 at `slices=64`.
+
+  The quadrature is **kept deliberately**, not vestigial: it touches the
+  dispersion-generating matrix entries while the identity touches only the
+  longitudinal row, so it is the independent second route that keeps the default
+  honest. Delete it and the two cross-checks collapse into one. Consequently
+  **every test comparing `α_c` against the identity must pass
+  `method="quadrature"` explicitly** — on the default that comparison is a
+  tautology that stays green while testing nothing.
+- `radiation_integrals`' `I1 = ∮ D_x h ds` still runs the trapezoid, so
+  `I1 == α_c·C` holds to round-off only against `method="quadrature"`, and to
+  ~1e-5 (the trapezoid's own error) against the exact default. Both are asserted.
 - **Phase-slip factor** `η = α_c − 1/γ₀²` (`accsim.slip_factor`). The `1/γ₀²` is
   taken from the reference particle — the *same single source* as the drift/dipole
   `R56 = L/γ₀²` (see [Drift](#drift-transfer-matrix-derived-not-remembered)); do
@@ -1674,15 +1692,19 @@ adds is an **independent numerical implementation**: an accsim arithmetic or sig
 error, or an xtrack bug, now has to be reproduced by a separate Fortran codebase
 to survive. The docs state that claim and no more.
 
-**`alpha_c`: MAD-X is exact, accsim's default is a quadrature.** MAD-X evaluates
-`(1/C)∮D_x/ρ ds` in closed form per element; `momentum_compaction()` trapezoids it
-(`slices=64`), giving ~1.6e-6 relative error on a 1 m-sector-bend ring. This is a
-*known, documented* limitation, not a newly found bug — the analytic suite already
-notes it and tests convergence at 4096 slices. Rather than loosen a tolerance, the
-D3 test compares the **exact** identity
-`alpha_c = 1/γ₀² − (R51·D_x + R52·D_px + R56)/C` to MAD-X at `1e-10`, then shows the
-shipped quadrature *converging onto MAD-X's number* — which upgrades the existing
+**`alpha_c`: MAD-X is exact, and since D4 so is accsim's default.** MAD-X evaluates
+`(1/C)∮D_x/ρ ds` in closed form per element. At D3 `momentum_compaction()`
+trapezoided it (`slices=64`), giving ~1.6e-6 relative error on a 1 m-sector-bend
+ring — a *known, documented* limitation, not a newly found bug. Rather than loosen
+a tolerance, the D3 test compared the **exact** identity
+`alpha_c = 1/γ₀² − (R51·D_x + R52·D_px + R56)/C` to MAD-X at `1e-10`, then showed the
+quadrature *converging onto MAD-X's number* — which upgraded the existing
 convergence test from self-consistency to agreement with an independent code.
+
+**D4 then made that identity the default**, so the `1e-10` arm is now also the
+shipped default's MAD-X check. The convergence arm asks for `method="quadrature"`
+explicitly; without that it would compare MAD-X to the same exact number twice and
+the convergence demonstration would silently evaporate while staying green.
 
 **Scope.** Drift, quadrupole and dipole R-matrices plus one matched FODO-with-bends
 ring (β, α, μ, tunes, dispersion, `alpha_c`). Deliberately **not** mirrored:

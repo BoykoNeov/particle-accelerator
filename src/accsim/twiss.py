@@ -28,7 +28,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .coords import DELTA, PX, PY, X, Y
+from .coords import DELTA, PX, PY, ZETA, X, Y
 from .lattice import Lattice
 
 _TRANSVERSE = [X, PX, Y, PY]  # the 4D transverse subspace (x, px, y, py)
@@ -362,7 +362,7 @@ def _sextupole_feeddown(lattice: Lattice, slices: int = 64) -> tuple[float, floa
     return xi_x, xi_y
 
 
-def momentum_compaction(lattice: Lattice, slices: int = 64) -> float:
+def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "identity") -> float:
     r"""Momentum-compaction factor ``alpha_c`` of a periodic ``lattice``.
 
     A higher-momentum particle rides the dispersion orbit ``x = D_x delta`` and,
@@ -373,21 +373,49 @@ def momentum_compaction(lattice: Lattice, slices: int = 64) -> float:
         alpha_c = (1 / C) ∮ D_x(s) h(s) ds,   h(s) = 1/rho(s),  C = circumference.
 
     Only bending magnets contribute (``h = 0`` in drifts, quads, sextupoles), so a
-    straight (dispersion-free) lattice has ``alpha_c = 0``. The matched dispersion
-    is transported along the lattice; inside each thick dipole ``D_x(s)`` is
-    integrated by ``slices``-fold trapezoidal sub-stepping of the sub-bend map
-    (``h`` is constant across a sector body). ``alpha_c`` carries **no** ``gamma0``
-    dependence — it is geometry only.
+    straight (dispersion-free) lattice has ``alpha_c = 0``. ``alpha_c`` carries
+    **no** ``gamma0`` dependence — it is geometry only (the ``1/gamma0^2`` below
+    cancels against the ``R56`` it is paired with).
 
-    Cross-checked two independent ways (see ``tests/analytic/test_momentum_compaction.py``):
-    the symplecticity identity ``alpha_c = 1/gamma0^2 - (R51 D_x + R52 D_px + R56)/C``
-    from the one-turn longitudinal row (a different set of matrix entries than the
-    dispersion-generating ones this integral uses), and xtrack's
-    ``momentum_compaction_factor``.
+    Two routes to the same number, selected by ``method``:
+
+    ``"identity"`` (default)
+        The exact symplecticity identity
+
+            alpha_c = 1/gamma0^2 - (R51 D_x + R52 D_px + R56) / C,
+
+        read off the **one-turn longitudinal row** on the matched dispersion orbit:
+        over one turn at ``(x, px) = (D_x, D_px) delta`` the coordinate ``zeta``
+        slips by ``(R51 D_x + R52 D_px + R56) delta``, which is
+        ``(1/gamma0^2 - alpha_c) C delta``. Both ingredients (the one-turn matrix
+        and the matched dispersion) are closed-form, so this is exact to machine
+        precision — no quadrature error, and ``slices`` is ignored.
+
+    ``"quadrature"``
+        The path integral above, evaluated directly: the matched dispersion is
+        transported along the lattice and inside each thick dipole ``D_x(s)`` is
+        integrated by ``slices``-fold trapezoidal sub-stepping of the sub-bend map
+        (``h`` is constant across a sector body). Converges onto the identity at
+        ``O((h ds)^2)`` — ~1.6e-6 at the default 64 slices.
+
+    The two routes touch **disjoint** matrix entries (the identity uses the
+    longitudinal row, the integral uses the dispersion-generating ones), which is
+    exactly why the quadrature is kept: it is the independent second route that
+    keeps the default honest. ``tests/analytic/test_momentum_compaction.py`` holds
+    them against each other and against a sympy re-derivation; the reference suite
+    adds xtrack's ``momentum_compaction_factor`` and MAD-X's ``alfa``.
     """
+    if method not in ("identity", "quadrature"):
+        raise ValueError(f"method must be 'identity' or 'quadrature', got {method!r}")
+
     from .elements.dipole import Dipole
 
     tw0 = closed_twiss(lattice)
+    if method == "identity":
+        M = lattice.one_turn_matrix()
+        slip = M[ZETA, X] * tw0.disp_x + M[ZETA, PX] * tw0.disp_px + M[ZETA, DELTA]
+        return 1.0 / lattice.ref.gamma0**2 - slip / lattice.length
+
     disp = np.array([tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py])
     integral = 0.0  # ∮ D_x h ds
     for elem in lattice.elements:
@@ -417,6 +445,10 @@ def slip_factor(lattice: Lattice, slices: int = 64) -> float:
     and vanishes at transition (``gamma0 = 1/sqrt(alpha_c)``); Stage 3's
     synchrotron tune ``Qs`` is built on it. The ``1/gamma0^2`` is taken from the
     reference particle, the same single source as the drift/dipole ``R56 = L/gamma0^2``.
+
+    Consumes :func:`momentum_compaction`'s default (exact identity) route, so ``eta``
+    carries no quadrature error; ``slices`` is passed through and is therefore inert
+    unless that default is overridden.
     """
     return momentum_compaction(lattice, slices) - 1.0 / lattice.ref.gamma0**2
 

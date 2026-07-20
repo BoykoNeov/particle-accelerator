@@ -1,15 +1,24 @@
 """Analytic checks for the momentum-compaction factor ``alpha_c`` (Stage 3).
 
 ``alpha_c = (1/C) ∮ D_x h ds`` is the fractional circumference change per unit
-momentum deviation — purely geometric (no ``gamma0``). The physical integral is
-the implementation; the independent nets here are
+momentum deviation — purely geometric (no ``gamma0``).
 
-1. the **symplecticity identity** ``alpha_c = 1/gamma0^2 - (R51 Dx + R52 Dpx +
-   R56)/C``, which exercises the one-turn *longitudinal row* (R51/R52/R56) — a
-   different set of matrix entries than the dispersion-generating ones the
-   integral uses, so a sign error in the integral makes this fail (the RHS never
-   touches the integral); and
+Since D4 the *default* implementation is the exact **symplecticity identity**
+``alpha_c = 1/gamma0^2 - (R51 Dx + R52 Dpx + R56)/C``, which reads the one-turn
+*longitudinal row*; the physical integral survives as ``method="quadrature"``.
+That makes the arms here:
+
+1. **quadrature vs identity** — the integral touches only the
+   dispersion-generating matrix entries, the identity only the longitudinal row,
+   so the two are genuinely disjoint routes to the same number and a sign error
+   in either fails the comparison; and
 2. an exact **sympy re-derivation** of both paths on a thick-dipole arc cell.
+
+**Every assertion below that compares against** :func:`_identity_alpha_c` **must
+pass** ``method="quadrature"`` — comparing the default against the identity is a
+tautology (it is literally the same code) and would silently test nothing. Only
+:func:`test_default_is_the_exact_identity` compares default-to-identity, and it
+is a regression guard on the D4 switch, *not* one of the two routes.
 
 The drift/no-bend limit (``D=0``, ``R56=C/gamma0^2`` ⇒ ``alpha_c=0``) is pinned
 too, though it cannot test *sign* (both sides are zero there) — the bending cases
@@ -71,10 +80,24 @@ def _identity_alpha_c(lat: Lattice) -> float:
     return 1.0 / lat.ref.gamma0**2 - r / lat.length
 
 
+def test_default_is_the_exact_identity(ref: ReferenceParticle) -> None:
+    # D4 regression guard: the default route IS the identity, to machine precision
+    # (no quadrature error left). Not an independent check -- see the module docstring.
+    lat = Lattice(_arc_cell(), ref)
+    assert momentum_compaction(lat) == pytest.approx(_identity_alpha_c(lat), rel=1e-14)
+    # slices is inert on the identity path: refining it changes nothing at all.
+    assert momentum_compaction(lat, slices=4) == momentum_compaction(lat, slices=4096)
+
+
+def test_rejects_unknown_method(ref: ReferenceParticle) -> None:
+    with pytest.raises(ValueError, match="identity"):
+        momentum_compaction(Lattice(_arc_cell(), ref), method="simpson")
+
+
 def test_matches_symplecticity_identity(ref: ReferenceParticle) -> None:
     # Independent path: longitudinal row + dispersion, no curvature integral.
     lat = Lattice(_arc_cell(), ref)
-    got = momentum_compaction(lat)
+    got = momentum_compaction(lat, method="quadrature")
     expected = _identity_alpha_c(lat)
     # Trapezoid quadrature of the smooth D_x(s) converges as O((h ds)^2); at 64
     # slices this is ~1e-6, while any sign/coefficient error would be O(1).
@@ -84,7 +107,9 @@ def test_matches_symplecticity_identity(ref: ReferenceParticle) -> None:
 def test_identity_is_exact_at_high_slice_count(ref: ReferenceParticle) -> None:
     # Refining the quadrature drives the integral onto the exact identity value.
     lat = Lattice(_arc_cell(), ref)
-    assert momentum_compaction(lat, slices=4096) == pytest.approx(_identity_alpha_c(lat), rel=1e-8)
+    assert momentum_compaction(lat, slices=4096, method="quadrature") == pytest.approx(
+        _identity_alpha_c(lat), rel=1e-8
+    )
 
 
 def test_matches_symbolic_derivation(ref: ReferenceParticle) -> None:
@@ -167,7 +192,11 @@ def test_matches_symbolic_derivation(ref: ReferenceParticle) -> None:
     # The two symbolic paths are algebraically identical (proves signs + coeffs).
     assert sp.simplify(alpha_A - alpha_B) == 0
     expected = float(alpha_A)
-    assert momentum_compaction(Lattice(_arc_cell(), ref)) == pytest.approx(expected, rel=1e-5)
+    lat = Lattice(_arc_cell(), ref)
+    # Both routes against the symbolic truth: the exact default to near machine
+    # precision, the trapezoid to its O((h ds)^2) quadrature error at 64 slices.
+    assert momentum_compaction(lat) == pytest.approx(expected, rel=1e-12)
+    assert momentum_compaction(lat, method="quadrature") == pytest.approx(expected, rel=1e-5)
 
 
 def test_no_bend_lattice_has_zero_alpha_c(ref: ReferenceParticle) -> None:
@@ -198,7 +227,9 @@ def test_identity_holds_for_thick_quad_arc(ref: ReferenceParticle) -> None:
     # circumference (2.6 m vs 2.0 m) and focusing profile, so its alpha_c genuinely
     # differs -- we only check each lattice reproduces its own matrix identity.
     thin = Lattice(_arc_cell(), ref)
-    assert momentum_compaction(thin) == pytest.approx(_identity_alpha_c(thin), rel=1e-5)
+    assert momentum_compaction(thin, method="quadrature") == pytest.approx(
+        _identity_alpha_c(thin), rel=1e-5
+    )
     kq = 1.0 / (F_FOCAL * 0.2)
     thick = Lattice(
         [
@@ -210,4 +241,6 @@ def test_identity_holds_for_thick_quad_arc(ref: ReferenceParticle) -> None:
         ],
         ref,
     )
-    assert momentum_compaction(thick) == pytest.approx(_identity_alpha_c(thick), rel=1e-5)
+    assert momentum_compaction(thick, method="quadrature") == pytest.approx(
+        _identity_alpha_c(thick), rel=1e-5
+    )
