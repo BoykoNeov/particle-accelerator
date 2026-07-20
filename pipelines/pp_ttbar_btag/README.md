@@ -22,6 +22,14 @@ proton PDF and the detector. Everything past the pure-Python baseline is an
 opt-in runtime switch, default OFF (see `docs/CONVENTIONS.md` → *Feature
 switches*).
 
+> **Disk warning.** t̄t events are large — full hadronic final states with ISR/FSR
+> and the underlying event — and the HepMC3 interchange file is verbose ASCII.
+> **20 000 events is ≈ 5.7 GB**, and it is written to `--out-dir`, copied into the
+> Delphes container, and copied back. Budget ~15 GB of free space and a
+> `docker cp` of that size in each direction. `--n 2000` (≈ 0.6 GB) is enough to
+> see every guard fire; the larger sample only buys precision on the *tight*
+> mistag rate, which is ~0.1% and therefore the statistics-hungriest number here.
+
 ## The gate: the card is the closed form
 
 Delphes does **not** simulate a b-tagging algorithm. Its `BTagging` module is a
