@@ -1444,6 +1444,64 @@ jet-energy-scale/resolution performance, τ-tagging, pileup. The
 detector outputs side by side have nothing to be refuted against, which fails the
 working agreement's analytic-gate rule.
 
+## Transverse mass and the W Jacobian edge (E1 — implemented)
+
+`accsim.events.transverse_mass` (baseline: numpy only). The **W-mass** observable
+at a hadron collider, where the neutrino escapes down the beam pipe.
+
+**Definition.**
+
+    m_T² = 2 · p_T^ℓ · p_T^ν · (1 − cos Δφ)
+
+Angles in **radians**. The `(1 − cos Δφ)` form is periodic, so `Δφ` is **never
+wrapped** — wrapping would be a no-op at best and a sign trap at worst. The
+product is clipped at zero before the `sqrt`: it is non-negative analytically, but
+a collinear pair can round to ~−1e−17 and NaN the root.
+
+**Only transverse information is used, by construction.**
+`transverse_mass_from_vectors` takes four-vectors but ignores `E` and `p_z` —
+the missing-momentum estimator *has* no `p_z`, so leaking one in would be
+unphysical. The analytic suite asserts this by scrambling the neutrino's `E` and
+`p_z` and demanding a bit-identical result.
+
+**The neutrino proxy.** Truth uses the real neutrino four-vector; **reco uses
+MET** (Delphes `MissingET`). That substitution is the truth-vs-reco seam of the
+E1 pipeline and the dominant source of edge smearing. There is **no** full
+invariant mass to build on the reco side — do not attempt one.
+
+**The edge is at `M_W`, the lepton-`p_T` peak is at `M_W/2`.** Both are Jacobian
+peaks and confusing them is *the* error this observable invites. `m_T` is the
+`W`-mass observable specifically because its edge is insensitive to the `W`'s
+recoil `p_T` at first order, while the `p_T^ℓ` peak is smeared by it at first
+order. The analytic suite asserts both endpoints in one test to keep the
+distinction pinned.
+
+**Idealised density (derived in sympy, not remembered).** For an on-shell,
+zero-`p_T`, **isotropic** two-body decay, the daughters are back-to-back in the
+rest frame, so `Δφ = π` exactly and both carry `p_T = (M/2) sin θ` — hence
+`m_T = M sin θ`. Pushing `cos θ ~ U(−1,1)` through that gives
+
+    dN/dm_T = m_T / (M √(M² − m_T²)),   0 ≤ m_T ≤ M,
+    CDF     = 1 − √(1 − m_T²/M²)
+
+(`jacobian_peak_pdf`, normalised to 1). The `1/√(M²−m_T²)` **integrable
+singularity** at the endpoint *is* the Jacobian edge: `dm_T/dcos θ → 0` at
+`θ = 90°`, so a broad swathe of decay angles piles into a narrow `m_T` interval.
+
+**Scope, stated honestly.** The **endpoint location** is exact and
+convention-independent; it survives a transverse boost (asserted at `β = 0.4`,
+far beyond real ISR) and a `V−A` angular weight. The **shape** does not: the
+finite width `Γ_W`, the `W`'s recoil `p_T` (Sudakov-suppressed at low `p_T`), and
+the MET resolution all round the edge, and `V−A` reweights it. So the shape test
+states its isotropy assumption explicitly, and the pipeline gates on the **edge
+location**, never on a delta-function or on the idealised shape.
+
+**Quadrature note.** Normalising the pdf uses the substitution `m_T = M sin a`,
+which removes the singularity analytically (the integrand is just `sin a`). In
+*factored* form the exact endpoint is `∞ · 0`, so the test integrates by the
+**midpoint** rule, which never samples `a = π/2`. That is a quadrature artifact,
+not a physics one.
+
 ## Feature switches (optional addons — implemented)
 
 **The rule:** the pure-Python **baseline** — the accelerator optics/tracking core

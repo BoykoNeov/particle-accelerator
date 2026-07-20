@@ -30,6 +30,9 @@ __all__ = [
     "collins_soper_angles",
     "angular_coefficients",
     "forward_backward_asymmetry",
+    "transverse_mass",
+    "transverse_mass_from_vectors",
+    "jacobian_peak_pdf",
 ]
 
 # Mostly-minus metric diag(+1, -1, -1, -1). Contracting with it turns the naive
@@ -340,3 +343,93 @@ def forward_backward_asymmetry(
     afb = (n_f - n_b) / n
     err = float(np.sqrt(max(0.0, 1.0 - afb**2) / n))
     return float(afb), err
+
+
+def transverse_mass(
+    pt_lep: npt.NDArray[np.float64],
+    phi_lep: npt.NDArray[np.float64],
+    pt_miss: npt.NDArray[np.float64],
+    phi_miss: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    r"""Transverse mass ``m_T`` of a lepton + missing-transverse-momentum pair.
+
+        m_T^2 = 2 p_T^l p_T^nu (1 - cos(phi_l - phi_nu))
+
+    This is *the* W-mass observable: the neutrino escapes, so no full invariant
+    mass exists — only the transverse projection is reconstructible. For an
+    on-shell ``W -> l nu`` decay ``m_T <= M_W``, and the phase-space pile-up
+    against that endpoint is the **Jacobian edge** (see
+    :func:`jacobian_peak_pdf`).
+
+    Angles are radians; the ``(1 - cos Δφ)`` form is periodic, so no wrapping of
+    ``Δφ`` is needed. All four arguments broadcast against each other.
+
+    **Why ``m_T``, not ``p_T^l``.** The lepton-``p_T`` spectrum also has a
+    Jacobian peak, but at ``M_W/2``, and it is smeared to first order by the
+    ``W``'s recoil transverse momentum. The ``m_T`` edge sits at ``M_W`` and is
+    insensitive to that recoil at first order — which is why hadron-collider
+    ``W``-mass measurements are built on it. See ``docs/CONVENTIONS.md`` ->
+    *Transverse mass and the W Jacobian edge*.
+    """
+    ptl = np.asarray(pt_lep, dtype=np.float64)
+    ptm = np.asarray(pt_miss, dtype=np.float64)
+    dphi = np.asarray(phi_lep, dtype=np.float64) - np.asarray(phi_miss, dtype=np.float64)
+    # Clip at zero: 1 - cos is non-negative analytically, but rounding can push
+    # the product to ~-1e-17 for a collinear pair and NaN the sqrt.
+    return np.sqrt(np.maximum(0.0, 2.0 * ptl * ptm * (1.0 - np.cos(dphi))))
+
+
+def transverse_mass_from_vectors(
+    p_lep: npt.NDArray[np.float64],
+    p_miss: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    r"""``m_T`` from four-vectors ``(E, px, py, pz)`` — only the transverse parts are used.
+
+    Convenience wrapper over :func:`transverse_mass` for the pipeline, where both
+    the truth neutrino and the reco MET arrive as four-vectors. The energies and
+    ``p_z`` components are **ignored by construction**: ``m_T`` is a transverse
+    observable, and the missing-momentum estimator has no ``p_z`` at all.
+    """
+    lep = np.asarray(p_lep, dtype=np.float64)
+    mis = np.asarray(p_miss, dtype=np.float64)
+    return transverse_mass(
+        np.hypot(lep[..., 1], lep[..., 2]),
+        np.arctan2(lep[..., 2], lep[..., 1]),
+        np.hypot(mis[..., 1], mis[..., 2]),
+        np.arctan2(mis[..., 2], mis[..., 1]),
+    )
+
+
+def jacobian_peak_pdf(m_t: npt.NDArray[np.float64], mass: float) -> npt.NDArray[np.float64]:
+    r"""Idealised ``m_T`` density for an **on-shell, zero-``p_T``, isotropic** two-body decay.
+
+        dN/dm_T = m_T / (M sqrt(M^2 - m_T^2)),   0 <= m_T <= M
+
+    Derived symbolically (sympy), not remembered: in the ``W`` rest frame the two
+    massless daughters are back-to-back, so ``Δφ = π`` exactly and both carry
+    ``p_T = (M/2) sin θ``; hence ``m_T = M sin θ``. Pushing the isotropic
+    ``cos θ ~ U(-1, 1)`` through that gives the density above (normalised to 1 on
+    ``[0, M]``, CDF ``1 - sqrt(1 - m_T^2/M^2)``).
+
+    The ``1/sqrt(M^2 - m_T^2)`` **integrable singularity at ``m_T = M``** is the
+    Jacobian edge: ``dm_T/dcos θ -> 0`` at ``θ = 90°``, so a broad swathe of decay
+    angles piles into a narrow ``m_T`` interval just below ``M``.
+
+    **Scope — this is the idealised gate, not the collider truth.** Three real
+    effects round the edge: the finite width ``Γ_W`` (``M`` is not one number),
+    the ``W``'s recoil ``p_T`` from ISR (Sudakov-suppressed at low ``p_T``), and
+    the MET resolution. The **endpoint location** survives all three; the shape
+    does not. A ``V-A`` angular weight likewise changes the shape but **not** the
+    endpoint, which is why the endpoint is what the pipeline gates on.
+
+    Returns 0 outside ``[0, M)`` and ``inf`` exactly at the endpoint.
+    """
+    if mass <= 0:
+        raise ValueError(f"mass must be positive, got {mass}")
+    x = np.asarray(m_t, dtype=np.float64)
+    out = np.zeros(np.broadcast(x, np.float64(0.0)).shape, dtype=np.float64)
+    inside = (x >= 0.0) & (x < mass)
+    with np.errstate(divide="ignore"):
+        out = np.where(inside, x / (mass * np.sqrt(np.abs(mass**2 - x**2))), 0.0)
+        out = np.where(x == mass, np.inf, out)
+    return out

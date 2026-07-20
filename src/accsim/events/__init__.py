@@ -65,10 +65,13 @@ from .kinematics import (
     collins_soper_costheta,
     forward_backward_asymmetry,
     invariant_mass_squared,
+    jacobian_peak_pdf,
     mandelstam_s,
     mandelstam_t,
     mandelstam_u,
     minkowski_dot,
+    transverse_mass,
+    transverse_mass_from_vectors,
 )
 from .matrix_element import ALPHA_EM, EEtoMuMu
 from .phase_space import RamboResult, massless_phase_space_volume, rambo
@@ -115,6 +118,9 @@ __all__ = [
     "ee_to_mumu_cross_section",
     "ee_to_mumu_events",
     "forward_backward_asymmetry",
+    "jacobian_peak_pdf",
+    "transverse_mass",
+    "transverse_mass_from_vectors",
     "gev2_to_barn",
     "plot_angular_distribution",
     "invariant_mass_squared",
