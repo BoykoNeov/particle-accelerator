@@ -1502,6 +1502,71 @@ which removes the singularity analytically (the integrand is just `sin a`). In
 **midpoint** rule, which never samples `a = π/2`. That is a quadrature artifact,
 not a physics one.
 
+## Jacobian-edge locator & the E1 pipeline (E1 — implemented)
+
+`accsim.events.jacobian_edge` (baseline: numpy only) + the `pp -> W -> mu nu`
+pipeline in `pipelines/pp_W_mt/` (behind `ACCSIM_ENABLE_LHAPDF`). Extends
+*Transverse mass and the W Jacobian edge* above with the **measuring device** and
+what the pipeline does with it.
+
+**Estimator: half-maximum of the falling side**, not `argmax`. The shape is a
+divergence piled against a cliff, so its binned `argmax` is binning-dependent and
+sits *below* the endpoint; a cliff convolved with a roughly symmetric kernel passes
+through half its height essentially *at* the cliff. Measured head-to-head on the
+same 600k sample (`sigma = 2`): half-max gives `81.84–82.13 GeV` across
+`bins = 30..120`, `argmax` gives `78.3–79.2 GeV` — the latter both ~1.5 GeV low and
+jittering. Asserted, not asserted-in-prose (`test_jacobian_edge.py`).
+
+**It is biased high, and the bias is recorded rather than hidden:** roughly
+`+1 GeV + 0.73 sigma` (full table in the docstring, pinned by a parametrised test).
+What makes it usable is that the offset is **constant at fixed smearing** — at
+`sigma = 2` the recovered edge tracks the true mass to `+1.55 ± 0.04 GeV` across
+`M = 60..100 GeV`, so it measures the *mass*, not an artifact of the shape.
+
+**`falloff_width`** (peak-centre to half-max point) is a crude monotone measure of
+edge roundness — the truth-vs-reco contrast rests on it and nothing else.
+
+### The pipeline gate is a position, never `m_T <= M_W`
+
+The analytic gate's `m_T <= M` holds for a **fixed** parent mass. Pythia gives the
+`W` a **Breit-Wigner** mass, so off-shell events legitimately give `m_T > M_W` —
+**measured at 6.2%** of truth events. A `max(m_T) <= M_W` assertion would either
+fail on correct physics or pass only because a generation mass window had been
+imposed near the edge, hiding the effect being measured. Hence **no mass window** in
+the E1 generator (unlike the DY chain's `60..120 GeV`, which exists to dodge the
+photon pole — the charged current has no such pole).
+
+Three gates: truth edge within 5 GeV of `M_W`; reco edge measurably **rounder** than
+truth; and the truth `p_T^mu` edge within 5 GeV of `M_W/2`. The tolerance is set by
+the measured bias (~1.5) + binning (~0.3) + ISR recoil (~1), and sits far below the
+~35–40 GeV a `p_T`-for-`m_T` mix-up produces — **justified, not tuned**.
+
+**The gate reads `M_W` back out of Pythia** (`meta.dat`'s `m_w_gev`), never a
+remembered PDG constant, or it would compare two remembered numbers.
+
+### Two conventions pinned empirically, not remembered
+
+- **`GenMissingET` points ALONG the neutrino** (`sign = +1`). Delphes' `Merger`
+  negates its input sum, but `GenMissingET`'s input is the **neutrino list** itself,
+  so the result could have pointed either way — a `pi` shift in `Δφ`, flipping
+  `(1 - cos Δφ)` between `~0` and `~2`. The macro emits **both** `GenMissingET` and
+  the directly summed truth neutrino; `analyze.py` measures the angle
+  (**median |Δφ| = 0.0000, 100% aligned**) and **refuses to run** if it matches
+  neither convention.
+- **Muons are inside Delphes' `MissingET`** — `MissingET <- EFlowMerger/eflow <-
+  HCal/eflowTracks <- TrackMerger`, which takes `MuonMomentumSmearing/muons`
+  (`delphes_card_CMS.tcl` ~line 201). Checked in the card. Had muons been excluded,
+  MET would track the hadronic recoil and every reco `m_T` would be meaningless.
+
+**Negative controls (3k events):** flipping the `GenMissingET` sign drops median
+`m_T` from 62.3 to **6.9 GeV** (edge 30 GeV off); feeding `p_T^mu` to gate 1 lands
+**35.6 GeV** off; flipping the reco MET sign drops median `m_T` to **9.4 GeV**. All
+three fail the gates.
+
+**Scope.** This locates an edge; it is **not** a W-mass measurement (which needs
+template fits, recoil calibration, and PDF/QED systematics under 10 MeV). Not
+attempted: `W` charge asymmetry, recoil calibration, the electron channel, pileup.
+
 ## Feature switches (optional addons — implemented)
 
 **The rule:** the pure-Python **baseline** — the accelerator optics/tracking core

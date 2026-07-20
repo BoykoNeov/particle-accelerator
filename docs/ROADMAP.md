@@ -682,9 +682,59 @@ sustained arc.
 
 ### E. Event-physics siblings (new processes on the established chain)
 
-- **E1 — W production + the W-mass Jacobian peak.** [M] Sibling to the Z chain; the
-  neutrino escapes, so the observable is the **transverse mass** `m_T`. **Gate:** the
-  Jacobian edge at `M_W` (Sudakov-smeared). Reuses the LHAPDF/Delphes orchestration.
+- **E1 — W production + the W-mass Jacobian peak.** ✅ **DONE (2026-07-20)** —
+  `accsim.events.transverse_mass` / `jacobian_peak_pdf` / `jacobian_edge` (always-on
+  baseline: numpy only) + the `pp -> W -> mu nu` pipeline in `pipelines/pp_W_mt/`
+  (behind `ACCSIM_ENABLE_LHAPDF`), reusing the DY chain's Pythia8+LHAPDF → HepMC3 →
+  Delphes-CMS orchestration wholesale.
+  **The observable exists because the neutrino escapes.** In the Z chain both decay
+  products are measured, so `m(mumu)` is reconstructible and the signature is a
+  *peak*. Here `p_z^nu` is not recoverable even in principle, so there is **no
+  invariant mass to build** — only `m_T^2 = 2 p_T^l p_T^nu (1 - cos dphi)`, whose
+  distribution has a **Jacobian edge at `M_W`**.
+  **The density was derived in sympy, not remembered:** back-to-back massless
+  daughters give `dphi = pi` exactly and `p_T = (M/2) sin θ`, hence `m_T = M sin θ`;
+  an isotropic `cos θ` then yields `dN/dm_T = m_T/(M sqrt(M^2 - m_T^2))` with CDF
+  `1 - sqrt(1 - m_T^2/M^2)`.
+  **Analytic gate met** (`test_transverse_mass.py` + `test_jacobian_edge.py`, 25
+  tests): hand-computable configurations; the two exact symmetries (azimuthal
+  rotation, and **longitudinal-boost invariance** — the reason `m_T` survives the
+  unknown `qqbar` boost); the endpoint shown to survive both a large transverse
+  recoil and a `V-A` weight; the shape vs the analytic CDF with the isotropy
+  assumption stated. Six mutants (`1-cos -> 1+cos`, factor `2 -> 1`, `p_T -> p_z`,
+  dropping either `sqrt`, `M^2-x^2 -> M^2+x^2`) are all killed.
+  **The pipeline gate is a position, never `m_T <= M_W`.** That analytic bound holds
+  for a *fixed* parent mass; Pythia's **Breit-Wigner** `W` legitimately produces
+  `m_T > M_W` (**measured at 6.2%** of truth events). Asserting the bound would have
+  failed on correct physics — or passed only behind a mass window placed right where
+  the edge lives, hiding the effect. So E1 uses **no mass window** (unlike DY's
+  `60..120`, which dodges the photon pole the charged current does not have), and
+  gates on: truth edge within 5 GeV of `M_W`; reco edge measurably **rounder** than
+  truth; truth `p_T^mu` edge within 5 GeV of **`M_W/2`**; and a loose reco-position
+  band that catches a flipped reco MET. The tolerance is the measured estimator bias
+  (~1.5) + binning (~0.3) + ISR recoil (~1) — **justified, not tuned** — and `M_W` is
+  read back **out of Pythia**, never a remembered PDG constant.
+  **Estimator: half-maximum of the falling edge, not `argmax`** (which is
+  binning-jittery and sits ~1.5 GeV *below* the mass — asserted head-to-head). Its
+  `+1 GeV + 0.73 sigma` bias is **tabulated and pinned by test**, not hidden; what
+  makes it usable is that the offset is constant, tracking the true mass to
+  `+1.55 ± 0.04 GeV` across `M = 60..100 GeV`.
+  **Two conventions pinned empirically, in the D3 spirit.** Delphes' `GenMissingET`
+  could have pointed along or opposite the neutrino (a `pi` shift that flips
+  `1 - cos dphi` between `~0` and `~2`), so the macro emits **both** it and the
+  summed truth neutrino and the analysis measures the angle — **100% aligned**,
+  `sign = +1`, refusing to run on any other answer. And **muons are inside Delphes'
+  `MissingET`** (`MissingET <- eflow <- TrackMerger <- MuonMomentumSmearing`),
+  checked in the card rather than assumed — had they been excluded, MET would track
+  the hadronic recoil and every reco `m_T` would be meaningless.
+  **Negative controls:** flipping the `GenMissingET` sign drops median `m_T` from
+  62.3 to **6.9 GeV**; feeding `p_T^mu` to the edge gate lands **35.6 GeV** off;
+  flipping the reco MET sign drops median `m_T` to **9.4 GeV**. All fail.
+  **Scope, stated honestly:** this *locates an edge*; it is not a `W`-mass
+  measurement (which needs template fits, recoil calibration and PDF/QED systematics
+  under 10 MeV). Not attempted: `W` charge asymmetry, recoil calibration, the
+  electron channel, pileup. See CONVENTIONS.md → *Transverse mass and the W Jacobian
+  edge* and *Jacobian-edge locator & the E1 pipeline*.
 - **E2 — jets / QCD: b-tagging performance against the card.** ✅ **DONE (2026-07-20)** —
   `src/accsim/events/btag.py` (always-on baseline: numpy only) + the `pp -> ttbar`
   pipeline in `pipelines/pp_ttbar_btag/` (behind **both** `ACCSIM_ENABLE_LHAPDF` and
