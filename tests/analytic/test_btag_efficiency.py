@@ -27,6 +27,7 @@ estimator cannot cancel:
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 
 import numpy as np
@@ -158,6 +159,45 @@ def test_evaluator_matches_sympy(expr: str) -> None:
     assert np.allclose(evaluate_card_formula(expr, pt=pt), reference(pt), rtol=0, atol=1e-14)
 
 
+def test_evaluator_matches_delphes_own_evaluator() -> None:
+    """The authority gate: agree with **Delphes' own** formula evaluator.
+
+    sympy covers the smooth ``delphes_card_CMS.tcl`` expressions, but the card the
+    pipeline actually runs (``CMS_PhaseII_0PU``) uses long piecewise step
+    functions with eta splits and open-ended top bins -- a different animal, and
+    the one where a chained-comparison or precedence slip would hide.
+
+    The reference values were produced by ``DelphesFormula`` (a ``TFormula``
+    subclass -- literally the class Delphes' ``BTagging`` module evaluates with)
+    running inside the Delphes image, then frozen into
+    ``data/delphes_formula_reference.json`` so this runs in CI without Docker.
+    The grid deliberately lands **on** the card's step edges (pt 20/30/100/1000,
+    |eta| 1.8/2.4/3.4), where an off-by-one between ``<`` and ``<=``, or a gap
+    between adjacent ranges, would show up as a wrong value rather than a wrong
+    shape.
+
+    Agreement is required to be **exact**: both sides evaluate the same
+    arithmetic in IEEE double precision, so anything above zero is a semantic
+    difference, not a rounding one.
+    """
+    doc = json.loads(
+        (pathlib.Path(__file__).parent / "data" / "delphes_formula_reference.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert len(doc["formulas"]) == 9  # 3 working points x {light, c, b}
+
+    worst = 0.0
+    for entry in doc["formulas"]:
+        pts = np.array(entry["points"], dtype=float)
+        got = evaluate_card_formula(entry["formula"], pt=pts[:, 0], eta=pts[:, 1])
+        worst = max(worst, float(np.max(np.abs(got - pts[:, 2]))))
+        # A formula that evaluated to a constant everywhere would match trivially
+        # if the reference were also constant; require the reference to vary.
+        assert pts[:, 2].max() > pts[:, 2].min(), f"{entry['label']} is constant"
+    assert worst == 0.0, f"disagrees with DelphesFormula by {worst:.3e}"
+
+
 def test_comparison_evaluates_to_one_or_zero() -> None:
     """TCL comparisons are *numbers*: the step-function cards are arithmetic.
 
@@ -167,6 +207,24 @@ def test_comparison_evaluates_to_one_or_zero() -> None:
     expr = "(pt <= 30.0) * (0.20) + (pt > 30.0) * (0.45)"
     got = evaluate_card_formula(expr, pt=np.array([10.0, 30.0, 30.001, 100.0]))
     assert np.allclose(got, [0.20, 0.20, 0.45, 0.45])
+
+
+def test_every_comparison_operator_is_exact_on_its_boundary() -> None:
+    """All six comparisons, checked *at* the boundary value.
+
+    The shipped cards happen to use only ``<``/``<=``/``>``, so the frozen
+    DelphesFormula reference cannot exercise ``>=``, ``==`` or ``!=`` -- a
+    swapped operator in the evaluator's table would go unnoticed there. Each is
+    therefore pinned directly, on the one input that distinguishes it from its
+    neighbour: the boundary itself.
+    """
+    at = np.array([29.0, 30.0, 31.0])
+    assert np.allclose(evaluate_card_formula("pt < 30.0", pt=at), [1.0, 0.0, 0.0])
+    assert np.allclose(evaluate_card_formula("pt <= 30.0", pt=at), [1.0, 1.0, 0.0])
+    assert np.allclose(evaluate_card_formula("pt > 30.0", pt=at), [0.0, 0.0, 1.0])
+    assert np.allclose(evaluate_card_formula("pt >= 30.0", pt=at), [0.0, 1.0, 1.0])
+    assert np.allclose(evaluate_card_formula("pt == 30.0", pt=at), [0.0, 1.0, 0.0])
+    assert np.allclose(evaluate_card_formula("pt != 30.0", pt=at), [1.0, 0.0, 1.0])
 
 
 def test_bare_comparisons_add_arithmetically_not_as_logical_or() -> None:
@@ -322,6 +380,31 @@ def test_zero_tag_bin_still_has_a_usable_error() -> None:
     assert np.isfinite(point.pull), "a zero-tag bin must not produce an infinite pull"
     # 0 out of 500 at p=0.001 is an unremarkable outcome, not a discrepancy.
     assert abs(point.pull) < 1.0
+
+
+def test_gaussian_validity_gates_on_variance_not_jet_count() -> None:
+    """A bin is Gaussian when ``N p (1-p)`` is large -- not when ``N`` is.
+
+    The two criteria come apart exactly where the tight working points live. A
+    bin can hold thousands of jets and still expect a handful of tags at a 0.1%
+    mistag rate; its count is Poisson and its pull is not Gaussian, so folding it
+    into a chi-square inflates the chi-square and invites the wrong diagnosis --
+    loosening a threshold instead of fixing the statistic.
+    """
+    # Plenty of jets, ~3 expected tags: NOT Gaussian, despite N = 3000.
+    poissonish = measure_efficiency(np.zeros(3000, dtype=bool), np.full(3000, 0.001))
+    assert poissonish.n_jets == 3000
+    assert poissonish.expected_tags < 5.0
+    assert not poissonish.gaussian_valid
+
+    # Same jet count at a realistic b-tag efficiency: hundreds of tags, fine.
+    assert measure_efficiency(np.zeros(3000, dtype=bool), np.full(3000, 0.5)).gaussian_valid
+
+    # And FEW jets at a high efficiency is fine -- it is the variance that counts.
+    # This is the case a jet-count floor would wrongly reject.
+    small = measure_efficiency(np.zeros(40, dtype=bool), np.full(40, 0.5))
+    assert small.n_jets < 50
+    assert small.gaussian_valid
 
 
 # ---------------------------------------------------------------------------

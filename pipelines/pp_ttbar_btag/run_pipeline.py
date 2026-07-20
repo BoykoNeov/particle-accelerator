@@ -72,6 +72,25 @@ def run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=True, text=True, **kw)  # type: ignore[arg-type]
 
 
+def start_container(image: str) -> str:
+    """Start a detached keep-alive container and return its id.
+
+    ``--entrypoint`` is overridden because the two images disagree about how a
+    trailing command is interpreted: ``hepstore/rivet-pythia`` has no entrypoint
+    (so ``sleep infinity`` is exec'd directly), while
+    ``scailfin/delphes-python-centos`` has ``ENTRYPOINT ["/bin/bash","-l","-c"]``,
+    which swallows ``sleep`` as the whole script and leaves ``infinity`` as ``$0``
+    -- the container then dies immediately with "sleep: missing operand". Naming
+    the executable explicitly makes the keep-alive identical on both images. The
+    login shell that the Delphes image's entrypoint would have provided is not
+    lost: every subsequent step runs through ``docker exec ... bash -lc``.
+    """
+    return run(
+        ["docker", "run", "-d", "--entrypoint", "/bin/sleep", image, "infinity"],
+        stdout=subprocess.PIPE,
+    ).stdout.strip()
+
+
 def generate(
     cid: str,
     args: argparse.Namespace,
@@ -232,10 +251,7 @@ def main(argv: list[str]) -> int:
     png = out_dir / "ttbar_btag_performance.png"
 
     # Stage 1: generation container.
-    cid = run(
-        ["docker", "run", "-d", args.gen_image, "sleep", "infinity"],
-        stdout=subprocess.PIPE,
-    ).stdout.strip()
+    cid = start_container(args.gen_image)
     print(f"[GEN] container {cid[:12]}")
     try:
         generate(cid, args, meta, hepmc, partons)
@@ -243,10 +259,7 @@ def main(argv: list[str]) -> int:
         subprocess.run(["docker", "rm", "-f", cid], stdout=subprocess.DEVNULL)
 
     # Stage 2: Delphes container.
-    cid = run(
-        ["docker", "run", "-d", args.delphes_image, "sleep", "infinity"],
-        stdout=subprocess.PIPE,
-    ).stdout.strip()
+    cid = start_container(args.delphes_image)
     print(f"[SIM] container {cid[:12]}")
     try:
         host_card = simulate(cid, args, hepmc, jets, cards_out)

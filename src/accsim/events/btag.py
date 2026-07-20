@@ -529,6 +529,29 @@ class EfficiencyPoint:
             return float("nan")
         return (self.measured - self.expected) / self.error
 
+    @property
+    def expected_tags(self) -> float:
+        """How many tagged jets the card predicts here."""
+        return self.n_jets * self.expected
+
+    @property
+    def gaussian_valid(self) -> bool:
+        """Whether the pull is meaningfully Gaussian in this bin.
+
+        The binomial variance ``N p (1-p)`` is what sets the pull's scale, and
+        the Gaussian approximation to it needs that quantity to be comfortably
+        above 1 -- **not** merely a lot of jets. The distinction bites exactly
+        where the tight working points live: a bin can hold thousands of jets
+        and still expect only ~1 tag at a 0.1% mistag rate, and there the count
+        is Poisson, the achievable pulls are discrete, and their mean square is
+        not 1. Averaging such bins into a chi-square inflates it and invites the
+        wrong diagnosis -- a threshold nudge instead of a fix.
+
+        Gating on jet count alone would let those bins in; this gates on the
+        variance itself, which is the quantity the approximation is about.
+        """
+        return bool(self.n_jets * self.expected * (1.0 - self.expected) >= 10.0)
+
 
 def measure_efficiency(
     tagged: ArrayLike,

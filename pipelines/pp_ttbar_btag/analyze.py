@@ -97,9 +97,7 @@ def load_partons(path: pathlib.Path) -> dict[str, np.ndarray]:
     }
 
 
-def independent_flavour(
-    jets: dict[str, np.ndarray], partons: dict[str, np.ndarray]
-) -> np.ndarray:
+def independent_flavour(jets: dict[str, np.ndarray], partons: dict[str, np.ndarray]) -> np.ndarray:
     """Truth flavour from a dR match to the generator-level heavy quarks.
 
     Derived from Pythia's own record, so it shares no code and no intermediate
@@ -128,10 +126,26 @@ def independent_flavour(
     return out
 
 
+def flavour_class(codes: np.ndarray) -> np.ndarray:
+    """Collapse a parton PDG code to the class the card parametrises.
+
+    Delphes writes the |PDG| of the hardest parton in the cone, so a light jet
+    carries 1/2/3 and a gluon jet carries 21 -- **not** 0. Only b (5) and c (4)
+    have their own formula; everything else falls to the card's default, which is
+    the mistag rate. Comparing raw codes against a truth label that uses 0 for
+    "light" would score every light jet as a disagreement.
+    """
+    out = np.zeros(codes.size, dtype=np.int64)
+    a = np.abs(codes)
+    out[a == BOTTOM_FLAVOR] = BOTTOM_FLAVOR
+    out[a == CHARM_FLAVOR] = CHARM_FLAVOR
+    return out
+
+
 def report_flavour_agreement(delphes: np.ndarray, independent: np.ndarray) -> float:
-    """Compare Delphes' label against the dR-matched generator one."""
-    d = np.abs(delphes)
-    i = np.abs(independent)
+    """Compare Delphes' label against the dR-matched generator one, by class."""
+    d = flavour_class(delphes)
+    i = flavour_class(independent)
     agree = float(np.mean(d == i))
     print("\nINDEPENDENT FLAVOUR CROSS-CHECK (breaks the Delphes closed loop)")
     print(f"  overall agreement            : {agree:6.3f}")
@@ -159,10 +173,7 @@ def main() -> int:
 
     print(f"jets: {jets['pt'].size}   generator heavy quarks: {partons['pt'].size}")
     print(f"card: {card_path.name}")
-    print(
-        "working points: "
-        + ", ".join(f"{w.name} (bit {w.bit_number})" for w in working_points)
-    )
+    print("working points: " + ", ".join(f"{w.name} (bit {w.bit_number})" for w in working_points))
     if meta:
         print("meta: " + pathlib.Path(meta).read_text(encoding="utf-8").strip())
 
@@ -173,7 +184,9 @@ def main() -> int:
     curves: dict[tuple[str, int], list] = {}
     for wp in working_points:
         print(f"\nWORKING POINT {wp.name}  (bit {wp.bit_number})")
-        print(f"  {'flavour':<20s}{'pT bin':>16s}{'N':>8s}{'measured':>11s}{'card':>10s}{'pull':>8s}")
+        print(
+            f"  {'flavour':<20s}{'pT bin':>16s}{'N':>8s}{'measured':>11s}{'card':>10s}{'pull':>8s}"
+        )
         for flav, (label, _) in FLAVOUR_LABELS.items():
             points = efficiency_vs_pt(
                 wp,
@@ -186,7 +199,10 @@ def main() -> int:
             )
             curves[(wp.name, flav)] = points
             for p in points:
-                if p.n_jets < 50:
+                # Gate on the binomial VARIANCE, not the jet count: a bin with
+                # thousands of jets but ~1 expected tag is Poisson, and its pull
+                # is not Gaussian. See EfficiencyPoint.gaussian_valid.
+                if not p.gaussian_valid:
                     continue
                 pulls.append(p.pull)
                 print(
@@ -213,22 +229,39 @@ def main() -> int:
         f"  CARD GATE      : chi2/ndf = {chi2_ndf:.2f} over {pull_arr.size} bins"
         f"  -> {'PASS' if card_ok else 'FAIL'}"
     )
-    wp_ok = all(a > b for a, b in zip(effs, effs[1:])) and all(
-        a > b for a, b in zip(mistags, mistags[1:])
+    wp_ok = all(a > b for a, b in zip(effs, effs[1:], strict=False)) and all(
+        a > b for a, b in zip(mistags, mistags[1:], strict=False)
     )
     print(
         f"  WP ORDERING    : eff {' > '.join(f'{e:.3f}' for e in effs)}"
         f" | mistag {' > '.join(f'{m:.4f}' for m in mistags)}"
         f"  -> {'PASS' if wp_ok else 'FAIL'}"
     )
+    # Judged INCLUSIVELY (all pT in one bin), not as a mean of the pT bins: c jets
+    # are the rarest class in ttbar, so at modest statistics no c bin clears the
+    # per-bin population floor and the mean would be nan -- a statistics artifact
+    # reported as a physics failure.
     flav_ok = True
     for wp in working_points:
         vals = []
         for flav in (BOTTOM_FLAVOR, CHARM_FLAVOR, LIGHT_FLAVOR):
-            pts = [p for p in curves[(wp.name, flav)] if p.n_jets >= 50]
-            vals.append(np.mean([p.measured for p in pts]) if pts else np.nan)
+            vals.append(
+                efficiency_vs_pt(
+                    wp,
+                    flavor=jets["flavor"],
+                    pt=jets["pt"],
+                    eta=jets["eta"],
+                    btag_bits=jets["btag"],
+                    pt_edges=[PT_EDGES[0], np.inf],
+                    select_flavor=flav,
+                )[0].measured
+            )
         flav_ok &= bool(vals[0] > vals[1] > vals[2])
-    print(f"  FLAVOUR ORDER  : eps_b > eps_c > eps_light  -> {'PASS' if flav_ok else 'FAIL'}")
+        print(
+            f"  FLAVOUR ORDER  : {wp.name:16s} "
+            f"eps_b {vals[0]:.3f} > eps_c {vals[1]:.3f} > eps_light {vals[2]:.4f}"
+            f"  -> {'PASS' if vals[0] > vals[1] > vals[2] else 'FAIL'}"
+        )
     match_ok = agreement > 0.85
     print(
         f"  FLAVOUR LABEL  : independent dR match agrees {agreement:.3f}"
@@ -249,7 +282,7 @@ def _plot(curves, working_points, roc, chi2_ndf: float, out_path: pathlib.Path) 
         ls = styles.get(wp.bit_number, "-")
         for flav, (label, colour) in FLAVOUR_LABELS.items():
             pts = curves[(wp.name, flav)]
-            ok = np.array([p.n_jets >= 50 for p in pts])
+            ok = np.array([p.gaussian_valid for p in pts])
             if not ok.any():
                 continue
             meas = np.array([p.measured for p in pts])
@@ -282,7 +315,7 @@ def _plot(curves, working_points, roc, chi2_ndf: float, out_path: pathlib.Path) 
     mistags = [bkg.measured for _, bkg, _ in roc]
     effs = [sig.measured for _, _, sig in roc]
     ax_roc.plot(mistags, effs, "o-", color="k", ms=7, lw=1.2)
-    for (name, bkg, sig), m, e in zip(roc, mistags, effs):
+    for (name, _bkg, _sig), m, e in zip(roc, mistags, effs, strict=True):
         ax_roc.annotate(
             f"{name}\n({m:.4f}, {e:.3f})",
             (m, e),
