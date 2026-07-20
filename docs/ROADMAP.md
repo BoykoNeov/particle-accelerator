@@ -456,9 +456,42 @@ sustained arc.
   plus exact Gauss-quadrature confirmation (`qq̄→Vg` and `qg→Vq`, ~1e-14). The Pythia demo
   (`--angular-only`, 200k events) shows measured `A₀(q_T)≈A₂(q_T)`. See CONVENTIONS.md →
   *DY angular coefficients A₀–A₇ & Lam–Tung*. Built on [*Collins-Soper A_FB*].
-- **A2 — sin²θ_W extraction from A_FB(m).** [S] Fit the measured A_FB(m) for the
-  effective weak mixing angle (how LEP/LHC actually measure it). **Gate:** recover the
-  `sin²θ_W` value Pythia was configured with, within the fit error.
+- **A2 — sin²θ_W extraction from A_FB(m).** ✅ **DONE (2026-07-20)** — fit the measured
+  `A_FB(m)` for the effective weak mixing angle, how LEP/LHC actually measure it.
+  Delivered: `src/accsim/events/electroweak.py` (always-on baseline; numpy/scipy only —
+  only the Pythia *data-producing* step stays behind `ACCSIM_ENABLE_LHAPDF`) with
+  `neutral_current_couplings`, `afb_parton`, `afb_hadronic` (parton-luminosity weighted
+  flavour sum) and `fit_sin2_theta_w`. The γ*/Z angular structure is **derived
+  symbolically** from explicit Dirac-γ matrices with symbolic couplings, giving
+  `dσ/dcosθ ∝ S(1+cos²θ) + 2D cosθ` and **`A_FB = (3/4)·D/S`**, `A₄ = 2D/S` — so the
+  existing `A_FB = (3/8)A₄` anchor is reproduced *by construction*, tying the new model
+  to the independently-validated A1 extractor. `_s_and_d` sums mediator **pairs**
+  literally rather than hand-expanding `γγ + 2Re(γZ) + ZZ`, so no interference term can
+  be dropped or mis-signed.
+  **Gate met** (`tests/analytic/test_electroweak_afb.py`, 29 tests, layered so a wrong
+  model and a wrong fitter can't cancel): module `S`/`D` matched term-by-term against
+  the symbolic expression to `1e-12`; the CONVENTIONS sign gate (`A_FB<0` below `M_Z`,
+  `>0` above) reproduced independently by the model; and a round-trip — sample from the
+  model's own distribution → measure with the *real* `forward_backward_asymmetry` → fit
+  back — recovering three injected values.
+  **The "within fit error" trap was taken seriously**, since that phrasing is trivially
+  satisfiable by inflating the error: the gate additionally asserts a unit-width **pull
+  distribution** over 25 pseudo-experiments, an absolute cap `σ < 2e-3`, **χ² curvature**
+  (a `1e-3` shift costs χ²≫1), starting-point independence, and a wrong-truth control.
+  **Two things worth keeping.** (i) The generator ambiguity was real and is now closed:
+  Pythia separates on-shell `sin2thetaW` from **effective** `sin2thetaWbar` (the one
+  `A_FB` actually responds to) and neither was being set, so `generate_hepmc.cc` now sets
+  both explicitly (`--sin2-theta-w`) and **reads them back out of Pythia** into
+  `meta.dat` — the analysis reads truth from there, never a remembered default.
+  (ii) A genuine bug: `scipy.optimize.least_squares` reports `success=True` when it
+  converges *onto a bound* — a far-off start returned the window edge `0.45` with
+  `χ² ≈ 6e6` as though it were a measurement. The fit now raises instead.
+  **Scope, stated honestly:** the model is **LO** and lets the single parameter float in
+  the `γ/Z` normalisation `κ` as well as the couplings; it fits the **undiluted** curve
+  (the `pp` dilution correction is A3's job, kept orthogonal). The end-to-end fit
+  against *generated* Pythia data is wired but **not yet run** — it needs LHAPDF/Docker,
+  and a residual LO-vs-Pythia bias should be quoted rather than absorbed. See
+  CONVENTIONS.md → *sin²θ_W from A_FB(m)*.
 - **A3 — dilution unfolding.** [S] Recover parton-level A_FB from the diluted proxy via a
   rapidity-dependent dilution factor `D(y, m)`. **Gate:** the unfolded proxy reproduces
   the undiluted true-quark-direction curve the pipeline already computes.

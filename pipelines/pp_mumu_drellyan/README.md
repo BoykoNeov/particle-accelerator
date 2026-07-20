@@ -179,7 +179,10 @@ chain introduces (**LHAPDF**), consistent with the `pythia` / `delphes` switches
 Pile-up (the `_PileUp` CMS card), NLO/NNLO matrix elements + K-factors, the full γ*/Z/W
 Drell-Yan family, PDF-uncertainty bands (the error-set members), and jet/b-tag performance.
 For `A_FB`: the theory **dilution-correction unfolding** (recovering parton-level `A_FB` from
-data *without* the generator truth) and the `sin²θ_W` extraction. (The CS **azimuthal** `φ*`
+data *without* the generator truth — milestone A3). (The CS **azimuthal** `φ*`
 and angular coefficients `A_0..A_7` were previously out of scope; they are now the **third
-deliverable** above.) The deliverables are the truth-vs-reco **Z-peak** and **`A_FB(m)`**, plus
+deliverable** above. The `sin²θ_W` extraction was likewise out of scope and is now **built**
+— see `accsim.events.electroweak` and CONVENTIONS.md → *sin²θ_W from A_FB(m)*; this generator
+now sets `StandardModel:sin2thetaW`/`sin2thetaWbar` explicitly via `--sin2-theta-w` and emits
+both into `meta.dat`, so the fit has an unambiguous truth to recover.) The deliverables are the truth-vs-reco **Z-peak** and **`A_FB(m)`**, plus
 the truth-level **`A₀(q_T)`/`A₂(q_T)`** Lam–Tung demo, in the muon channel with a real PDF.

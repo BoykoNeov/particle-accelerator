@@ -1011,10 +1011,11 @@ pipeline and the container macro only feed it four-vectors.
   by below/above cancellation over the near-symmetric window — correct physics, *not*
   the headline; `A_FB(m)` binned is the deliverable.
 - **Out of scope (labelled):** the theory dilution-correction unfolding (recovering
-  parton-level `A_FB` from data without the generator truth) and `sin²θ_W` extraction.
+  parton-level `A_FB` from data without the generator truth) — milestone A3.
   The Collins-Soper *azimuthal* `φ*` and angular coefficients `A_0..A_7` were previously
   out of scope; they are now **built** — see *DY angular coefficients A₀–A₇ & Lam–Tung*
-  below.
+  below. `sin²θ_W` extraction was likewise out of scope and is now **built** (A2) —
+  see *sin²θ_W from A_FB(m)* below.
 
 ## DY angular coefficients A₀–A₇ & Lam–Tung (Phase 2 — extends Collins-Soper A_FB)
 
@@ -1089,6 +1090,80 @@ always-on baseline); the gated pipeline only feeds it four-vectors.
   `q_T≈12.5`: `A₀=0.074`, `A₂=0.077`; `q_T≈37.5`: `A₀=0.165`, `A₂=0.166` — which is the
   real on-data confirmation. (Frame/extraction correctness is independently gated by
   the analytic machinery tests; this demo is the physical illustration.)
+
+## sin²θ_W from A_FB(m) (A2 — implemented)
+
+Extracting the weak mixing angle by fitting the binned forward-backward asymmetry —
+how LEP and the LHC actually measure it. `src/accsim/events/electroweak.py`
+(**always-on baseline**: numpy/scipy only; the *data-producing* Pythia step stays
+behind `ACCSIM_ENABLE_LHAPDF` as before).
+
+- **Where the sensitivity comes from.** `g_A^f = T³_f` carries **no** `sin²θ_W`
+  dependence at all; the entire response flows through
+  `g_V^f = T³_f − 2Q_f sin²θ_W`. For a charged lepton `g_V^ℓ = −½ + 2sin²θ_W ≈ −0.038`
+  — near its zero at `sin²θ_W = ¼`, so a small absolute shift in the angle is a large
+  *relative* shift in `g_V^ℓ`, and `A_FB` inherits that amplification. This is the
+  whole reason the measurement is sharp, and it is pinned by a test.
+- **Angular structure — derived, not remembered** (`tests/analytic/test_electroweak_afb.py`,
+  explicit Dirac-γ matrices, metric `diag(+,−,−,−)`, massless fermions, symbolic
+  couplings). For a mediator pair `(V,V')` the spin-summed squared amplitude is
+  `|M|²_{VV'} ∝ 4s²[(1+cos²θ)·SYM + 2cosθ·ASYM]` with
+  `SYM = (v_ℓv_ℓ' + a_ℓa_ℓ')(v_qv_q' + a_qa_q')` and
+  `ASYM = (a_ℓv_ℓ' + a_ℓ'v_ℓ)(a_qv_q' + a_q'v_q)`. Hence, summing mediator pairs with
+  complex propagators `P_V`:
+  `S = Σ Re[P_V P_V'^*]·SYM`, `D = Σ Re[P_V P_V'^*]·ASYM`,
+  `dσ/dcosθ ∝ S(1+cos²θ) + 2D·cosθ`, and **`A_FB = (3/4)·D/S`**, `A₄ = 2D/S`.
+  The second identity **reproduces the `A_FB = (3/8)A₄` anchor by construction**, tying
+  this model to the independently-validated extractor of the previous section.
+- **Mediators** (common `e²` stripped — it cancels in `D/S`): photon `v = Q_f, a = 0`,
+  `P_γ = 1/s`; Z `v = g_V^f, a = g_A^f`, `P_Z = κ/(s − M_Z² + i M_ZΓ_Z)` with
+  `κ = 1/(4 sin²θ_W cos²θ_W)` and `cos²θ_W = 1 − sin²θ_W`. `_s_and_d` implements the
+  **literal double sum over mediator pairs** — deliberately *not* hand-expanded into
+  `γγ + 2Re(γZ) + ZZ`, so an interference term cannot be dropped or mis-signed.
+- **Which angle is recovered: the *effective* one.** Pythia separates
+  `StandardModel:sin2thetaW` (on-shell, fixes the W/Z mass relation) from
+  `StandardModel:sin2thetaWbar` (**effective**, enters the fermion vector coupling).
+  `A_FB` responds to the *effective* angle. Leaving both at their defaults would have
+  made "recover the value Pythia was configured with" ambiguous, so `generate_hepmc.cc`
+  now **sets both explicitly** (`--sin2-theta-w`, default `0.2312`, via `DY_SIN2THETAW`)
+  and **reads them back out of Pythia** into `meta.dat` as `sin2thetaw=` /
+  `sin2thetawbar=`. The analysis must read the truth from `meta.dat` — **never hardcode
+  a remembered default.**
+- **The flavour sum is not a detail.** The hadronic observable is a parton-luminosity
+  weighted sum over initial states; up- and down-type quarks have different asymmetries
+  and their mix shifts with `m` through the PDFs. Weights combine at the level of `S`
+  and `D`, **not** by averaging per-flavour `A_FB` values (`A_FB` is a *ratio* — averaging
+  ratios is wrong):
+  `A_FB(m) = (3/4)·Σ_q L_q(m)D_q(m) / Σ_q L_q(m)S_q(m)`. Only relative weights matter.
+- **Fit the undiluted `A_FB`.** The model is parton-level: it assumes the quark
+  direction is known. The `pp` `sign(Q_z)` proxy dilutes by ≈0.37 (previous section);
+  correcting for that is **A3**, deliberately kept out of this model so the two
+  milestones stay orthogonal.
+- **Gate (layered, so a wrong model and a wrong fitter cannot cancel).** Symbolic
+  derivation of the angular decomposition; the module's `S`/`D` matched term-by-term
+  against that symbolic expression to `1e-12`; the sign gate (`A_FB<0` below `M_Z`,
+  `>0` above, with a bisected zero-crossing under the pole) reproduced *independently*
+  by the model; `A_FB = (3/8)A₄`; and a **round-trip** — sample events from the model's
+  own distribution, measure with the *real* `forward_backward_asymmetry`, fit the angle
+  back — at three injected values.
+- **Guarding the "within fit error" trap.** "Recovered within error" is vacuous if the
+  error is inflated or the χ² is flat, so the gate also asserts: a **pull distribution**
+  over 25 pseudo-experiments with unit width (an inflated error collapses it), an
+  absolute cap `σ < 2e-3`, **χ² curvature** (a 1e-3 shift in `sin²θ_W` must cost χ²≫1),
+  **starting-point independence**, and a **wrong-truth control** (data generated at
+  `0.2450` must not be pulled toward a `0.2312` starting guess).
+- **Bug found and fixed during development (worth remembering).**
+  `scipy.optimize.least_squares` reports `success=True` when it converges **onto a
+  bound** — for `initial=0.40` it returned the window edge `0.45` with `χ² ≈ 6e6`,
+  dressed up as a measurement. `fit_sin2_theta_w` now **raises** on a bound-pinned
+  solution rather than returning it. A converged-on-bound fit is a failed fit.
+- **Known limitation, stated honestly.** The single fitted parameter floats in `κ` as
+  well as in the couplings, which is a tree-level simplification (a real extraction
+  fixes the `γ/Z` normalisation from `G_F M_Z²` independently of the fitted effective
+  angle). The sensitivity is overwhelmingly through `g_V^ℓ`; `κ` only reweights `γ`
+  vs `Z`. The model is also **LO** — Pythia's sample carries ISR and higher-order
+  effects the model does not, so a residual bias against generated data is expected and
+  should be quoted, not absorbed into a loosened error.
 
 ## Feature switches (optional addons — implemented)
 

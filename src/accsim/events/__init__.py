@@ -17,6 +17,19 @@ cross-section, converted from ``GeV^-2`` to barns via ``(hbar c)^2``.
 
 from __future__ import annotations
 
+from .electroweak import (
+    CHARGED_LEPTON,
+    DOWN_TYPE,
+    GAMMA_Z,
+    M_Z,
+    UP_TYPE,
+    Fermion,
+    Sin2ThetaWFit,
+    afb_hadronic,
+    afb_parton,
+    fit_sin2_theta_w,
+    neutral_current_couplings,
+)
 from .generator import (
     GEV2_TO_MBARN,
     AngularDistribution,
@@ -42,12 +55,23 @@ from .plotting import plot_angular_distribution
 
 __all__ = [
     "ALPHA_EM",
+    "CHARGED_LEPTON",
+    "DOWN_TYPE",
+    "GAMMA_Z",
     "GEV2_TO_MBARN",
+    "M_Z",
+    "UP_TYPE",
     "AngularDistribution",
     "CrossSectionEstimate",
     "EEtoMuMu",
+    "Fermion",
     "RamboResult",
+    "Sin2ThetaWFit",
+    "afb_hadronic",
+    "afb_parton",
     "angular_coefficients",
+    "fit_sin2_theta_w",
+    "neutral_current_couplings",
     "collins_soper_angles",
     "collins_soper_costheta",
     "ee_to_mumu_cross_section",

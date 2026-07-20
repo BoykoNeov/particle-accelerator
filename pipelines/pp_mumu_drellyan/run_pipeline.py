@@ -115,6 +115,8 @@ def generate(
             "-e",
             f"DY_PDF_SET={args.pdf_set}",
             "-e",
+            f"DY_SIN2THETAW={args.sin2_theta_w}",
+            "-e",
             "DY_META=/tmp/meta.dat",
             "-e",
             "DY_HEPMC=/tmp/events.hepmc",
@@ -181,6 +183,14 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--m-min", type=float, default=60.0, help="min m_hat [GeV] (Z window)")
     ap.add_argument("--m-max", type=float, default=120.0, help="max m_hat [GeV] (Z window)")
     ap.add_argument("--seed", type=int, default=20260710)
+    ap.add_argument(
+        "--sin2-theta-w",
+        type=float,
+        default=0.2312,
+        help="weak mixing angle Pythia is configured with; BOTH the on-shell "
+        "(StandardModel:sin2thetaW) and effective (…Wbar) parameters are set to "
+        "this and echoed into meta.dat. The A2 fit recovers the effective one",
+    )
     ap.add_argument(
         "--angular-only",
         action="store_true",

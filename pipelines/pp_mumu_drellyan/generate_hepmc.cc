@@ -90,6 +90,19 @@ int main() {
   pythia.settings.parm("PhaseSpace:mHatMin", mMin);
   pythia.settings.parm("PhaseSpace:mHatMax", mMax);
 
+  // --- the weak mixing angle (milestone A2) --------------------------------
+  // A_FB's sensitivity runs through the *fermion vector coupling*
+  // g_V^f = T3_f - 2 Q_f sin^2(theta_W), which is built from the EFFECTIVE angle
+  // (`sin2thetaWbar`), not the on-shell one (`sin2thetaW`, which fixes the W/Z
+  // mass relation). Pythia keeps them as separate parameters. Leaving them at
+  // their defaults would make "recover the value Pythia was configured with" an
+  // ambiguous gate -- and inviting the analysis to hardcode a remembered default
+  // is exactly the failure mode this project guards against. So: set BOTH to the
+  // same explicit value, and emit both into meta.dat as the unambiguous truth.
+  const double sin2ThetaW = env_d("DY_SIN2THETAW", 0.2312);
+  pythia.settings.parm("StandardModel:sin2thetaW", sin2ThetaW);
+  pythia.settings.parm("StandardModel:sin2thetaWbar", sin2ThetaW);
+
   pythia.readString("Random:setSeed = on");
   pythia.settings.mode("Random:seed", seed);
   pythia.readString("Print:quiet = on");
@@ -156,13 +169,19 @@ int main() {
   const double sigma_mb = pythia.info.sigmaGen();  // mb, DY x BR(Z->mumu) in window
   const double sigma_err_mb = pythia.info.sigmaErr();
   const double version = pythia.parm("Pythia:versionNumber");
+  // Read the mixing angles back OUT of Pythia rather than echoing the input, so
+  // meta.dat records what the generator actually ran with. Both are emitted; the
+  // A_FB fit recovers the effective one (`sin2thetaWbar`).
+  const double s2wOnShell = pythia.parm("StandardModel:sin2thetaW");
+  const double s2wEffective = pythia.parm("StandardModel:sin2thetaWbar");
 
   std::ofstream fh(metaPath);
   fh << "# process=pp->gmZ->mumu sqrt_s_GeV=" << sqrtS << " n_generated=" << nEvents
      << " n_hard_mu=" << nHardMu << " mhat_min_GeV=" << mMin
      << " mhat_max_GeV=" << mMax << " pdf_set=" << pdfSet << " pdf_member=0"
      << " sigma_mb=" << sigma_mb << " sigma_err_mb=" << sigma_err_mb
-     << " pythia_version=" << version << "\n";
+     << " pythia_version=" << version << " sin2thetaw=" << s2wOnShell
+     << " sin2thetawbar=" << s2wEffective << "\n";
 
   std::cerr << "wrote HepMC3 to " << hepmcPath << " (" << nHardMu
             << " hard mu- in " << nEvents << " events); PDF=" << pdfSet
