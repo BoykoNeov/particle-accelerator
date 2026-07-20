@@ -17,6 +17,19 @@ cross-section, converted from ``GeV^-2`` to barns via ``(hbar c)^2``.
 
 from __future__ import annotations
 
+from .btag import (
+    BOTTOM_FLAVOR,
+    CHARM_FLAVOR,
+    LIGHT_FLAVOR,
+    BTagWorkingPoint,
+    CardFormulaError,
+    EfficiencyPoint,
+    efficiency_vs_pt,
+    evaluate_card_formula,
+    measure_efficiency,
+    parse_btagging_working_points,
+    roc_points,
+)
 from .dilution import (
     MIN_DILUTION,
     afb_diluted,
@@ -63,7 +76,18 @@ from .plotting import plot_angular_distribution
 
 __all__ = [
     "ALPHA_EM",
+    "BOTTOM_FLAVOR",
     "CHARGED_LEPTON",
+    "CHARM_FLAVOR",
+    "LIGHT_FLAVOR",
+    "BTagWorkingPoint",
+    "CardFormulaError",
+    "EfficiencyPoint",
+    "efficiency_vs_pt",
+    "evaluate_card_formula",
+    "measure_efficiency",
+    "parse_btagging_working_points",
+    "roc_points",
     "DOWN_TYPE",
     "GAMMA_Z",
     "GEV2_TO_MBARN",
