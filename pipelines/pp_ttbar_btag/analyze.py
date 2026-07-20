@@ -42,6 +42,7 @@ import matplotlib
 matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.lines import Line2D
 
 from accsim.events.btag import (
     BOTTOM_FLAVOR,
@@ -280,7 +281,7 @@ def _plot(curves, working_points, roc, chi2_ndf: float, out_path: pathlib.Path) 
 
     for wp in working_points:
         ls = styles.get(wp.bit_number, "-")
-        for flav, (label, colour) in FLAVOUR_LABELS.items():
+        for flav, (_label, colour) in FLAVOUR_LABELS.items():
             pts = curves[(wp.name, flav)]
             ok = np.array([p.gaussian_valid for p in pts])
             if not ok.any():
@@ -298,7 +299,6 @@ def _plot(curves, working_points, roc, chi2_ndf: float, out_path: pathlib.Path) 
                 ms=3.5,
                 color=colour,
                 lw=1.0,
-                label=f"{label}, {wp.name}" if wp.bit_number == 0 else None,
             )
 
     ax_eff.set_xscale("log")
@@ -306,10 +306,22 @@ def _plot(curves, working_points, roc, chi2_ndf: float, out_path: pathlib.Path) 
     ax_eff.set_xlabel(r"jet $p_T$  [GeV]")
     ax_eff.set_ylabel("tagging efficiency")
     ax_eff.set_title(
-        f"measured (points) vs card (lines)\n"
-        rf"$\chi^2/\mathrm{{ndf}} = {chi2_ndf:.2f}$;  line style = Loose / Medium / Tight"
+        "measured (points) vs card (lines)\n"
+        rf"$\chi^2/\mathrm{{ndf}} = {chi2_ndf:.2f}$ over populated bins"
     )
-    ax_eff.legend(loc="lower right", fontsize=8)
+    # Two separate keys: colour carries the flavour, line style the working
+    # point. One merged legend would need an entry per combination (9 of them)
+    # and still not say which axis is which.
+    flavour_key = [
+        Line2D([], [], color=colour, marker="o", ms=4, lw=1.2, label=label)
+        for _, (label, colour) in FLAVOUR_LABELS.items()
+    ]
+    wp_key = [
+        Line2D([], [], color="0.35", ls=styles.get(wp.bit_number, "-"), lw=1.4, label=wp.name)
+        for wp in working_points
+    ]
+    ax_eff.add_artist(ax_eff.legend(handles=flavour_key, loc="lower left", fontsize=8))
+    ax_eff.legend(handles=wp_key, loc="lower right", fontsize=8, title="working point")
     ax_eff.grid(alpha=0.25, which="both")
 
     mistags = [bkg.measured for _, bkg, _ in roc]

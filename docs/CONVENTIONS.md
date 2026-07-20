@@ -1349,6 +1349,101 @@ parton-level `A_FB(m)` from the `sign(Q_z)`-proxy measurement. Reuses A2's
   against the Drell-Yan pipeline's own proxy/true ratio (`truth_gen.dat`) needs
   Pythia + LHAPDF and **has not been run**; the pipeline is unchanged by A3.
 
+## b-tagging efficiency & the Delphes card (E2 — implemented)
+
+`src/accsim/events/btag.py` (always-on **baseline**: numpy only — no Docker, no
+ROOT); the data-producing chain is `pipelines/pp_ttbar_btag/`, gated on
+`lhapdf` **and** `delphes`.
+
+- **The card is the closed form.** Delphes does not simulate a tagging algorithm.
+  Its `BTagging` module is a *parametrisation*: it picks a per-flavour efficiency
+  formula, evaluates it at the jet's `(pt, eta)`, and sets a bit with that
+  probability. So every jet has a known right answer, written in the card.
+- **Formulas are parsed, never transcribed.** They are read out of the very card
+  file handed to `DelphesHepMC3` (the pipeline copies it back to the host). A
+  retyped formula is a remembered constant in disguise — it drifts silently when
+  the card changes, and a typo in it is invisible because both sides of the
+  comparison then share it.
+- **`Jet.BTag` is a bitmask, not a boolean.** A multi-working-point card packs
+  Loose/Medium/Tight into bits 0/1/2 of one integer, so `BTag == 1` means "loose
+  but *not* medium". Decoded as `(bits >> bit_number) & 1`, with the bit number
+  coming from the parsed card — the card decides which bit means what.
+- **`Jet.Flavor` for a light jet is `1`/`2`/`3`/`21`, not `0`.** Delphes writes the
+  |PDG| of the hardest parton in the cone; only `4` and `5` have their own
+  formula, and everything else falls to the card's default (`{0}`), which *is*
+  the mistag rate. Selection is therefore "has no dedicated formula", not
+  "flavour == 0"; comparing raw codes against a 0-means-light truth label scores
+  every light jet as a mismatch.
+
+**TCL/Delphes expression semantics** (evaluated by an `ast` walk with a node
+whitelist — card text is never `eval`-ed):
+
+- a comparison yields the *number* `1`/`0`, which is what makes the step-function
+  cards pure arithmetic. Bare bools would make `(a)+(b)` numpy's logical OR.
+- `&&`/`||` bind **looser** than the comparisons around them, so they map to
+  Python's `and`/`or` (same loose precedence), evaluated element-wise — **not**
+  to `&`/`|`, which bind *tighter* than comparison and silently reassociate
+  `pt > 30 && pt <= 100` into the chained `pt > (30 & pt) <= 100`.
+- `^` is **exponentiation** (Delphes' `TFormula`-based parser), not stock TCL's
+  bitwise xor.
+
+**Two statistical choices that are physics, not style:**
+
+- **The expected efficiency in a p_T bin is the jet-wise mean of the formula, not
+  the formula at the bin centre.** The jet spectrum falls steeply, so a bin is not
+  populated at its centre while the efficiency still varies across it. The
+  bin-centre value is a quiet ~0.07 absolute bias that survives any "looks about
+  right" plot inspection; the suite asserts it is >10σ wrong on a falling spectrum
+  where the jet-wise mean closes. It also makes smooth and step-function cards
+  work through one code path — edges inside a bin average correctly.
+- **The pull uses the *expected* binomial variance**, `sqrt(p_exp(1-p_exp)/N)`,
+  not the observed one, which is exactly zero (infinite pull) in the zero-tag bins
+  a ~0.1% mistag routinely produces. Relatedly, a bin counts toward the χ² only
+  when `N·p·(1−p) ≥ 10` — a floor on the **variance**, not on the jet count. The
+  two come apart exactly where the tight working points live: thousands of jets
+  with ~1 expected tag is Poisson, its achievable pulls are discrete, and folding
+  it in inflates the χ² and invites a threshold nudge instead of a fix.
+
+**The gate, and its honest kind.** This is a **round-trip / consistency** gate,
+not a symbolic derivation like Robinson's theorem or `σ = 4πα²/3s` — the weakest
+analytic gate in this repo, labelled as such. There is no independent physics
+closed form; the reference is a fit parametrisation the card encodes (the CMS
+card cites arXiv:1211.4462). What is proven is that the extraction, the flavour
+handling, the binning and the estimator are right.
+
+**Two independent authorities are used, because the card alone is a closed loop:**
+
+1. **`DelphesFormula` — the evaluator authority.** accsim's evaluator is checked
+   against *Delphes' own* (`DelphesFormula`, the `TFormula` subclass the
+   `BTagging` module uses) over all 9 CMS_PhaseII_0PU formulas × a 252-point
+   `(pt, eta)` grid that lands deliberately **on** the card's step edges
+   (pt 20/30/100/1000, |η| 1.8/2.4/3.4). **Agreement is exact — 0.000e+00 over
+   2268 points** — and asserted as exact, since both sides do the same IEEE
+   double arithmetic. The reference is frozen into
+   `tests/analytic/data/delphes_formula_reference.json` so the gate runs in CI
+   without Docker. *Regenerate* with `pipelines/pp_ttbar_btag/eval_formulas.C`
+   inside the Delphes image. **Gotcha:** `DelphesFormula`'s
+   `(name, expression)` constructor does **not** leave the formula ready to
+   execute — `Eval()` returns `nan` and logs *"Formula is invalid"*. Default-
+   construct and call `Compile()`, as Delphes' own modules do.
+2. **A ΔR-matched generator label — the flavour authority.** Delphes' `BTagging`
+   keys on exactly the `Jet.Flavor` that `JetFlavorAssociation` writes, so
+   histogramming that field against the tag bit validates the *handling* of the
+   label but never its *definition*. The generator therefore dumps its own heavy
+   quarks straight from Pythia's record (no HepMC round-trip) and the analysis
+   builds an independent label by ΔR matching. The parton selection is
+   deliberately **status-code-free** — the last quark of each flavour chain —
+   because Pythia status codes do not survive the HepMC3 round-trip (see the
+   *Delphes detector step* section).
+
+**Scope, stated honestly.** Only the discrete **operating points** a card offers,
+not a continuous discriminant ROC — Delphes stores a decision bit and never a
+discriminant value, so a continuous ROC is not obtainable from it. Not attempted:
+jet-energy-scale/resolution performance, τ-tagging, pileup. The
+**ATLAS-vs-CMS card comparison** was considered for E2 and **rejected**: two
+detector outputs side by side have nothing to be refuted against, which fails the
+working agreement's analytic-gate rule.
+
 ## Feature switches (optional addons — implemented)
 
 **The rule:** the pure-Python **baseline** — the accelerator optics/tracking core
