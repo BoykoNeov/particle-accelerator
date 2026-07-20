@@ -99,9 +99,11 @@ drifts). A pure quadrupole has no curvature ⇒ no dispersion.
 
 ## Dipole — sector bend (Stage 1 — implemented)
 
-`Dipole(length, angle)`: a **pure sector** bend (no pole-face/edge angles, no
-gradient `k1`), bending horizontally. Curvature `h = 1/ρ = θ/L`, `θ = angle`.
-Edge focusing and combined-function gradients are **Stage 2**, not here. The 6×6
+`Dipole(length, angle, e1=0, e2=0)`: a sector bend, bending horizontally, with
+optional pole-face angles. Curvature `h = 1/ρ = θ/L`, `θ = angle`. With the
+default `e1 = e2 = 0` it is a **pure sector** bend and the map below is
+byte-identical to the original. Pole-face edge focusing is documented in the next
+subsection; the combined-function gradient `k1` is still not here. The body 6×6
 is `exp(L·A)` of the sector-bend Hamiltonian generator (symplectic by
 construction); with `C = cos θ`, `S = sin θ`:
 
@@ -128,6 +130,41 @@ R56 = ρS − L + L/γ₀²   = L/γ₀² − ρ(θ − S)
 - Cross-checked entrywise against xtrack's `Bend` configured as a pure sector
   (`edge_entry/exit_active = 0`, `k1 = 0`) to ~1e-6
   (`tests/reference/test_dipole_xtrack.py`).
+
+## Dipole — pole-face (edge) focusing (implemented)
+
+`e1` (entrance) and `e2` (exit) are pole-face rotation angles [rad]: `e = 0` is
+the sector face, `e = θ/2` the symmetric rectangular face. Each face adds a thin
+**hard-edge** quadrupole-like kick, and the full map sandwiches the body —
+`M = Edge(e2) @ Body @ Edge(e1)`, the entrance edge acting first. The edge map is
+the identity except:
+
+```
+R21 = +h·tan(e)     (px += h·tan(e)·x  — horizontal DEFOCUS for e > 0)
+R43 = −h·tan(e)     (py -= h·tan(e)·y  — vertical FOCUS   for e > 0)
+```
+
+- **Sign/plane is empirical, not remembered.** A positive edge angle defocuses
+  `x` and focuses `y`; the whole 6×6 matches MAD-X `sbend` (`fint = hgap = 0`) to
+  **~2e-16** and xtrack `Bend` (linear edge model, fringe off) to ~1e-6
+  (`tests/reference/test_dipole_edges_{madx,xtrack}.py`).
+- **Hard edge only.** The fringe-field correction (`e → e − ψ` in the *vertical*
+  plane, `ψ = h·g·fint·(1+sin²e)/cos e`) is **not** applied — this is the
+  apples-to-apples match to MAD-X's default `fint = hgap = 0` and xtrack's
+  fringe-off defaults. Fringe is a separate, opt-in refinement (not yet built).
+- **Rectangular-bend identity (the strongest gate).** For `e1 = e2 = θ/2` the two
+  edge kicks *exactly* cancel the body's horizontal weak focusing: the horizontal
+  block collapses to a drift `[[1, ρ·sin θ], [0, 1]]` with `R21 = 0` to machine
+  precision — **proven symbolically** (`sin θ·tan²(θ/2) − sin θ + 2 cos θ·tan(θ/2)
+  = 0`), not asserted "small". Meanwhile the vertical plane, a pure drift in the
+  body, gets *all* its focusing from the edges (`R43 ≈ −2h·tan(θ/2)`).
+- Edges are **optics-active** (they change β, tune, chromaticity and dispersion
+  through composition) but add **no length** and no direct longitudinal coupling
+  (the edge map's longitudinal block is the identity). Symplectic by construction
+  (each 2×2 kick block has unit determinant).
+- Analytic gates in `tests/analytic/test_dipole_edges.py`; the effect on the
+  radiation damping partition (`I4`'s `−D_x h² tan(e)` face term) is a separate
+  milestone.
 
 ## Dispersion in Twiss (Stage 1 — implemented)
 
