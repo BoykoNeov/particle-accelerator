@@ -490,6 +490,10 @@ def synchrotron_tune(lattice: Lattice, slices: int = 64) -> float:
     coupled eigen-tune) to ~1e-6; this lumped value differs from it at the
     coupling order (sub-percent on the Stage-3 test ring). See
     ``tests/reference/test_synchrotron_tune_xtrack.py``.
+
+    ``slices`` reaches :func:`momentum_compaction` through :func:`slip_factor` and is
+    therefore **inert** on its default (exact) route — raising it does not buy
+    precision here.
     """
     from .elements.rfcavity import RFCavity
 
