@@ -356,10 +356,9 @@ quadrupole gradient, `k1 → k1/(1+δ)`. Conventions:
   default): the β-at-the-quad point value is *not* exact when `β` varies over the
   magnet length. Keep the analytic closed-form on thin quads; the thick path is
   cross-checked against xtrack.
-- **Scope: quadrupole gradients only.** Drifts contribute nothing; dipole
-  weak-focusing / edge chromaticity is **not** computed (flagged — a lattice with
-  bends carries an extra, uncomputed dipole term). The Stage 2 FODO acceptance
-  lattice is quads + drifts, so this is exact there.
+- **Scope (as of F2): quads *and* dipoles.** The quadrupole term above is the
+  Stage-2 core; **F2** added the dipole weak-focusing, dispersion and pole-face
+  edge terms (next section). Drifts still contribute nothing.
 - **Independent validation.** The coefficient and per-plane sign are pinned to
   **machine precision** by differentiating the `δ`-dependent thin one-turn map
   symbolically (`cos μ(δ) = ½ Tr M(δ)`, `Q = μ/2π`, `dQ/dδ|₀`) — a check that
@@ -367,6 +366,67 @@ quadrupole gradient, `k1 → k1/(1+δ)`. Conventions:
   (`tests/analytic/test_chromaticity.py`). The thick β-integration path matches a
   finite-difference tune derivative (always-on) and xtrack's real-particle
   tracking to `rel ≈ 1e-4`.
+
+## Dipole chromaticity (F2 — implemented)
+
+`natural_chromaticity` (above) now carries the **full dipole** contribution, not
+just the quadrupole gradient. Derived from the exact curvilinear Hamiltonian
+`H = -(1+hx)·√((1+δ)²-p_x²-p_y²) - ψ`, with `ψ = (1+hx)·a_s = -hx - (k1+h²)/2·x²
++ k1/2·y²` (the `-h²/2·x²` is the curvilinear metric correction — without it the
+on-momentum `K_x` comes out `2h²+k1` instead of the validated `h²+k1`).
+
+**The β-weighted form the module ships:**
+```
+Q'_x = -(1/4π) ∮ β_x (k1 + h²) ds + (1/4π) ∮ h (γ_x D_x - 2 α_x D_px) ds
+       + (1/4π) ∮ 2 h k1 β_x D_x ds  + (1/4π) Σ_faces β_x h tan(e)
+Q'_y = +(1/4π) ∮ β_y k1 ds        + (1/4π) ∮ γ_y h D_x ds
+       - (1/4π) ∮   h k1 β_y D_x ds  - (1/4π) Σ_faces β_y h tan(e)
+```
+with `h = 1/ρ` the curvature, `k1` the (quad or combined-function) gradient, and
+`γ_u = (1+α_u²)/β_u`. Four groups:
+
+- **Gradient focusing** `-β_x k1` / `+β_y k1` — the classic quadrupole term,
+  unchanged.
+- **Dipole weak focusing + dispersion.** Naively the geometric `h²` focusing
+  would dominate (`-∮β_x h²`, a large negative), but the dispersion term — the
+  `(1 + h·D_x·δ)` factor in the metric evaluated on the *dispersed* closed orbit —
+  largely cancels it. So a **pure sector bend contributes almost nothing**. This
+  is why the reverted F1 "gradient-only" patch was *worse* than omitting bends:
+  it kept a partial term whose cancelling partner was missing. Validated against
+  **xtrack to ~1e-6** on bendy FODO rings.
+- **Combined-function curvature-sextupole feed-down** `+2 h k1 β_x D_x` /
+  `-h k1 β_y D_x`. A combined-function *sector* magnet cannot have exactly
+  `B_y = h + k1·x, B_x = k1·y` — that field has `∇·B = h·k1·y ≠ 0` in the curved
+  frame. Maxwell forces a 3rd-order correction `ψ₃ = c₁·x³ + c₂·x·y²` with
+  `6c₁ + 2c₂ + h·k1 = 0`; pinning the split by the horizontal xtrack match gives
+  `c₁ = -h·k1/3, c₂ = +h·k1/2`. This curvature term acts as a **sextupole** and
+  feeds down to chromaticity at dispersion. Note the coefficients `2:−1` are **not**
+  the symmetric ratio of an ordinary sextupole — because `ψ₃` isn't a pure
+  sextupole. This term is what makes the combined-function result match **xtrack
+  and MAD-X** (both give `dqx ≈ +0.62` on an AG `k1=0.3` ring; without it accsim
+  gave `−0.72`). It does **not** touch the linear map, so F1's validated map is
+  unchanged.
+- **Pole-face edges** `±β h tan(e)` — a localised thin-kick contribution at each
+  face. Validated against **xtrack to ~1e-8**.
+
+**Derivation route.** Linearise the exact equations of motion about the dispersed
+orbit `x_co = D_x·δ, p_x,co = D_px·δ`. With the Maxwell-corrected `ψ` the canonical
+focusing entry `a21` gains a `δ`-dependent piece `∝ h k1 x_co` (the curvature
+feed-down); the remaining chromaticity is the drift-term (`a12 = (1+h x_co)/(1+δ)`)
+effect. The tune-shift-from-generator formula `Δμ = -α N11 - (β/2) N21 + (γ/2) N12`
+gives the **γ-form** integrand; the β-form above is its integration-by-parts partner
+(equal around a closed ring via `∮ γ ds = ∮ β K ds`, i.e. `∮ α' ds = 0`).
+
+**Validation (`tests/analytic/test_dipole_chromaticity.py`, `tests/reference/
+test_chromaticity_xtrack.py`).** The integrand is re-derived symbolically from the
+Hamiltonian — `(c₁,c₂)` fixed by Maxwell + the *horizontal* match, and the
+**vertical** coefficient then follows with no further freedom (the non-circular
+confirmation). β-form == γ-form ring total; an independent off-momentum map
+(`exp(A·ds)`) agrees to ~1e-5; and xtrack cross-checks sector, edged, **and**
+combined-function rings (the last also agreeing with MAD-X). The `2h k1`/`−h k1`
+split emerged as a **bug fix**, not a model choice: a first ship treated the
+combined-function term as model-ambiguous, but the codes actually agree and accsim
+was the outlier — the missing Maxwell term was the cause.
 
 ## Sextupole (Stage 2 — implemented)
 

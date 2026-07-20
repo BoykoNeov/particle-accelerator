@@ -243,60 +243,159 @@ def is_stable(one_turn: np.ndarray) -> bool:
 _INV_4PI = 1.0 / (4.0 * math.pi)
 
 
+def _dipole_chroma_integrand(
+    bx: float, ax: float, by: float, ay: float, dx: float, dpx: float, h: float, k1: float
+) -> tuple[float, float]:
+    r"""Per-length natural-chromaticity integrand inside a dipole body.
+
+    ``(integrand_x, integrand_y)`` such that ``dQ'_u = (1/4pi) integrand_u ds``:
+
+        integrand_x = -beta_x (k1 + h^2) + h (gamma_x D_x - 2 alpha_x D_px)
+                      + 2 h k1 beta_x D_x,
+        integrand_y = +beta_y k1        + gamma_y h D_x
+                      -   h k1 beta_y D_x,
+
+    with ``gamma_u = (1 + alpha_u^2)/beta_u``. Derived from the exact curvilinear
+    Hamiltonian linearised about the dispersed closed orbit (``docs/CONVENTIONS.md``
+    → *Dipole chromaticity*). The last term in each plane is the **curvature-sextupole
+    feed-down**: a combined-function sector magnet must carry a Maxwell-forced
+    3rd-order field term ``∝ h k1`` (without it ``div B != 0`` in the curved frame),
+    which acts as a sextupole and feeds down to chromaticity at dispersion. The
+    horizontal coefficient ``2 h k1`` and the vertical ``-h k1`` (note: NOT the
+    symmetric ratio of an ordinary sextupole) are what make the combined-function
+    result match xtrack and MAD-X; the vertical coefficient is an independent
+    confirmation (Maxwell + the horizontal fix the field, the vertical then follows).
+    """
+    gamma_x = (1.0 + ax * ax) / bx
+    gamma_y = (1.0 + ay * ay) / by
+    integrand_x = -bx * (k1 + h * h) + h * (gamma_x * dx - 2.0 * ax * dpx) + 2.0 * h * k1 * bx * dx
+    integrand_y = by * k1 + gamma_y * h * dx - h * k1 * by * dx
+    return integrand_x, integrand_y
+
+
 def natural_chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
     r"""Natural chromaticity ``(Q'_x, Q'_y) = (dQ_x/ddelta, dQ_y/ddelta)``.
 
-    An off-momentum particle sees a quadrupole gradient weakened as
-    ``k1 -> k1/(1 + delta)``, which shifts the tune. To first order this is the
-    textbook β-weighted integral of the gradient over the matched lattice:
+    The lattice's inherent (sextupole-free) tune dependence on momentum, from the
+    off-momentum weakening of every focusing element. Derived from the exact
+    curvilinear Hamiltonian (see ``docs/CONVENTIONS.md`` → *Dipole chromaticity*)
+    and expressed in the β-weighted form
 
-        Q'_x = -(1 / 4 pi) ∮ beta_x(s) k1(s) ds,
-        Q'_y = +(1 / 4 pi) ∮ beta_y(s) k1(s) ds,
+        Q'_x = -(1/4pi) ∮ beta_x (k1 + h^2) ds
+               + (1/4pi) ∮ h (gamma_x D_x - 2 alpha_x D_px) ds
+               + (1/4pi) sum_edges beta_x h tan(e),
+        Q'_y = +(1/4pi) ∮ beta_y k1 ds
+               + (1/4pi) ∮ gamma_y h D_x ds
+               - (1/4pi) sum_edges beta_y h tan(e),
 
-    (opposite signs because the quad focuses x with ``+k1`` and y with ``-k1``);
-    both come out **negative** for an ordinary FODO. Only quadrupole gradients
-    contribute here — drifts add nothing, and dipole weak-focusing / edge
-    chromaticity is out of Stage 2 scope (flagged: a lattice with bends will have
-    an additional, uncomputed dipole term).
+    where ``h = 1/rho`` is the bending curvature, ``k1`` the (quadrupole or
+    combined-function) gradient, and ``gamma_u = (1 + alpha_u^2)/beta_u``. The
+    three groups of terms are:
+
+    - **Gradient focusing** ``-(1/4pi)∮beta_x k1`` (``+`` for y) — the classic
+      quadrupole natural chromaticity; both come out negative for an ordinary
+      FODO. This is the only term on a straight (drift + quad) lattice.
+    - **Dipole weak focusing + dispersion** ``h^2`` and the ``h(gamma D - 2 alpha
+      D')`` corrections. Naively the ``h^2`` geometric focusing would dominate,
+      but the dispersion term ``(1 + h D_x delta)`` in the curvilinear metric
+      largely cancels it, so a pure sector bend contributes almost nothing — a
+      *partial* fix (``h^2`` alone) is measurably **worse** than omitting bends.
+      This whole group is xtrack-validated to ~1e-6 on bendy lattices.
+    - **Combined-function curvature-sextupole feed-down** ``+2 h k1 beta_x D_x`` /
+      ``-h k1 beta_y D_x`` — a Maxwell-forced 3rd-order field term of any
+      combined-function *sector* magnet (without it ``div B != 0`` in the curved
+      frame). It acts as a sextupole at dispersion. This is what makes the
+      combined-function result match **xtrack and MAD-X** (both agree); it also
+      completes the ``k1`` chromaticity of a strongly combined-function ring.
+    - **Pole-face edges** ``+beta_x h tan(e)`` (``-`` for y) — a thin-kick
+      contribution at each entrance/exit face, xtrack-validated to ~1e-8.
+
+    See ``docs/CONVENTIONS.md`` → *Dipole chromaticity* for the derivation and the
+    xtrack/MAD-X cross-checks.
 
     Thin quads are exact single-point contributions (``beta`` is continuous across
-    a thin kick); thick quads are integrated by ``slices``-fold trapezoidal
-    sub-stepping of ``beta`` across the body. The integer part of the tune is
-    irrelevant to ``dQ/ddelta``, so no phase unwrapping is needed.
+    a thin kick); thick quads and dipole bodies are integrated by ``slices``-fold
+    trapezoidal sub-stepping, with the matched dispersion transported alongside
+    ``beta``. The integer part of the tune is irrelevant to ``dQ/ddelta``, so no
+    phase unwrapping is needed.
     """
+    from .elements.dipole import Dipole, _edge_matrix
     from .elements.quadrupole import Quadrupole, ThinQuadrupole, _focusing_block
 
+    ref = lattice.ref
     tw0 = closed_twiss(lattice)
     bx, ax = tw0.beta_x, tw0.alpha_x
     by, ay = tw0.beta_y, tw0.alpha_y
+    disp = np.array([tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py])
     xi_x = xi_y = 0.0
+
+    def _advance(M: np.ndarray) -> None:
+        """Transport beta/alpha (both planes) and the dispersion across map ``M``."""
+        nonlocal bx, ax, by, ay, disp
+        cx, cy = _blocks(M)
+        bx, ax, _ = _propagate_block(cx, bx, ax)
+        by, ay, _ = _propagate_block(cy, by, ay)
+        disp = _transverse_4d(M) @ disp + _dispersive_kick(M)
+
     for elem in lattice.elements:
         if isinstance(elem, ThinQuadrupole):
             # beta is continuous across a thin kick, so the entrance beta is the
             # value "at" the quad; k1l is the signed integrated gradient.
             xi_x += -_INV_4PI * bx * elem.k1l
             xi_y += +_INV_4PI * by * elem.k1l
-            cx, cy = _blocks(elem.matrix(lattice.ref))
-            bx, ax, _ = _propagate_block(cx, bx, ax)
-            by, ay, _ = _propagate_block(cy, by, ay)
+            _advance(elem.matrix(ref))
         elif isinstance(elem, Quadrupole) and elem.k1 != 0.0 and elem.length > 0.0:
             ds = elem.length / slices
             xb = _focusing_block(elem.k1, ds)  # x'' + k1 x = 0
             yb = _focusing_block(-elem.k1, ds)  # y'' - k1 y = 0
+            sub4 = _transverse_4d(elem.__class__(ds, elem.k1).matrix(ref))
             int_bx = 0.5 * bx  # trapezoid: half-weight the entrance sample
             int_by = 0.5 * by
             for i in range(slices):
                 bx, ax, _ = _propagate_block(xb, bx, ax)
                 by, ay, _ = _propagate_block(yb, by, ay)
+                disp = sub4 @ disp  # a straight quad adds no dispersive kick
                 w = 0.5 if i == slices - 1 else 1.0  # half-weight the exit sample
                 int_bx += w * bx
                 int_by += w * by
             xi_x += -_INV_4PI * elem.k1 * int_bx * ds
             xi_y += +_INV_4PI * elem.k1 * int_by * ds
+        elif isinstance(elem, Dipole) and elem.length > 0.0 and (elem.angle != 0.0 or elem.k1):
+            # Bends OR a straight combined-function magnet (angle=0, k1!=0, i.e. a
+            # quadrupole-as-dipole): h=0 there, so the integrand reduces to -beta k1
+            # and the edge terms vanish, recovering the pure quadrupole result.
+            h = elem.curvature
+            k1 = elem.k1
+            # Entrance pole-face edge (thin kick, beta taken before the kick).
+            t1 = h * math.tan(elem.e1)
+            xi_x += _INV_4PI * bx * t1
+            xi_y += -_INV_4PI * by * t1
+            _advance(_edge_matrix(h, elem.e1))
+            # Body: trapezoidal integral of the beta-form integrand, dispersion
+            # transported through each sub-slice.
+            ds = elem.length / slices
+            sub = Dipole(ds, h * ds, k1=k1).matrix(ref)
+            cx, cy = _blocks(sub)
+            sub4, subk = _transverse_4d(sub), _dispersive_kick(sub)
+            ix, iy = _dipole_chroma_integrand(bx, ax, by, ay, disp[0], disp[1], h, k1)
+            acc_x, acc_y = 0.5 * ix, 0.5 * iy  # trapezoid: half-weight entrance
+            for i in range(slices):
+                bx, ax, _ = _propagate_block(cx, bx, ax)
+                by, ay, _ = _propagate_block(cy, by, ay)
+                disp = sub4 @ disp + subk
+                ix, iy = _dipole_chroma_integrand(bx, ax, by, ay, disp[0], disp[1], h, k1)
+                w = 0.5 if i == slices - 1 else 1.0  # half-weight the exit sample
+                acc_x += w * ix
+                acc_y += w * iy
+            xi_x += _INV_4PI * acc_x * ds
+            xi_y += _INV_4PI * acc_y * ds
+            # Exit pole-face edge.
+            t2 = h * math.tan(elem.e2)
+            xi_x += _INV_4PI * bx * t2
+            xi_y += -_INV_4PI * by * t2
+            _advance(_edge_matrix(h, elem.e2))
         else:
-            cx, cy = _blocks(elem.matrix(lattice.ref))
-            bx, ax, _ = _propagate_block(cx, bx, ax)
-            by, ay, _ = _propagate_block(cy, by, ay)
+            _advance(elem.matrix(ref))
     return xi_x, xi_y
 
 
@@ -516,23 +615,23 @@ def synchrotron_tune(lattice: Lattice, slices: int = 64) -> float:
 
 
 def chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
-    r"""Total first-order chromaticity ``(Q'_x, Q'_y)`` = quads + sextupole feed-down.
+    r"""Total first-order chromaticity ``(Q'_x, Q'_y)`` = natural + sextupole feed-down.
 
-    Adds the sextupole feed-down term (:func:`_sextupole_feeddown`) to the
-    quadrupole :func:`natural_chromaticity`. This is the quantity sextupoles exist
+    Adds the sextupole feed-down term (:func:`_sextupole_feeddown`) to the full
+    :func:`natural_chromaticity` (quadrupole gradients **and** the dipole
+    weak-focusing / dispersion / edge terms). This is the quantity sextupoles exist
     to control: with the right ``k2`` at a dispersive location, the feed-down
     cancels the (negative) natural chromaticity.
 
-    **Not a complete absolute total.** Like :func:`natural_chromaticity`, this omits
-    the dipole's own weak-focusing / edge chromaticity (out of Stage 2 scope), so on
-    any lattice where the feed-down is nonzero — which *requires* bends for
-    dispersion — an uncomputed dipole term is also present. The validated
-    deliverables are therefore: (a) the *feed-down term itself*, pinned to a
-    symbolic ``dQ/ddelta``; (b) accsim-internal *correction* (feed-down cancels the
-    quad natural term); and (c) an xtrack cross-check of the *with-minus-without
-    sextupoles difference*, in which the shared dipole term cancels exactly (a
-    sextupole's linear map is a drift, so adding it leaves beta, dispersion, and the
-    tunes — hence every other chromaticity term — untouched).
+    Since F2, :func:`natural_chromaticity` includes the full dipole contribution
+    (weak-focusing, combined-function gradient with its curvature-sextupole
+    feed-down, dispersion, and edges — all xtrack-validated), so this is the
+    complete absolute total for a lattice of drifts, quads, dipoles and sextupoles.
+    The sextupole feed-down term itself is pinned to a symbolic ``dQ/ddelta`` and
+    cross-checked against xtrack via a with-minus-without-sextupole difference, in
+    which every shared term (including the dipole chromaticity) cancels exactly (a
+    sextupole's linear map is a drift, so adding it leaves beta, dispersion and the
+    tunes untouched).
     """
     nx, ny = natural_chromaticity(lattice, slices)
     fx, fy = _sextupole_feeddown(lattice, slices)
