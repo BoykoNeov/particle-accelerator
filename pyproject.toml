@@ -45,7 +45,12 @@ plot = ["plotly>=5.0"]
 # optics cross-checks need. On Windows the xtrack JIT C-kernel build additionally
 # requires clang-cl (`winget install LLVM.LLVM`); the `_xtrack_jit` test fix-up
 # wires it in. See docs/CONVENTIONS.md for the full toolchain diagnosis.
-reference = ["xtrack>=0.65", "xpart>=0.18"]
+# cpymad ships MAD-X as a bundled binary and drives it in a subprocess, so it
+# needs no build toolchain (unlike the xtrack clang-cl JIT path above) and has
+# cp314 Windows wheels. It is the D3 *second* reference: an independently written
+# implementation of the same maps, so an accsim arithmetic/sign error -- or an
+# xtrack bug -- has to be reproduced by a separate Fortran codebase to survive.
+reference = ["xtrack>=0.65", "xpart>=0.18", "cpymad>=1.17"]
 
 [project.urls]
 Homepage = "https://github.com/BoykoNeov/particle-accelerator"

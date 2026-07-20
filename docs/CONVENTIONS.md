@@ -1496,6 +1496,70 @@ approximation used by the linear maps; the strictly-canonical longitudinal pair
 is `(zeta, ptau)`. For the linear drift this does not break the `Mᵀ J M = J`
 check, but it is flagged for the longitudinal stages (Stage 3+).
 
+## MAD-X reference frame (D3 — implemented)
+
+The second reference code, driven via **cpymad** (`tests/reference/_madx.py`,
+behind the `reference` marker). cpymad bundles the MAD-X binary and runs it in a
+subprocess, so unlike the xtrack JIT it needs **no build toolchain**; cp314
+Windows wheels exist and the subprocess launches fine from this repo's
+space-containing path.
+
+**Coordinates.** MAD-X is canonical `(x, px, y, py, T, PT)`, not accsim's
+`(x, px, y, py, zeta, delta)`:
+
+| | accsim | MAD-X | relation |
+|---|---|---|---|
+| longitudinal position | `zeta = s − β₀ct` | `T` | `zeta = β₀·T` |
+| longitudinal momentum | `delta = Δp/p₀` (**momentum**) | `PT = ΔE/(p₀c)` (**energy**) | `PT = β₀·delta` |
+
+The transverse 4×4 block shares ordering *and* normalisation, so it compares
+entrywise with no transform. The longitudinal row/column need the diagonal
+similarity transform
+
+    R_accsim = M · R_madx · M⁻¹,   M = diag(1, 1, 1, 1, β₀, 1/β₀)
+
+**Pinned empirically, not remembered.** The *scale* comes from a drift: MAD-X
+reports `dT/dPT = L/(β₀²γ₀²)` where accsim carries `R56 = L/γ₀²` — a ratio of
+exactly `β₀²`. The *sign* cannot be read off a drift (its only non-zero
+longitudinal entry is even under flipping both `T` and `PT`); it is fixed by the
+**dipole**, whose `R51`/`R52` (path lengthening) and `R16`/`R26` (dispersion) are
+odd under that flip. With the sign above the dipole agrees entrywise at **2e-16**.
+Negative controls confirm the check has teeth: a flipped sign shows up as
+`max|Δ| ≈ 4e-1` *and* breaks symplecticity; omitting the transform entirely stays
+symplectic but fails entrywise at `4e-3`.
+
+**Twiss-table conventions**, consistent with the same `β₀`:
+- `DX`/`DPX` are derivatives w.r.t. `PT`, so `D_accsim = β₀ · DX_madx`.
+- `MUX`/`MUY` are in **turns**, not radians (accsim's `mu_x` is radians).
+- The twiss table appends a zero-length `$end` marker row duplicating the final
+  `s`; drop it before comparing s-grids point-for-point.
+
+**What D3 does and does not buy.** xsuite deliberately follows MAD-X's coordinate
+*conventions*, so a convention error the two share **by design** — and that accsim
+copied — would not be caught by adding MAD-X. What the second reference genuinely
+adds is an **independent numerical implementation**: an accsim arithmetic or sign
+error, or an xtrack bug, now has to be reproduced by a separate Fortran codebase
+to survive. The docs state that claim and no more.
+
+**`alpha_c`: MAD-X is exact, accsim's default is a quadrature.** MAD-X evaluates
+`(1/C)∮D_x/ρ ds` in closed form per element; `momentum_compaction()` trapezoids it
+(`slices=64`), giving ~1.6e-6 relative error on a 1 m-sector-bend ring. This is a
+*known, documented* limitation, not a newly found bug — the analytic suite already
+notes it and tests convergence at 4096 slices. Rather than loosen a tolerance, the
+D3 test compares the **exact** identity
+`alpha_c = 1/γ₀² − (R51·D_x + R52·D_px + R56)/C` to MAD-X at `1e-10`, then shows the
+shipped quadrature *converging onto MAD-X's number* — which upgrades the existing
+convergence test from self-consistency to agreement with an independent code.
+
+**Scope.** Drift, quadrupole and dipole R-matrices plus one matched FODO-with-bends
+ring (β, α, μ, tunes, dispersion, `alpha_c`). Deliberately **not** mirrored:
+sextupole (its linear R-matrix is drift-like — `k2` enters only at second order,
+so a MAD-X `RE` comparison would add nothing over the drift check) and the
+radiation / synchrotron-tune checks (RF and radiation setup in MAD-X is a
+different beast for little marginal confidence). The FODO ring carries dipoles on
+purpose: the bend-free xtrack cell has `D_x = 0` and `alpha_c = 0`, so comparing
+those would be comparing two zeros.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,

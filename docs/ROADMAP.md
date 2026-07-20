@@ -630,9 +630,55 @@ sustained arc.
   the original entry called for already existed
   (`tests/analytic/test_tracking_stability.py`, `slow`) and was left alone. See
   CONVENTIONS.md → *Tracking-based tune / NAFF*.
-- **D3 — MAD-X as a second reference** alongside xtrack. [M] **Gate:** element R-matrices /
-  Twiss agree across *two* independent codes — catches a convention error a single
-  reference could share. Behind the existing `reference` marker.
+- **D3 — MAD-X as a second reference** alongside xtrack. ✅ **DONE (2026-07-20)** —
+  driven via **cpymad** (`tests/reference/_madx.py` + four `test_*_madx.py`), behind the
+  existing `reference` marker. cpymad bundles the MAD-X binary and runs it in a
+  subprocess, so unlike the xtrack JIT it needs **no build toolchain** — cp314 Windows
+  wheels exist and it launches fine from this repo's space-containing path.
+  **The gate's real content is the coordinate frame.** MAD-X is canonical
+  `(x, px, y, py, T, PT)`: `PT` is an **energy** deviation where accsim's `delta` is a
+  **momentum** one, and `T` scales oppositely to `zeta`. The transverse 4×4 compares
+  entrywise, but the longitudinal row/column need
+  `R_accsim = M·R_madx·M⁻¹` with `M = diag(1,1,1,1,β₀,1/β₀)`.
+  **Both scale and sign were pinned empirically, never remembered.** The scale comes
+  from a drift (MAD-X's `L/(β₀²γ₀²)` vs accsim's `R56 = L/γ₀²` — ratio exactly `β₀²`);
+  the sign *cannot* be read off a drift, since its only non-zero longitudinal entry is
+  even under flipping both `T` and `PT`, so it is fixed by the **dipole**, whose
+  `R51`/`R52`/`R16` are odd under that flip.
+  **Gate met:** drift, quadrupole and dipole 6×6 agree to **~2e-16** (whole matrix,
+  longitudinal block included), and a matched **FODO-with-bends** ring agrees on β, α,
+  μ, tunes and dispersion at `1e-9`. The ring carries dipoles on purpose — the
+  bend-free xtrack cell has `D_x = 0` and `alpha_c = 0`, so comparing those would be
+  comparing two zeros.
+  **The longitudinal block was never dropped.** Comparing only the transverse 4×4 would
+  have made every test pass while silently abandoning the `R56 = L/γ₀²` convention —
+  precisely the error this gate exists to catch. Negative controls confirm teeth: a
+  flipped transform sign gives `max|Δ| ≈ 4e-1` *and* breaks symplecticity; omitting the
+  transform stays symplectic but fails entrywise at `4e-3`.
+  **One honest disagreement, localised not tolerated.** MAD-X's `alpha_c` is exact;
+  `momentum_compaction()` trapezoids the `D_x/ρ` integral and lands 1.6e-6 off. Slicing
+  showed MAD-X stable and *accsim* converging at O(1/n²) — i.e. known quadrature error
+  (already documented in the analytic suite), not a convention bug. So the test compares
+  the **exact** identity to MAD-X at `1e-10` and then shows the quadrature converging
+  onto MAD-X's number, upgrading that convergence check from self-consistency to
+  agreement with an independent code.
+  **Scope, stated honestly:** xsuite deliberately follows MAD-X's coordinate
+  *conventions*, so a convention error the two share **by design** would still not be
+  caught. What D3 buys is an independent *implementation* — an accsim arithmetic/sign
+  error, or an xtrack bug, must now be reproduced by a separate Fortran codebase to
+  survive. Sextupole (linear R is drift-like; `k2` enters only at 2nd order) and the
+  radiation / synchrotron-tune checks were deliberately not mirrored. See
+  CONVENTIONS.md → *MAD-X reference frame*.
+
+- **D4 — make `momentum_compaction()` exact by default.** [S] *Surfaced by D3, deliberately
+  deferred out of it (one feature per change).* The function trapezoids `∮D_x/ρ ds` at
+  `slices=64` and is ~1.6e-6 off, while the **exact** identity
+  `alpha_c = 1/γ₀² − (R51·D_x + R52·D_px + R56)/C` needs only the one-turn matrix and the
+  matched dispersion — both already computed inside it. MAD-X (D3) and the analytic suite
+  both confirm the identity is the right answer. **Gate:** the default path reproduces the
+  identity to machine precision, `slip_factor`/`synchrotron_tune` still pass, and the
+  quadrature stays reachable (it is the independent second route that keeps the identity
+  honest — do *not* delete it, or the two cross-checks collapse into one).
 
 ### E. Event-physics siblings (new processes on the established chain)
 
