@@ -10,6 +10,7 @@ from .element import Element
 from .quadrupole import Quadrupole, ThinQuadrupole
 from .rfcavity import RFCavity
 from .sextupole import Sextupole, ThinSextupole
+from .skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
 
 __all__ = [
     "Element",
@@ -19,6 +20,8 @@ __all__ = [
     "Dipole",
     "Sextupole",
     "ThinSextupole",
+    "SkewQuadrupole",
+    "ThinSkewQuadrupole",
     "RFCavity",
     "Aperture",
     "Collimator",

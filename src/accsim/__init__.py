@@ -31,8 +31,10 @@ from .elements import (
     Quadrupole,
     RFCavity,
     Sextupole,
+    SkewQuadrupole,
     ThinQuadrupole,
     ThinSextupole,
+    ThinSkewQuadrupole,
 )
 from .lattice import Lattice, matrix_of
 from .lifetime import quantum_lifetime
@@ -63,15 +65,18 @@ from .symplectic import J6, is_symplectic
 from .tracking import Bunch, LossResult, Particle, Tracker
 from .tune import ellipse_from_trajectory, naff, tracked_tunes
 from .twiss import (
+    CoupledLatticeError,
     Twiss,
     UnstableLatticeError,
     beam_sigma,
     chromaticity,
     closed_twiss,
+    closest_tune_approach,
     is_stable,
     match_periodic,
     momentum_compaction,
     natural_chromaticity,
+    normal_mode_tunes,
     propagate_twiss,
     slip_factor,
     synchrotron_tune,
@@ -104,6 +109,8 @@ __all__ = [
     "Dipole",
     "Sextupole",
     "ThinSextupole",
+    "SkewQuadrupole",
+    "ThinSkewQuadrupole",
     "RFCavity",
     "Aperture",
     "Collimator",
@@ -133,11 +140,14 @@ __all__ = [
     # twiss / optics
     "Twiss",
     "UnstableLatticeError",
+    "CoupledLatticeError",
     "match_periodic",
     "closed_twiss",
     "propagate_twiss",
     "tunes",
     "is_stable",
+    "normal_mode_tunes",
+    "closest_tune_approach",
     "natural_chromaticity",
     "chromaticity",
     "momentum_compaction",

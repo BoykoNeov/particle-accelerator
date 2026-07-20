@@ -5,10 +5,18 @@ the Twiss parameters ``(beta, alpha, gamma)`` with ``gamma = (1 + alpha^2)/beta`
 and a phase advance ``mu``. This module extracts the matched (periodic) Twiss
 from a one-turn matrix and propagates it element-by-element.
 
-Scope (Stage 1): pure transverse ``x`` and ``y`` from the 2x2 blocks of the 6x6
-map. Drifts and quadrupoles neither couple the planes nor produce dispersion, so
-the 2x2 reduction is exact here. **Dispersion** (the coupling to ``delta``) is
-added with the :class:`~accsim.elements.dipole.Dipole` in a later change.
+Scope: the Courant-Snyder path (:func:`match_periodic`, :func:`tunes`,
+:func:`propagate_twiss`, dispersion, chromaticity) reduces the 6x6 map to
+independent ``(x, px)`` and ``(y, py)`` 2x2 blocks. That reduction is exact only
+for a **transversely uncoupled** lattice (drifts, quads, dipoles, sextupoles are
+all block-diagonal). A betatron-coupling element — a
+:class:`~accsim.elements.skew_quadrupole.SkewQuadrupole` — breaks it, so the
+uncoupled entry points are **guarded** (:func:`_require_uncoupled` raises
+:class:`CoupledLatticeError` rather than return decoupled-but-wrong betas/tunes),
+and coupled motion goes through the eigenvalue route
+(:func:`normal_mode_tunes`) with the difference-resonance
+:func:`closest_tune_approach`. Dispersion (the coupling to ``delta``) is included
+in the block path via the :class:`~accsim.elements.dipole.Dipole`.
 
 Conventions (see ``docs/CONVENTIONS.md``):
 
@@ -17,7 +25,8 @@ Conventions (see ``docs/CONVENTIONS.md``):
 - Phase is **accumulated continuously** along the lattice (``atan2`` per element),
   never via ``acos`` of the one-turn matrix — the latter only yields the
   *fractional* tune and loses the integer part. ``Q = mu_total / 2 pi``.
-- Stability of a plane requires ``|1/2 Tr(block)| < 1`` (``|Tr| < 2``).
+- Stability of a plane requires ``|1/2 Tr(block)| < 1`` (``|Tr| < 2``); the coupled
+  analogue is all four eigenvalues of the 4x4 on the unit circle.
 """
 
 from __future__ import annotations
@@ -39,6 +48,20 @@ class UnstableLatticeError(ValueError):
 
     An unstable plane has no real matched (periodic) beta function — the betatron
     motion grows without bound — so Twiss matching is undefined.
+    """
+
+
+class CoupledLatticeError(ValueError):
+    """Raised when uncoupled 2x2 Twiss is asked of an x-y *coupled* lattice.
+
+    The Courant-Snyder machinery here (:func:`match_periodic`, :func:`tunes`,
+    :func:`natural_chromaticity`, ...) reduces the one-turn map to independent
+    ``(x, px)`` and ``(y, py)`` 2x2 blocks. That reduction is exact only when the
+    off-diagonal blocks vanish — i.e. no betatron coupling. A
+    :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole` (or any element with
+    ``R[px, y]`` / ``R[py, x]`` terms) breaks it, and a naive 2x2 match would return
+    plausible-but-wrong betas and tunes. Use :func:`normal_mode_tunes` (and the
+    coupled machinery) for such a lattice instead of silently decoupling it.
     """
 
 
@@ -126,6 +149,28 @@ def _transverse_4d(M: np.ndarray) -> np.ndarray:
     return M[np.ix_(_TRANSVERSE, _TRANSVERSE)]
 
 
+def _coupling_norm(M: np.ndarray) -> float:
+    """Largest ``|entry|`` of the two off-diagonal (x-y coupling) 2x2 blocks of a 6x6."""
+    m = np.abs(M[np.ix_([X, PX], [Y, PY])]).max()
+    return float(max(m, np.abs(M[np.ix_([Y, PY], [X, PX])]).max()))
+
+
+def _require_uncoupled(one_turn: np.ndarray, atol: float = 1e-9) -> None:
+    """Raise :class:`CoupledLatticeError` if the one-turn map has x-y coupling.
+
+    The uncoupled 2x2 Courant-Snyder path is only valid when the transverse map is
+    block-diagonal. Drifts, quads, dipoles and sextupoles are exactly block-diagonal
+    (coupling norm 0), so this is a no-op for them; a skew quad trips it.
+    """
+    c = _coupling_norm(one_turn)
+    if c > atol:
+        raise CoupledLatticeError(
+            f"lattice is x-y coupled (off-block norm {c:.3g} > {atol:g}); the 2x2 "
+            "Courant-Snyder path would return wrong betas/tunes. Use "
+            "normal_mode_tunes() for the coupled mode tunes."
+        )
+
+
 def _dispersive_kick(M: np.ndarray) -> np.ndarray:
     """The transverse coupling to ``delta``: ``[R16, R26, R36, R46]``."""
     return M[_TRANSVERSE, DELTA]
@@ -146,9 +191,12 @@ def _matched_dispersion(one_turn: np.ndarray) -> np.ndarray:
 def match_periodic(one_turn: np.ndarray) -> Twiss:
     """Matched (periodic) Twiss at the start of a ring from its one-turn matrix.
 
-    Raises :class:`UnstableLatticeError` if either plane is unstable. Phases are
-    set to zero at this reference point.
+    Raises :class:`UnstableLatticeError` if either plane is unstable, or
+    :class:`CoupledLatticeError` if the map has betatron (x-y) coupling — the 2x2
+    reduction is only valid for a block-diagonal transverse map. Phases are set to
+    zero at this reference point.
     """
+    _require_uncoupled(one_turn)
     cx, cy = _blocks(one_turn)
     beta_x, alpha_x = _matched_block(cx)
     beta_y, alpha_y = _matched_block(cy)
@@ -235,9 +283,166 @@ def tunes(lattice: Lattice) -> tuple[float, float]:
 
 
 def is_stable(one_turn: np.ndarray) -> bool:
-    """True if both transverse planes are stable (``|1/2 Tr(block)| < 1``)."""
+    """True if both transverse planes are stable (``|1/2 Tr(block)| < 1``).
+
+    This is the *uncoupled* per-plane test; it inspects only the diagonal 2x2 blocks
+    and is blind to x-y coupling (a coupled lattice can be unstable through the
+    off-blocks while each diagonal block looks stable). For a coupled lattice use the
+    eigenvalue stability implicit in :func:`normal_mode_tunes` (which raises if any
+    eigenvalue leaves the unit circle).
+    """
     cx, cy = _blocks(one_turn)
     return abs(0.5 * (cx[0, 0] + cx[1, 1])) < 1.0 and abs(0.5 * (cy[0, 0] + cy[1, 1])) < 1.0
+
+
+def _j4() -> np.ndarray:
+    """The 4x4 unit-symplectic form for ``(x, px, y, py)`` (block-diag [[0,1],[-1,0]])."""
+    J = np.zeros((4, 4))
+    J[0, 1] = J[2, 3] = 1.0
+    J[1, 0] = J[3, 2] = -1.0
+    return J
+
+
+_J4 = _j4()
+
+
+def normal_mode_tunes(lattice: Lattice, atol: float = 1e-6) -> tuple[float, float]:
+    r"""Coupled **normal-mode** fractional tunes ``(Q1, Q2)`` of a periodic lattice.
+
+    When the lattice couples ``x`` and ``y`` (e.g. a
+    :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole`), the motion no longer
+    separates into independent horizontal and vertical betatron oscillations. The
+    right invariant description is the pair of **normal modes** — the eigenvectors of
+    the transverse 4x4 one-turn matrix ``M4``. A stable symplectic ``M4`` has four
+    eigenvalues on the unit circle in two complex-conjugate pairs
+    ``e^{±i 2 pi Q1}, e^{±i 2 pi Q2}``; the mode tunes are the phases ``/2 pi``.
+
+    Returns the two **fractional** tunes in ``[0, 1)`` (eigenvalues give only the
+    fractional part — the integer turn count is lost). They are ordered by which
+    plane dominates each mode's eigenvector, so for a weakly-coupled lattice
+    ``Q1`` is the ``x``-like mode and ``Q2`` the ``y``-like one, and in the
+    uncoupled limit ``(Q1, Q2)`` equals ``tunes(lattice) mod 1`` exactly. Exactly at
+    the difference resonance the modes are 50/50 mixtures and the labelling is
+    arbitrary, but the *pair* (and their gap, the observable) is well defined.
+
+    The rotation sense of each mode is fixed by the sign of its eigenvector's
+    symplectic norm ``Im(v* J v)`` — the standard convention that maps each
+    conjugate pair to a single tune in ``[0, 1)`` (rather than the ambiguous
+    ``acos`` fractional value in ``[0, 0.5]``). Raises
+    :class:`UnstableLatticeError` if any eigenvalue leaves the unit circle by more
+    than ``atol`` (a coupled instability — e.g. a sum-resonance stop-band — which
+    the per-plane :func:`is_stable` cannot see).
+    """
+    m4 = _transverse_4d(lattice.one_turn_matrix())
+    eigvals, eigvecs = np.linalg.eig(m4)
+    if not np.allclose(np.abs(eigvals), 1.0, atol=atol, rtol=0.0):
+        raise UnstableLatticeError(
+            f"coupled lattice unstable: eigenvalue moduli {np.abs(eigvals)} are not "
+            "all on the unit circle (betatron motion grows without bound)."
+        )
+    modes: list[tuple[float, float, float]] = []  # (tune, x-weight, y-weight)
+    for k in range(4):
+        v = eigvecs[:, k]
+        snorm = float(np.imag(np.conj(v) @ _J4 @ v))
+        if snorm <= 0.0:  # keep one eigenvector per conjugate pair (the +orientation)
+            continue
+        q = float(np.angle(eigvals[k]) / (2.0 * math.pi)) % 1.0
+        xw = float(abs(v[0]) ** 2 + abs(v[1]) ** 2)
+        yw = float(abs(v[2]) ** 2 + abs(v[3]) ** 2)
+        modes.append((q, xw, yw))
+    if len(modes) != 2:  # pragma: no cover - degenerate numerical edge
+        raise UnstableLatticeError(
+            f"could not resolve two normal modes (found {len(modes)}); the one-turn "
+            "matrix may be at an exact resonance degeneracy."
+        )
+    # Label by dominant plane: the more x-like mode is Q1, the more y-like is Q2.
+    (qa, xa, _ya), (qb, xb, _yb) = modes
+    return (qa, qb) if xa >= xb else (qb, qa)
+
+
+def _decoupled(M: np.ndarray) -> np.ndarray:
+    """Copy of a 6x6 map with the transverse x-y coupling blocks zeroed.
+
+    Leaves each plane's own 2x2 focusing (the diagonal blocks) and all dispersion /
+    longitudinal terms intact, so the *unperturbed* (coupling-free) optics can be
+    matched and propagated even on a lattice that contains skew elements. For a thin
+    skew quad the diagonal blocks are the identity, so removing the coupling is exact;
+    for a thick skew quad the retained diagonal block ``(F+D)/2`` is the plane's true
+    coupling-free focusing.
+    """
+    M = M.copy()
+    M[np.ix_([X, PX], [Y, PY])] = 0.0
+    M[np.ix_([Y, PY], [X, PX])] = 0.0
+    return M
+
+
+def closest_tune_approach(lattice: Lattice) -> float:
+    r"""Closest-tune-approach ``DeltaQ_min = |C^-|`` from the ring's skew quadrupoles.
+
+    The difference-resonance coupling coefficient. When a ring is tuned toward the
+    linear difference resonance ``Q_x = Q_y``, the two normal-mode tunes **cannot
+    cross** — they repel, and the minimum gap they can reach is the modulus of the
+    difference coupling coefficient
+
+        C^- = (1 / 2 pi) sum_j (k1s l)_j sqrt(beta_x beta_y)_j
+                              exp(i (mu_x - mu_y))_j ,
+
+    summed over the skew-quadrupole sources ``j`` (a thick
+    :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole` is trapezoid-sliced),
+    with ``beta`` and the betatron phases taken from the **unperturbed** (coupling-off)
+    optics at each source. The ``1/2 pi`` prefactor and the geometric mean
+    ``sqrt(beta_x beta_y)`` are *derived* (not recalled) from the exact eigen-tune
+    split of a single-skew-kick model — see ``docs/CONVENTIONS.md`` → *Betatron
+    coupling*.
+
+    ``|C^-|`` is the observable minimum split: on the resonance the normal-mode gap
+    equals it exactly; a tune distance ``Delta = Q_x - Q_y`` away, the gap opens as
+    the hyperbola ``sqrt(Delta^2 + |C^-|^2)``. It is validated two independent ways
+    that cannot share an error — this closed form versus the exact
+    :func:`normal_mode_tunes` eigenvalue gap — converging with an ``O((k1s l)^2)``
+    residual as the coupling is taken to zero. Returns ``0.0`` for a lattice with no
+    skew quadrupoles.
+    """
+    from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
+
+    ref = lattice.ref
+    # Unperturbed (coupling-off) one-turn and matched Twiss.
+    decoupled = [_decoupled(elem.matrix(ref)) for elem in lattice.elements]
+    one_turn = np.eye(6)
+    for M in decoupled:
+        one_turn = M @ one_turn
+    tw0 = match_periodic(one_turn)  # coupling zeroed, so the guard passes
+    bx, ax, mux = tw0.beta_x, tw0.alpha_x, 0.0
+    by, ay, muy = tw0.beta_y, tw0.alpha_y, 0.0
+
+    c_minus = 0.0 + 0.0j
+    for elem, M in zip(lattice.elements, decoupled, strict=True):
+        if isinstance(elem, ThinSkewQuadrupole):
+            # beta/phase continuous across a thin kick — evaluate "at" the element.
+            c_minus += elem.k1sl * math.sqrt(bx * by) * np.exp(1j * (mux - muy)) / (2.0 * math.pi)
+        elif isinstance(elem, SkewQuadrupole) and elem.k1s != 0.0 and elem.length > 0.0:
+            slices = 64
+            ds = elem.length / slices
+            sub = _decoupled(SkewQuadrupole(ds, elem.k1s).matrix(ref))
+            cx, cy = _blocks(sub)
+            # trapezoid the phasor k1s*sqrt(bx by)*e^{i(mux-muy)} across the body
+            acc = 0.5 * math.sqrt(bx * by) * np.exp(1j * (mux - muy))
+            for i in range(slices):
+                bx, ax, dmux = _propagate_block(cx, bx, ax)
+                by, ay, dmuy = _propagate_block(cy, by, ay)
+                mux += dmux
+                muy += dmuy
+                w = 0.5 if i == slices - 1 else 1.0
+                acc += w * math.sqrt(bx * by) * np.exp(1j * (mux - muy))
+            c_minus += elem.k1s * acc * ds / (2.0 * math.pi)
+            continue  # optics already advanced across the body
+        # advance unperturbed beta/phase across this element
+        cx, cy = _blocks(M)
+        bx, ax, dmux = _propagate_block(cx, bx, ax)
+        by, ay, dmuy = _propagate_block(cy, by, ay)
+        mux += dmux
+        muy += dmuy
+    return float(abs(c_minus))
 
 
 _INV_4PI = 1.0 / (4.0 * math.pi)
