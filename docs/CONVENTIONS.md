@@ -99,12 +99,12 @@ drifts). A pure quadrupole has no curvature ⇒ no dispersion.
 
 ## Dipole — sector bend (Stage 1 — implemented)
 
-`Dipole(length, angle, e1=0, e2=0)`: a sector bend, bending horizontally, with
-optional pole-face angles. Curvature `h = 1/ρ = θ/L`, `θ = angle`. With the
-default `e1 = e2 = 0` it is a **pure sector** bend and the map below is
-byte-identical to the original. Pole-face edge focusing is documented in the next
-subsection; the combined-function gradient `k1` is still not here. The body 6×6
-is `exp(L·A)` of the sector-bend Hamiltonian generator (symplectic by
+`Dipole(length, angle, k1=0, e1=0, e2=0)`: a bend, bending horizontally, with an
+optional combined-function gradient and pole-face angles. Curvature `h = 1/ρ =
+θ/L`, `θ = angle`. With the defaults `k1 = e1 = e2 = 0` it is a **pure sector**
+bend and the map below is byte-identical to the original. The gradient and edge
+focusing are documented in the two subsections that follow. The `k1 = 0` body
+6×6 is `exp(L·A)` of the sector-bend Hamiltonian generator (symplectic by
 construction); with `C = cos θ`, `S = sin θ`:
 
 ```
@@ -130,6 +130,43 @@ R56 = ρS − L + L/γ₀²   = L/γ₀² − ρ(θ − S)
 - Cross-checked entrywise against xtrack's `Bend` configured as a pure sector
   (`edge_entry/exit_active = 0`, `k1 = 0`) to ~1e-6
   (`tests/reference/test_dipole_xtrack.py`).
+
+## Dipole — combined-function gradient `k1` (implemented)
+
+A body quadrupole gradient `k1` [m⁻²] (same normalisation as `Quadrupole`) turns
+the sector bend into a **combined-function** magnet. Equations of motion:
+
+```
+x'' + (h² + k1) x = h·δ        y'' − k1 y = 0
+```
+
+so horizontal focusing is `K_x = h² + k1` — the geometric weak focusing `h²`
+**plus** the gradient — and vertical is `K_y = −k1`. Thus `k1 > 0` focuses `x`
+and defocuses `y`, exactly as in a quadrupole; the bend's `h²` is an extra
+horizontal focusing a straight quad does not have.
+
+- **Body map** is the closed form of `exp(L·A)` for the combined generator (which
+  adds `k1(x²−y²)/2` to the sector Hamiltonian). Transverse blocks reuse
+  `Quadrupole._focusing_block` with `K_x` (x) and `−k1` (y). Dispersion and the
+  longitudinal slip pick up the gradient through `K_x`:
+  `R16 = h·(1−cos ωₓL)/K_x`, `R26 = h·sin(ωₓL)/ωₓ`, `R51 = −R26`, `R52 = −R16`,
+  `R56 = L/γ₀² + h²·(sin(ωₓL)/ωₓ − L)/K_x`, with `ωₓ = √K_x`.
+- **Branch-smooth in `K_x`.** The dispersion/slip integrals are written via
+  helpers (`_dispersion_integrals`) with the removable singularity at `K_x = 0`
+  (the `h² = −k1` tune) handled by the leading Taylor terms — verified exact to
+  machine precision against `scipy.linalg.expm` there. `K_x < 0` (net horizontal
+  defocus) uses the cosh/sinh branch automatically.
+- **Reductions** (free regressions): `k1 = 0` is **byte-identical** to the pure
+  sector map; `h = 0` (angle 0) is a **pure `Quadrupole`** and dispersion
+  vanishes with the curvature.
+- **Signs/reductions pinned empirically:** the whole 6×6 matches MAD-X `sbend`
+  with `k1` (~1e-9) and xtrack `Bend` with `k1` (~1e-6) for both signs of `k1`
+  (`tests/reference/test_dipole_combined_{madx,xtrack}.py`); the symbolic
+  `exp(L·A)` gate covers `K_x` >0, <0 and the singular =0
+  (`tests/analytic/test_dipole_combined.py`).
+- **Out of scope here:** the gradient's contribution to the radiation damping
+  partition (`I4`'s `2 k1 D_x h` body term) is a separate milestone. Edge angles
+  compose on top (`Edge @ combined-body @ Edge`) and are gated together.
 
 ## Dipole — pole-face (edge) focusing (implemented)
 
