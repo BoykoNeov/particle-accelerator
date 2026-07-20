@@ -439,12 +439,15 @@ Directions the project could grow next, each written as a *candidate milestone*:
 defined, as always, by its **analytic gate** (a direction without a closed-form
 check is not worth building here — see the working agreement).
 
-**As of 2026-07-20 every candidate listed here is done** (A1–A3, B1, C1, C2, D1–D5,
-E1, E2, **F1**, and **F2** — each marked inline with what it delivered and what it
-deliberately did not). The next milestone means writing a *new* candidate — either
-extending an axis below or opening one — and, where it overlaps *Out of scope* below,
-pulling that item into scope. Ordered by proximity to what is already built, not by
-priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a sustained arc.
+**As of 2026-07-21 the delivered candidates are** A1–A3, B1, C1, C2, D1–D5, E1, E2,
+**F1**, **F2**, and the **core of G1** (betatron-coupling optics — skew quad, coupled
+normal-mode tunes, closest-tune-approach `ΔQ_min`) — each marked inline with what it
+delivered and what it deliberately did not. **One follow-up is open by agreement:**
+**G1's ε_y half** (vertical emittance from coupling) — see axis **G** below. The next
+milestone means finishing G1's ε_y or writing a *new* candidate — either extending an
+axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
+item into scope. Ordered by proximity to what is already built, not by priority.
+Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a sustained arc.
 
 ### A. Drell-Yan angular physics (extends the Collins-Soper A_FB, Phase 2)
 
@@ -991,6 +994,45 @@ priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈
     quadrupole; and the partial-fix-is-worse reduction. `momentum_compaction(
     method="quadrature")` still sub-slices dipoles without `k1` (default `identity` is exact
     — low impact, unchanged).
+
+### G. Betatron coupling & vertical emittance (core accelerator — closes a Stage-7 gap)
+
+- **G1 — linear betatron coupling: skew quad + normal-mode tunes + `ΔQ_min`.**
+  ✅ **CORE DONE (2026-07-21)** — the x-y coupling milestone, chosen after every prior
+  candidate was complete. Delivered as three baseline features (always-on; numpy/scipy),
+  one per commit, all analytically gated and cross-checked:
+  - **`SkewQuadrupole` / `ThinSkewQuadrupole`** (`src/accsim/elements/skew_quadrupole.py`)
+    — the coupling source, the exact hard-edge 45° roll of a normal quad
+    (`[[A,B],[B,A]]`, `A=(F+D)/2`, `B=(D−F)/2`), symplectic by construction, `k1s=0` ⇒
+    drift. The roll identity is the analytic gate (built directly, so the test has teeth);
+    **MAD-X reproduces the whole 4×4 to ~2e-16**, confirming it exact, while **xtrack's
+    `Quadrupole(k1s)` is a first-order-in-`k1s` model** (drift diagonal) — a documented,
+    localised disagreement (D3-style), against which only the coupling sign is pinned.
+  - **`normal_mode_tunes(lattice)`** — the coupled eigen-tunes (eigenvalues of the 4×4,
+    symplectic-norm orientation), reducing to `tunes() mod 1` exactly when uncoupled. The
+    uncoupled Courant-Snyder path is now **guarded** (`CoupledLatticeError`) so a skew
+    lattice can't silently return decoupled-but-wrong betas/tunes.
+  - **`closest_tune_approach(lattice) = |C⁻|`** — the milestone's **analytic gate**: the
+    minimum mode-tune split at the difference resonance, `|C⁻| = (1/2π)√(β_xβ_y)|k1s·l|`.
+    The `1/2π` prefactor is **derived** (exact eigen-split of a single-kick model,
+    re-derived symbolically in-test), then triple-pinned — vs the exact eigenvalue gap
+    on-resonance with **O((k1s·l)²) convergence**, the off-resonance hyperbola
+    `√(Δ²+|C⁻|²)`, and the thick path gated separately; xtrack's coupled 4D Twiss
+    reproduces the mode tunes (~1e-4) and `|C⁻|` (~3e-2).
+  - Gates: `tests/analytic/test_skew_quadrupole.py`, `test_betatron_coupling.py`;
+    reference `tests/reference/test_betatron_coupling_{xtrack,madx}.py`. See
+    CONVENTIONS.md → *Betatron coupling*.
+  - **ε_y follow-up (OPEN, agreed 2026-07-21).** The vertical-emittance half. The user
+    chose **A→C→B**: ship the rigorous core first (done), then add ε_y as the perturbative
+    **sharing formula** `ε_y/ε_x = |C⁻|²/(|C⁻|²+Δ²)`, **explicitly labelled an
+    approximation** and gated against xtrack's coupled eigen-emittances (not a symbolic
+    closed form — that would be circular without the envelope). The full **radiation-
+    envelope (Σ-matrix / Lyapunov) eigen-emittance** formalism (option B) is reserved for
+    if the sharing formula proves insufficient or ε_y from vertical dispersion / arbitrary
+    sources is wanted. This closes the Stage-7 flat-lattice gap (`J_y≡1`, `ε_y≈0`).
+  - Deliberately **out of scope** here: solenoid coupling (body rotation + edge — messier
+    gate), coupled Twiss / Edwards–Teng parametrisation, and the ε_y envelope (option B)
+    unless pulled in.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

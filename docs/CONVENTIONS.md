@@ -483,6 +483,83 @@ strength `k2l = k2·L` [m⁻²]. Conventions:
   exactly). accsim's feed-down matches xtrack's `Δdqx`/`Δdqy` to `rel ≈ 2e-3`
   (`tests/reference/test_sextupole_xtrack.py`).
 
+## Betatron coupling — skew quad, normal-mode tunes, ΔQ_min (G1 — implemented)
+
+The linear x-y coupling milestone (expansion axis **G1**). Three baseline pieces
+(always-on; numpy/scipy only), built one feature per commit.
+
+**`SkewQuadrupole` / `ThinSkewQuadrupole` (the coupling source).** A skew
+quadrupole is a normal `Quadrupole` **rolled 45° about the s-axis**: its field
+mixes the planes, the canonical source of betatron coupling. `k1s` is the skew
+gradient of the equivalent normal quad. The map is implemented **directly** from
+the closed form of the roll conjugation `R(π/4)·Q_body(k1s)·R(−π/4)`; on the pairs
+`(x,px)`,`(y,py)` it is the block matrix `[[A,B],[B,A]]` with `A=(F+D)/2`,
+`B=(D−F)/2`, where `F=_focusing_block(k1s,L)` (cos/sin) and `D=_focusing_block(−k1s,L)`
+(cosh/sinh) are the same blocks a normal quad uses. So `k1s=0 ⇒ F=D ⇒ B=0` (a
+drift), and `k1s→−k1s` swaps `F,D` and flips the coupling — no special cases.
+Longitudinal `R56=L/γ₀²` (the roll leaves `(zeta,delta)` alone). The thin kick is
+`Δpx=k1s·l·y`, `Δpy=k1s·l·x` (symmetric, `R[px,y]=R[py,x]=k1s·l`).
+
+- **Sign convention, pinned three ways.** The `k1s` sign is *not* derivable from the
+  roll-identity gate alone (it is symmetric in construction), so it is pinned
+  empirically: accsim `+k1s` agrees with **MAD-X** `quadrupole,k1s>0` and **xtrack**
+  `Quadrupole(k1s>0)` on the coupling sign.
+- **Exact roll vs xtrack's first-order model (honest disagreement, D3-style).**
+  accsim's map is the **exact** hard-edge roll (`exp(L·A)`, symplectic), so its
+  diagonal blocks carry the `(F+D)/2` focusing (order `k1s²`). **MAD-X reproduces the
+  whole transverse 4×4 to ~2e-16** (`test_betatron_coupling_madx.py`) — it does the
+  same exact tilt. **xtrack's `Quadrupole(k1s)` is first-order in `k1s`**: its diagonal
+  is a pure drift and only the linear coupling `R[px,y]=R[py,x]=k1s·L` is kept, so
+  against xtrack we pin *that* (the sign anchor) and document the model gap rather than
+  loosen a tolerance (`test_betatron_coupling_xtrack.py`). The analytic gate is the
+  roll identity with teeth: the element is built directly, and the test asserts it
+  equals `R(π/4)·Quadrupole·R(−π/4)`, plus `exp(L·A)` of the rolled generator, plus
+  symplecticity, the `k1s→0` drift limit, and the sign flip (`test_skew_quadrupole.py`).
+
+**`normal_mode_tunes` (coupled eigen-tunes).** A coupled lattice no longer separates
+into x/y betatron oscillations; the invariant description is the eigenvectors of the
+transverse 4×4 one-turn matrix `M4`. A stable symplectic `M4` has four eigenvalues on
+the unit circle in two conjugate pairs `e^{±i2πQ1}, e^{±i2πQ2}`; the mode tunes are
+the phases /2π, returned **fractional in [0,1)** (eigenvalues lose the integer part).
+Each mode's rotation sense is fixed by the sign of its eigenvector's symplectic norm
+`Im(v* J v)` — the standard convention that maps a conjugate pair to a single tune in
+`[0,1)` rather than the ambiguous `[0,½]` `acos` value. Modes are labelled by dominant
+plane, so in the uncoupled limit `(Q1,Q2)=tunes() mod 1` **exactly** (analytic gate).
+Raises `UnstableLatticeError` if any eigenvalue leaves the unit circle (a coupled
+instability the per-plane `is_stable` cannot see). **The uncoupled Courant-Snyder path
+is now guarded**: `match_periodic`/`tunes`/`natural_chromaticity`/… raise
+`CoupledLatticeError` on a lattice with nonzero off-block terms rather than return
+decoupled-but-wrong betas/tunes (`_require_uncoupled`, `atol=1e-9`; a no-op for the
+exactly block-diagonal drift/quad/dipole/sextupole lattices).
+
+**`closest_tune_approach` = `|C⁻|` (the analytic gate).** As a ring is tuned toward
+the difference resonance `Qx=Qy`, the two mode tunes **repel** — they cannot cross —
+and their minimum gap is the modulus of the difference coupling coefficient
+
+    C⁻ = (1/2π) Σ_j (k1s·l)_j √(β_x β_y)_j exp(i(μ_x−μ_y))_j,
+
+summed over skew sources `j`, with `β`/phase from the **unperturbed** (coupling-off,
+`_decoupled`) optics at each source; a thick `SkewQuadrupole` is trapezoid-sliced.
+**The `1/2π` prefactor and the geometric mean `√(β_xβ_y)` are derived, not recalled**:
+the exact eigen-tune split of a single-skew-kick model gives cos(mode)=cos μ ±
+½√(β_xβ_y)k sin μ, hence a tune gap `√(β_xβ_y)k/(2π)` (re-derived symbolically inside
+`test_betatron_coupling.py::test_cminus_prefactor_derived_symbolically`). Validation is
+**triple-pinned** and non-circular: the closed form vs the **exact** `normal_mode_tunes`
+eigenvalue gap on a symmetric FODO (on-resonance, where the gap *equals* `|C⁻|`),
+converging with an **O((k1s·l)²) relative residual** as coupling→0 (the beam-beam
+tune-shift-style quadratic check); the off-resonance **hyperbola** `gap=√(Δ²+|C⁻|²)`;
+and the thick path gated separately against the eigen-gap. xtrack's coupled 4D Twiss
+`qx,qy` reproduces both the mode tunes (~1e-4) and `|C⁻|` (~3e-2) on the on-resonance
+ring (`test_betatron_coupling_xtrack.py`).
+
+**Scope, stated honestly.** Multi-source `|C⁻|` is *implemented* (the phasor sum) but
+only the **single-source** case is analytically gated. The thick-skew unperturbed
+optics keep the `(F+D)/2` diagonal (a higher-order choice, not the `k1s→0` drift),
+validated only for **short** magnets. And the **ε_y / vertical-emittance** half of the
+milestone is a deliberate follow-up (see ROADMAP → G1), not built here: equilibrium
+`ε_y` under coupling is an eigen-emittance of the radiation envelope, a fundamentally
+softer (non-symbolic) gate than `ΔQ_min`.
+
 ## Stability boundary (Stage 2 — validated)
 
 A transverse plane is stable iff its one-turn 2×2 block obeys `|½·Tr| < 1`
