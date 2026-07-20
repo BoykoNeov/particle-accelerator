@@ -353,9 +353,11 @@ def test_bounded_inside_unbounded_outside_moving_bucket(label, make_ref, make_ar
 def test_asymmetric_bucket_is_not_bounded_by_the_mirror_point() -> None:
     """The far tip is a transcendental root, not ``-zeta_u``: tracking must show it.
 
-    A particle launched between ``-zeta_u`` and the true far tip on the wide side
-    is still *inside* the bucket, which the old mirror-symmetric bound would have
-    called outside (or vice versa on the narrow side).
+    The bounding saddle ``zeta_u`` is the *outer* endpoint; the far turning point is
+    strictly inside its mirror image (e.g. ``zeta_u = -0.059``, far tip ``+0.033``,
+    mirror ``+0.059``). So the interval between the far tip and ``-zeta_u`` is
+    **outside** the real bucket while the old mirror-symmetric bound would have
+    called it inside — launch there and the motion must run away.
     """
     ref, arc = _proton(), _below_arc()
     lat = _lattice(ref, arc, _branch_phi_s(ref, arc, 0.6))
