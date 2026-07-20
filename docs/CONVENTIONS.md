@@ -736,8 +736,8 @@ sigma_z=0, crossing_plane="x")` returns the peak luminosity in **`m^-2 s^-1`**
   `S = 1/√(1 + (σ_z·tan(φ/2)/σ_cross)²)` (`piwinski_reduction`), `σ_cross` the
   beam size in the crossing plane. **`tan(φ/2)`, not `tan φ`** — each beam tilts by
   half the full angle. `S → 1` head-on or for a point bunch. The **hourglass**
-  effect (`β` varying across `σ_z` when `σ_z ≳ β*`) is a *separate* reduction and
-  is **out of scope**.
+  effect (`β` varying across `σ_z` when `σ_z ≳ β*`) is a *separate* reduction —
+  see *Hourglass effect* below — and the two do **not** factorise.
 - **Worked example (acceptance gate).** LHC nominal (LHC Design Report Vol I,
   Table 2.1: `N=1.15e11`, `n_b=2808`, `f_rev=11245 Hz`, `β*=0.55 m`,
   `ε_n=3.75 µm`, 7 TeV/beam) gives head-on **`1.20e34 cm^-2 s^-1`**, and with the
@@ -750,6 +750,43 @@ sigma_z=0, crossing_plane="x")` returns the peak luminosity in **`m^-2 s^-1`**
   propagation already produces around a zero-`α` point. The classical particle
   radius `r0 = r_e·(m_e c²/m c²)·q²` (`ReferenceParticle.classical_radius_m`,
   `r_e = ELECTRON_RADIUS_M`) is added for the Stage-6 beam-beam kick / tune shift.
+
+## Hourglass effect (C2 — implemented)
+
+`hourglass_reduction(sigma_z, beta_x_star, beta_y_star=None)` (`accsim.collider`,
+always-on baseline: numpy/scipy only) returns the multiplicative luminosity
+reduction `H` from the finite bunch length. Collisions are spread over the
+crossing, and `β(s) = β*(1 + s²/β*²)` grows away from the waist, so the beams are
+fatter than `σ*` almost everywhere:
+
+    H = 1/(√π σ_z) ∫ ds e^{−s²/σ_z²} / √((1 + s²/β_x*²)(1 + s²/β_y*²))
+
+- **The integrand is derived, not remembered** (`tests/analytic/test_hourglass.py`,
+  6 tests): doing the `x`, `y`, `t` Gaussian integrals of `ρ₁ρ₂` in sympy makes
+  *both* pieces fall out on their own — the `e^{−s²/σ_z²}` weight and the waist
+  factor. The same derivation, integrated over `s`, reproduces Stage 6's
+  `1/(4π σ_x σ_y)`, so the new factor rides on the already-validated overlap.
+- **The collision points have rms `σ_z/√2`, not `σ_z`.** Both bunches must be
+  present, so the two longitudinal Gaussians multiply — that is the `e^{−s²/σ_z²}`
+  (variance `σ_z²/2`) above. Plenty of references write `σ_z` here; it is the
+  classic hourglass trap and a factor-√2 error in the *shape*. `σ_z` is the
+  **per-bunch** rms, the same meaning `piwinski_reduction` gives it.
+- **Round waist is exact.** `H = √π·a·e^{a²}·erfc(a)` with `a = β*/σ_z`, from
+  `∫e^{−u²}/(u²+a²)du = (π/a)e^{a²}erfc(a)` (sympy). Coded with **`scipy.special.erfcx`**
+  (`= e^{a²}erfc(a)`) so a short bunch (`a` large) does not overflow to `inf·0`.
+  Unequal `β_x* ≠ β_y*` has no such closed form and is quadratured; it is bracketed
+  by the two round cases.
+- **Limits.** `H → 1 − σ_z²/(2β*²)` for a short bunch; `H → √π β*/σ_z → 0` for a
+  long one. LHC nominal (`β* = 0.55 m`, `σ_z = 7.55 cm`) gives `H = 0.9907` — under
+  a percent, which is why Stage 6 could ignore it; squeezing `β*` to `0.15 m` at
+  the same bunch length costs ~10%, the reason a `β*` squeeze alone does not buy
+  the luminosity it appears to.
+- **`H` does NOT factorise with the Piwinski `S`.** A crossing angle couples the
+  transverse and longitudinal integrals through the same growing `σ_x(s)`, so
+  `L₀·S·H` is an *approximation* good for a short bunch or a small angle. The
+  exact combined factor is a genuinely 2D integral and is **not implemented**;
+  `luminosity()` is therefore left unchanged and `H` is applied by the caller,
+  deliberately, rather than silently multiplied in.
 
 ## Weak-strong beam-beam kick (Stage 6 — implemented)
 

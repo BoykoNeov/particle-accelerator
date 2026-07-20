@@ -14,7 +14,12 @@ from .acceleration import (
     energy_gain_per_turn,
     synchronous_phase,
 )
-from .collider import beam_beam_tune_shift, luminosity, piwinski_reduction
+from .collider import (
+    beam_beam_tune_shift,
+    hourglass_reduction,
+    luminosity,
+    piwinski_reduction,
+)
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements import (
     Aperture,
@@ -150,6 +155,7 @@ __all__ = [
     # collider (Stage 6)
     "luminosity",
     "piwinski_reduction",
+    "hourglass_reduction",
     "beam_beam_tune_shift",
     # acceleration (Stage 5)
     "energy_gain_per_turn",

@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+from scipy import integrate, special
+
 from .elements.beambeam import BeamBeam
 from .reference import ReferenceParticle
 
-__all__ = ["luminosity", "piwinski_reduction", "beam_beam_tune_shift"]
+__all__ = ["luminosity", "piwinski_reduction", "hourglass_reduction", "beam_beam_tune_shift"]
 
 
 def piwinski_reduction(
@@ -47,6 +50,72 @@ def piwinski_reduction(
         raise ValueError(f"sigma_cross must be positive, got {sigma_cross}")
     piwinski = sigma_z * math.tan(0.5 * crossing_angle) / sigma_cross
     return 1.0 / math.sqrt(1.0 + piwinski * piwinski)
+
+
+def hourglass_reduction(
+    sigma_z: float,
+    beta_x_star: float,
+    beta_y_star: float | None = None,
+) -> float:
+    """Hourglass luminosity reduction ``H`` for a finite bunch length [-].
+
+    Collisions happen over the whole length of the crossing, not at a point, and
+    ``beta`` grows away from the waist as ``beta(s) = beta* (1 + s^2/beta*^2)`` —
+    so the beams are *fatter* than ``sigma*`` almost everywhere and the luminosity
+    is lower than the point-collision formula says. Weighting the transverse
+    overlap ``1/(4 pi sigma_x(s) sigma_y(s))`` by where the collisions actually
+    happen gives the multiplicative factor
+
+    .. code-block:: text
+
+        H = (1/(sqrt(pi) sigma_z)) int ds exp(-s^2/sigma_z^2)
+                / sqrt((1 + s^2/beta_x*^2) (1 + s^2/beta_y*^2))
+
+    Note the ``exp(-s^2/sigma_z^2)``: the *collision points* have rms
+    ``sigma_z/sqrt(2)``, not ``sigma_z``, because both bunches have to be present.
+    ``sigma_z`` here is the **per-bunch** rms bunch length [m], the same meaning it
+    carries in :func:`piwinski_reduction`.
+
+    For a **round waist** (``beta_y_star is None`` or equal) the integral is exact::
+
+        H = sqrt(pi) * a * exp(a^2) * erfc(a),    a = beta* / sigma_z
+
+    evaluated via the scaled ``erfcx`` so that large ``a`` (short bunches) does not
+    overflow. Unequal ``beta*`` has no such closed form and is quadratured.
+
+    Limits: ``H -> 1`` as ``sigma_z/beta* -> 0`` (leading correction
+    ``1 - sigma_z^2/(2 beta*^2)``) and ``H -> sqrt(pi) beta*/sigma_z -> 0`` for a
+    long bunch.
+
+    This is a **head-on** factor. It does *not* factorise with the crossing-angle
+    :func:`piwinski_reduction`: a crossing angle couples the transverse and
+    longitudinal integrals through the same growing ``sigma_x(s)``, so the product
+    ``S * H`` is an approximation valid for a short bunch or a small angle. See
+    ``docs/CONVENTIONS.md`` -> *Hourglass effect*.
+    """
+    if sigma_z < 0:
+        raise ValueError(f"sigma_z must be non-negative, got {sigma_z}")
+    if beta_x_star <= 0:
+        raise ValueError(f"beta_x_star must be positive, got {beta_x_star}")
+    if beta_y_star is not None and beta_y_star <= 0:
+        raise ValueError(f"beta_y_star must be positive, got {beta_y_star}")
+
+    if sigma_z == 0.0:
+        return 1.0
+    if beta_y_star is None or beta_y_star == beta_x_star:
+        a = beta_x_star / sigma_z
+        # sqrt(pi) a e^{a^2} erfc(a), written with erfcx = e^{a^2} erfc(a) so that
+        # the short-bunch limit (a -> inf) stays finite instead of inf * 0.
+        return float(math.sqrt(math.pi) * a * special.erfcx(a))
+
+    ax = sigma_z / beta_x_star
+    ay = sigma_z / beta_y_star
+
+    def integrand(u: float) -> float:
+        return math.exp(-(u**2)) / math.sqrt((1 + (ax * u) ** 2) * (1 + (ay * u) ** 2))
+
+    value, _ = integrate.quad(integrand, -np.inf, np.inf)
+    return float(value / math.sqrt(math.pi))
 
 
 def luminosity(

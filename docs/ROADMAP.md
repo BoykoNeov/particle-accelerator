@@ -272,7 +272,8 @@ research-grade and out of scope** unless explicitly requested.
   example (LHC Design Report Vol I, Table 2.1): head-on `1.20e34 cm⁻²s⁻¹`, design
   `1.0e34` with the 285 µrad crossing (`tests/analytic/test_luminosity.py`). The
   cm/m 10⁴ trap and the normalized-vs-geometric-emittance stray-γ trap are pinned;
-  hourglass is flagged out of scope. `ReferenceParticle.classical_radius_m`
+  hourglass was flagged out of scope here and landed later as **C2**.
+  `ReferenceParticle.classical_radius_m`
   (`r0 = r_e·(m_e/m)·q²`) added for the beam-beam kick. See CONVENTIONS.md →
   *Luminosity*.
 - ✅ **Weak-strong beam-beam kick (gate 3)** — `BeamBeam(n_particles, sigma,
@@ -297,8 +298,9 @@ research-grade and out of scope** unless explicitly requested.
 - ✅ **Low-β insertion** needed no new code: the IP waist `β(s) = β* + s²/β*`,
   `α(s) = −s/β*` is exactly the Stage-1 drift Twiss propagation around a zero-`α`
   point — pinned (both planes, waist-symmetric, `β` minimum at the IP) by
-  `tests/analytic/test_low_beta_insertion.py`. Hourglass / strong-strong / crab
-  cavities / dynamic aperture remain out of scope.
+  `tests/analytic/test_low_beta_insertion.py`. Hourglass was out of scope here and
+  landed later as **C2**; strong-strong / crab cavities / dynamic aperture remain
+  out of scope.
 
 ## Stage 7 — Synchrotron radiation & radiation damping ✅ COMPLETE
 
@@ -540,9 +542,29 @@ sustained arc.
 - **C1 — Bassetti–Erskine elliptical beam-beam kick.** [M] Generalises the round head-on
   kick (Stage 6) to `σ_x ≠ σ_y` via the complex error function. **Gate:** reduces to the
   round `g(u)` in the `σ_x → σ_y` limit. Pulls "elliptical Bassetti–Erskine" into scope.
-- **C2 — hourglass effect on luminosity.** [S] The finite-`β*`/bunch-length luminosity
-  reduction. **Gate:** the analytic hourglass reduction factor vs `σ_z/β*`. Pulls
-  "hourglass" into scope; composes with the Stage-6 Piwinski crossing factor.
+- **C2 — hourglass effect on luminosity.** ✅ **DONE (2026-07-20)** — the finite-`β*`/
+  bunch-length luminosity reduction. Delivered: `hourglass_reduction(sigma_z,
+  beta_x_star, beta_y_star=None)` in `accsim.collider` (always-on baseline,
+  numpy/scipy), exact closed form `H = √π·a·e^{a²}·erfc(a)` (`a = β*/σ_z`) for a round
+  waist, quadrature for `β_x* ≠ β_y*`.
+  **Gate met** (`tests/analytic/test_hourglass.py`, 6 tests), layered so a wrong
+  integrand and a wrong closed form can't cancel: the integrand is **derived
+  symbolically** from the `ρ₁ρ₂` overlap — both the `e^{−s²/σ_z²}` weight and the
+  waist factor *fall out* rather than being asserted — and the same derivation
+  reproduces Stage 6's `1/(4π σ_x σ_y)`, tying the new factor to validated ground.
+  On top: closed form vs quadrature over five decades of `a`, an **independent 2D
+  `(s,t)` overlap** that never uses the `σ_z/√2` collapse (so a wrong collision-point
+  width would not cancel), limits/monotonicity, the unequal-`β*` bracket, and the LHC
+  nominal `H = 0.9907`.
+  **Two things worth keeping.** (i) The *collision points* have rms `σ_z/√2`, not
+  `σ_z` — both bunches must be there. Many references get this wrong; the symbolic
+  derivation is what makes it not a remembered fact. (ii) `e^{a²}erfc(a)` overflows as
+  `inf·0` for a short bunch, so it is coded with `scipy.special.erfcx`.
+  **Scope, stated honestly:** `H` is **head-on** and does *not* factorise with the
+  Piwinski `S` — a crossing angle couples the two integrals through the same growing
+  `σ_x(s)`. The exact combined factor is a genuinely 2D integral and was **not**
+  attempted; `luminosity()` is left unchanged and the caller applies `H`, rather than
+  shipping `S·H` as if it were exact. See CONVENTIONS.md → *Hourglass effect*.
 
 ### D. Integration, validation & teaching (no new physics, high leverage)
 
