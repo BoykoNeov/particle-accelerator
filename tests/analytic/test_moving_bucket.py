@@ -29,6 +29,7 @@ there is nothing to gate it against exactly. See ``docs/CONVENTIONS.md``.
 
 from __future__ import annotations
 
+import functools
 import math
 
 import numpy as np
@@ -134,31 +135,67 @@ BRANCHES = [
 SIN_PHI_S = [0.019, 0.2, 0.5, 0.8]
 
 
+@functools.lru_cache(maxsize=1)
 def _symbolic_height_ratio():
-    """``f(psi)`` derived from accsim's own ``U``, not a remembered constant.
+    """``f(psi)``, proved from accsim's own ``U`` on **all four branches**.
 
-    Returns a callable ``f(psi)``. The derivation mirrors the module docstring of
-    ``accsim.longitudinal``: unstable fixed points of ``dU/dzeta``, the bucket is
-    the inner one, and the ratio is taken against the branch's stationary bucket.
+    Not a remembered constant, and not one branch generalised by assertion: for each
+    of proton/electron x below/above transition this re-runs the whole argument —
+    locate the straddling unstable pair, *select* the bounding one by the same
+    smaller-positive-``delta^2`` rule the implementation uses, and simplify the ratio
+    against that branch's own stationary bucket. All four must collapse to the same
+    ``f(psi)``. It is the above-transition and ``qV < 0`` branches that make this
+    worth doing: the ratio is the same function of ``psi``, but it is *not* the same
+    function of ``phi_s``, and the bounding fixed point is a different member there.
+
+    sympy cannot reduce ``Mod`` symbolically, so each branch supplies its straddling
+    pair as ``k zeta = w`` and ``w - 2 pi`` explicitly — and both properties that make
+    it the right pair are then checked, not assumed.
     """
     sp = pytest.importorskip("sympy")
-    A, k, eta, C, zeta, phi = sp.symbols("A k eta C zeta phi", real=True)
-
-    def U(z, p):
-        return -A * (sp.cos(p - k * z) / k - z * sp.sin(p))
-
-    # the unstable fixed points: dU/dzeta = 0 away from k zeta = 2 pi n
-    dU = sp.simplify(sp.diff(U(zeta, phi), zeta))
-    assert sp.simplify(dU.subs(zeta, 0)) == 0  # zeta = 0 is the stable centre
-    assert sp.simplify(dU.subs(zeta, (2 * phi - sp.pi) / k)) == 0  # an unstable one
-
-    psi = sp.Symbol("psi", positive=True)
-    # Below-transition proton branch: phi_s = psi, bounding FP k zeta_u = 2 psi - pi,
-    # stationary reference phi_s = 0 (k zeta_u = -pi). Both use the same U.
-    d2 = lambda zu, p: 2 * (U(0, p) - U(zu, p)) / (eta * C)  # noqa: E731
-    ratio = sp.simplify(d2((2 * psi - sp.pi) / k, psi) / d2(-sp.pi / k, 0))
+    psi = sp.Symbol("psi", positive=True)  # psi = asin|sin phi_s| in (0, pi/2)
+    a, e, k, C = sp.symbols("a e k C", positive=True)  # |A|, |eta|, k_rf, circumference
     f = sp.cos(psi) - (sp.pi / 2 - psi) * sp.sin(psi)
-    assert sp.simplify(sp.expand(ratio - f)) == 0, f"symbolic ratio != f(psi): {ratio}"
+    samples = [sp.Rational(1, 10), sp.Rational(7, 10), sp.Rational(14, 10)]
+    unit = {a: 1, e: 1, k: 1, C: 1}  # magnitudes cancel from the ratio; fix for comparisons
+
+    def U(z, phi, A, eta):
+        return -A * (sp.cos(phi - k * z) / k - z * sp.sin(phi))
+
+    def delta2(zu, phi, A, eta):
+        return sp.simplify(2 * (U(0, phi, A, eta) - U(zu, phi, A, eta)) / (eta * C))
+
+    # label, phi_s, w = k*zeta_hi, phi_stationary, sign(A) = sign(qV), sign(eta)
+    branches = [
+        ("proton below", psi, 2 * psi + sp.pi, 0, +1, -1),
+        ("proton above", sp.pi - psi, sp.pi - 2 * psi, sp.pi, +1, +1),
+        ("electron below", sp.pi + psi, sp.pi + 2 * psi, sp.pi, -1, -1),
+        ("electron above", -psi, sp.pi - 2 * psi, 0, -1, +1),
+    ]
+    for label, phi, w, phi_stat, sign_a, sign_e in branches:
+        A, eta = sign_a * a, sign_e * e
+        # (a) w really is an unstable fixed point: w - (2 phi + pi) is a multiple of 2 pi
+        n = sp.simplify((w - (2 * phi + sp.pi)) / (2 * sp.pi))
+        assert n.is_integer, f"{label}: w is not an unstable fixed point (n = {n})"
+        # (b) w and w - 2 pi straddle the stable centre zeta = 0
+        assert all(0 < w.subs(psi, t) < 2 * sp.pi for t in samples), f"{label}: w outside (0, 2pi)"
+
+        d2 = {"lo": delta2((w - 2 * sp.pi) / k, phi, A, eta), "hi": delta2(w / k, phi, A, eta)}
+        chosen = None
+        for name in ("lo", "hi"):
+            other = "hi" if name == "lo" else "lo"
+            if all(d2[name].subs(unit).subs(psi, t) > 0 for t in samples) and all(
+                (d2[other] - d2[name]).subs(unit).subs(psi, t) >= 0 for t in samples
+            ):
+                chosen = name
+        assert chosen, f"{label}: no bounding fixed point selected"
+
+        # the branch's own stationary bucket: at sin phi_s = 0 the two are degenerate
+        d2_stat = delta2((sp.pi - 2 * sp.pi) / k, phi_stat, A, eta)
+        assert sp.simplify(d2_stat - delta2(sp.pi / k, phi_stat, A, eta)) == 0, label
+        ratio = sp.simplify(sp.expand(sp.simplify(d2[chosen] / d2_stat)))
+        assert sp.simplify(sp.expand(ratio - f)) == 0, f"{label}: ratio {ratio} != f(psi)"
+
     assert f.subs(psi, 0) == 1 and sp.simplify(f.subs(psi, sp.pi / 2)) == 0
     return sp.lambdify(psi, f, "math")
 
