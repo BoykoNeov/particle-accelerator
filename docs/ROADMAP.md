@@ -438,9 +438,10 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
 
 Directions the project could grow next, each written as a *candidate milestone*:
 defined, as always, by its **analytic gate** (a direction without a closed-form
-check is not worth building here — see the working agreement). None is started;
-picking one promotes it to an open milestone and, where it overlaps *Out of scope*
-below, pulls that item into scope. Ordered by proximity to what is already built,
+check is not worth building here — see the working agreement). Several are now done
+(A1–A3, B1, C1, C2, D2, E2 — marked inline); the rest are unstarted, and picking one
+promotes it to an open milestone and, where it overlaps *Out of scope* below, pulls
+that item into scope. Ordered by proximity to what is already built,
 not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
 sustained arc.
 
@@ -638,9 +639,55 @@ sustained arc.
 - **E1 — W production + the W-mass Jacobian peak.** [M] Sibling to the Z chain; the
   neutrino escapes, so the observable is the **transverse mass** `m_T`. **Gate:** the
   Jacobian edge at `M_W` (Sudakov-smeared). Reuses the LHAPDF/Delphes orchestration.
-- **E2 — jets / QCD** via FastJet clustering in Delphes (jet multiplicity, b-tag
-  performance), or an **ATLAS-vs-CMS card** detector comparison. [M] **Gate:** for b-tag,
-  the ROC / efficiency-vs-mistag curve reproduces the card's configured working points.
+- **E2 — jets / QCD: b-tagging performance against the card.** ✅ **DONE (2026-07-20)** —
+  `src/accsim/events/btag.py` (always-on baseline: numpy only) + the `pp -> ttbar`
+  pipeline in `pipelines/pp_ttbar_btag/` (behind **both** `ACCSIM_ENABLE_LHAPDF` and
+  `ACCSIM_ENABLE_DELPHES`, default OFF). The **b-tag** branch was taken; the
+  ATLAS-vs-CMS card comparison was **considered and rejected** — two detector outputs
+  side by side have nothing to be refuted against, which fails this project's
+  analytic-gate rule.
+  **The gate's shape.** Delphes does not simulate a tagging algorithm: `BTagging`
+  evaluates a per-flavour efficiency formula at the jet's `(pt, eta)` and sets a bit
+  with that probability. The card therefore **is** the closed form — every jet has a
+  known right answer. The formulas are **parsed out of the very card file Delphes ran**
+  (`CMS_PhaseII_0PU`, chosen over `delphes_card_CMS.tcl` because it configures *three*
+  working points on bits 0/1/2, making "the card's working points" plural and the
+  ordering claim falsifiable). Never transcribed: a retyped formula is a remembered
+  constant in disguise, and a typo in it would be invisible because both sides of the
+  comparison would share it.
+  **Gate met** — full run, 20 000 t̄t events / 132 988 jets: **χ²/ndf = 0.89 over 58
+  bins** (σ = √(2/58) ≈ 0.19, so 0.6σ from unity), all three working points ordered in
+  *both* coordinates (ε 0.756 > 0.593 > 0.408, mistag 0.0803 > 0.0082 > 0.0009), and
+  ε_b > ε_c > ε_light per working point.
+  **Two independent authorities, because the shipped ones are circular.** (i) The
+  evaluator was checked against **Delphes' own `DelphesFormula`** over all 9 formulas on
+  a 252-point grid landing deliberately *on* the card's step edges — **exact,
+  0.000e+00 over 2268 points**, frozen into `tests/analytic/data/` so it gates in CI
+  without Docker. (ii) `BTagging` keys on the same `Jet.Flavor` that
+  `JetFlavorAssociation` writes, so histogramming one against the other validates the
+  *handling* of the label but never its *definition*; an **independent** ΔR-matched
+  label built from Pythia's own event record (no HepMC round-trip) agrees **0.968**
+  overall (b 0.995, c 0.948, light/gluon 0.959).
+  **Three things that were wrong first and are worth not re-learning:** the expected
+  efficiency in a bin is the **jet-wise mean** of the formula, not the formula at the
+  bin centre (a steeply falling spectrum makes that a quiet ~0.07 absolute bias); the
+  pull uses the **expected** binomial variance, since the observed one is exactly zero
+  — an infinite pull — in the zero-tag bins a ~0.1% mistag routinely produces; and bin
+  validity gates on the **variance** `N·p·(1−p) ≥ 10`, not on jet count, because a bin
+  can hold thousands of jets and still expect ~1 tag, which is Poisson and inflates χ².
+  That last one is what moved the first real run from 1.90 to 0.67 — diagnosed as a
+  broken *statistic* (only the lowest-p working point misbehaved) rather than a broken
+  formula, and **not** by nudging a threshold.
+  **Scope, stated honestly:** this is a **round-trip / consistency gate**, not a
+  symbolic derivation like Robinson's theorem or `σ = 4πα²/3s` — the reference is a fit
+  parametrisation the card encodes, so what is proven is that the extraction, flavour
+  handling, binning and estimator are right. It is the **weakest analytic gate in this
+  repo** and is labelled as such. The ROC is an **operating-point** ROC, not a
+  continuous discriminant sweep: Delphes stores a decision bit and never a discriminant
+  value, so a continuous ROC is not obtainable from it. Gates:
+  `tests/analytic/test_btag_efficiency.py` (24 tests, synthetic jets + hand-written
+  cards, no Docker; mutation-tested in two rounds, 13/13 caught). See CONVENTIONS.md →
+  *b-tagging efficiency & the Delphes card* and `pipelines/pp_ttbar_btag/README.md`.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
