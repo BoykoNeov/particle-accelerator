@@ -1530,7 +1530,7 @@ edge roundness — the truth-vs-reco contrast rests on it and nothing else.
 
 The analytic gate's `m_T <= M` holds for a **fixed** parent mass. Pythia gives the
 `W` a **Breit-Wigner** mass, so off-shell events legitimately give `m_T > M_W` —
-**measured at 6.2%** of truth events (3k-event run). A `max(m_T) <= M_W` assertion would either
+**measured at 6.6%** of truth events. A `max(m_T) <= M_W` assertion would either
 fail on correct physics or pass only because a generation mass window had been
 imposed near the edge, hiding the effect being measured. Hence **no mass window** in
 the E1 generator (unlike the DY chain's `60..120 GeV`, which exists to dodge the
@@ -1558,10 +1558,20 @@ remembered PDG constant, or it would compare two remembered numbers.
   (`delphes_card_CMS.tcl` ~line 201). Checked in the card. Had muons been excluded,
   MET would track the hadronic recoil and every reco `m_T` would be meaningless.
 
-**Negative controls (3k events):** flipping the `GenMissingET` sign drops median
-`m_T` from 62.3 to **6.9 GeV** (edge 30 GeV off); feeding `p_T^mu` to gate 1 lands
-**35.6 GeV** off; flipping the reco MET sign drops median `m_T` to **9.4 GeV**. All
+**Measured (60k-event chain run):** truth edge **81.41** vs `M_W` 80.385, falloff
+**2.24**; reco edge **85.16**, falloff **10.99**; `p_T^mu` edge **42.91** vs
+`M_W/2` = 40.19.
+
+**Negative controls (same run):** flipping the `GenMissingET` sign drops median
+`m_T` from 62.9 to **7.0 GeV** (edge 25 GeV off); feeding `p_T^mu` to gate 1 lands
+**35.8 GeV** off; flipping the reco MET sign drops median `m_T` to **9.4 GeV**. All
 three fail the gates.
+
+**The run re-derives its own motivation.** On the same events the `m_T` edge lands
+**+1.03 GeV** from `M_W` while the `p_T^mu` edge lands **+2.72 GeV** from `M_W/2` —
+the `m_T` edge is **2.7x better determined**. That gap *is* the first-order
+ISR-recoil insensitivity that makes `m_T` the `W`-mass observable: it entered as a
+design assumption and came back out as a measurement.
 
 **Scope.** This locates an edge; it is **not** a W-mass measurement (which needs
 template fits, recoil calibration, and PDF/QED systematics under 10 MeV). Not

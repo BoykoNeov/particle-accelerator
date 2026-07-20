@@ -705,7 +705,7 @@ sustained arc.
   dropping either `sqrt`, `M^2-x^2 -> M^2+x^2`) are all killed.
   **The pipeline gate is a position, never `m_T <= M_W`.** That analytic bound holds
   for a *fixed* parent mass; Pythia's **Breit-Wigner** `W` legitimately produces
-  `m_T > M_W` (**measured at 6.2%** of truth events, 3k-event run). Asserting the
+  `m_T > M_W` (**measured at 6.6%** of truth events). Asserting the
   bound would have failed on correct physics — or passed only behind a mass window placed right where
   the edge lives, hiding the effect. So E1 uses **no mass window** (unlike DY's
   `60..120`, which dodges the photon pole the charged current does not have), and
@@ -727,9 +727,18 @@ sustained arc.
   `MissingET`** (`MissingET <- eflow <- TrackMerger <- MuonMomentumSmearing`),
   checked in the card rather than assumed — had they been excluded, MET would track
   the hadronic recoil and every reco `m_T` would be meaningless.
-  **Negative controls (3k-event run):** flipping the `GenMissingET` sign drops median `m_T` from
-  62.3 to **6.9 GeV**; feeding `p_T^mu` to the edge gate lands **35.6 GeV** off;
-  flipping the reco MET sign drops median `m_T` to **9.4 GeV**. All fail.
+  **Gates met** on a 60k-event chain run: truth edge **81.41** vs `M_W` 80.385
+  (**+1.03**), reco falloff **10.99** vs truth **2.24**, `p_T^mu` edge 42.91 vs
+  `M_W/2` = 40.19. **Negative controls:** flipping the `GenMissingET` sign drops
+  median `m_T` from 62.9 to **7.0 GeV** (edge 25 GeV off); feeding `p_T^mu` to the
+  edge gate lands **35.8 GeV** off; flipping the reco MET sign drops median `m_T`
+  to **9.4 GeV**. All fail.
+  **The run re-derives its own motivation.** The `m_T` edge sits **+1.03 GeV** from
+  `M_W` while the `p_T^mu` edge sits **+2.72 GeV** from `M_W/2` — the `m_T` edge is
+  **2.7x better determined on the same events**, which is exactly the first-order
+  ISR-recoil insensitivity that makes `m_T`, and not `p_T^l`, the `W`-mass
+  observable. That was an input assumption of the design and came back out as a
+  measurement.
   **Scope, stated honestly:** this *locates an edge*; it is not a `W`-mass
   measurement (which needs template fits, recoil calibration and PDF/QED systematics
   under 10 MeV). Not attempted: `W` charge asymmetry, recoil calibration, the

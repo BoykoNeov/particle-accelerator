@@ -61,16 +61,17 @@ charge would only cost statistics on a charge-independent observable.
 
 The analytic suite proves `m_T ≤ M` for a **fixed** parent mass. Pythia gives the W
 a **Breit-Wigner** mass, so off-shell events with `m(μν) > M_W` are real physics and
-genuinely produce `m_T > M_W` — **measured at 6.2% of truth events** in a 3k run. An
+genuinely produce `m_T > M_W` — **measured at 6.6% of truth events**. An
 assertion like "truth `max(m_T) ≤ M_W`" would therefore either fail on correct
 physics, or pass only because a mass window had been imposed near the edge, hiding
-the very effect being measured. Hence three gates on *positions and shapes*:
+the very effect being measured. Hence four gates on *positions and shapes*:
 
 | Gate | Statement | Why it has teeth |
 |---|---|---|
 | **1** | truth edge within 5 GeV of the generator's `M_W` | catches a wrong `m_T`, a flipped MET sign, or a `p_T^μ` mix-up |
 | **2** | reco edge measurably **rounder** than truth (falloff width) | pins the MET-resolution seam; a tight reco *position* gate is impossible (resolution), a loose one vacuous |
 | **3** | truth `p_T^μ` edge within 5 GeV of `M_W/2` | the `M_W/2` trap, asserted rather than commented |
+| **4** | reco edge within a loose 20 GeV band of `M_W` | gates 1–3 all key off the **truth** sample, leaving a flipped *reco* MET otherwise uncaught; a flip puts the edge ~25 GeV off, so the band is wide but not vacuous |
 
 The 5 GeV tolerance is **justified, not tuned**: the half-maximum estimator's
 measured bias at `Γ_W`-scale smearing is ~+1.5 GeV (tabulated in `jacobian_edge`'s
@@ -105,13 +106,28 @@ takes `MuonMomentumSmearing/muons` (`delphes_card_CMS.tcl` line ~201). Had the m
 been excluded, MET would track the hadronic recoil instead of the neutrino and every
 reco `m_T` would be meaningless.
 
-## Negative controls (measured, 3k events)
+## Results (60 000-event chain run)
+
+| Quantity | Truth | Reco |
+|---|---|---|
+| events | 60 000 | 32 375 |
+| edge position | **81.41 GeV** (`M_W` = 80.385) | 85.16 GeV |
+| falloff width | 2.24 GeV | **10.99 GeV** (rounder — the MET seam) |
+| `p_T^μ` edge | **42.91 GeV** (`M_W/2` = 40.19) | — |
+
+**The run re-derives its own motivation.** On the same events the `m_T` edge sits
+**+1.03 GeV** from `M_W`, the `p_T^μ` edge **+2.72 GeV** from `M_W/2` — `m_T` is
+**2.7× better determined**. That gap is exactly the first-order ISR-recoil
+insensitivity that makes `m_T`, not `p_T^ℓ`, the W-mass observable: an input
+assumption of the design, recovered as a measurement.
+
+## Negative controls (same run)
 
 | Mutation | Result |
 |---|---|
-| `GenMissingET` sign flipped | median `m_T` 62.3 → **6.9 GeV**, edge 30.2 GeV off → **FAIL** |
-| `p_T^μ` fed to gate 1 | edge 44.8, **35.6 GeV off** → **FAIL** |
-| reco `MissingET` sign flipped | median `m_T` 64.0 → **9.4 GeV** → **FAIL** |
+| `GenMissingET` sign flipped | median `m_T` 62.9 → **7.0 GeV**, edge 25.4 GeV off → **FAIL** |
+| `p_T^μ` fed to gate 1 | edge 44.5, **35.8 GeV off** → **FAIL** |
+| reco `MissingET` sign flipped | median `m_T` 64.6 → **9.4 GeV** → **FAIL** |
 
 ## Run it
 
