@@ -1530,7 +1530,7 @@ edge roundness — the truth-vs-reco contrast rests on it and nothing else.
 
 The analytic gate's `m_T <= M` holds for a **fixed** parent mass. Pythia gives the
 `W` a **Breit-Wigner** mass, so off-shell events legitimately give `m_T > M_W` —
-**measured at 6.2%** of truth events. A `max(m_T) <= M_W` assertion would either
+**measured at 6.2%** of truth events (3k-event run). A `max(m_T) <= M_W` assertion would either
 fail on correct physics or pass only because a generation mass window had been
 imposed near the edge, hiding the effect being measured. Hence **no mass window** in
 the E1 generator (unlike the DY chain's `60..120 GeV`, which exists to dodge the

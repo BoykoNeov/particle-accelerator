@@ -705,8 +705,8 @@ sustained arc.
   dropping either `sqrt`, `M^2-x^2 -> M^2+x^2`) are all killed.
   **The pipeline gate is a position, never `m_T <= M_W`.** That analytic bound holds
   for a *fixed* parent mass; Pythia's **Breit-Wigner** `W` legitimately produces
-  `m_T > M_W` (**measured at 6.2%** of truth events). Asserting the bound would have
-  failed on correct physics — or passed only behind a mass window placed right where
+  `m_T > M_W` (**measured at 6.2%** of truth events, 3k-event run). Asserting the
+  bound would have failed on correct physics — or passed only behind a mass window placed right where
   the edge lives, hiding the effect. So E1 uses **no mass window** (unlike DY's
   `60..120`, which dodges the photon pole the charged current does not have), and
   gates on: truth edge within 5 GeV of `M_W`; reco edge measurably **rounder** than
@@ -727,7 +727,7 @@ sustained arc.
   `MissingET`** (`MissingET <- eflow <- TrackMerger <- MuonMomentumSmearing`),
   checked in the card rather than assumed — had they been excluded, MET would track
   the hadronic recoil and every reco `m_T` would be meaningless.
-  **Negative controls:** flipping the `GenMissingET` sign drops median `m_T` from
+  **Negative controls (3k-event run):** flipping the `GenMissingET` sign drops median `m_T` from
   62.3 to **6.9 GeV**; feeding `p_T^mu` to the edge gate lands **35.6 GeV** off;
   flipping the reco MET sign drops median `m_T` to **9.4 GeV**. All fail.
   **Scope, stated honestly:** this *locates an edge*; it is not a `W`-mass
