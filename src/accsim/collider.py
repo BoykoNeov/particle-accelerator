@@ -175,13 +175,18 @@ def beam_beam_tune_shift(
     r"""Linear (small-amplitude) head-on beam-beam tune shift ``(dQx, dQy)``.
 
     The :class:`~accsim.elements.beambeam.BeamBeam` kick linearises at the axis to
-    a thin lens ``px -> px + K x`` (both planes), i.e. an effective thin-quad
-    strength ``k1l = -K`` with ``K = beambeam.strength(ref)``. A thin lens of
-    strength ``k1l`` at a point with beta ``beta_u`` shifts the tune by
+    a thin lens ``px -> px + K_x x``, ``py -> py + K_y y``, i.e. an effective
+    thin-quad strength ``k1l = -K_u`` with ``(K_x, K_y) = beambeam.strengths(ref)``.
+    A thin lens of strength ``k1l`` at a point with beta ``beta_u`` shifts the tune by
     ``dQ_u = beta_u * k1l / (4 pi)`` (derived symbolically from the one-turn
     trace), so
 
-        dQ_u = - beta_u * K / (4 pi),   K = (q2/q1) N r0 / (gamma sigma^2).
+        dQ_u = - beta_u * K_u / (4 pi),
+        K_u  = (q2/q1)(2 N r0/gamma) / (sigma_u (sigma_x + sigma_y)).
+
+    For a **round** bunch both reduce to ``K = (q2/q1) N r0/(gamma sigma^2)`` and the
+    two planes shift equally; for a **flat** one (C1) the narrow plane takes the
+    larger shift.
 
     ``beta_x``/``beta_y`` are the *unperturbed* beta functions at the interaction
     point [m] (``beta_y`` defaults to ``beta_x`` for a round IP). The shift is
@@ -195,6 +200,5 @@ def beam_beam_tune_shift(
     """
     if beta_y is None:
         beta_y = beta_x
-    k = beambeam.strength(ref)
-    coeff = k / (4.0 * math.pi)
-    return -beta_x * coeff, -beta_y * coeff
+    kx, ky = beambeam.strengths(ref)
+    return -beta_x * kx / (4.0 * math.pi), -beta_y * ky / (4.0 * math.pi)

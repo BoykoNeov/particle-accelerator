@@ -284,8 +284,9 @@ research-grade and out of scope** unless explicitly requested.
   invariants: **curl-free** `∂Δpx/∂y=∂Δpy/∂x` and **angular momentum** `L_z=x py−y px`
   (radial ⇒ no torque), both round-beam properties, plus a match to an independent
   bare-`1/r` closed form (`tests/analytic/test_beam_beam.py`). Elliptical
-  Bassetti–Erskine flagged out of scope. See CONVENTIONS.md → *Weak-strong
-  beam-beam kick*.
+  Bassetti–Erskine was flagged out of scope here and landed later as **C1** (which
+  keeps the round beam's `L_z` invariant but loses it for `σ_x ≠ σ_y`, as anticipated).
+  See CONVENTIONS.md → *Weak-strong beam-beam kick*.
 - ✅ **Beam-beam tune shift ξ (gate 2)** — `beam_beam_tune_shift(bb, ref, β_x, β_y)`
   returns the **signed** `ΔQ_u = −β_u K/(4π)`, the small-amplitude limit of the
   BeamBeam kick (`|ΔQ_u| = ξ_u = N r0 β_u*/(4πγσ²)`, round). The `β/(4π)`
@@ -539,9 +540,44 @@ sustained arc.
 
 ### C. Collider / beam-beam deepening (items explicitly deferred in Stage 6)
 
-- **C1 — Bassetti–Erskine elliptical beam-beam kick.** [M] Generalises the round head-on
-  kick (Stage 6) to `σ_x ≠ σ_y` via the complex error function. **Gate:** reduces to the
-  round `g(u)` in the `σ_x → σ_y` limit. Pulls "elliptical Bassetti–Erskine" into scope.
+- **C1 — Bassetti–Erskine elliptical beam-beam kick.** ✅ **DONE (2026-07-20)** —
+  generalises the round head-on kick (Stage 6) to `σ_x ≠ σ_y` via the complex error
+  function. Delivered: the **same** `BeamBeam` element, now
+  `BeamBeam(n_particles, sigma, sigma_y=None, strong_charge=1.0)` (always-on baseline;
+  `scipy.special.wofz`), plus per-plane `strengths(ref) → (K_x, K_y)`; `matrix()` and
+  `beam_beam_tune_shift` follow, so a flat beam gets an unequal `(ΔQ_x, ΔQ_y)`.
+  **The stated gate was met but is *not sufficient*, and that drove the design.**
+  "Reduces to the round `g(u)`" is a *singular* limit (`1/√(2(σ_x²−σ_y²))` blows up
+  exactly there), and the classic Bassetti–Erskine error — writing `S_x + i S_y` for
+  `S_y + i S_x` — **survives both the round limit and the on-axis values**, corrupting
+  only the off-axis angular structure. So the gate was layered
+  (`tests/analytic/test_beam_beam_elliptical.py`, 19 tests):
+  the field is **derived symbolically from Coulomb's law** (`1/r² = ∫₀^∞e^{−r²t}dt`
+  makes the Gaussian convolution elementary; sympy reproduces the `q`-integral with
+  symbolic difference **exactly `0`**), the shipped closed form matches that derived
+  integral, and both match an **independent brute-force 2D Coulomb integral** that never
+  calls `wofz` — which is what pins the component assignment *empirically*. The round
+  branch is the same integral's `w = 1/(q+σ²)` collapse, so both shapes are one
+  derivation rather than two formulas.
+  **The gates were mutation-tested**, not assumed: 8 deliberate bugs (swapped
+  components, wrong `√(π/d)` coefficient, dropped damping term, missing aspect ratio in
+  `z₂`, no sign folding, no tall-bunch axis swap, single-plane gradient) — 7 caught. The
+  8th (arithmetic vs geometric mean in the round fallback) is **semantically null**:
+  below the threshold the two differ by `O(eps²) ~ 1e-16`, under double precision, so no
+  test *could* separate them. Recorded as such rather than papered over.
+  **Two things worth keeping.** (i) The near-round folklore is wrong — `wofz` does *not*
+  degrade catastrophically as `σ_x→σ_y`; accuracy is limited by **radius**, not
+  ellipticity. The `1e-8` fallback threshold is **measured** (the round approximation's
+  error is cleanly linear, `1.076·eps`), and exists to remove the exact-equality
+  division by zero. (ii) **Gauss's law** (`K_x + K_y` = central charge density) is an
+  independent anchor on the normalisation that the round limit alone cannot provide — it
+  would absorb a stray 2 or π.
+  **Scope, stated honestly:** `L_z` conservation is **genuinely lost** (the field is not
+  radial, so it exerts a torque) — physical, not a defect, and the suite asserts the
+  breakage so Stage 6's invariant is not over-claimed; curl-free survives, which is what
+  symplectic tracking needs. `strength(ref)` now **raises** for an elliptical bunch
+  instead of returning a misleading scalar. Hourglass / crossing-angle geometry *inside
+  the kick* remains out of scope. See CONVENTIONS.md → *Elliptical Bassetti–Erskine kick*.
 - **C2 — hourglass effect on luminosity.** ✅ **DONE (2026-07-20)** — the finite-`β*`/
   bunch-length luminosity reduction. Delivered: `hourglass_reduction(sigma_z,
   beta_x_star, beta_y_star=None)` in `accsim.collider` (always-on baseline,

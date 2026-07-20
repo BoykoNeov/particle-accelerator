@@ -822,10 +822,74 @@ strong bunch is rigid). Per plane, regularised on the axis:
   both planes. This `K` is what the Stage-6 beam-beam tune shift `ξ` is built on
   (its small-amplitude limit). Cross-checked against an independent bare-`1/r`
   closed form (`tests/analytic/test_beam_beam.py`).
-- **Elliptical Bassetti–Erskine (`scipy.special.wofz`) is out of scope** — optional
-  generality not needed for the gate, and it breaks the `L_z` conservation the
-  round beam enjoys. Hourglass / crossing-angle geometry in the kick is likewise
-  out of scope (the crossing angle enters *luminosity* only).
+- **Elliptical Bassetti–Erskine** was out of scope at Stage 6 and landed later as
+  **C1** — see [the next section](#elliptical-bassettierskine-kick-c1--implemented).
+  It does break the `L_z` conservation the round beam enjoys, as anticipated here.
+  Hourglass / crossing-angle geometry in the kick remains out of scope (the crossing
+  angle enters *luminosity* only; the hourglass factor is [C2](#hourglass-effect-c2--implemented)).
+
+## Elliptical Bassetti–Erskine kick (C1 — implemented)
+
+`BeamBeam(n_particles, sigma, sigma_y=None, strong_charge=1.0)` — the **same element**
+now covers `σ_x ≠ σ_y`. `sigma` is `σ_x`; `sigma_y=None` means round. Either ordering
+is allowed (`σ_y > σ_x` is a tall bunch). Both shapes share one prefactor and differ
+only in the field shape `S = 2πε₀E` [1/m]:
+
+    Δp_perp = (q2/q1) (2 N r0/γ) · S(x, y).
+
+- **The shape is *derived* from Coulomb's law, not transcribed.** Writing
+  `1/r² = ∫₀^∞ e^{−r²t} dt` turns the convolution of the 2D point field with the
+  Gaussian charge into an elementary Gaussian integral; sympy returns **exactly**
+  (`tests/analytic/test_beam_beam_elliptical.py`, symbolic difference `0`)
+
+      S_x = ½∫₀^∞ dq · x e^{−x²/2A − y²/2B} / (A^{3/2} B^{1/2}),   A = q + σ_x²
+      S_y = ½∫₀^∞ dq · y e^{−x²/2A − y²/2B} / (A^{1/2} B^{3/2}),   B = q + σ_y²
+
+  The round case is the `w = 1/(q+σ²)` collapse of this same integral back to Stage 6's
+  `g(u)`, so the two branches are one derivation, not two formulas.
+- **`S_y + i S_x`, *not* `S_x + i S_y`.** With `d = 2(σ_x²−σ_y²)` and `w` the Faddeeva
+  function (`scipy.special.wofz`):
+
+      S_y + i S_x = √(π/d) [ w((x+iy)/√d) − e^{−x²/2σ_x² − y²/2σ_y²} w((xσ_y/σ_x + iyσ_x/σ_y)/√d) ]
+
+  This transposition is *the* classic Bassetti–Erskine error, and it is insidious: it
+  survives both the round limit and the on-axis values, breaking only the **off-axis
+  angular structure**. The stated milestone gate (reduces to round `g(u)`) therefore
+  **cannot** catch it. It is pinned instead against a brute-force 2D Coulomb integral
+  sharing no code with `wofz` — and mutation testing confirms that gate fails when the
+  components are swapped.
+- **`σ_y > σ_x` swaps axes internally** (the closed form assumes `σ_x > σ_y`), and the
+  kick is evaluated at `(|x|,|y|)` with the signs restored afterwards. The charge is
+  symmetric in both planes, so this is exact — and it keeps `w(z)` off the lower half
+  plane, where it grows like `2e^{−z²}` and would overflow.
+- **Near-round fallback.** Below `|σ_x−σ_y|/(σ_x+σ_y) < 1e-8` the round branch is used,
+  removing the `1/√(σ_x²−σ_y²)` division by zero at exact equality. The threshold is
+  **measured, not guessed**: the round approximation's error is cleanly linear
+  (`1.076·eps`), so at the threshold it is `~1e-8` — at or below what the `wofz`
+  difference itself achieves near the axis. The seam is asserted continuous.
+  Contrary to folklore, `wofz` does **not** degrade catastrophically as `σ_x→σ_y`: the
+  accuracy limit is set by *radius* (relative error `~1e-8` at `r/σ ~ 1e-4`, on a
+  vanishing quantity), not by ellipticity.
+- **Linear limit is now per plane** — `strengths(ref)` returns `(K_x, K_y)`:
+
+      K_u = (q2/q1)(2 N r0/γ) / (σ_u (σ_x + σ_y))
+
+  reducing to `K = (q2/q1) N r0/(γσ²)` when round. **The narrow plane is focused
+  harder.** `strength(ref)` (scalar) now **raises** for an elliptical bunch rather than
+  returning a misleading single number. `matrix()` and `beam_beam_tune_shift` use the
+  pair, so a flat beam gets an unequal `(ΔQ_x, ΔQ_y)`.
+- **Gauss's law fixes the normalisation independently.** `K_x + K_y = amp/(σ_xσ_y)`,
+  i.e. the central charge density — a constraint the round limit alone cannot supply,
+  since it would absorb a stray factor of 2 or π. Held exactly on both branches (the
+  round fallback uses the **geometric** mean `√(σ_xσ_y)` for this reason, though at the
+  threshold the choice is immaterial to `O(eps²)`).
+- **The honest cost: `L_z` is no longer conserved.** The elliptical field is not radial,
+  so it exerts a torque. This is **physical, not a defect**, and the suite asserts the
+  *breakage* (alongside the round beam's exact conservation) so the Stage-6 invariant
+  is not silently over-claimed. **Curl-free survives** — that is the property that
+  matters for symplectic tracking.
+
+## Beam-beam tune shift ξ (Stage 6 — implemented)
 
 ## Beam-beam tune shift ξ (Stage 6 — implemented)
 
