@@ -24,9 +24,16 @@ dispersion). Stage 2 (magnetic lenses): natural chromaticity, `Sextupole`
 (synchrotron motion): momentum compaction / slip factor, `RFCavity`, synchrotron
 tune `Qs`, and the nonlinear RF bucket / separatrix. Stage 4 (beam losses):
 `Aperture`/`Collimator` with loss-aware tracking (transmission + loss map) and the
-aperture-limited quantum lifetime. Each stage's 6×6 maps are cross-checked against
-[Xsuite](https://xsuite.readthedocs.io/). See the roadmap for the staged plan and
-what's next.
+aperture-limited quantum lifetime. Stage 5 (RF cavities): the energy ramp,
+synchronous phase, and adiabatic damping. Stage 6 (collider design): luminosity,
+the hourglass effect, and the (elliptical) beam-beam kick and tune shift. Stage 7
+(synchrotron radiation): radiation integrals, damping times and partition numbers,
+and the equilibrium emittance / energy spread. Each stage's 6×6 maps are
+cross-checked against [Xsuite](https://xsuite.readthedocs.io/) and, independently,
+[MAD-X](https://mad.web.cern.ch/mad/) via cpymad. A separate **Phase 2** builds
+collision-event physics (Drell-Yan angular coefficients and the Lam-Tung relation,
+sin²θ_W from A_FB, W-mass Jacobian edge, b-tagging) on Pythia8 + Delphes, behind
+opt-in feature switches. See the roadmap for the staged plan and what's next.
 
 ## Quick start
 
@@ -38,6 +45,9 @@ pip install -e ".[dev]"
 
 # run the always-on analytic test suite
 pytest
+
+# walk one machine end to end: inject -> accelerate -> store -> collide -> account
+python examples/build_a_machine.py
 
 # (optional) install the validation reference code and run the cross-checks
 pip install -e ".[reference]"
@@ -65,6 +75,8 @@ symbolic drift derivation live in [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
 
 ```
 src/accsim/        # package: coords, reference particle, elements/, lattice, tracking, symplectic, plotting
+examples/          # build_a_machine.py — one narrated end-to-end run of the whole stack
+pipelines/         # opt-in Pythia8/Delphes event-physics chains (Phase 2)
 tests/analytic/    # closed-form checks — always run in CI
 tests/reference/   # Xsuite/MAD-X cross-checks — marked `reference`, skipped if the dep is absent
 docs/              # ROADMAP.md, CONVENTIONS.md

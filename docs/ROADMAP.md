@@ -434,16 +434,18 @@ element + RAMBO + PDFs) is welcome **as a clearly-labelled learning module only*
     was previously listed out of scope; it is now **built** (user-requested). See
     CONVENTIONS.md → *Collins-Soper A_FB*.
 
-## Future expansion axes (candidate milestones — not started)
+## Future expansion axes (candidate milestones)
 
 Directions the project could grow next, each written as a *candidate milestone*:
 defined, as always, by its **analytic gate** (a direction without a closed-form
-check is not worth building here — see the working agreement). Several are now done
-(A1–A3, B1, C1, C2, D2, E2 — marked inline); the rest are unstarted, and picking one
-promotes it to an open milestone and, where it overlaps *Out of scope* below, pulls
-that item into scope. Ordered by proximity to what is already built,
-not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
-sustained arc.
+check is not worth building here — see the working agreement).
+
+**As of 2026-07-20 every candidate listed here is done** (A1–A3, B1, C1, C2, D1–D4,
+E1, E2 — each marked inline with what it delivered and what it deliberately did not).
+The next milestone therefore means writing a *new* candidate — either extending an
+axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
+item into scope. Ordered by proximity to what is already built, not by priority.
+Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a sustained arc.
 
 ### A. Drell-Yan angular physics (extends the Collins-Soper A_FB, Phase 2)
 
@@ -605,10 +607,61 @@ sustained arc.
 
 ### D. Integration, validation & teaching (no new physics, high leverage)
 
-- **D1 — end-to-end "build a machine" worked example.** [S] One narrated script/notebook:
-  inject → accelerate (Stage 5) → store with radiation damping (B1) → collide (Stage 6) →
-  account losses (Stage 4). **Gate:** each stage's existing analytic invariant still holds
-  in the chained run — surfaces any seam between stages. Best done after B1.
+- **D1 — end-to-end "build a machine" worked example.** ✅ **DONE (2026-07-20)** —
+  `examples/build_a_machine.py` (always-on baseline: numpy/scipy only) owns the machine
+  and the narration; `tests/analytic/test_end_to_end.py` owns the gates. A 192 m, 24-cell
+  **electron** FODO ring: inject 0.6 GeV → ramp (Stage 5) → store 2.0 GeV with radiation
+  damping (B1) → collide (Stage 6) → account losses (Stage 4 + quantum lifetime).
+  **The gate as written in this entry was the trap, and it was deliberately not built.**
+  "Each stage's existing analytic invariant still holds in the chained run" is a
+  tautology: every stage quantity is a pure function of one lattice, so
+  `equilibrium_emittance(ring)` returns the same number here as in `test_radiation.py`.
+  Re-asserting them is green forever. So the 17 gates are **seams only** — statements
+  about what one stage hands the next — each written against the question *would this
+  still pass if the value were recomputed from a fresh standalone lattice?*
+  **The four seams.** (i) *Stage 5 → 7:* adiabatic damping shrinks geometric ε as
+  `1/P0` while the radiation equilibrium grows as `γ²`, so `ε_adia/ε_eq ∝ 1/(β₀γ₀³)`
+  **exactly** (machine precision over 1–5 GeV) — the composite no stage owns, and the
+  `1/P0` half is read off the **tracked** ramp. (ii) *Stage 7 → 3/5:* `U0` sets `φ_s` on
+  the **assembled** ring; both branches give the same gain, only one has a bucket, and
+  the tracked NAFF synchrotron tune confirms it. (iii) *Stage 7+3/5 → 6:* `σ_z` is not
+  an input — it is `σ_δ|η|C/(2πQ_s)` (radiation × RF × lattice) and reaches Stage 6
+  through the hourglass; `L(eq)/L(injected) == ε_adia/ε_eq` exactly pins the luminosity's
+  provenance. (iv) *Stage 7 → 4:* the same `ξ = A²/2σ²` drives the tracked aperture
+  amplitude cut `1 − e^{−ξ}` and the quantum lifetime's exponent.
+  **Two limitations of existing stages, surfaced and handled differently.**
+  `synchronous_phase` keyed its stable branch on `η` alone — the `qV > 0` (proton)
+  special case — and rejected the natural positive-voltage lepton ring outright. That
+  **blocked** D1, so it was fixed first, in its own commit, with four gates and a
+  proton-unchanged negative control. `rf_bucket_height`/`separatrix`/
+  `longitudinal_hamiltonian` model only the **stationary** bucket, and a store ring
+  replenishing `U0` has `sin φ_s = U0/(qV) ≠ 0`; that is a documented **scope limit**,
+  so the acceptance is quoted from a stationary twin with the small parameter (1.9%)
+  asserted alongside it. Moving-bucket acceptance stays out of scope.
+  **The physics finding.** The **horizontal** CS action does not damp cleanly as `1/P0`
+  through the ramp, and it is not ramp error: once RF and dispersion share a ring a loop
+  closes that neither owns — `x → ζ` via `R51 x + R52 px`, `ζ → δ` in the cavity,
+  `δ → x` via `D_x`. The residual is percent-level and does **not** shrink as the ramp
+  slows. `D_y = 0`, so the vertical plane is free of it and its residual *is* the finite
+  ramp rate (shown converging ∝ `1/n_turns`). Adiabatic gates therefore use the vertical
+  plane, and the horizontal ripple is asserted to still be there.
+  **Ratios cannot see a constant, so `σ_z`'s is pinned by tracking.** Every hourglass
+  check is a ratio; dropping the `2π` would leave them all green. A particle at
+  `(ζ, δ) = (0, σ_δ)` has `ζ_max/δ_max = |η|C/(2πQ_s)` off the nonlinear tracker,
+  agreeing to **0.9%** at low `Q_s` with the residual being the known lumped-cavity
+  `O(Q_s²)` error, shown shrinking.
+  **Mutation-tested in three rounds; two real holes were found and closed** — the
+  luminosity's hourglass was called with **swapped positional arguments** (`σ_z ≈ β*`
+  here, so the swap is numerically plausible and every ratio test still passed; it is
+  now asserted with *keyword* arguments), and the aperture could be sized off the
+  *injected* beam with `ξ` unchanged (it is defined in sigmas, hence blind to which
+  sigma — provenance is now asserted directly). Nine mutations, all caught after the fix.
+  **Scope, stated honestly:** radiation damping is **closed-form, never tracked** (accsim
+  has no damped or stochastic map), so "store with damping" is a data-flow handoff, not a
+  simulated `ε → ε_eq` convergence; `β*` is a design parameter, not a matched low-β
+  insertion; there is no vertical-emittance model, so `ε_y` is a coupling-fraction input;
+  and `accelerate` is radiation-free and single-particle. See CONVENTIONS.md →
+  *End-to-end chain (D1)*.
 - **D2 — tracking-based tune measurement (FFT/NAFF).** ✅ **DONE (2026-07-16)** —
   `src/accsim/tune.py` (always-on baseline: numpy/scipy only). Measures the tune the way
   a real machine does — track a particle, read the betatron frequency of its

@@ -1715,6 +1715,107 @@ different beast for little marginal confidence). The FODO ring carries dipoles o
 purpose: the bend-free xtrack cell has `D_x = 0` and `alpha_c = 0`, so comparing
 those would be comparing two zeros.
 
+## Synchronous phase branch — keyed on `sign(η·q·V)` (fix, surfaced by D1)
+
+`synchronous_phase(voltage, energy_gain, above_transition, charge)` inverts
+`ΔE_s = q V sin φ_s` and must pick the **stable** of the two roots. Stability is
+
+```
+Qs² = -(h η q V cos φ_s) / (2π β₀² E0) > 0   ⟺   sign(cos φ_s) = -sign(η · q · V)
+```
+
+so the branch depends on **`η · q · V`**, not on `η` alone:
+
+| `η`          | `q V` | stable branch     |
+|--------------|-------|-------------------|
+| < 0 (below)  | > 0   | `asin(s)`         |
+| > 0 (above)  | > 0   | `π − asin(s)`     |
+| < 0 (below)  | < 0   | `π − asin(s)`     |
+| > 0 (above)  | < 0   | `asin(s)`         |
+
+The first two rows are the familiar proton rule and are unchanged bit for bit —
+the fix is a pure extension. The last two matter for **leptons**: an electron
+(`q = −1`) driven by the usual positive voltage has `qV < 0`, so an electron
+storage ring **above** transition sits at `φ_s = asin(s)`, just *below* zero when
+the RF replenishes a radiation loss `U0`. The old rule handed back the unstable
+root there and `synchrotron_tune` refused the lattice.
+
+**Only stability distinguishes the roots.** `ΔE_s = q V sin φ_s` is identical on
+both branches, so no energy-bookkeeping check can catch a wrong branch — which is
+why the gate is `synchrotron_tune` raising `UnstableLatticeError` on the other
+one. Both branches were pinned **empirically** (build the lattice, ask for the
+tune), not from a remembered table.
+
+Zero gain returns the branch's stationary phase: `0` when `sign(cos φ_s) > 0`,
+`π` when negative. The Stage-3 mnemonic "0 below transition, π above" is the
+`qV > 0` special case; a lepton ring above transition is stationary at `0`.
+
+## The store bucket is *moving*, and `rf_bucket_height` models only stationary ones
+
+A storage ring whose RF replenishes `U0` has `sin φ_s = U0/(qV) ≠ 0`, so
+`rf_bucket_height` / `separatrix` / `longitudinal_hamiltonian` reject it
+(`NotImplementedError`). This is a **scope limit, not a bug** — the moving
+bucket's acceptance is asymmetric about `ζ = 0` and the overvoltage factor
+`Q(q) = 2[√(q²−1) − arccos(1/q)]` is out of scope.
+
+Where an acceptance is needed at a store point, quote it from the **stationary
+twin** (the same ring with `φ_s` forced to the stationary value) and state the
+small parameter `U0/|qV|` alongside it. In `examples/build_a_machine.py` that is
+1.9%, so the substitution costs little; the number is asserted in
+`tests/analytic/test_end_to_end.py` so the substitution cannot quietly stop being
+justified.
+
+## End-to-end chain (D1 — implemented)
+
+`examples/build_a_machine.py` owns the machine (a 192 m, 24-cell electron FODO
+ring: inject 0.6 GeV → ramp → store 2.0 GeV → collide → account) and the
+narration; `tests/analytic/test_end_to_end.py` owns the gates. **The gates are
+seams only.** Every stage quantity is a pure function of one lattice, so
+re-asserting a stage's own invariant on the chained run is green forever and
+tests nothing — the same tautology D4 is an essay about. The discriminating
+question for each assertion: *would it still pass if the value were recomputed
+from a fresh standalone lattice?*
+
+Conventions the chain fixed:
+
+- **Magnets are geometric** (`k1l`, bend angle), so the optics is
+  energy-independent — physically, the magnets ramp with the beam. Every energy
+  dependence in the chain is the beam's.
+- **Radiation damping is closed-form, never tracked.** accsim has no damped or
+  stochastic map, so "store with damping" is a *data-flow handoff* (the store
+  energy's `eps_eq`, `sigma_delta`), not a tracked `eps → eps_eq` convergence.
+  The damping *times* say how long it would take.
+- **`beta*` is a design parameter, not a matched insertion.** Stage 6's
+  `luminosity`/`hourglass_reduction` are closed forms in `(eps, beta*, sigma_z)`.
+- **There is no vertical-emittance model** — `equilibrium_emittance` is the
+  horizontal one, and a flat uncoupled lattice has `eps_y = 0`. `eps_y` is an
+  input (a coupling fraction), stated as such.
+
+**The finding: the horizontal action is not cleanly adiabatic, and that is
+physics.** Once RF and dispersion share a ring a loop closes that neither stage
+owns — `x → ζ` through the dispersive one-turn entries `R51 x + R52 px`,
+`ζ → δ` in the cavity, `δ → x` through `D_x`. The horizontal Courant-Snyder
+action therefore carries a percent-level synchro-betatron ripple through the ramp
+that does **not** shrink as the ramp slows. `D_y = 0`, so the vertical plane has
+no such path and shows the `1/P0` law with a residual that *is* the finite ramp
+rate (`∝ 1/n_turns`, demonstrated converging). Adiabatic-damping checks therefore
+use the **vertical** plane; the horizontal ripple is asserted to still be there,
+as an inequality between the planes.
+
+**`sigma_z` has no independent reference in accsim, so its constant is pinned by
+tracking.** `sigma_z = sigma_delta·|eta|·C/(2π Qs)` is the chain's three-stage
+number (radiation × RF × lattice) and it reaches Stage 6 through the hourglass
+factor — but every hourglass check is a *ratio*, and a ratio cannot see a wrong
+constant. A particle launched at `(ζ, δ) = (0, σ_δ)` has
+`ζ_max/δ_max = |η|C/(2π Qs)` by construction of the matched ellipse, measured off
+the nonlinear tracker; that pins the constant (2π included) to <1% at low `Qs`,
+with the residual being the same lumped-cavity `O(Qs²)` error as the tracked-tune
+check and shown shrinking with `Qs`.
+
+**`hourglass_reduction(sigma_z, beta*)` is asserted with keyword arguments**, on
+purpose: at this design point `sigma_z ≈ beta*`, so a positional swap is
+numerically plausible and otherwise invisible. It was made, and caught, during D1.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,
