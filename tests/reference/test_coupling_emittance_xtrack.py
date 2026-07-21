@@ -144,10 +144,17 @@ def test_coupled_eigen_emittances_match_xtrack(k1sl: float) -> None:
     # the sharing ratio itself (convention-invariant to the eps_x0 normalisation).
     assert e2 / e1 == pytest.approx(gy / gx, rel=6e-2)
 
-    # discrimination guard: the roadmap's originally-committed F form is ~3-4x the truth,
-    # so a test that merely "matched xtrack loosely" could not be satisfied by it.
+    # Discrimination guards: pin that xtrack's eq_gemitt_y is the EIGEN-mode emittance,
+    # not one of the two forms it is routinely confused with. Both are refuted here, so a
+    # future "correction" of the code to either could not pass this test.
     qx, qy = tunes(Lattice(ring, ref=ref))
     delta = _dist_int(qx - qy)
     cminus = closest_tune_approach(lat)
-    roadmap_ratio = cminus**2 / (cminus**2 + delta**2)
-    assert roadmap_ratio > 2.0 * (gy / gx)  # roadmap overpredicts by >2x — refuted
+    sin2_2phi = cminus**2 / (cminus**2 + delta**2)  # = F = sin^2(2 phi)
+    # (a) the roadmap's raw F form = |C^-|^2/(|C^-|^2+Delta^2) -> ~4x the eigen truth.
+    assert sin2_2phi > 2.0 * (gy / gx)
+    # (b) the *projected* (beam-size) emittance ratio (1/2)sin^2(2phi)/(1-(1/2)sin^2(2phi))
+    #     -> |C^-|^2/(2 Delta^2), ~2x the eigen truth. The insidious near-miss — a knowing
+    #     reader might "fix" eps_2 to this. xtrack chose eigen over projected; pin it.
+    projected_ratio = (0.5 * sin2_2phi) / (1.0 - 0.5 * sin2_2phi)
+    assert projected_ratio > 1.5 * (gy / gx)
