@@ -555,10 +555,48 @@ ring (`test_betatron_coupling_xtrack.py`).
 **Scope, stated honestly.** Multi-source `|C⁻|` is *implemented* (the phasor sum) but
 only the **single-source** case is analytically gated. The thick-skew unperturbed
 optics keep the `(F+D)/2` diagonal (a higher-order choice, not the `k1s→0` drift),
-validated only for **short** magnets. And the **ε_y / vertical-emittance** half of the
-milestone is a deliberate follow-up (see ROADMAP → G1), not built here: equilibrium
-`ε_y` under coupling is an eigen-emittance of the radiation envelope, a fundamentally
-softer (non-symbolic) gate than `ΔQ_min`.
+validated only for **short** magnets.
+
+### Vertical emittance from coupling — the eigen-mode sharing (G1 ε_y — implemented)
+
+`equilibrium_emittances_coupled(lattice) → (ε_1, ε_2)` (in `radiation.py`) returns the
+two **eigen-mode** equilibrium geometric emittances under linear betatron coupling. The
+horizontal quantum excitation that alone sets `ε_x` on a flat ring is shared between the
+coupled normal modes; diagonalising excitation/damping in the mode basis, with the mixing
+fixed by the difference-resonance geometry `tan 2φ = |C⁻|/Δ`, gives
+
+    G = √(Δ² + |C⁻|²),
+    ε_1 = ε_x0·(G+Δ)/(2G) = ε_x0 cos²φ   (x-like mode),
+    ε_2 = ε_x0·(G−Δ)/(2G) = ε_x0 sin²φ   (y-like mode — the vertical emittance),
+
+with **`ε_x0`** the coupling-off `equilibrium_emittance` (skews → their `k1s=0` drift
+limit via `_coupling_off_lattice` — exact for a thin skew), **`Δ`** the distance of the
+decoupled `Q_x−Q_y` to the nearest integer (`tunes` of the coupling-off lattice), and
+**`|C⁻|` = `closest_tune_approach`**. The sum is conserved exactly (`ε_1+ε_2 = ε_x0`).
+
+**The coefficient is a correction to the roadmap's pre-committed form, resolved by
+xtrack.** The G1 ε_y entry pre-committed `ε_y/ε_x = |C⁻|²/(|C⁻|²+Δ²)`. That is **wrong**:
+xtrack's radiation-envelope eigen-emittances (`eq_gemitt_x`/`eq_gemitt_y`, a Σ-matrix
+eigenanalysis) follow the **eigen-mode** ratio `ε_2/ε_1 = (G−Δ)/(G+Δ) → |C⁻|²/(4Δ²)` far
+off resonance — a factor of **4** below the pre-committed form (and a factor of 2 below
+the *projected*-emittance `½sin²2φ → |C⁻|²/(2Δ²)`, which is the beam **size**, not the
+eigen-emittance a code reports). Empirically the shipped form matches xtrack's
+`eq_gemitt_{x,y}` to **~1–3%** across coupling strengths on the weak-bend near-resonance
+ring, both absolute and (convention-invariantly) in the ratio; the roadmap form is
+~3–4× too large and is *refuted* in the reference test. The `1/4` asymptote is pinned
+symbolically (series), and CONVENTIONS' own claim that this had "no clean symbolic gate"
+stands for the *coefficient* — it is xtrack, not algebra, that fixes the `4`.
+
+**Scope, stated honestly.** This is the **leading-order, equal-damping** two-mode result.
+It is clean only on a **weak-bend** ring, because two effects both grow with bend
+strength: (i) `ε_x0` is an integral-formula emittance while xtrack's is a damped-map
+envelope — they diverge from ~3% (weak) to ~3× (3×-stronger bends, verified uncoupled);
+(ii) a skew at finite `D_x` also generates **vertical dispersion**, a second `ε_y` source
+the sharing model does not carry. Both are ≲ few % on the gated ring (`h≈0.011 m⁻¹`,
+`J_x≈0.997`). The full **radiation-envelope (Σ-matrix / Lyapunov) eigen-emittance**
+(roadmap option B) — which would drop both the equal-damping assumption and the
+vertical-dispersion blind spot — remains the rigorous alternative, reserved. Gates:
+`tests/analytic/test_coupling_emittance.py`, `tests/reference/test_coupling_emittance_xtrack.py`.
 
 ## Stability boundary (Stage 2 — validated)
 

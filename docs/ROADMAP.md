@@ -440,14 +440,15 @@ defined, as always, by its **analytic gate** (a direction without a closed-form
 check is not worth building here — see the working agreement).
 
 **As of 2026-07-21 the delivered candidates are** A1–A3, B1, C1, C2, D1–D5, E1, E2,
-**F1**, **F2**, and the **core of G1** (betatron-coupling optics — skew quad, coupled
-normal-mode tunes, closest-tune-approach `ΔQ_min`) — each marked inline with what it
-delivered and what it deliberately did not. **One follow-up is open by agreement:**
-**G1's ε_y half** (vertical emittance from coupling) — see axis **G** below. The next
-milestone means finishing G1's ε_y or writing a *new* candidate — either extending an
-axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
-item into scope. Ordered by proximity to what is already built, not by priority.
-Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a sustained arc.
+**F1**, **F2**, and **G1 in full** (betatron-coupling optics — skew quad, coupled
+normal-mode tunes, closest-tune-approach `ΔQ_min` — *and* its ε_y vertical-emittance
+half, the eigen-mode sharing, whose pre-committed coefficient was corrected by xtrack).
+Each is marked inline with what it delivered and what it deliberately did not. **No
+follow-up is currently open.** The next milestone means writing a *new* candidate —
+either extending an axis below or opening one — and, where it overlaps *Out of scope*
+below, pulling that item into scope. Ordered by proximity to what is already built, not
+by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
+sustained arc.
 
 ### A. Drell-Yan angular physics (extends the Collins-Soper A_FB, Phase 2)
 
@@ -1022,14 +1023,33 @@ Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a sustain
   - Gates: `tests/analytic/test_skew_quadrupole.py`, `test_betatron_coupling.py`;
     reference `tests/reference/test_betatron_coupling_{xtrack,madx}.py`. See
     CONVENTIONS.md → *Betatron coupling*.
-  - **ε_y follow-up (OPEN, agreed 2026-07-21).** The vertical-emittance half. The user
-    chose **A→C→B**: ship the rigorous core first (done), then add ε_y as the perturbative
-    **sharing formula** `ε_y/ε_x = |C⁻|²/(|C⁻|²+Δ²)`, **explicitly labelled an
-    approximation** and gated against xtrack's coupled eigen-emittances (not a symbolic
-    closed form — that would be circular without the envelope). The full **radiation-
-    envelope (Σ-matrix / Lyapunov) eigen-emittance** formalism (option B) is reserved for
-    if the sharing formula proves insufficient or ε_y from vertical dispersion / arbitrary
-    sources is wanted. This closes the Stage-7 flat-lattice gap (`J_y≡1`, `ε_y≈0`).
+  - **ε_y follow-up ✅ DONE (2026-07-21).** The vertical-emittance half, delivered as
+    `equilibrium_emittances_coupled(lattice) → (ε_1, ε_2)` (baseline; `radiation.py`),
+    the eigen-mode sharing `ε_1 = ε_x0(G+Δ)/2G`, `ε_2 = ε_x0(G−Δ)/2G`,
+    `G=√(Δ²+|C⁻|²)`, with `ε_x0` the coupling-off `equilibrium_emittance`, `Δ` the
+    decoupled difference-resonance detuning, `|C⁻|` = `closest_tune_approach`. Sum
+    conserved exactly; `ε_2` (the y-like mode) is the vertical emittance. Closes the
+    Stage-7 flat-lattice gap (`ε_y≈0`).
+    - **The pre-committed formula was wrong — xtrack settled it.** This entry originally
+      committed `ε_y/ε_x = |C⁻|²/(|C⁻|²+Δ²)`. xtrack's radiation-envelope eigen-emittances
+      (`eq_gemitt_x`/`eq_gemitt_y`) follow the **eigen-mode** ratio
+      `ε_2/ε_1 = (G−Δ)/(G+Δ) → |C⁻|²/(4Δ²)` far off resonance — a factor of **4** below the
+      committed form (the committed one is the raw `|C⁻|²/Δ²`; even the *projected*-emittance
+      `½sin²2φ → |C⁻|²/(2Δ²)`, the beam **size**, is 2× the eigen-emittance a code reports).
+      Empirically the shipped form matches `eq_gemitt_{x,y}` to **~1–3%** (weak-bend
+      near-resonance ring), absolute and in the convention-invariant ratio; the roadmap form
+      is refuted (~3–4× too large) in the reference test. The `1/4` asymptote is pinned
+      symbolically; the coefficient itself is xtrack-anchored, not algebra (as the entry
+      foresaw — "circular without the envelope").
+    - **Scope (leading-order, equal-damping).** Clean only on a **weak-bend** ring: both the
+      `ε_x0` integral-vs-envelope method difference (~3% weak → ~3× on 3×-stronger bends) and
+      the skew-induced **vertical dispersion** (a second, uncarried `ε_y` source) grow with
+      bend strength. Gates: `tests/analytic/test_coupling_emittance.py`,
+      `tests/reference/test_coupling_emittance_xtrack.py`. See CONVENTIONS → *Betatron
+      coupling → Vertical emittance from coupling*.
+    - The full **radiation-envelope (Σ-matrix / Lyapunov) eigen-emittance** (option B) —
+      dropping both the equal-damping assumption and the vertical-dispersion blind spot —
+      remains reserved.
   - Deliberately **out of scope** here: solenoid coupling (body rotation + edge — messier
     gate), coupled Twiss / Edwards–Teng parametrisation, and the ε_y envelope (option B)
     unless pulled in.
