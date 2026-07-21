@@ -259,3 +259,88 @@ def equilibrium_emittance(lattice: Lattice) -> float:
     g2 = lattice.ref.gamma0**2
     jx = 1.0 - ri.i4 / ri.i2
     return cq * g2 * ri.i5 / (jx * ri.i2)
+
+
+def _coupling_off_lattice(lattice: Lattice) -> Lattice:
+    """Copy of ``lattice`` with every skew quadrupole replaced by its ``k1s = 0``
+    limit (a :class:`Drift` of the same length), i.e. the coupling turned off.
+
+    A :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole` at ``k1s = 0`` *is* a
+    drift (``F = D`` → the map is a plain drift), and a
+    :class:`~accsim.elements.skew_quadrupole.ThinSkewQuadrupole` at ``k1sl = 0`` is
+    the identity, so this is exact for a thin skew. For a thick skew it additionally
+    drops the magnet's own ``O(k1s^2)`` self-focusing ``(F + D) / 2`` — the natural
+    coupling-off reference at the leading order the sharing formula already works to.
+    The result is transversely uncoupled, so the Courant-Snyder path
+    (:func:`equilibrium_emittance`, :func:`accsim.twiss.tunes`) applies.
+    """
+    from .elements.drift import Drift
+    from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
+
+    elems = []
+    for e in lattice.elements:
+        if isinstance(e, (SkewQuadrupole, ThinSkewQuadrupole)):
+            if e.length > 0.0:
+                elems.append(Drift(e.length))  # thick skew → its k1s=0 drift limit
+            # thin skew → identity, drop it
+        else:
+            elems.append(e)
+    return Lattice(elems, ref=lattice.ref)
+
+
+def equilibrium_emittances_coupled(lattice: Lattice) -> tuple[float, float]:
+    r"""Eigen-mode equilibrium geometric emittances ``(eps_1, eps_2)`` under linear
+    betatron coupling [m·rad], near the difference resonance ``Q_x = Q_y``.
+
+    A skew quadrupole couples the horizontal and vertical betatron motion, so the
+    horizontal quantum excitation (which alone sets ``eps_x`` on a flat lattice) is
+    shared between the two coupled **normal modes**. Diagonalising the excitation /
+    damping balance in the mode basis, with the mode mixing fixed by the
+    difference-resonance geometry ``tan(2 phi) = |C^-| / Delta``, gives
+
+        G = sqrt(Delta^2 + |C^-|^2),
+        eps_1 = eps_x0 (G + Delta) / (2 G) = eps_x0 cos^2 phi,   (the x-like mode)
+        eps_2 = eps_x0 (G - Delta) / (2 G) = eps_x0 sin^2 phi,   (the y-like mode)
+
+    where
+
+    - ``eps_x0`` is the **coupling-off** horizontal equilibrium emittance
+      (:func:`equilibrium_emittance` of :func:`_coupling_off_lattice`),
+    - ``Delta`` is the distance of the decoupled tune split ``Q_x - Q_y`` to the
+      nearest integer (the difference-resonance detuning), from
+      :func:`accsim.twiss.tunes` of the coupling-off lattice,
+    - ``|C^-| =`` :func:`accsim.twiss.closest_tune_approach` is the coupling strength.
+
+    The sum is conserved exactly (``eps_1 + eps_2 = eps_x0``): coupling redistributes
+    the horizontal excitation, it does not add any. ``eps_2`` (the smaller, y-like
+    mode) is the **vertical emittance from coupling** — off the resonance
+    ``eps_2 / eps_1 = (G - Delta)/(G + Delta) -> |C^-|^2 / (4 Delta^2)``. This closes the
+    Stage-7 flat-lattice gap (``eps_y ≈ 0``). On the resonance (``Delta = 0``) the modes
+    share equally (``eps_1 = eps_2 = eps_x0 / 2``).
+
+    **Approximation, stated honestly.** This is the leading-order two-mode result and
+    assumes (i) equal transverse damping ``J_x ≈ J_y`` — true for a weak ring
+    (``I4/I2 ≪ 1``), *not* for a strongly combined-function one; (ii) a single
+    difference-resonance coupling coefficient ``|C^-|`` (leading order in the skew
+    strength, so most accurate for a thin skew). It is **not** a symbolic closed form
+    but a physics model, validated against xtrack's radiation-envelope eigen-emittances
+    (``eq_gemitt_x``/``eq_gemitt_y``) to ~3-4% off resonance — near the resonance both
+    this model and the envelope eigenanalysis degrade (near-degenerate modes). The
+    full radiation-envelope (Sigma-matrix) eigen-emittance treatment, which would drop
+    both assumptions, is the rigorous alternative. Returns ``(eps_x0, 0.0)`` for an
+    uncoupled lattice (``|C^-| = 0``). See ``docs/CONVENTIONS.md`` → *Betatron coupling*.
+    """
+    from .twiss import closest_tune_approach, tunes
+
+    lat0 = _coupling_off_lattice(lattice)
+    eps_x0 = equilibrium_emittance(lat0)
+    qx, qy = tunes(lat0)
+    split = qx - qy
+    delta = abs(split - round(split))  # distance to the nearest difference resonance
+    cminus = closest_tune_approach(lattice)
+    g = math.hypot(delta, cminus)
+    if g == 0.0:  # no coupling and exactly on the integer resonance: nothing to share
+        return eps_x0, 0.0
+    eps_1 = eps_x0 * (g + delta) / (2.0 * g)
+    eps_2 = eps_x0 * (g - delta) / (2.0 * g)
+    return float(eps_1), float(eps_2)
