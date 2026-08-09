@@ -1084,15 +1084,17 @@ sustained arc.
     only for `|C⁻| ≪ Δ`; the saturation is asserted separately so the linear claim
     states its regime.
   - **Coupled dispersion for free:** the matched dispersion is solved from the full 4×4,
-    so a skew at nonzero `D_x` gives **vertical dispersion** (linear in `k1s`). G2
-    exposes it but does not feed it back into the ε_y sharing model — that stays with
-    the reserved radiation-envelope (option B) work.
+    so a skew at nonzero `D_x` gives **vertical dispersion** — **magnitude
+    xtrack-validated** (`D_x,D_y,D_px,D_py` to `<2e-5` around a ring where `D_y` reaches
+    ~0.07 m, no `β₀` factor, same sign), not just its `k1s`-linearity. G2 exposes it but
+    does not feed it back into the ε_y sharing model — that stays with the reserved
+    radiation-envelope (option B) work.
   - **xtrack-validated on all four Ripken betas** (`betx1 = γ_c²β₁`, `betx2 = (C B₂ Cᵀ)₀₀`,
     …): mode betas ~**1.7e-6**, the coupling-only cross terms ~**8e-5** (these pin `C`
     itself), at every boundary around the ring; the residual is xtrack's first-order-`k1s`
     skew model and **scales as `k1s²`** (factor 16.07 for a 4× stronger skew), asserted as
-    its own test. Gates: `tests/analytic/test_coupled_twiss.py` (37),
-    `tests/reference/test_coupled_twiss_xtrack.py` (3). See CONVENTIONS.md → *Coupled
+    its own test. Gates: `tests/analytic/test_coupled_twiss.py` (38),
+    `tests/reference/test_coupled_twiss_xtrack.py` (5). See CONVENTIONS.md → *Coupled
     Twiss — the Edwards-Teng normal-mode optics*.
   - Still **out of scope**: mode phase advance / coupled tune from propagation (use
     `normal_mode_tunes`), solenoid coupling, and the ε_y radiation envelope (option B).

@@ -645,8 +645,14 @@ Riccati), so the shipped constant is gated, not trusted.
   which is the resonance's signature.
 - Exactly on resonance (`Delta = 0`) the branch `sgn(0) = +1` is arbitrary and the 1/2
   labels may swap relative to the eigenvector route; the *pair* is still well defined.
-- `Delta^2 + det H < 0` raises `UnstableLatticeError`: the modes have merged and no real
-  symplectic decoupling exists.
+- **How an unstable coupled lattice actually fails:** via `_matched_block` on a
+  normal-mode block (`|½Tr(A)| ≥ 1`). That is what fires on G1's known coupled-instability
+  ring, where the discriminant stays *positive* (gated, including the assertion that the
+  discriminant branch does **not** fire). The `Delta^2 + det H < 0` raise is a
+  **defensive** guard: a scan over FODO rings (symmetric and split-tune, thin skews
+  `0.05`–`2`, including near the sum resonance) found no lattice reachable with the
+  current element set that triggers it, so it is documented as unexercised rather than
+  claimed as the instability path.
 
 **Propagation is by local re-match, not transport.** `propagate_coupled_twiss` rebuilds
 the **local** one-turn map `M(s) = T(s) M(0) T(s)^-1` at each element boundary and
@@ -669,8 +675,12 @@ the linear claim states its own regime.
 
 **Coupled dispersion comes for free.** The matched dispersion is solved from the full
 coupled 4x4 (`D = (I - M4)^-1 d`), so a skew quad at nonzero `D_x` produces **vertical
-dispersion** (gated: linear in `k1s`). That is the second `ε_y` source the G1 sharing
-model does not carry; G2 exposes it but does **not** feed it back into
+dispersion**. Its **magnitude is xtrack-validated**, not merely its scaling: on a
+dipole ring where `D_y` reaches ~0.07 m, `D_x, D_y, D_px, D_py` agree with xtrack's
+`dx/dy/dpx/dpy` to `< 2e-5` around the whole ring, with no `β₀` factor and the same
+sign (the analytic suite alone could only show `D_y = 0` at `k1s = 0` and linear growth,
+which a wrong overall factor would survive). That is the second `ε_y` source the G1
+sharing model does not carry; G2 exposes it but does **not** feed it back into
 `equilibrium_emittances_coupled` — that stays reserved for the radiation-envelope
 (option B) work.
 
@@ -685,8 +695,8 @@ skew model, and it **scales as `k1s^2`** (1.07e-7 -> 1.72e-6 for a 4x stronger s
 factor 16.07), which is asserted as its own test — that scaling is what separates a known
 model gap from a sign/prefactor error.
 
-Gates: `tests/analytic/test_coupled_twiss.py` (37 tests),
-`tests/reference/test_coupled_twiss_xtrack.py` (3).
+Gates: `tests/analytic/test_coupled_twiss.py` (38 tests),
+`tests/reference/test_coupled_twiss_xtrack.py` (5).
 
 ## Stability boundary (Stage 2 — validated)
 

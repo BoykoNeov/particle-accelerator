@@ -473,16 +473,23 @@ def _edwards_teng(one_turn: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, 
     resonance ``Delta = 0`` the modes are 50/50 and the labelling is arbitrary (here
     ``sgn(0) = +1``); the *pair* is still well defined.
 
-    Raises :class:`UnstableLatticeError` if ``Delta^2 + det H < 0`` — the two modes
-    have merged and no real symplectic decoupling exists (a coupled, e.g. sum-
-    resonance, instability).
+    **How an unstable coupled lattice actually fails here.** In practice the raise comes
+    from :func:`_matched_block` on a normal-mode block (``|1/2 Tr(A)| >= 1``) — that is
+    what fires on the known coupled-instability ring from the G1 tests, where the
+    discriminant stays positive. The ``Delta^2 + det H < 0`` branch below is a
+    **defensive** guard for the case where the two modes merge outright: a scan over
+    FODO rings (both symmetric and split-tune, thin skews from ``0.05`` to ``2``,
+    including near the sum resonance) found no lattice reachable with the current
+    element set that triggers it, so it is documented as unexercised rather than
+    claimed as the instability path. Either way the function raises
+    :class:`UnstableLatticeError` and never returns a fabricated decomposition.
     """
     m4 = _transverse_4d(one_turn)
     m, n, p, q = m4[:2, :2], m4[:2, 2:], m4[2:, :2], m4[2:, 2:]
     H = n + _adj2(p)
     delta = 0.5 * (float(np.trace(m)) - float(np.trace(q)))
     disc = delta * delta + float(np.linalg.det(H))
-    if disc < 0.0:
+    if disc < 0.0:  # pragma: no cover - defensive; see the docstring (no known trigger)
         raise UnstableLatticeError(
             f"no real Edwards-Teng decoupling: Delta^2 + det H = {disc:.3g} < 0 — the "
             "normal modes have merged (a coupled instability the per-plane |1/2 Tr| "

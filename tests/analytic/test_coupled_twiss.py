@@ -46,6 +46,7 @@ from accsim import (
     SkewQuadrupole,
     ThinQuadrupole,
     ThinSkewQuadrupole,
+    UnstableLatticeError,
     beam_sigma,
     closed_twiss,
     closest_tune_approach,
@@ -477,3 +478,22 @@ def test_dispersive_contribution_adds_in_quadrature(ref: ReferenceParticle) -> N
     for a, b, ct in zip(sy0, sy1, pts, strict=True):
         assert b * b == pytest.approx(a * a + (ct.disp_y * sd) ** 2, rel=1e-12)
     assert max(abs(ct.disp_y) for ct in pts) > 1e-6  # the skew really did make D_y
+
+
+def test_coupled_twiss_refuses_an_unstable_coupled_lattice(ref: ReferenceParticle) -> None:
+    """An unstable coupled ring raises rather than returning a fabricated decomposition.
+
+    This is G1's known coupled-instability lattice (a huge skew kick on a symmetric
+    FODO). Worth recording *which* guard fires: the Edwards-Teng discriminant stays
+    **positive** here, and the raise comes from the normal-mode block being unstable
+    (``|1/2 Tr(A)| >= 1``) inside :func:`_matched_block`. The ``disc < 0`` branch is
+    defensive and has no known trigger — see :func:`_edwards_teng`'s docstring.
+    """
+    base = _fodo(1.2) * 4
+    lat = Lattice(base[:8] + [ThinSkewQuadrupole(5.0)] + base[8:], ref)
+    m4 = _transverse_4d(lat.one_turn_matrix())
+    m, n, p, q = m4[:2, :2], m4[:2, 2:], m4[2:, :2], m4[2:, 2:]
+    delta = 0.5 * (np.trace(m) - np.trace(q))
+    assert delta**2 + np.linalg.det(n + _adj2(p)) > 0.0  # the disc branch does NOT fire
+    with pytest.raises(UnstableLatticeError):
+        coupled_twiss(lat)
