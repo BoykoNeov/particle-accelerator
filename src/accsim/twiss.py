@@ -13,10 +13,11 @@ all block-diagonal). A betatron-coupling element — a
 :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole` — breaks it, so the
 uncoupled entry points are **guarded** (:func:`_require_uncoupled` raises
 :class:`CoupledLatticeError` rather than return decoupled-but-wrong betas/tunes),
-and coupled motion goes through the eigenvalue route
-(:func:`normal_mode_tunes`) with the difference-resonance
-:func:`closest_tune_approach`. Dispersion (the coupling to ``delta``) is included
-in the block path via the :class:`~accsim.elements.dipole.Dipole`.
+and coupled motion goes through the **normal-mode** route instead: the eigen-tunes
+(:func:`normal_mode_tunes`), the difference-resonance :func:`closest_tune_approach`,
+and the Edwards-Teng normal-mode beta functions (:func:`coupled_twiss`).
+Dispersion (the coupling to ``delta``) is included in the block path via the
+:class:`~accsim.elements.dipole.Dipole`.
 
 Conventions (see ``docs/CONVENTIONS.md``):
 
@@ -60,8 +61,9 @@ class CoupledLatticeError(ValueError):
     off-diagonal blocks vanish — i.e. no betatron coupling. A
     :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole` (or any element with
     ``R[px, y]`` / ``R[py, x]`` terms) breaks it, and a naive 2x2 match would return
-    plausible-but-wrong betas and tunes. Use :func:`normal_mode_tunes` (and the
-    coupled machinery) for such a lattice instead of silently decoupling it.
+    plausible-but-wrong betas and tunes. Use the coupled machinery for such a lattice
+    instead of silently decoupling it: :func:`coupled_twiss` for the normal-mode
+    (Edwards-Teng) beta functions and :func:`normal_mode_tunes` for the tunes.
     """
 
 
@@ -358,6 +360,192 @@ def normal_mode_tunes(lattice: Lattice, atol: float = 1e-6) -> tuple[float, floa
     # Label by dominant plane: the more x-like mode is Q1, the more y-like is Q2.
     (qa, xa, _ya), (qb, xb, _yb) = modes
     return (qa, qb) if xa >= xb else (qb, qa)
+
+
+@dataclass(frozen=True)
+class CoupledTwiss:
+    """Edwards-Teng **normal-mode** optics at one longitudinal position ``s``.
+
+    The coupled analogue of :class:`Twiss`. Modes ``1`` and ``2`` are the two
+    betatron eigen-modes; ``beta_1``/``alpha_1`` are the Courant-Snyder parameters
+    *of the mode*, not of a plane. In the uncoupled limit mode 1 is exactly the
+    horizontal plane and mode 2 the vertical (``gamma_c = 1``, ``C = 0``).
+
+    - ``gamma_c`` is the Edwards-Teng mixing parameter, ``cos`` of the coupling
+      angle: ``gamma_c = 1`` uncoupled, ``gamma_c = 1/sqrt(2)`` fully mixed. It
+      satisfies ``gamma_c**2 + det C = 1`` exactly (that is what makes the
+      transformation symplectic), so ``gamma_c`` is always in ``[1/sqrt(2), 1]``.
+    - ``c11..c22`` are the entries of the 2x2 coupling matrix ``C`` (see
+      :attr:`c_matrix`); they carry the *orientation* of the mixing, which
+      ``gamma_c`` alone does not.
+    - ``D*`` are the matched 4D dispersion components as in :class:`Twiss`. They are
+      solved from the **full coupled** 4x4, so a skew quadrupole at nonzero ``D_x``
+      correctly produces vertical dispersion here.
+    """
+
+    s: float
+    beta_1: float
+    alpha_1: float
+    beta_2: float
+    alpha_2: float
+    gamma_c: float
+    c11: float = 0.0
+    c12: float = 0.0
+    c21: float = 0.0
+    c22: float = 0.0
+    disp_x: float = 0.0
+    disp_px: float = 0.0
+    disp_y: float = 0.0
+    disp_py: float = 0.0
+
+    @property
+    def gamma_1(self) -> float:
+        return (1.0 + self.alpha_1**2) / self.beta_1
+
+    @property
+    def gamma_2(self) -> float:
+        return (1.0 + self.alpha_2**2) / self.beta_2
+
+    @property
+    def c_matrix(self) -> np.ndarray:
+        """The 2x2 Edwards-Teng coupling matrix ``C``."""
+        return np.array([[self.c11, self.c12], [self.c21, self.c22]])
+
+    @property
+    def coupling_angle(self) -> float:
+        """The mixing angle ``phi = arccos(gamma_c)`` in radians, in ``[0, pi/4]``.
+
+        ``0`` is uncoupled; ``pi/4`` (45 degrees) is full mixing, reached only on the
+        difference resonance. ``sin(phi)**2 = det C`` is the fraction of mode 2's
+        action carried in the horizontal plane (and vice versa).
+        """
+        return math.acos(min(1.0, max(-1.0, self.gamma_c)))
+
+    @property
+    def v_matrix(self) -> np.ndarray:
+        """The 4x4 symplectic decoupling transformation ``V`` (block form below).
+
+        ``V = [[gamma_c I, C], [-adj(C), gamma_c I]]`` maps normal-mode coordinates to
+        laboratory ``(x, px, y, py)``: the one-turn map is ``M4 = V U V^-1`` with
+        ``U = diag(A, B)`` block-diagonal.
+        """
+        C = self.c_matrix
+        g = self.gamma_c
+        return np.block([[g * np.eye(2), C], [-_adj2(C), g * np.eye(2)]])
+
+
+def _adj2(C: np.ndarray) -> np.ndarray:
+    """Symplectic conjugate (= adjugate) of a 2x2 matrix: ``C+ = -J C^T J``.
+
+    For 2x2 this is the adjugate ``[[d, -b], [-c, a]]``, so ``C C+ = det(C) I``.
+    """
+    return np.array([[C[1, 1], -C[0, 1]], [-C[1, 0], C[0, 0]]])
+
+
+def _edwards_teng(one_turn: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
+    r"""Edwards-Teng decomposition of a transverse one-turn map: ``(gamma_c, C, A, B)``.
+
+    Factorises the transverse 4x4 as ``M4 = V U V^-1`` with
+
+        V = [[gamma_c I, C], [-C+, gamma_c I]],   U = [[A, 0], [0, B]],
+
+    where ``C+ = adj(C)`` and ``V`` is symplectic iff ``gamma_c^2 + det C = 1``. ``A``
+    and ``B`` are then ordinary 2x2 Courant-Snyder blocks — one per normal mode.
+
+    **Derivation (not recalled).** Writing ``M4`` in 2x2 blocks ``[[m, n], [p, q]]``
+    and ``X = C / gamma_c``, the vanishing of the off-diagonal block of ``V^-1 M4 V``
+    is the matrix Riccati equation ``n + m X - X q - X p X = 0``. Its root is
+    proportional to ``H = n + adj(p)``, ``X = lambda H``, and with
+    ``Delta = (tr m - tr q)/2``, ``R = sqrt(Delta^2 + det H)``:
+
+        lambda  = -sgn(Delta) / (|Delta| + R),
+        gamma_c^2 = 1 / (1 + det X) = 1/2 + |Delta| / (2 R),
+        C       = gamma_c X = -sgn(Delta) H / (2 gamma_c R).
+
+    The ``1/(|Delta| + R)`` normalisation (equivalently the ``2`` in ``2 gamma_c R``)
+    is what makes ``gamma_c^2 + det C = 1``; it is verified in-test both by
+    re-deriving ``lambda`` from the Riccati and by the residual ``||M4 - V U V^-1||``.
+
+    Taking ``|Delta|`` (rather than ``Delta``) fixes ``gamma_c >= 1/sqrt(2)``, i.e. ``V``
+    is the *smaller* of the two rotations, which labels mode 1 as the ``x``-like one —
+    the same convention as :func:`normal_mode_tunes`. Exactly on the difference
+    resonance ``Delta = 0`` the modes are 50/50 and the labelling is arbitrary (here
+    ``sgn(0) = +1``); the *pair* is still well defined.
+
+    Raises :class:`UnstableLatticeError` if ``Delta^2 + det H < 0`` — the two modes
+    have merged and no real symplectic decoupling exists (a coupled, e.g. sum-
+    resonance, instability).
+    """
+    m4 = _transverse_4d(one_turn)
+    m, n, p, q = m4[:2, :2], m4[:2, 2:], m4[2:, :2], m4[2:, 2:]
+    H = n + _adj2(p)
+    delta = 0.5 * (float(np.trace(m)) - float(np.trace(q)))
+    disc = delta * delta + float(np.linalg.det(H))
+    if disc < 0.0:
+        raise UnstableLatticeError(
+            f"no real Edwards-Teng decoupling: Delta^2 + det H = {disc:.3g} < 0 — the "
+            "normal modes have merged (a coupled instability the per-plane |1/2 Tr| "
+            "test cannot see)."
+        )
+    root = math.sqrt(disc)
+    if root == 0.0:  # Delta = 0 and det H = 0: only reachable uncoupled (H = 0)
+        if np.abs(H).max() > 0.0:  # pragma: no cover - degenerate singular-H edge
+            raise UnstableLatticeError(
+                "degenerate Edwards-Teng decomposition (Delta = 0 and det H = 0 with "
+                "H != 0): the normal modes are not separable."
+            )
+        gamma_c, C = 1.0, np.zeros((2, 2))
+    else:
+        sgn = 1.0 if delta >= 0.0 else -1.0
+        gamma_c = math.sqrt(0.5 + abs(delta) / (2.0 * root))
+        C = -sgn * H / (2.0 * gamma_c * root)
+    V = np.block([[gamma_c * np.eye(2), C], [-_adj2(C), gamma_c * np.eye(2)]])
+    V_inv = np.block([[gamma_c * np.eye(2), -C], [_adj2(C), gamma_c * np.eye(2)]])
+    U = V_inv @ m4 @ V
+    return gamma_c, C, U[:2, :2], U[2:, 2:]
+
+
+def match_periodic_coupled(one_turn: np.ndarray, s: float = 0.0) -> CoupledTwiss:
+    """Matched Edwards-Teng normal-mode optics from a one-turn matrix.
+
+    The coupled counterpart of :func:`match_periodic`: it does **not** require the
+    map to be block-diagonal, and reduces to it exactly when it is (``gamma_c = 1``,
+    ``C = 0``, ``beta_1 = beta_x``, ``beta_2 = beta_y`` to the last bit).
+
+    Raises :class:`UnstableLatticeError` if either normal mode is unstable
+    (``|1/2 Tr(A)| >= 1``) or the modes cannot be separated (see
+    :func:`_edwards_teng`).
+    """
+    gamma_c, C, A, B = _edwards_teng(one_turn)
+    beta_1, alpha_1 = _matched_block(A)
+    beta_2, alpha_2 = _matched_block(B)
+    d = _matched_dispersion(one_turn)
+    return CoupledTwiss(
+        s,
+        beta_1,
+        alpha_1,
+        beta_2,
+        alpha_2,
+        gamma_c,
+        float(C[0, 0]),
+        float(C[0, 1]),
+        float(C[1, 0]),
+        float(C[1, 1]),
+        float(d[0]),
+        float(d[1]),
+        float(d[2]),
+        float(d[3]),
+    )
+
+
+def coupled_twiss(lattice: Lattice) -> CoupledTwiss:
+    """Matched normal-mode (Edwards-Teng) optics at the entrance of a periodic lattice.
+
+    Use this instead of :func:`closed_twiss` when the lattice contains a
+    :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole` — the uncoupled path
+    raises :class:`CoupledLatticeError` there by design.
+    """
+    return match_periodic_coupled(lattice.one_turn_matrix())
 
 
 def _decoupled(M: np.ndarray) -> np.ndarray:
