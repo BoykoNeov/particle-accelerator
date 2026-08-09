@@ -598,6 +598,96 @@ the sharing model does not carry. Both are ≲ few % on the gated ring (`h≈0.0
 vertical-dispersion blind spot — remains the rigorous alternative, reserved. Gates:
 `tests/analytic/test_coupling_emittance.py`, `tests/reference/test_coupling_emittance_xtrack.py`.
 
+### Coupled Twiss — the Edwards-Teng normal-mode optics (G2 — implemented)
+
+G1 left a hole it created on purpose: `_require_uncoupled` makes `match_periodic` /
+`closed_twiss` / `tunes` raise `CoupledLatticeError` on a skew lattice, which is right
+(better than decoupled-but-wrong betas) but left such a ring with **no beta functions
+and no beam sizes at all**. G2 fills it with the Edwards-Teng decomposition.
+
+**The factorisation.** The transverse one-turn map is written as
+
+    M4 = V U V^-1,   V = [[gamma_c I, C], [-C+, gamma_c I]],   U = diag(A, B),
+
+with `C+ = adj(C) = -J C^T J` the symplectic conjugate (for 2x2, the adjugate, so
+`C C+ = det(C) I`). `V` is symplectic **iff** `gamma_c^2 + det C = 1`. `A` and `B` are
+then ordinary 2x2 Courant-Snyder blocks, one per betatron **normal mode**, and
+`match_periodic_coupled` reads `(beta_1, alpha_1)`, `(beta_2, alpha_2)` off them with
+the same `_matched_block` the uncoupled path uses.
+
+**The closed form is derived, and the remembered one was wrong.** Requiring the
+off-diagonal block of `V^-1 M4 V` to vanish gives, in blocks `M4 = [[m, n], [p, q]]`
+and with `X = C/gamma_c`, the matrix **Riccati equation**
+
+    n + m X - X q - X p X = 0.
+
+Its root is proportional to `H = n + adj(p)` — `X = lambda H` — and with
+`Delta = (tr m - tr q)/2`, `R = sqrt(Delta^2 + det H)`:
+
+    lambda    = -sgn(Delta) / (|Delta| + R)
+    gamma_c^2 = 1 / (1 + det X) = 1/2 + |Delta| / (2 R)
+    C         = gamma_c X = -sgn(Delta) H / (2 gamma_c R)
+
+The textbook form recalled at the start of this milestone had `C = -sgn(Delta) H /
+(gamma_c R)` — missing the **factor 2** — which breaks `gamma_c^2 + det C = 1` by
+O(1) (`0.58` on the first test ring). It was caught *before* implementing, by checking
+the symplectic constraint numerically first. `lambda` is re-derived symbolically inside
+`test_coupled_twiss.py::test_riccati_root_derived_symbolically` (sympy solves the
+Riccati), so the shipped constant is gated, not trusted.
+
+**Conventions pinned here.**
+- Taking `|Delta|` (not `Delta`) selects `gamma_c >= 1/sqrt(2)`, i.e. `V` is the
+  *smaller* of the two possible rotations. That makes **mode 1 the x-like mode**, the
+  same labelling `normal_mode_tunes` uses (dominant plane), so the two agree.
+- `coupling_angle` `phi = arccos(gamma_c)` lies in `[0, pi/4]`; `det C = sin^2 phi`.
+  `phi = pi/4` (`gamma_c = 1/sqrt(2)`) is full mixing and is reached **only** on the
+  difference resonance — a symmetric FODO gives it exactly, for *any* skew strength,
+  which is the resonance's signature.
+- Exactly on resonance (`Delta = 0`) the branch `sgn(0) = +1` is arbitrary and the 1/2
+  labels may swap relative to the eigenvector route; the *pair* is still well defined.
+- `Delta^2 + det H < 0` raises `UnstableLatticeError`: the modes have merged and no real
+  symplectic decoupling exists.
+
+**Propagation is by local re-match, not transport.** `propagate_coupled_twiss` rebuilds
+the **local** one-turn map `M(s) = T(s) M(0) T(s)^-1` at each element boundary and
+re-decomposes. That is exact and needs no transport rule for `C`. **Scope:** no mode
+*phase* is accumulated, so it yields no tune (use `normal_mode_tunes`); and mode labels
+are per-point, so a ring sitting exactly on the difference resonance can swap them
+between points. Off resonance the labelling is stable (gated: mode 1 stays within 0.5%
+of the uncoupled `beta_x` around the whole ring at weak coupling).
+
+**Projected vs eigen — the distinction that bites.** `coupled_beam_sigma` returns what a
+screen measures: `Sigma = V diag(e1 B1, e2 B2) V^T`, dispersion added in quadrature,
+plus the ellipse `tilt = 1/2 atan2(2<xy>, <x^2>-<y^2>)`. With coupling,
+`sigma_y > sqrt(e2 beta_2)` — mode 1 leaks into the vertical plane. This is *not* what
+`equilibrium_emittances_coupled` returns (eigen-emittances), exactly as the G1 ε_y entry
+warned; both are now available and the difference is gated. With `e2 = 0` the leaked
+`sigma_y` is linear in `k1s` **far from resonance only** (verified to 1e-4 at
+`|C^-|/Delta <= 0.11`); as `|C^-| -> Delta` the mixing saturates and the growth falls
+below linear (1.75x per doubling at `|C^-|/Delta = 0.79`) — the test asserts both, so
+the linear claim states its own regime.
+
+**Coupled dispersion comes for free.** The matched dispersion is solved from the full
+coupled 4x4 (`D = (I - M4)^-1 d`), so a skew quad at nonzero `D_x` produces **vertical
+dispersion** (gated: linear in `k1s`). That is the second `ε_y` source the G1 sharing
+model does not carry; G2 exposes it but does **not** feed it back into
+`equilibrium_emittances_coupled` — that stays reserved for the radiation-envelope
+(option B) work.
+
+**xtrack cross-check (`tests/reference/test_coupled_twiss_xtrack.py`).** xtrack reports
+**Ripken** betas; the dictionary from the ET parameters is
+`betx1 = gamma_c^2 beta_1`, `bety2 = gamma_c^2 beta_2`, `betx2 = (C B2 C^T)_00`,
+`bety1 = (adj(C) B1 adj(C)^T)_00`. On an off-resonance FODO with a thick skew
+(`k1s = 0.02`): mode betas **1.7e-6**, cross terms (which pin `C` itself) **8e-5 / 3e-5**,
+mode tunes `<1e-5` — and the same at *every* boundary around the ring (worst 1.75e-6),
+so the propagation is pinned too. The residual is xtrack's documented first-order-in-`k1s`
+skew model, and it **scales as `k1s^2`** (1.07e-7 -> 1.72e-6 for a 4x stronger skew, a
+factor 16.07), which is asserted as its own test — that scaling is what separates a known
+model gap from a sign/prefactor error.
+
+Gates: `tests/analytic/test_coupled_twiss.py` (37 tests),
+`tests/reference/test_coupled_twiss_xtrack.py` (3).
+
 ## Stability boundary (Stage 2 — validated)
 
 A transverse plane is stable iff its one-turn 2×2 block obeys `|½·Tr| < 1`
