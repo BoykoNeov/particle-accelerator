@@ -15,9 +15,10 @@ uncoupled entry points are **guarded** (:func:`_require_uncoupled` raises
 :class:`CoupledLatticeError` rather than return decoupled-but-wrong betas/tunes),
 and coupled motion goes through the **normal-mode** route instead: the eigen-tunes
 (:func:`normal_mode_tunes`), the difference-resonance :func:`closest_tune_approach`,
-and the Edwards-Teng normal-mode beta functions (:func:`coupled_twiss`).
-Dispersion (the coupling to ``delta``) is included in the block path via the
-:class:`~accsim.elements.dipole.Dipole`.
+and the Edwards-Teng normal-mode beta functions (:func:`coupled_twiss`,
+:func:`propagate_coupled_twiss`) with the projected sizes a screen would see
+(:func:`coupled_beam_sigma`). Dispersion (the coupling to ``delta``) is included in
+the block path via the :class:`~accsim.elements.dipole.Dipole`.
 
 Conventions (see ``docs/CONVENTIONS.md``):
 
@@ -546,6 +547,84 @@ def coupled_twiss(lattice: Lattice) -> CoupledTwiss:
     raises :class:`CoupledLatticeError` there by design.
     """
     return match_periodic_coupled(lattice.one_turn_matrix())
+
+
+def propagate_coupled_twiss(lattice: Lattice) -> list[CoupledTwiss]:
+    """Matched normal-mode optics at every element boundary of a periodic lattice.
+
+    Returns ``len(lattice) + 1`` points (entrance, then each element's exit). Unlike
+    :func:`propagate_twiss`, which transports ``(beta, alpha)`` forward, this
+    re-matches at every point from the **local** one-turn map
+    ``M(s) = T(s) M(0) T(s)^-1`` (``T(s)`` the transfer matrix from the start). That
+    is exact, needs no transport rule for the coupling matrix ``C``, and keeps the
+    mode labelling consistent with :func:`coupled_twiss`.
+
+    **Scope:** no mode *phase* is accumulated — the returned points carry no ``mu``,
+    so this cannot produce a tune (use :func:`normal_mode_tunes`). Mode labelling is
+    per-point: on a lattice sitting exactly on the difference resonance the local
+    ``Delta`` can pass through zero and modes 1/2 may swap between points; off
+    resonance (the useful regime) it is stable, and the ``beta_1`` continuity is
+    gated in the analytic tests.
+    """
+    one_turn = lattice.one_turn_matrix()
+    points = [match_periodic_coupled(one_turn, s=0.0)]
+    transfer = np.eye(6)
+    s = 0.0
+    for elem in lattice.elements:
+        transfer = elem.matrix(lattice.ref) @ transfer
+        s += elem.length
+        local = transfer @ one_turn @ np.linalg.inv(transfer)
+        points.append(match_periodic_coupled(local, s=s))
+    return points
+
+
+def coupled_beam_sigma(
+    twiss: Sequence[CoupledTwiss],
+    emit_1: float,
+    emit_2: float,
+    sigma_delta: float = 0.0,
+) -> tuple[list[float], list[float], list[float]]:
+    r"""Projected beam sizes ``(sigma_x, sigma_y, tilt)`` of a **coupled** beam.
+
+    The coupled counterpart of :func:`beam_sigma`. With betatron coupling the beam
+    ellipse is no longer aligned with the ``x``/``y`` axes: what a screen measures is
+    the *projection* of the 4D ellipsoid, which mixes both modes. Building the sigma
+    matrix in the normal-mode basis and rotating it back with ``V``,
+
+        Sigma = V diag(emit_1 B_1, emit_2 B_2) V^T,   B_i = [[beta_i, -alpha_i],
+                                                            [-alpha_i, gamma_i]],
+
+    and adding the dispersive contribution in quadrature (statistically independent
+    of the betatron motion),
+
+        sigma_x = sqrt(Sigma_xx + (D_x sigma_delta)^2),
+        sigma_y = sqrt(Sigma_yy + (D_y sigma_delta)^2),
+        tilt    = 1/2 atan2(2 <x y>, <x^2> - <y^2>),  <x y> = Sigma_xy + D_x D_y sigma_delta^2.
+
+    ``emit_1``/``emit_2`` are the **eigen-mode** geometric emittances — exactly what
+    :func:`~accsim.radiation.equilibrium_emittances_coupled` returns. Note the
+    distinction that matters: ``sigma_y`` here is the *projected* vertical size, which
+    on a coupled machine is larger than ``sqrt(emit_2 beta_2)`` because mode 1 leaks
+    into the vertical plane. ``tilt`` is in radians, the angle of the beam ellipse's
+    major axis in the ``x-y`` plane (zero for an uncoupled beam).
+    """
+    sx: list[float] = []
+    sy: list[float] = []
+    tilt: list[float] = []
+    sd2 = sigma_delta * sigma_delta
+    for t in twiss:
+        b1 = np.array([[t.beta_1, -t.alpha_1], [-t.alpha_1, t.gamma_1]])
+        b2 = np.array([[t.beta_2, -t.alpha_2], [-t.alpha_2, t.gamma_2]])
+        mode = np.block([[emit_1 * b1, np.zeros((2, 2))], [np.zeros((2, 2)), emit_2 * b2]])
+        V = t.v_matrix
+        sigma = V @ mode @ V.T
+        xx = sigma[0, 0] + t.disp_x * t.disp_x * sd2
+        yy = sigma[2, 2] + t.disp_y * t.disp_y * sd2
+        xy = sigma[0, 2] + t.disp_x * t.disp_y * sd2
+        sx.append(math.sqrt(xx))
+        sy.append(math.sqrt(yy))
+        tilt.append(0.5 * math.atan2(2.0 * xy, xx - yy))
+    return sx, sy, tilt
 
 
 def _decoupled(M: np.ndarray) -> np.ndarray:

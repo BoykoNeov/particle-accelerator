@@ -46,10 +46,14 @@ from accsim import (
     SkewQuadrupole,
     ThinQuadrupole,
     ThinSkewQuadrupole,
+    beam_sigma,
     closed_twiss,
     closest_tune_approach,
+    coupled_beam_sigma,
     coupled_twiss,
     normal_mode_tunes,
+    propagate_coupled_twiss,
+    propagate_twiss,
     tunes,
 )
 from accsim.twiss import _adj2, _edwards_teng, _transverse_4d
@@ -312,3 +316,164 @@ def test_coupling_angle_bounded_and_v_matrix_consistent(ref: ReferenceParticle) 
     assert np.abs(V[:2, 2:] - C).max() < 1e-15
     assert V[0, 0] == pytest.approx(gamma_c, abs=1e-15)
     assert 0.0 <= ct.coupling_angle <= math.pi / 4.0 + 1e-12
+
+
+# ============================ propagation around the ring ============================
+def test_propagation_reduces_to_uncoupled_twiss(ref: ReferenceParticle) -> None:
+    """No coupling: beta_1(s)/beta_2(s) equal the Courant-Snyder betas at every boundary.
+
+    The local-rematch route (this function) and forward Twiss transport
+    (:func:`propagate_twiss`) share no code, so agreeing at every point is a real gate.
+    """
+    lat = Lattice(_fodo(1.2) * 4 + [ThinQuadrupole(0.05)], ref)
+    pts = propagate_coupled_twiss(lat)
+    ref_pts = propagate_twiss(lat, closed_twiss(lat))
+    assert len(pts) == len(ref_pts)
+    for c, u in zip(pts, ref_pts, strict=True):
+        assert c.s == pytest.approx(u.s, abs=1e-15)
+        assert c.beta_1 == pytest.approx(u.beta_x, rel=1e-11)
+        assert c.alpha_1 == pytest.approx(u.alpha_x, abs=1e-11)
+        assert c.beta_2 == pytest.approx(u.beta_y, rel=1e-11)
+        assert c.alpha_2 == pytest.approx(u.alpha_y, abs=1e-11)
+        assert c.gamma_c == pytest.approx(1.0, abs=1e-12)
+
+
+def test_propagation_is_periodic_and_continuous(ref: ReferenceParticle) -> None:
+    """Optics close on themselves after one turn, with no mode-label swap in between.
+
+    The no-swap check is done at *weak* coupling and as a bound on the largest
+    deviation over the whole ring: mode 1 must stay within a fraction of a percent of
+    the uncoupled horizontal plane everywhere. A label swap at any point where the two
+    plane betas differ (they range over 6.1-9.3 m here) would show up as a ~40%
+    deviation. Comparing "is beta_1 nearer beta_x than beta_y" point-by-point would
+    *not* work: the two plane betas cross several times per cell, and near a crossing
+    the comparison is meaningless.
+    """
+    lat = _coupled_ring(0.03, ref, split=0.05)
+    pts = propagate_coupled_twiss(lat)
+    assert pts[-1].beta_1 == pytest.approx(pts[0].beta_1, rel=1e-10)
+    assert pts[-1].beta_2 == pytest.approx(pts[0].beta_2, rel=1e-10)
+    assert pts[-1].gamma_c == pytest.approx(pts[0].gamma_c, abs=1e-10)
+
+    lat0 = _coupled_ring(0.0, ref, split=0.05)
+    uncoupled = propagate_twiss(lat0, closed_twiss(lat0))
+    weak = propagate_coupled_twiss(_coupled_ring(0.005, ref, split=0.05))
+    dev_1 = max(abs(c.beta_1 - u.beta_x) / u.beta_x for c, u in zip(weak, uncoupled, strict=True))
+    dev_2 = max(abs(c.beta_2 - u.beta_y) / u.beta_y for c, u in zip(weak, uncoupled, strict=True))
+    assert dev_1 < 5e-3
+    assert dev_2 < 5e-3
+
+
+def test_propagated_points_stay_exact(ref: ReferenceParticle) -> None:
+    """The decomposition invariants hold at *every* propagated point, not just the start."""
+    lat = _coupled_ring(0.05, ref, split=0.05)
+    for ct in propagate_coupled_twiss(lat):
+        assert ct.gamma_c**2 + np.linalg.det(ct.c_matrix) == pytest.approx(1.0, abs=1e-12)
+        assert ct.beta_1 > 0.0
+        assert ct.beta_2 > 0.0
+
+
+# ============================ projected beam sizes ============================
+def test_coupled_beam_sigma_reduces_to_uncoupled(ref: ReferenceParticle) -> None:
+    """No coupling: projected sizes equal the plain ``beam_sigma`` and the tilt is zero."""
+    lat = Lattice(_fodo(1.2) * 4 + [ThinQuadrupole(0.05)], ref)
+    e1, e2 = 2e-9, 5e-10
+    sx, sy, tilt = coupled_beam_sigma(propagate_coupled_twiss(lat), e1, e2)
+    ux, uy = beam_sigma(propagate_twiss(lat, closed_twiss(lat)), e1, e2)
+    assert np.allclose(sx, ux, rtol=1e-11)
+    assert np.allclose(sy, uy, rtol=1e-11)
+    assert np.allclose(tilt, 0.0, atol=1e-14)
+
+
+def test_four_dimensional_emittance_is_invariant(ref: ReferenceParticle) -> None:
+    r"""``det Sigma = (emit_1 emit_2)^2`` at every point, coupled or not.
+
+    ``V`` is symplectic (``det V = 1``) and ``det B_i = beta gamma - alpha^2 = 1``, so
+    the 4D emittance is untouched by the coupling — a strong check that the sigma
+    matrix is built with the right transformation (``V ... V^T``, not ``V^-1``).
+    """
+    e1, e2 = 3e-9, 4e-10
+    for k1sl in (0.0, 0.02, 0.08):
+        for ct in propagate_coupled_twiss(_coupled_ring(k1sl, ref, split=0.05)):
+            b1 = np.array([[ct.beta_1, -ct.alpha_1], [-ct.alpha_1, ct.gamma_1]])
+            b2 = np.array([[ct.beta_2, -ct.alpha_2], [-ct.alpha_2, ct.gamma_2]])
+            mode = np.block([[e1 * b1, np.zeros((2, 2))], [np.zeros((2, 2)), e2 * b2]])
+            sigma = ct.v_matrix @ mode @ ct.v_matrix.T
+            assert np.linalg.det(sigma) == pytest.approx((e1 * e2) ** 2, rel=1e-9)
+
+
+def test_single_mode_leaks_into_the_vertical(ref: ReferenceParticle) -> None:
+    r"""Excite mode 1 only (``emit_2 = 0``): the projected vertical size grows as ``k1s l``.
+
+    With ``emit_2 = 0`` the vertical block of ``Sigma`` is ``emit_1 adj(C) B_1 adj(C)^T``,
+    i.e. ``O(det C) = O(sin^2 phi)``, so ``sigma_y^2`` is quadratic in the coupling and
+    ``sigma_y`` itself is linear. A flat beam on a coupled machine is never flat: this
+    is the *projected* effect that
+    :func:`~accsim.radiation.equilibrium_emittances_coupled` deliberately does not
+    describe (it returns eigen-emittances).
+    """
+    e1 = 2e-9
+
+    def leaked(k1sl: float, split: float) -> float:
+        pts = propagate_coupled_twiss(_coupled_ring(k1sl, ref, split=split))
+        _sx, sy, _t = coupled_beam_sigma(pts, e1, 0.0)
+        return max(sy)
+
+    # Well away from the resonance (|C^-|/Delta <= 0.11 here) the leak is linear in k1s.
+    weak = {k: leaked(k, 0.2) for k in (0.005, 0.01, 0.02)}
+    assert weak[0.005] > 0.0
+    assert weak[0.01] / weak[0.005] == pytest.approx(2.0, rel=0.01)
+    assert weak[0.02] / weak[0.01] == pytest.approx(2.0, rel=0.01)
+
+    # Closer in, the mixing angle saturates (sin^2 phi -> 1/2) and the growth falls
+    # *below* linear. This is the physics, not a tolerance: asserting it here keeps the
+    # linear gate above honest about the regime it holds in.
+    strong = {k: leaked(k, 0.05) for k in (0.02, 0.04)}
+    assert strong[0.04] / strong[0.02] < 1.85
+
+
+def test_projected_vertical_size_exceeds_the_mode_size(ref: ReferenceParticle) -> None:
+    """Coupled: ``sigma_y > sqrt(emit_2 beta_2)`` — mode 1 leaks into the vertical plane.
+
+    This is the projected-vs-eigen distinction the G1 emittance work flagged, made
+    explicit and gated here.
+    """
+    e1, e2 = 4e-9, 2e-10
+    pts = propagate_coupled_twiss(_coupled_ring(0.05, ref, split=0.05))
+    _sx, sy, _t = coupled_beam_sigma(pts, e1, e2)
+    mode_only = [math.sqrt(e2 * ct.beta_2) for ct in pts]
+    assert all(s > m for s, m in zip(sy, mode_only, strict=True))
+    # and the excess vanishes with the coupling
+    pts0 = propagate_coupled_twiss(_coupled_ring(0.0, ref, split=0.05))
+    _sx0, sy0, _t0 = coupled_beam_sigma(pts0, e1, e2)
+    assert np.allclose(sy0, [math.sqrt(e2 * ct.beta_2) for ct in pts0], rtol=1e-12)
+
+
+def test_beam_tilt_flips_sign_with_the_skew(ref: ReferenceParticle) -> None:
+    """The x-y tilt of the projected ellipse reverses when the skew gradient reverses."""
+    e1, e2 = 4e-9, 2e-10
+    tilts = {}
+    for k1sl in (0.05, -0.05):
+        pts = propagate_coupled_twiss(_coupled_ring(k1sl, ref, split=0.05))
+        _sx, _sy, tilt = coupled_beam_sigma(pts, e1, e2)
+        tilts[k1sl] = tilt[len(tilt) // 2]
+    assert tilts[0.05] != pytest.approx(0.0, abs=1e-6)
+    assert tilts[0.05] == pytest.approx(-tilts[-0.05], rel=1e-6)
+
+
+def test_dispersive_contribution_adds_in_quadrature(ref: ReferenceParticle) -> None:
+    """``sigma_delta`` enters exactly as ``(D sigma_delta)^2`` on top of the betatron size."""
+    from accsim import Dipole
+
+    cell = [Dipole(1.0, 0.05), Quadrupole(0.3, 1.2), Drift(0.7), Quadrupole(0.3, -1.2), Drift(0.7)]
+    elems = cell * 6
+    elems = elems[:3] + [ThinSkewQuadrupole(0.01)] + elems[3:]
+    pts = propagate_coupled_twiss(Lattice(elems, ref))
+    e1, e2, sd = 3e-9, 3e-10, 1e-3
+    sx0, sy0, _t0 = coupled_beam_sigma(pts, e1, e2, sigma_delta=0.0)
+    sx1, sy1, _t1 = coupled_beam_sigma(pts, e1, e2, sigma_delta=sd)
+    for a, b, ct in zip(sx0, sx1, pts, strict=True):
+        assert b * b == pytest.approx(a * a + (ct.disp_x * sd) ** 2, rel=1e-12)
+    for a, b, ct in zip(sy0, sy1, pts, strict=True):
+        assert b * b == pytest.approx(a * a + (ct.disp_y * sd) ** 2, rel=1e-12)
+    assert max(abs(ct.disp_y) for ct in pts) > 1e-6  # the skew really did make D_y
