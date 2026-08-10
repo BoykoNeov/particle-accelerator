@@ -1145,7 +1145,56 @@ sustained arc.
     matching* / *Chromaticity matching*.
   - Still **out of scope**: general N-knob / M-target weighted objectives, strength
     bounds, β\* or dispersion matching at an insertion, and matching a coupled
-    (skew) lattice — H1 is deliberately 2 families → 2 targets, twice.
+    (skew) lattice — H1 is deliberately 2 families → 2 targets, twice. *(The first
+    three are exactly what **H2** below then delivered.)*
+
+- **H2 — insertion matching: local optics at a point, N knobs → M targets.**
+  ✅ **DONE (2026-08-10)** — H1 could ask for the *tunes*; it could not ask for
+  `β*` at the interaction point, which is the constraint a collider is actually
+  designed around. `match_insertion` in `src/accsim/matching.py` (always-on
+  baseline, numpy/scipy only) matches `beta_x/y`, `alpha_x/y` and the four
+  dispersion components at any boundary point, with any number of quadrupole
+  knobs against any number of targets.
+  - **The waist condition is a quadratic, and the gate is built on that.** For
+    the canonical line (waist `β₀` → drift `d₁` → thin lens `u = 1/f` → drift
+    `d₂`), `α = 0` at the exit gives
+    `(d₁²d₂ + d₂β₀²)u² − (d₁² + 2d₁d₂ + β₀²)u + (d₁+d₂) = 0`, **derived in sympy
+    from `B → M B Mᵀ`**, never recalled. Two consequences are the milestone's
+    physics content: `β*` is *determined, not chosen* (one knob buys a waist **or**
+    a `β*`, so a one-knob/two-target problem is over-determined by construction),
+    and the waist is *not unique* — two roots, two different `β*` (`u = 0.1361 →
+    β* = 6.1495` and `u = 0.5404 → β* = 0.6505` on the gate's geometry). The gate
+    matches from two starts and pins each root's **strength** to 1e-12; a test
+    asserting "the" focal length would have flaked on the branch.
+  - **Finite-difference Jacobian, and it is pinned rather than trusted.** Unlike
+    H1's tune integral there is no universal closed form for a *local* β response,
+    so the Jacobian central-differences the exact `propagate_twiss`. It is pinned
+    the H1 way against a symbolic `dβ/dv` differentiated from the closed solution
+    of a thin FODO: **7.9e-11** relative. Approximate Jacobian / exact residual
+    still holds — a dispersion match lands at **1.4e-17**, machine precision.
+  - **Two branches.** `twiss0=None` is periodic (the closed solution is re-solved
+    every evaluation, so a quad moves the optics upstream of itself too);
+    passing a `Twiss` is the transfer line, which is how a real insertion is
+    matched — from the arc cell's exit Twiss into the IP.
+  - **N ≠ M handled honestly.** `lstsq` gives the minimum-norm step for N > M and
+    the least-squares step for N < M, but **a least-squares floor is not
+    success**: convergence is declared only at `tol`, otherwise it raises naming
+    every target and its miss. Over-determined ≠ unreachable, and the gate has
+    both cases. Default target weights `1/max(|value|, 1)` keep a `β ~ 100 m`
+    target from swamping an `α* = 0` one. Sextupole knobs are refused with the
+    physical reason (their linear map is a drift).
+  - **xtrack-validated on both branches** (not against xtrack's matcher): the
+    line against xtrack's *open* twiss from the same entrance Twiss, the ring
+    against its closed twiss, plus the **untargeted** y plane, which has no target
+    to hide behind. All at **machine precision** (`β*` 8.9e-16 relative, `α*`
+    8.5e-16 absolute, ring `β` 7.8e-16 / 6.7e-16) — nothing here is a first-order
+    formula, unlike H1's chromaticity half.
+    Gates: `tests/analytic/test_matching_insertion.py` (26),
+    `tests/reference/test_matching_insertion_xtrack.py` (4). See CONVENTIONS.md →
+    *Insertion matching*.
+  - Still **out of scope**: strength bounds, phase-advance targets, matching a
+    coupled (skew) lattice, and targets spanning several lattices (a shared
+    insertion matched from both sides).
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

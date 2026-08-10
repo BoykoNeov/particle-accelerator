@@ -44,11 +44,15 @@ from .longitudinal import (
     separatrix,
 )
 from .matching import (
+    InsertionMatchResult,
     Knob,
     MatchingError,
     MatchResult,
+    Target,
     chromaticity_response_matrix,
+    insertion_response_matrix,
     match_chromaticity,
+    match_insertion,
     match_tunes,
     tune_response_matrix,
 )
@@ -182,6 +186,11 @@ __all__ = [
     "match_tunes",
     "chromaticity_response_matrix",
     "match_chromaticity",
+    # matching (H2) — local optics at a point, N knobs -> M targets
+    "Target",
+    "InsertionMatchResult",
+    "insertion_response_matrix",
+    "match_insertion",
     # tracking-based tune (NAFF)
     "naff",
     "ellipse_from_trajectory",

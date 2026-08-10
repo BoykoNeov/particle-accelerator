@@ -1,4 +1,12 @@
-r"""Matching: solve for element strengths that hit target optics (milestone H1).
+r"""Matching: solve for element strengths that hit target optics (milestones H1, H2).
+
+H1 matches two **global** scalars — the tunes, then the chromaticities — with two
+knobs each. H2 (:func:`match_insertion`, at the bottom of this file) matches
+**local** optics at a chosen point: ``beta*``, a waist (``alpha* = 0``), or the
+dispersion, with N knobs against M targets. Same skeleton in all three — knobs,
+approximate Jacobian, exact residual, backtracking, rollback — but the H1 pair
+below have closed-form response matrices and H2 does not; see its own docstring
+for why.
 
 Two problems, and they are **not** the same shape:
 
@@ -60,6 +68,7 @@ from .elements.quadrupole import Quadrupole, ThinQuadrupole, _focusing_block
 from .elements.sextupole import Sextupole, ThinSextupole
 from .lattice import Lattice
 from .twiss import (
+    Twiss,
     UnstableLatticeError,
     _blocks,
     _dispersive_kick,
@@ -67,15 +76,20 @@ from .twiss import (
     _transverse_4d,
     chromaticity,
     closed_twiss,
+    propagate_twiss,
     tunes,
 )
 
 __all__ = [
+    "InsertionMatchResult",
     "Knob",
     "MatchResult",
     "MatchingError",
+    "Target",
     "chromaticity_response_matrix",
+    "insertion_response_matrix",
     "match_chromaticity",
+    "match_insertion",
     "match_tunes",
     "tune_response_matrix",
 ]
@@ -615,4 +629,350 @@ def match_chromaticity(
     except Exception:
         for knob, snap in zip(knobs, snapshots, strict=True):
             knob.restore(snap)
+        raise
+
+
+# --------------------------------------------------------------------------
+# H2: insertion matching — local optics at a point, N knobs -> M targets
+# --------------------------------------------------------------------------
+
+#: Twiss attributes a :class:`Target` may name. Phases are deliberately absent:
+#: ``mu`` accumulates from the lattice start, so it is a property of everything
+#: upstream rather than a local optics function at the point.
+_TARGET_QUANTITIES: tuple[str, ...] = (
+    "beta_x",
+    "alpha_x",
+    "beta_y",
+    "alpha_y",
+    "disp_x",
+    "disp_px",
+    "disp_y",
+    "disp_py",
+)
+
+
+@dataclass(frozen=True)
+class Target:
+    """One optics constraint: ``quantity`` at boundary point ``at`` should equal ``value``.
+
+    ``at`` indexes the :func:`accsim.twiss.propagate_twiss` boundary points, so it
+    runs ``0 .. len(lattice)``: ``0`` is the lattice entrance, ``k`` the exit of
+    element ``k-1``. Elements carry no names in this codebase, so the index is the
+    identifier; put a zero-length marker where you want to observe if the natural
+    boundary is not one.
+
+    **Weights make the residual dimensionally meaningful.** ``beta`` is metres and
+    can be ~100, ``alpha`` is dimensionless and ~1, dispersion is metres and ~1 —
+    an unweighted 2-norm over a mixed set is dominated by whichever target happens
+    to carry the largest number, and the matcher would quietly satisfy that one
+    first. The default ``weight = 1 / max(|value|, 1)`` is relative for large
+    targets and absolute for small ones, so it stays finite for the common
+    ``alpha* = 0``. Pass ``weight`` explicitly to prioritise a target.
+    """
+
+    quantity: str
+    at: int
+    value: float
+    weight: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.quantity not in _TARGET_QUANTITIES:
+            raise MatchingError(
+                f"unknown target quantity {self.quantity!r}; expected one of "
+                f"{list(_TARGET_QUANTITIES)}"
+            )
+        if not isinstance(self.at, int) or isinstance(self.at, bool) or self.at < 0:
+            raise MatchingError(
+                f"target 'at' must be a non-negative boundary index, got {self.at!r}"
+            )
+        if self.weight is not None and not (self.weight > 0.0 and math.isfinite(self.weight)):
+            raise MatchingError(f"target weight must be finite and positive, got {self.weight!r}")
+
+    @property
+    def scale(self) -> float:
+        """Effective weight applied to this target's residual."""
+        if self.weight is not None:
+            return float(self.weight)
+        return 1.0 / max(abs(float(self.value)), 1.0)
+
+    def __str__(self) -> str:
+        return f"{self.quantity}@{self.at} = {self.value:g}"
+
+
+@dataclass(frozen=True)
+class InsertionMatchResult:
+    """Outcome of a successful :func:`match_insertion`.
+
+    Unlike :class:`MatchResult` this carries the ``targets`` themselves, not just
+    their values: with M targets and N knobs the interesting question when a match
+    is tight is *which* constraint is limiting, and ``residuals`` (per target,
+    unweighted, ``achieved - value``) is the only honest way to say so.
+
+    ``residual`` is the **weighted** 2-norm actually driven to ``tol``.
+    """
+
+    values: tuple[float, ...]
+    initial: tuple[float, ...]
+    targets: tuple[Target, ...]
+    achieved: tuple[float, ...]
+    residuals: tuple[float, ...]
+    residual: float
+    iterations: int
+
+
+def _check_targets(lattice: Lattice, targets: Sequence[Target]) -> tuple[Target, ...]:
+    """Validate a target list against ``lattice`` and return it as a tuple."""
+    out = tuple(targets)
+    if not out:
+        raise MatchingError("match_insertion needs at least one target")
+    n_points = len(lattice) + 1
+    for t in out:
+        if not isinstance(t, Target):
+            raise MatchingError(f"targets must be Target instances, got {t!r}")
+        if t.at >= n_points:
+            raise MatchingError(
+                f"target {t} observes boundary {t.at}, but this lattice has "
+                f"{n_points} boundary points (0 .. {len(lattice)})"
+            )
+    return out
+
+
+def _check_optics_knobs(knobs: Sequence[Knob]) -> None:
+    """Refuse knobs that provably cannot move the linear optics at a point."""
+    for knob in knobs:
+        if knob.attr in ("k2", "k2l"):
+            raise MatchingError(
+                f"{knob!r} drives {knob.attr}: a sextupole's *linear* map is a drift, so "
+                "it cannot move beta, alpha or the dispersion at any point — no sextupole "
+                "setting can satisfy an insertion target. Use quadrupole knobs (and "
+                "match_chromaticity for what sextupoles can do)."
+            )
+
+
+def _observe(lattice: Lattice, targets: Sequence[Target], twiss0: Twiss | None) -> np.ndarray:
+    """Current values of ``targets``, from the periodic solution or from ``twiss0``.
+
+    With ``twiss0=None`` the closed solution is **re-solved** here, which is what
+    makes the periodic branch honest: moving a quadrupole moves the matched optics
+    everywhere in the ring, not only downstream of the quadrupole.
+    """
+    start = closed_twiss(lattice) if twiss0 is None else twiss0
+    points = propagate_twiss(lattice, start)
+    return np.array([float(getattr(points[t.at], t.quantity)) for t in targets])
+
+
+def insertion_response_matrix(
+    lattice: Lattice,
+    targets: Sequence[Target],
+    knobs: Sequence[Knob],
+    *,
+    twiss0: Twiss | None = None,
+    fd_step: float = 1e-6,
+) -> np.ndarray:
+    r"""Response ``J[i, j] = d(target i) / dv_j``, by central finite differences.
+
+    Rows are the targets in order, columns the knobs, **unweighted** (physical
+    units: ``dbeta/dv`` is m per knob unit). A Newton step solves ``J dv = -r``.
+
+    **Why finite differences here and a closed form in H1.** The tune response is
+    one universal integral, ``dQ/dv = +-(1/4pi) integral(beta dk1 ds)``, valid for
+    every lattice; the response of a *local* ``beta`` or dispersion is not — it
+    depends on the target quantity, on where the knob sits relative to the
+    observation point, and, in the periodic branch, on the re-solved closed
+    solution. Differencing the exact :func:`accsim.twiss.propagate_twiss` covers
+    all of that uniformly and works identically for a ring and for a transfer
+    line. The gate pins this matrix against a symbolic ``dbeta/dv`` differentiated
+    from the closed solution of a thin lattice, so "approximate" here means
+    *truncation*, not *unvalidated*.
+
+    As in :func:`match_tunes` the Jacobian is only used for the *step*: the
+    residual comes from the exact optics, so the converged fixed point is exact.
+
+    The step is ``h_j = fd_step * max(|v_j|, 1)``. The floor matters — a knob may
+    legitimately start at ``v = 0`` (an off sextupole family's quadrupole
+    equivalent, a corrector at rest), and a purely relative step would give it a
+    zero column and be reported as a degenerate knob. If one side of the central
+    difference falls outside the stability boundary the column falls back to a
+    one-sided difference against the baseline.
+    """
+    _check_optics_knobs(knobs)
+    _knob_index(knobs)
+    targets = _check_targets(lattice, targets)
+    if not (fd_step > 0.0 and math.isfinite(fd_step)):
+        raise MatchingError(f"fd_step must be finite and positive, got {fd_step!r}")
+
+    base = _observe(lattice, targets, twiss0)
+    jac = np.empty((len(targets), len(knobs)))
+    for j, knob in enumerate(knobs):
+        v = knob.value
+        h = fd_step * max(abs(v), 1.0)
+        sides: list[np.ndarray | None] = []
+        for sign in (+1.0, -1.0):
+            knob.apply(v + sign * h)
+            try:
+                sides.append(_observe(lattice, targets, twiss0))
+            except UnstableLatticeError:
+                sides.append(None)
+        knob.apply(v)
+        plus, minus = sides
+        if plus is not None and minus is not None:
+            jac[:, j] = (plus - minus) / (2.0 * h)
+        elif plus is not None:
+            jac[:, j] = (plus - base) / h
+        elif minus is not None:
+            jac[:, j] = (base - minus) / h
+        else:
+            raise MatchingError(
+                f"{knob!r} cannot be differenced: the lattice is unstable on both sides "
+                f"of v = {v:g} at step {h:g}, so this knob sits exactly on the stability "
+                "boundary"
+            )
+    return jac
+
+
+def match_insertion(
+    lattice: Lattice,
+    targets: Sequence[Target],
+    knobs: Sequence[Knob],
+    *,
+    twiss0: Twiss | None = None,
+    tol: float = 1e-12,
+    max_iter: int = 60,
+    fd_step: float = 1e-6,
+) -> InsertionMatchResult:
+    r"""Match local optics (``beta*``, ``alpha*``, dispersion) at one or more points.
+
+    N quadrupole knobs against M targets, by Gauss-Newton on the finite-difference
+    :func:`insertion_response_matrix` with the residual taken from the exact
+    optics. This is the H1 pattern one dimension wider: H1 was 2 knobs -> 2 global
+    targets twice, this is N -> M on *local* quantities.
+
+    **Two branches, chosen by ``twiss0``.**
+
+    - ``twiss0=None`` (default) — **periodic**: the closed solution is re-solved
+      at every evaluation, so a quadrupole legitimately moves the optics
+      everywhere, including upstream of itself. This is the ring case.
+    - ``twiss0=<Twiss>`` — **transfer line**: the optics are propagated from a
+      fixed entrance, which is how a real insertion is matched (from the exit
+      Twiss of the periodic arc cell, into the interaction point). No periodicity
+      is imposed and the lattice need not be stable.
+
+    **N and M need not be equal, and the step is honest about which case it is.**
+    The step comes from :func:`numpy.linalg.lstsq` on the weighted Jacobian: for
+    ``N > M`` (more knobs than targets) that is the *minimum-norm* solution, which
+    is the right default — it moves the strengths as little as the target allows
+    instead of picking an arbitrary point of the solution family. For ``N < M`` it
+    is the least-squares step, which converges to a floor rather than to zero.
+    **A least-squares floor is not success**: the match is only reported as
+    converged when the weighted residual reaches ``tol``, and otherwise raises
+    with the per-target misses, so an over-constrained problem cannot be mistaken
+    for a solved one.
+
+    ``alpha = 0`` is a waist, and a waist target is generally **not unique** — for
+    a single thin lens the condition is a quadratic in ``1/f``, with two roots and
+    two different emergent ``beta*``. Newton converges to whichever root the
+    starting strengths are nearest; there is no "the" solution to select.
+
+    Each step is backtracked (halved) until it both keeps the optics computable
+    and reduces the weighted residual, exactly as in :func:`match_tunes` — in the
+    periodic branch a long step routinely crosses the stability boundary, where
+    :func:`accsim.twiss.closed_twiss` raises rather than returning a wrong number.
+
+    **Mutates ``lattice`` in place** on success; restores every original strength
+    if it raises.
+
+    Raises :class:`MatchingError` if a target names an out-of-range boundary, if a
+    knob is a sextupole (whose linear map is a drift and so cannot move local
+    optics at all), if the knobs are degenerate, if no step reduces the residual,
+    or if ``max_iter`` is exhausted.
+    """
+    knobs = tuple(knobs)
+    if not knobs:
+        raise MatchingError("match_insertion needs at least one knob")
+    targets = _check_targets(lattice, targets)
+    _check_optics_knobs(knobs)
+    _knob_index(knobs)  # fail fast on overlapping knobs, before touching anything
+
+    for knob in knobs:
+        knob.check_ganged()  # ``value`` is only meaningful while the family is ganged
+    snapshots = [k.snapshot() for k in knobs]
+    initial = tuple(k.value for k in knobs)
+
+    wanted = np.array([float(t.value) for t in targets])
+    weight = np.array([t.scale for t in targets])
+
+    def weighted(achieved: np.ndarray) -> np.ndarray:
+        return weight * (achieved - wanted)
+
+    def rollback() -> None:
+        for knob, snap in zip(knobs, snapshots, strict=True):
+            knob.restore(snap)
+
+    def report(misses: np.ndarray) -> str:
+        return ", ".join(f"{t} (off by {m:+.3g})" for t, m in zip(targets, misses, strict=True))
+
+    try:
+        try:
+            achieved = _observe(lattice, targets, twiss0)
+        except UnstableLatticeError as exc:
+            raise MatchingError(f"the starting lattice has no matched optics: {exc}") from exc
+        resid = weighted(achieved)
+
+        v = np.array(initial, dtype=float)
+        for iteration in range(max_iter + 1):
+            norm = float(np.linalg.norm(resid))
+            if norm <= tol:
+                misses = achieved - wanted
+                return InsertionMatchResult(
+                    values=tuple(float(x) for x in v),
+                    initial=initial,
+                    targets=targets,
+                    achieved=tuple(float(x) for x in achieved),
+                    residuals=tuple(float(x) for x in misses),
+                    residual=norm,
+                    iterations=iteration,
+                )
+            if iteration == max_iter:
+                break
+
+            jac = insertion_response_matrix(lattice, targets, knobs, twiss0=twiss0, fd_step=fd_step)
+            _check_conditioning(
+                weight[:, None] * jac,
+                "insertion response matrix",
+                "two knobs at equivalent optics move the observation point the same way, "
+                "and a knob downstream of it cannot move it at all in a transfer line",
+            )
+            step = np.linalg.lstsq(weight[:, None] * jac, -resid, rcond=None)[0]
+
+            # Backtrack until the step is both computable and an improvement.
+            lam = 1.0
+            while True:
+                trial = v + lam * step
+                for knob, value in zip(knobs, trial, strict=True):
+                    knob.apply(float(value))
+                try:
+                    new_achieved = _observe(lattice, targets, twiss0)
+                except UnstableLatticeError:
+                    new_achieved = None  # stepped past the stability boundary
+                if new_achieved is not None:
+                    new_resid = weighted(new_achieved)
+                    if float(np.linalg.norm(new_resid)) < norm:
+                        v, resid, achieved = trial, new_resid, new_achieved
+                        break
+                lam *= 0.5
+                if lam < 1e-8:
+                    raise MatchingError(
+                        f"no step reduced the insertion residual (weighted |r| = {norm:.3g} "
+                        f"at iteration {iteration}, tol = {tol:g}) with {len(knobs)} knob(s) "
+                        f"for {len(targets)} target(s): {report(achieved - wanted)}. With "
+                        "fewer knobs than targets this is a least-squares floor, not a "
+                        "solution — the targets are mutually unreachable."
+                    )
+        raise MatchingError(
+            f"insertion matching did not converge in {max_iter} iterations "
+            f"(weighted |r| = {float(np.linalg.norm(resid)):.3g}, tol = {tol:g}): "
+            f"{report(achieved - wanted)}"
+        )
+    except Exception:
+        rollback()
         raise

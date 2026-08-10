@@ -838,6 +838,96 @@ chromaticity to **2.4e-3 / 3.6e-4** on a correction of ~1.8, i.e. ~1.3e-3
 relative — accsim's first-order feed-down vs. xtrack's real nonlinear kick, the
 same model difference `test_sextupole_xtrack` documents.
 
+### Insertion matching — local optics, N knobs → M targets (H2 — implemented)
+
+`match_insertion` matches the Twiss functions **at a point**: `β*`, a waist
+(`α* = 0`), or the dispersion — the thing H1 could not ask for. A `Target` names
+one of `beta_x, alpha_x, beta_y, alpha_y, disp_x, disp_px, disp_y, disp_py`, a
+value, and a boundary index `at`.
+
+**`at` indexes `propagate_twiss` boundary points, `0 .. len(lattice)`.** Elements
+carry no names in this codebase, so the index *is* the identifier: `0` is the
+lattice entrance, `k` the exit of element `k−1`. Out-of-range is refused with the
+valid span in the message; if the point you want is not a natural boundary, insert
+a zero-length element there.
+
+**Two branches, selected by `twiss0`.** `twiss0=None` (default) is the **periodic**
+case: `closed_twiss` is **re-solved at every evaluation**, so a quadrupole moves
+the optics everywhere including upstream of itself. Passing a `Twiss` is the
+**transfer-line** case — propagate from a fixed entrance, impose no periodicity,
+and the lattice need not even be stable. That is the real insertion problem: match
+from the arc cell's exit Twiss into the IP.
+
+**The waist is a quadratic, and therefore not unique.** For the canonical
+one-lens line (waist `β₀` → drift `d₁` → thin lens `u = 1/f` → drift `d₂`),
+demanding `α = 0` at the exit gives — *derived in sympy from `B → M B Mᵀ`*, not
+recalled —
+
+    (d₁²d₂ + d₂β₀²)·u² − (d₁² + 2d₁d₂ + β₀²)·u + (d₁ + d₂) = 0.
+
+Two consequences shape the whole API and gate:
+
+- **`β*` is determined, not chosen.** One knob buys a waist *or* a value of `β*`,
+  never both — a one-knob/two-target problem is over-determined **by
+  construction**. Measured on the gate's geometry (`β₀=5, d₁=3, d₂=2`): the roots
+  are `u = 0.1361` → `β* = 6.1495` and `u = 0.5404` → `β* = 0.6505`.
+- **Newton lands on whichever root it starts nearest.** There is no "the" focal
+  length to assert; the gate matches from two starts and pins each root
+  separately, to 1e-12 in the strength.
+
+**Finite-difference Jacobian — and why, when H1's is closed-form.** The tune
+response is one universal integral valid for every lattice. The response of a
+*local* β or dispersion is not: it depends on the quantity, on where the knob sits
+relative to the observation point, and (periodic branch) on the re-solved closed
+solution. Central differencing the exact `propagate_twiss` covers all of it
+uniformly and works identically for a ring and a line. **Approximate Jacobian,
+exact residual** still holds, so the fixed point is exact — measured: a dispersion
+match lands at `1.4e-17`, machine precision, not at the differencing error. The
+Jacobian is *pinned* the H1 way, against a symbolic `dβ/dv` differentiated from
+the closed solution of a thin FODO — measured agreement **7.9e-11** relative
+(gated at `1e-9`), the central-difference truncation floor at `h ≈ 1e-6`.
+
+**The FD step is `h = fd_step · max(|v|, 1)`, and the floor is load-bearing.** H1
+deliberately supports knobs starting at `v = 0`; a purely *relative* step would
+give such a knob a zero column and the conditioning check would report a
+degenerate knob on a perfectly well-posed problem. If one side of the central
+difference falls outside the stability boundary the column falls back to one-sided.
+
+**Default weight `1/max(|value|, 1)` — an unweighted 2-norm is meaningless here.**
+β is metres and can be ~100, α is dimensionless and ~1: unweighted, the matcher
+satisfies whichever target carries the biggest number first. The default is
+relative for large targets and absolute for small ones, so it stays finite for the
+ubiquitous `α* = 0`. Pass `weight` to prioritise.
+
+**N ≠ M is allowed, and a least-squares floor is not success.** The step is
+`lstsq` on the weighted Jacobian: minimum-norm for N > M (move the strengths as
+little as the target allows, rather than picking an arbitrary point of the
+solution family), least-squares for N < M. Convergence is declared **only** when
+the weighted residual reaches `tol` (default `1e-12`); otherwise it raises, naming
+each target and its miss. Note over-determined ≠ unreachable — the gate contains
+both: `(α*=0, β*=6.1495)` is two targets for one knob and solvable exactly at the
+second root, while `(α*=0, β*=3.40)` (between the two roots) is provably
+unreachable and must raise.
+
+**Sextupole knobs are refused** — a sextupole's linear map is a drift, so *no*
+setting can move a local β, α or D. Same physical fact as H1's ordering argument,
+used for the opposite purpose.
+
+Backtracking, ganging re-checks, degeneracy refusal and rollback are inherited
+from H1 unchanged; the periodic branch additionally catches `closed_twiss` raising
+mid-step, which a long first step routinely triggers (gate **counts** the unstable
+excursions before asserting convergence, as in H1).
+
+Gates: `tests/analytic/test_matching_insertion.py` (26),
+`tests/reference/test_matching_insertion_xtrack.py` (4). The reference gate covers
+**both** branches — xtrack's *open* twiss from the same entrance Twiss for the
+line, its closed twiss for the ring — and includes the **untargeted** y plane,
+which has no target to hide behind. Measured 2026-08-10 (xtrack 0.106.4): line
+`β*` **8.9e-16** relative, `α*` **8.5e-16** absolute, untargeted y **6.7e-16** /
+**0.0**; ring `β_x` **7.8e-16**, `β_y` **6.7e-16**. Machine precision, not a
+tolerance — unlike H1's chromaticity gate (2.4e-3) nothing here is a first-order
+formula: both codes evaluate the same thick-element linear optics.
+
 ## Stability boundary (Stage 2 — validated)
 
 A transverse plane is stable iff its one-turn 2×2 block obeys `|½·Tr| < 1`
