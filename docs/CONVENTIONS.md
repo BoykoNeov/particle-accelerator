@@ -759,10 +759,13 @@ disabling the re-check:**
 - `match_chromaticity` mostly catches it already — but names the wrong cause. A
   wrong baseline breaks the affine prediction, so the post-solve residual check
   fires with "the chromaticity is not affine in these knobs", a *physics* claim
-  about what is really a bookkeeping error. Below a desync of ~1e-9 (still above
-  `check_ganged`'s `abs_tol = 1e-12`) even that misses and the member is
-  overwritten. So here the re-check buys the correct diagnosis plus a narrow
-  window, not the difference between caught and uncaught.
+  about what is really a bookkeeping error. And it only catches the desyncs big
+  enough to break the prediction: a desync small enough that the post-solve
+  residual still passes `match_chromaticity`'s `tol`, yet big enough to fail
+  `check_ganged`'s `abs_tol`, is overwritten silently (with the shipped defaults
+  `tol = 1e-9` and `abs_tol = 1e-12`, measured: `1e-8` refused, `1e-9` not). So
+  here the re-check buys the correct diagnosis plus that window — not the
+  difference between caught and uncaught.
 
 The gates assert on the *message* (`"not consistent"`) for that reason, and use a
 desync small enough that the start is still stable — otherwise the refusal would
