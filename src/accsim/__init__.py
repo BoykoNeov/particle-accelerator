@@ -43,6 +43,13 @@ from .longitudinal import (
     rf_bucket_height,
     separatrix,
 )
+from .matching import (
+    Knob,
+    MatchingError,
+    MatchResult,
+    match_tunes,
+    tune_response_matrix,
+)
 from .radiation import (
     RadiationIntegrals,
     damping_partition_numbers,
@@ -165,6 +172,12 @@ __all__ = [
     "momentum_compaction",
     "slip_factor",
     "synchrotron_tune",
+    # matching (H1)
+    "Knob",
+    "MatchResult",
+    "MatchingError",
+    "tune_response_matrix",
+    "match_tunes",
     # tracking-based tune (NAFF)
     "naff",
     "ellipse_from_trajectory",

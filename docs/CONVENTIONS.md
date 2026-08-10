@@ -698,6 +698,64 @@ model gap from a sign/prefactor error.
 Gates: `tests/analytic/test_coupled_twiss.py` (38 tests),
 `tests/reference/test_coupled_twiss_xtrack.py` (5).
 
+## Tune matching (H1 — implemented)
+
+`accsim.matching.match_tunes` drives two quadrupole families to a target
+`(Q_x, Q_y)`. The one piece of physics is the **tune response matrix**
+(`tune_response_matrix`): a gradient perturbation `dk1` shifts the tunes by the
+β-weighted first-order integral
+
+    dQ_x = +(1/4π) ∮ β_x dk1 ds,      dQ_y = −(1/4π) ∮ β_y dk1 ds,
+
+i.e. **more focusing in x raises `Q_x` and lowers `Q_y`**. This is the same
+perturbation integral as the natural chromaticity above, where the perturbation
+is the off-momentum weakening `dk1 = −k1·δ` — which is exactly why
+`natural_chromaticity` carries the opposite sign and an extra factor `k1`.
+
+Sign, coefficient and weighting are **not** taken from a remembered formula: the
+gate differentiates `Q(v) = acos(½·Tr M(v))/2π` symbolically from the thin
+one-turn map and matches the β-form to ~1e-12. That derivative knows nothing
+about β, about `4π`, or about the family weights, so agreement pins all three at
+once.
+
+**Approximate Jacobian, exact residual.** The response matrix is first order (β
+itself moves as the strengths move), but the Newton residual comes from the exact
+`tunes()`, so the *fixed point* is exact — the matcher converges to strengths
+that hit the target to ~1e-12 in tune units, not to first-order strengths. The
+Jacobian is recomputed every iteration. The acceptance test therefore asserts the
+recovered **strengths** against a known lattice, not merely a small residual.
+
+**Targets are full tunes, integer part included.** `tunes()` accumulates phase
+advance through `propagate_twiss` rather than reading the one-turn trace, so
+`Q_x = 6.28` is expressible and distinct from `0.28`.
+
+**Knob semantics: `strength_i = w_i · v`** (MAD-X expression semantics, weights
+default `1.0`). This is the only form that handles both cases a matcher meets: a
+family split into half-quads at the ends of a cell (weights `0.5` — a purely
+*additive* knob would desynchronise them) and a family starting from **zero**
+strength (which a purely *multiplicative* knob could never move). `k1` [m⁻²] and
+`k1l` [m⁻¹] are different units, so one knob may never span thick and thin
+members — refused, not silently coerced.
+
+**Newton must backtrack.** A first-order step from far away routinely overshoots
+the stability boundary, where `tunes()` *raises* rather than returning a wrong
+number. Each step is halved until it is both stable and residual-reducing; the
+FODO near-boundary test exists to exercise exactly that path.
+
+**Mutation and rollback.** `Lattice.__init__` copies the element *list* but shares
+the element *objects*, so copying a `Lattice` does not protect `k1` — matching
+necessarily mutates in place. Every entry point snapshots the raw per-element
+strengths and restores them if it raises, so a failed match leaves the lattice
+byte-identical.
+
+**Degeneracy is refused, not solved.** Two knobs at equivalent optics (e.g. the
+two half-quads of a symmetric cell) give proportional Jacobian columns; the
+condition number is checked (`> 1e10` raises `MatchingError`) rather than letting
+a bare 2×2 solve return a huge meaningless step. No bounds and no `least_squares`
+— plain Newton sidesteps the "converged onto a bound, reported success" trap.
+
+Gate: `tests/analytic/test_matching.py`.
+
 ## Stability boundary (Stage 2 — validated)
 
 A transverse plane is stable iff its one-turn 2×2 block obeys `|½·Tr| < 1`
