@@ -2295,11 +2295,23 @@ dominant term is **not** in accsim's code and is easy to misattribute.
   possible) is load-independent; the **12.2 s** that build took is an **upper
   bound** measured while the machine was heavily contended, not a pinned number.
   45 reference tests at that order is the bulk of the ~604 s full-suite run.
-- **Nothing to cache, and no prebuilt kernels exist here.** xtrack 0.106.4 /
-  xobjects 0.6.4 contain no `prebuild`/`XSUITE_*` kernel-cache mechanism at all
-  (grep finds zero hits across the package), and `xsuite-prebuilt-kernels` has no
-  PyPI distribution. The only levers are *build fewer trackers* and *build them in
-  parallel*.
+- **A prebuilt-kernel mechanism *does* exist — it is just gated off here.**
+  (Corrects an earlier claim in this section that there was none; that came from a
+  grep run against the wrong path and was wrong.) `xtrack/tracker.py` takes
+  `use_prebuilt_kernels=True` by **default**, and when a suitable kernel is found it
+  skips compilation entirely and loads via `kernels_from_file`. But the lookup is
+  guarded by `from xsuite import get_suitable_kernel, XSK_PREBUILT_KERNELS_LOCATION`,
+  and on `ImportError` it sets `kernel_info = None` and **falls silently through to a
+  full compile**. We install `xtrack`, not the `xsuite` umbrella (see the toolchain
+  note above), so that import always fails and every Line build compiles. So the
+  cause is *"the gate package is absent"*, not *"no mechanism exists"*.
+- **Below that gate there is genuinely no reuse.** `xobjects/context_cpu.py::build_kernels`
+  calls `compile_kernel(...)` **unconditionally** whenever `compile=True` — no
+  existence check, no import-first path. Passing an explicit `module_name` only
+  stabilises the filename and sets `clean_up_so = False`; it does *not* skip a
+  compile, and `add_kernels` does not even expose the parameter to forward one. So
+  once the prebuilt path is bypassed, `module_name = module_name or uuid4().hex`
+  guarantees a fresh compile every time.
 - **The artifacts leak, on Windows specifically.** `containing_dir` defaults to
   `"."` — the CWD, i.e. the repo root — and the cleanup at the end of
   `build_kernels` is guarded by `(os.name != "nt" or so_file.suffix != ".pyd")`, so
