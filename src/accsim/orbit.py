@@ -53,7 +53,9 @@ at once. Two consequences run through this module:
   off-axis: beta, the tunes and (through the skew term) the x-y coupling all
   respond to steering. The linear-order claim above is a statement about
   on-axis sextupoles, and :func:`linearised_element_maps` is how the optics
-  *about* a distorted orbit are read instead.
+  *about* a distorted orbit are read instead — packaged as
+  :func:`~accsim.twiss.propagate_twiss_on_orbit` and
+  :func:`~accsim.twiss.chromaticity_on_orbit`.
 
 **Scope, stated plainly.** The linear entry points (:func:`closed_orbit`,
 :func:`propagate_orbit`, :func:`orbit_response_matrix`) remain linear,

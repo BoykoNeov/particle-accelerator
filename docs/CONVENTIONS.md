@@ -1379,7 +1379,9 @@ evaluated with unperturbed β and dispersion, wrong at the β-beat level I2 meas
 supplies everything a corrected version would need; I2 does not build the Twiss
 propagation on top of it. `test_chromaticity_is_a_design_orbit_quantity` asserts the
 blind spot so it is documented rather than discovered — the same treatment
-`correct_orbit(nonlinear=False)` gets.
+`correct_orbit(nonlinear=False)` gets. **I3 closes exactly this gap** (see *Optics
+on the real (steered) orbit* below); `chromaticity()` itself stays a design-orbit
+quantity, and the blind-spot test stays with it.
 
 Gates: `tests/analytic/test_feeddown.py` (24),
 `tests/reference/test_feeddown_xtrack.py` (6). The quantitative gates all use
@@ -1387,6 +1389,166 @@ Gates: `tests/analytic/test_feeddown.py` (24),
 thin-lens sum would carry an `O(L²)` error that would read as a loosened tolerance —
 but a thick `Sextupole(n_slices=4)` is separately gated through the same machinery
 (Newton converges, the fixed point holds, the departure is still `O(x_co²)`).
+
+## Optics on the real (steered) orbit (I3 — implemented)
+
+I2 shipped the per-element maps about the distorted orbit and asserted the gap it
+left: every optics function still walked on-axis `elem.matrix()`, so a steered
+machine was reported with unperturbed β, dispersion and chromaticity. I3 builds the
+Twiss propagation on top of those maps.
+
+**API.** `propagate_twiss` and `propagate_coupled_twiss` gain `maps=` — one 6×6 per
+element, in beam order, substituting the transport and nothing else (the lattice is
+still needed for `s`). On top of that: `closed_twiss_on_orbit`,
+`propagate_twiss_on_orbit`, `tunes_on_orbit`, `coupled_twiss_on_orbit`,
+`propagate_coupled_twiss_on_orbit`, `natural_chromaticity_on_orbit`,
+`chromaticity_on_orbit`, and `orbit.linearised_lattice`. `delta=` is threaded
+through `closed_orbit`, `closed_orbit_nonlinear`, `propagate_orbit_nonlinear`,
+`linearised_element_maps` and `linearised_one_turn_map` — **one Newton solver, not
+two**, with the linear seed carrying the dispersive column
+(`rhs = k4 + M[trans, DELTA]·δ`; without it the seed starts a whole dispersion
+orbit away from the answer).
+
+Naming: `_on_orbit`, not `_nonlinear`. The Twiss is linear; what is nonlinear is
+the *orbit it is taken about*.
+
+### The gate is β(s), not β(0)
+
+I2 already gates `match_periodic(linearised_one_turn_map(...))`, so the value at the
+ring start is a rerun, and "the propagated table multiplies back to the one-turn
+map" is **vacuous** — `linearised_one_turn_map` *is* the product of
+`linearised_element_maps`. The new content is the `s`-dependence, gated on the
+single-gradient closed form
+
+```
+Δβ(s)/β(s) = −Δk1l · β(s_src) · cos(2|Δψ| − 2πQ) / (2 sin 2πQ)     (+ in y)
+```
+
+with `Δk1l = k2l·x_co`. **Derived, not recalled** (`test_beta_beat_closed_form_is_
+derived`): the Courant-Snyder transfer parameterisation is first verified against
+accsim's *own* propagation rule (`B1 = C B Cᵀ`, phase from
+`atan2(C12, βC11 − αC12)`) and shown to multiply back to the one-turn form; only
+then is accsim's own `ThinQuadrupole` (`px → px − k1l·x`) inserted. The `sin μ`
+square-root branch never appears, because `β = M12/sin μ` is differentiated via
+`d(sin)/dk = −cos·d(cos)/dk / sin` — rational in `sin μ`, `cos μ`. That matters:
+the test ring runs at `Q_x = 0.690`, where `sin 2πQ < 0`.
+
+Two deliberate choices in the test ring, both load-bearing:
+
+- The sextupole sits **mid-ring**, so sample points exist on *both* sides of it and
+  the `|Δψ|` branch is actually exercised. At `s_src = 0` it never is.
+- `Q_y = 0.559` sits 0.059 from the **half integer**, so the `1/sin 2πQ` amplifies
+  the vertical beat ~2.6× — the vertical is the more demanding plane on purpose.
+  Retuning the ring away from the half integer would silently weaken the gate.
+
+Content is the **order**, as in I2: over four steerer sizes the beat falls by **2**
+per halving (first order in the offset) while the residual against the first-order
+form falls by **4**. Doubling the predicted gradient is caught 20× over.
+
+### Chromaticity takes the other route, and the package's structure decides it
+
+accsim's linear element maps carry **no `δ` dependence of their own** — `track()`
+through a quadrupole is its `matrix()` at every momentum. So linearising the tracked
+map about the off-momentum orbit measures the **sextupole feed-down term and nothing
+else**: it is exactly blind to the natural chromaticity, which accsim supplies
+analytically (F2). Measured: on a sextupole-free steered ring the tracked `dQ/dδ` is
+`3.7e-8` (the FD floor of an identically-zero quantity) while the true natural
+chromaticity is `−0.29`. **Implementing `chromaticity_on_orbit` by tracking alone
+would silently drop that entire term**, and a test asserts the reason.
+
+So the existing F2-validated integrals are run on `linearised_lattice` — each thin
+sextupole joined by I2's derived split `ThinQuadrupole(k2l·x_co)` +
+`ThinSkewQuadrupole(k2l·y_co)`, the sextupole itself **kept** (the split is the
+*static* feed-down; the sextupole still feeds down a further `δ`-dependent
+`k2·D_x·δ` at dispersion — different terms, both physical). The dipole part of the
+split is absent from both routes: a Jacobian is the linear part only, and a
+`Corrector`'s `matrix()` is the identity anyway, so it is invisible to every
+matrix-based optics function.
+
+`linearised_lattice` (derived coefficients) and `linearised_element_maps` (finite
+differences) describe the same machine by independent routes; their agreement is
+gated at `1e-10`.
+
+**The independent gate is the pair's difference.** `chromaticity_on_orbit −
+natural_chromaticity_on_orbit` is the feed-down term at the *beaten* β and `D_x` —
+an analytic integral over `matrix()`. The tracked route reaches the same number
+through Newton plus a finite-difference Jacobian, with no integral anywhere. J1
+gated these two against each other on the design orbit; I3 extends it to a steered
+machine. Measured agreement `2.2e-8` absolute on values of order 2, **flat** in the
+orbit offset rather than growing with it — so the concern that the sextupole's
+*dipole* feed-down (whose δ-derivative is a term of the same order) might be missing
+from the equivalent lattice is settled empirically as well as by the argument that
+it *is* the feed-down gradient acting on the dispersion.
+
+Zero steering is **bit-for-bit**: at `x_co = 0` every added gradient is exactly
+zero, so `chromaticity_on_orbit(lat) == chromaticity(lat)` as the same float.
+
+### Scope lines, enforced rather than documented
+
+- **Thick sextupoles raise `NotImplementedError` in `linearised_lattice`** (and so
+  in the chromaticity pair): the offset varies across the body, so one entrance-orbit
+  gradient would carry an `O(L²)` error — the very error I2 avoided by using thin
+  sextupoles. `propagate_twiss_on_orbit` has *no* such restriction, because it
+  differentiates the thick element's real `track()`.
+- **A vertically steered machine is genuinely coupled** (a normal sextupole at
+  `y_co ≠ 0` is a skew quadrupole), so `closed_twiss_on_orbit` /
+  `propagate_twiss_on_orbit` / `chromaticity_on_orbit` raise `CoupledLatticeError`
+  there rather than returning a plausible 2×2 answer; `coupled_twiss_on_orbit` is
+  the path. Design coupling is exactly zero on the same lattice — a contrast
+  impossible in the linear theory at any kick. Horizontal steering alone leaves the
+  on-orbit map **exactly** block-diagonal (off-block norm `0.0`), so no `atol`
+  loosening was needed.
+- `tunes_on_orbit` returns the **accumulated** phase advance, integer part included.
+  That is not cosmetic: the chromaticity gate central-differences it in `δ`, and a
+  fractional-only tune from `acos` would be wrong by an integer whenever the two
+  sample points straddled a half integer. The hazard is removed, not guarded.
+
+### Finite-difference floors, measured
+
+| quantity | measured (2026-08-10) | used as |
+|---|---|---|
+| `linearised_element_maps` vs exact matrix, per element | `1.9e-13` | floor of the "no sextupole ⇒ design optics" gate |
+| ...their product, one turn | `2.4e-12` | ditto |
+| on-orbit β vs design β, no sextupole | `<1e-11` rel | ditto |
+| on-orbit β at `δ = 0` vs `δ = 1e-3`, linear lattice | `1.2e-10` rel | not bit-for-bit: the Jacobians are differenced at a dispersion-shifted state |
+
+### xtrack cross-check — and one modelling difference stated, not absorbed
+
+accsim's `Dipole` and `Quadrupole` are **exactly linear** maps, so an off-axis orbit
+changes nothing about them. xtrack's `Bend`/`Quadrupole` are exact *nonlinear* maps
+whose Jacobian at a 1.25 mm offset is not the on-axis one. That difference is **first
+order in the orbit** and belongs to accsim's element models, not to I3: at `k2l = 0`
+on a ring steered 1.25 mm, accsim's on-orbit optics equals its design optics to
+`4e-11` while xtrack's β has moved `6.4e-4` relative.
+`test_accsims_linear_elements_do_not_feed_down_off_axis` isolates and measures it, so
+a future milestone giving the bends their real off-axis map has a number to improve
+on.
+
+That is why the β cross-check is a **with-minus-without-sextupole difference** (J1's
+device): the bend nonlinearity is common to both terms and cancels. Measured on a
+bendy 8-cell ring with one sextupole per cell, steered 1.25 mm:
+
+| quantity | xtrack | accsim on-orbit | accsim design orbit |
+|---|---|---|---|
+| sextupole-induced Δβ_x | `6.6e-3 m` (0.22 % of β) | reproduced to `1.35e-3` of the effect | **exactly `0.0`** |
+| `dqx` | `+2.6529347` | `+2.6529020` (`3.3e-5`) | `+2.6546373` (`1.7e-3`) |
+| `dqy` | `−4.5204588` | `−4.5205851` (`1.3e-4`) | `−4.5178598` (`2.6e-3`) |
+
+The β row is the strong form, not the weak one: the design route answers **exactly
+zero, bit for bit** (a sextupole's `matrix()` is a drift, so adding one changes no
+matrix anywhere), which makes this an effect that was previously invisible rather
+than an improved estimate. Chromaticity needs no difference — 52× closer in `x`,
+21× in `y`. Control: the *unsteered* ring agrees between the two codes to `9.3e-10`
+in β, so the steered disagreement is the orbit and not the ring description.
+
+Gates: `tests/analytic/test_orbit_optics.py` (20),
+`tests/reference/test_orbit_optics_xtrack.py` (4, four cached `xt.Line` builds).
+
+**Still out of scope:** off-axis feed-down from accsim's *linear* elements (the
+bend/quad nonlinearity above); coupled (Edwards-Teng) chromaticity on a vertically
+steered machine; thick-sextupole chromaticity on orbit; and everything I2 already
+listed — the 6D closed orbit, octupoles, misalignments as element attributes,
+amplitude-dependent detuning, dynamic aperture.
 
 ## Stability boundary (Stage 2 — validated)
 

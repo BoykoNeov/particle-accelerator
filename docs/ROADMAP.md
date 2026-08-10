@@ -445,11 +445,13 @@ normal-mode tunes, closest-tune-approach `ΔQ_min` — *and* its ε_y vertical-e
 half, the eigen-mode sharing, whose pre-committed coefficient was corrected by xtrack),
 **G2** (Edwards-Teng coupled Twiss), **H1** and **H2** (tune/chromaticity and
 insertion matching), **I1** (closed orbit and its correction, which made the
-element map affine), and **J1** (the sextupole's nonlinear kick as a real map).
-Each is marked inline with what it delivered and what it deliberately did not. **The
-open follow-up is J2** — sextupole feed-down on a distorted orbit, the deferral I1
-named, which J1 was sequenced ahead of so that its gate would not be circular.
-Beyond that, a new milestone means writing a *new* candidate — either extending an
+element map affine), **I2** (sextupole feed-down on a distorted orbit — the deferral
+I1 named, which J1 was sequenced ahead of so that its gate would not be circular),
+**I3** (the optics evaluated on that orbit, closing the gap I2 asserted), and **J1**
+(the sextupole's nonlinear kick as a real map).
+Each is marked inline with what it delivered and what it deliberately did not.
+**As of 2026-08-10 there is no open follow-up on any axis below.**
+A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
 sustained arc.
@@ -1343,6 +1345,70 @@ sustained arc.
     `elem.matrix()`, so a steered machine carries the β-beat error I2 measures.
     `linearised_element_maps` supplies what a corrected version needs; the Twiss
     propagation on top of it is not built here, and a test asserts the blind spot.
+    **That is I3, below.**
+
+- **I3 — the optics evaluated on the real (steered) orbit.** ✅ **DONE (2026-08-10)**
+  — the gap I2 named and asserted. Every optics function walked each element's
+  *on-axis* `matrix()`, so a steered machine was reported with unperturbed β,
+  dispersion and chromaticity however far off-axis the beam was. I3 builds the Twiss
+  propagation on top of I2's per-element maps. Baseline (numpy only): a `maps=`
+  argument on `propagate_twiss` and `propagate_coupled_twiss`, then
+  `closed_twiss_on_orbit`, `propagate_twiss_on_orbit`, `tunes_on_orbit`,
+  `coupled_twiss_on_orbit`, `propagate_coupled_twiss_on_orbit`,
+  `natural_chromaticity_on_orbit`, `chromaticity_on_orbit` and
+  `orbit.linearised_lattice`; plus `delta=` threaded through `closed_orbit`,
+  `closed_orbit_nonlinear`, `propagate_orbit_nonlinear` and the linearised-map pair —
+  **one Newton solver, not two**, its linear seed carrying the dispersive column.
+  - **The gate is β(s), not β(0).** I2 already gates the one-turn map, and "the
+    propagated table multiplies back to it" is *vacuous* — that map **is** the
+    product of the per-element maps. The new content is the `s`-dependence, gated on
+    the single-gradient closed form `Δβ/β = −Δk1l·β(src)·cos(2|Δψ| − 2πQ)/(2 sin 2πQ)`,
+    **derived in sympy** against accsim's own `ThinQuadrupole` *and* its own Twiss
+    propagation rule, with the `sin μ` square-root branch avoided entirely (the ring
+    runs where `sin 2πQ < 0`). Over four steerer sizes the beat falls by **2** per
+    halving and the residual by **4**; doubling the predicted gradient is caught 20×.
+    The sextupole sits **mid-ring** so the `|Δψ|` branch is actually exercised, and
+    `Q_y` sits 0.059 from the half integer *on purpose*, making the vertical the
+    demanding plane.
+  - **Chromaticity takes the other route, and the package's own structure decides
+    it.** accsim's linear maps carry no `δ` dependence, so linearising the tracked
+    map about the off-momentum orbit measures the sextupole feed-down term and is
+    **exactly blind** to the natural chromaticity (measured: `3.7e-8` against a true
+    `−0.29`). Implementing this by tracking alone would silently drop that whole
+    term, and a test asserts the reason. So the F2-validated integrals run on
+    `linearised_lattice` — I2's derived split, with the sextupole kept — and the
+    tracked route is retained as the **independent** gate on the half it can see,
+    via the difference `chromaticity_on_orbit − natural_chromaticity_on_orbit`.
+    Agreement `2.2e-8` on values of order 2, **flat** in the orbit offset. Zero
+    steering is bit-for-bit identical to `chromaticity()`.
+  - **Scope lines enforced, not merely documented.** Thick sextupoles raise
+    `NotImplementedError` (a thick body's offset varies across it — the `O(L²)` error
+    I2 avoided), though `propagate_twiss_on_orbit` handles them fine because it
+    differentiates the real `track()`. A vertically steered machine is genuinely
+    coupled, so the uncoupled entry points raise `CoupledLatticeError` and
+    `coupled_twiss_on_orbit` is the path — against a design optics whose coupling is
+    exactly zero. `tunes_on_orbit` returns the accumulated phase, integer included,
+    which removes the `δ`-difference wrap hazard rather than guarding it.
+  - **One modelling difference is measured rather than absorbed.** accsim's `Dipole`
+    and `Quadrupole` are *exactly linear*, so an off-axis orbit changes nothing about
+    them; xtrack's are exact nonlinear maps whose Jacobian at 1.25 mm is not the
+    on-axis one. At `k2l = 0` accsim's on-orbit optics equals its design optics to
+    `4e-11` and xtrack's β has still moved `6.4e-4`. First order in the orbit, owned
+    by accsim's element models rather than by I3, isolated in its own test — and the
+    reason the β cross-check is a **with-minus-without-sextupole difference**, where
+    that term cancels. xtrack puts the sextupole-induced Δβ at `6.6e-3 m` (0.22 %);
+    accsim reproduces it to `1.35e-3` of the effect while the design orbit answers
+    **exactly zero, bit for bit**. Chromaticity needs no difference: `3.3e-5`/`1.3e-4`
+    against `1.7e-3`/`2.6e-3`, i.e. 52× and 21×.
+    Gates: `tests/analytic/test_orbit_optics.py` (20),
+    `tests/reference/test_orbit_optics_xtrack.py` (4). See CONVENTIONS.md →
+    *Optics on the real (steered) orbit*.
+  - Still **out of scope**: off-axis feed-down from accsim's own linear elements
+    (the bend/quad nonlinearity above — a candidate milestone of its own); coupled
+    Edwards-Teng chromaticity on a vertically steered machine; thick-sextupole
+    chromaticity on orbit; and everything I2 listed — the 6D closed orbit,
+    octupoles and higher multipoles, misalignments as element attributes,
+    amplitude-dependent detuning, dynamic aperture.
 
 ### J. Nonlinear single-particle dynamics (core accelerator)
 
