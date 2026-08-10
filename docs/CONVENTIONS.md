@@ -2279,3 +2279,75 @@ numerically plausible and otherwise invisible. It was made, and caught, during D
   the **symbolic derivation** (two independent routes agree) — itself a gold-standard
   analytic check. That derivation still stands and is now *also* corroborated by the
   passing xtrack cross-check above.
+
+## Test-suite cost (2026-08-10)
+
+Where the runtime goes, measured, and what was done about it. Recorded because the
+dominant term is **not** in accsim's code and is easy to misattribute.
+
+- **The reference suite is a compiler benchmark, not a physics benchmark.** Every
+  `xt.Line` tracker build JIT-compiles a fresh C kernel through clang-cl. There is
+  **no cache of any kind**: `xobjects/context_cpu.py::build_kernels` does
+  `module_name = module_name or str(uuid.uuid4().hex)`, so each build gets a
+  globally fresh name and can never hit a previous one. Measured on one test —
+  `tests/reference/test_drift_xtrack.py` — **1 test → exactly 1 new `.pyd`**, and
+  that compile *is* the entire cost of the test. The structural claim (no reuse is
+  possible) is load-independent; the **12.2 s** that build took is an **upper
+  bound** measured while the machine was heavily contended, not a pinned number.
+  45 reference tests at that order is the bulk of the ~604 s full-suite run.
+- **Nothing to cache, and no prebuilt kernels exist here.** xtrack 0.106.4 /
+  xobjects 0.6.4 contain no `prebuild`/`XSUITE_*` kernel-cache mechanism at all
+  (grep finds zero hits across the package), and `xsuite-prebuilt-kernels` has no
+  PyPI distribution. The only levers are *build fewer trackers* and *build them in
+  parallel*.
+- **The artifacts leak, on Windows specifically.** `containing_dir` defaults to
+  `"."` — the CWD, i.e. the repo root — and the cleanup at the end of
+  `build_kernels` is guarded by `(os.name != "nt" or so_file.suffix != ".pyd")`, so
+  on Windows the `.pyd` is deliberately **not** unlinked (a loaded DLL cannot be).
+  These accumulate forever: 1056 `.pyd` in the repo root plus a 3 GB `Release/` of
+  clang-cl intermediates had built up, 4.3 GB total, reclaimed 2026-08-10. All of it
+  is already gitignored (`.gitignore` — `Release/`, `*.pyd/obj/exp/lib`, and the
+  32-hex-char `/[0-9a-f]*.c` source spills); re-clean periodically.
+- **Default selection is now `-m "not reference"`** via pyproject `addopts` — 517 of
+  562 tests. This makes bare-`pytest` mean what CLAUDE.md always claimed it meant
+  (the analytic suite) instead of silently pulling in the ~500 s of kernel compiles.
+  A command-line `-m` **overrides** an `addopts` `-m` (last-wins), so
+  `pytest -m reference` still runs the cross-checks deliberately. CI is unaffected:
+  it installs `.[dev]` only, so those tests already skipped for want of the dep.
+- **`scripts/nicepytest.py` is the entry point, not bare `pytest`.** It drops the
+  process to `BelowNormal` (POSIX: `nice +10`) *before* importing pytest/numpy, and
+  child processes inherit the priority class — so one call covers the whole xdist
+  worker pool. Motivation is concrete: this machine routinely runs several agent
+  sessions each driving `pytest -n auto`, and a normal-priority accsim run both
+  starves them and is starved by them (a measurement leg once sat 37 min producing
+  nothing under ~60 competing python processes). Windows trap encoded there:
+  `GetCurrentProcess()` returns pseudo-handle `(HANDLE)-1`, and without
+  `restype = wintypes.HANDLE` ctypes zero-extends it to an invalid handle so
+  `SetPriorityClass` fails **silently** — the restype and the return check are both
+  load-bearing.
+- **Parallelism helps `tests/reference` and *hurts* `tests/analytic`.** These are
+  opposite workloads and must not share an `-n`:
+  - `tests/reference` — **parallelises well.** 45 independent clang-cl compiles,
+    CPU-bound, modest memory per worker, and no output collision is possible since
+    every module name is a fresh `uuid4().hex`. This is the ~500 s term, so this is
+    where `-n` pays. Run it as `nicepytest.py -m reference -n 8`.
+  - `tests/analytic` — **keep serial, or `-n 4` at most.** The expensive tests here
+    are *sympy derivations* (`test_riccati_root_derived_symbolically`,
+    `test_skew_matrix_matches_symbolic_exponential`,
+    `test_overlap_integrand_is_derived_from_rho1_rho2`, `test_mfpt_derivation_symbolic`)
+    whose peak expression-tree footprint multiplies per worker. Measured 2026-08-10:
+    `-n 8` alongside other sessions on this box took **883 s versus a 604 s serial
+    baseline** *and* failed 4 tests with `MemoryError` — including numpy being unable
+    to allocate **3 MiB**. That is the Windows commit limit, not physical RAM
+    (63 GB total). CI is likewise serial. Priority and worker count remain
+    complementary — lowered priority makes the suite *yield* a core it already holds,
+    a smaller `-n` never takes it — but neither substitutes for the other.
+  - Worker isolation itself is not the problem: the autouse `_reset_feature_switches`
+    fixture is per-process state, so xdist workers cannot interfere. Memory is.
+- **Do not target optimisation work off durations measured under contention.** In
+  that `-n 8` run `test_tracked_aperture_cut_recovers_the_lifetime_xi` reported
+  187.78 s against 8.81 s (+5.81 s setup) in a clean `-m slow` leg — roughly 20×
+  inflation, uniformly. Only compare timings taken back-to-back on a quiet box.
+- **Turn counts are off-limits as a speed lever.** `N_TURNS = 10_000` and the other
+  tracking gates need many synchrotron periods to be non-vacuous; shrinking them
+  makes the tests pass without testing anything. Parallelism is the lever.

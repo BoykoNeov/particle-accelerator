@@ -33,6 +33,7 @@ dependencies = [
 # closed-form benchmarks symbolically, per the validation strategy).
 dev = [
     "pytest>=7.4",
+    "pytest-xdist>=3.5",
     "ruff>=0.4",
     "sympy>=1.12",
 ]
@@ -87,7 +88,14 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# Default selection is the analytic suite -- the "always green" target named in
+# CLAUDE.md. The `reference` cross-checks are excluded by default because each
+# xtrack Line build JIT-compiles a fresh C kernel (xobjects names every module
+# `uuid4().hex`, so nothing is ever cached or reused), which costs minutes and
+# spills hundreds of MB of .pyd/.obj into the CWD. Run them deliberately with
+# `pytest -m reference` -- a command-line `-m` overrides the one below.
+# CI is unaffected: it installs only `.[dev]`, so those tests already skipped.
+addopts = "-ra --strict-markers -m 'not reference'"
 markers = [
     "reference: cross-checks against external reference codes (xtrack/MAD-X); skipped if the dep is absent",
     "slow: long-running tracking-stability tests (>=1e4 turns)",

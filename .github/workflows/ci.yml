@@ -38,5 +38,10 @@ jobs:
         run: ruff format --check .
 
       - name: Analytic test suite
-        # Reference (xtrack) tests skip automatically since the dep is not installed.
+        # `-m "not reference"` comes from pyproject addopts, so the xtrack/MAD-X
+        # cross-checks are deselected here (they would have skipped anyway — the
+        # deps are not installed). Deliberately serial: the costly analytic tests
+        # are sympy derivations whose peak memory multiplies per xdist worker, and
+        # an 8-way local run exhausted the commit limit. See docs/CONVENTIONS.md
+        # → Test-suite cost before adding `-n` here.
         run: pytest -ra

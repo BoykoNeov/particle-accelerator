@@ -52,11 +52,28 @@ still produces convincing plots. Everything below defends against that.
 ## Environment quickstart
 
 ```bash
-.venv/Scripts/python.exe -m pytest        # analytic suite (always green target)
+.venv/Scripts/python.exe scripts/nicepytest.py          # analytic suite (always green target)
+.venv/Scripts/python.exe scripts/nicepytest.py -m reference -n 8   # xtrack/MAD-X cross-checks
 .venv/Scripts/python.exe -m ruff check .   # lint
 .venv/Scripts/python.exe -m ruff format .  # format
 ```
 
+- **Always go through `scripts/nicepytest.py`, not bare `pytest`.** It drops the
+  process (and every xdist worker, which inherit it) to `BelowNormal` before pytest
+  imports numpy, so a long run yields the desktop to the other agent sessions that
+  share this box. Every argument is forwarded verbatim — it is a drop-in prefix, and
+  it changes *scheduling only*, never selection or tolerances.
+- **`-n` is not a free win, and the right value differs per directory.** Add it to
+  the `reference` run (independent, CPU-bound clang-cl compiles — that is where it
+  pays); leave the analytic default **serial**, or at most `-n 4` on a quiet box.
+  Measured 2026-08-10: `-n 8` on the analytic suite ran *slower* than serial and
+  OOM-failed four tests, because the costly ones are sympy derivations whose peak
+  memory multiplies per worker. See `docs/CONVENTIONS.md` → *Test-suite cost*.
+- **The default selection is `-m "not reference"`** (pyproject `addopts`) — 517 of 562
+  tests. A command-line `-m` overrides it, which is how the second line above works.
+  Why: every `xt.Line` build JIT-compiles a fresh C kernel — xobjects names each module
+  `uuid4().hex`, so *nothing is ever cached* — at ~12 s and one leaked `.pyd` apiece.
+  See `docs/CONVENTIONS.md` → *Test-suite cost*.
 - Use the project `.venv` (Python 3.14). The reference dep is **`xtrack`**, not the
   `xsuite` umbrella (which fails to build on 3.14 — see `docs/CONVENTIONS.md`).
 - **xtrack JIT on Windows (resolved 2026-06-29):** the C-kernel build now compiles
