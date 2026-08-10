@@ -2294,7 +2294,21 @@ dominant term is **not** in accsim's code and is easy to misattribute.
   that compile *is* the entire cost of the test. The structural claim (no reuse is
   possible) is load-independent; the **12.2 s** that build took is an **upper
   bound** measured while the machine was heavily contended, not a pinned number.
-  45 reference tests at that order is the bulk of the ~604 s full-suite run.
+- **Reference is ~40 % of the suite, not "the bulk"** — this corrects an earlier
+  claim here that extrapolated 12.2 s × 45 ≈ 540 s and concluded reference dominated.
+  It does not. Measured **back-to-back in one contention window**, which is what makes
+  the two comparable: `-m reference` → **548.88 s** (45 tests), the new default
+  `-m 'not reference'` → **819.52 s** (517 tests). That is a load-normalised split of
+  **40 % reference / 60 % analytic**. The naive 12.2 s × 45 = 549 s "matched" only
+  because *both* figures were contended; quiet, the per-compile cost is nearer 5 s.
+  Applying the 40/60 split to the quiet 603.87 s full-suite baseline puts reference at
+  ~240 s and analytic at ~360 s. (The ratio is measured; the split of 604 s follows
+  from it only under the assumption that contention inflates both suites alike — do
+  not quote the two component numbers as if they were measured directly.)
+- **Compiles per reference test: 37 `.pyd` for 45 tests (~0.82), from a clean start.**
+  Not the 1.0 that the single-file sample suggested — some tests reuse a tracker or
+  never build a Line. The `.pyd` delta is load-independent, so it is the honest metric
+  for any future attempt to cut compiles; wall-clock on this box is not.
 - **A prebuilt-kernel mechanism *does* exist — it is just gated off here.**
   (Corrects an earlier claim in this section that there was none; that came from a
   grep run against the wrong path and was wrong.) `xtrack/tracker.py` takes
@@ -2312,6 +2326,17 @@ dominant term is **not** in accsim's code and is easy to misattribute.
   compile, and `add_kernels` does not even expose the parameter to forward one. So
   once the prebuilt path is bypassed, `module_name = module_name or uuid4().hex`
   guarantees a fresh compile every time.
+- **Installing `xsuite` to open that gate is an UNVERIFIED lead — not a recommendation.**
+  Recorded so the next person starts from the mechanism rather than the grep. Two
+  reasons it was not pursued: (i) `pip install xsuite` failed twice on transient
+  `IncompleteRead` network errors, and with `--no-build-isolation` pip backtracked to
+  **xsuite 0.6.0** (vs 0.58.0 current), which predates the prebuilt-kernel API — so
+  the install that *succeeds* is the one that does not help; (ii) more fundamentally,
+  `get_suitable_kernel` matches a **fixed set of element classes + config**, while the
+  reference tests deliberately build many *different* Lines, so most lookups would
+  return `None` and compile anyway. Expected payoff is partial at best. Anyone trying
+  it should measure the `.pyd` delta (below) before and after — that is the honest
+  metric, not wall-clock.
 - **The artifacts leak, on Windows specifically.** `containing_dir` defaults to
   `"."` — the CWD, i.e. the repo root — and the cleanup at the end of
   `build_kernels` is guarded by `(os.name != "nt" or so_file.suffix != ".pyd")`, so
@@ -2322,7 +2347,10 @@ dominant term is **not** in accsim's code and is easy to misattribute.
   32-hex-char `/[0-9a-f]*.c` source spills); re-clean periodically.
 - **Default selection is now `-m "not reference"`** via pyproject `addopts` — 517 of
   562 tests. This makes bare-`pytest` mean what CLAUDE.md always claimed it meant
-  (the analytic suite) instead of silently pulling in the ~500 s of kernel compiles.
+  (the analytic suite) instead of silently pulling in the kernel compiles. Expect it
+  to cut roughly 40 % off a full run — real, but *not* the order-of-magnitude the
+  first pass here assumed; the remaining ~60 % is sympy in `tests/analytic` and is now
+  the larger term.
   A command-line `-m` **overrides** an `addopts` `-m` (last-wins), so
   `pytest -m reference` still runs the cross-checks deliberately. CI is unaffected:
   it installs `.[dev]` only, so those tests already skipped for want of the dep.
@@ -2341,8 +2369,9 @@ dominant term is **not** in accsim's code and is easy to misattribute.
   opposite workloads and must not share an `-n`:
   - `tests/reference` — **parallelises well.** 45 independent clang-cl compiles,
     CPU-bound, modest memory per worker, and no output collision is possible since
-    every module name is a fresh `uuid4().hex`. This is the ~500 s term, so this is
-    where `-n` pays. Run it as `nicepytest.py -m reference -n 8`.
+    every module name is a fresh `uuid4().hex`. It is ~40 % of the total (above), and
+    it is the half that parallelises, so this is where `-n` pays. Run it as
+    `nicepytest.py -m reference -n 8`.
   - `tests/analytic` — **keep serial, or `-n 4` at most.** The expensive tests here
     are *sympy derivations* (`test_riccati_root_derived_symbolically`,
     `test_skew_matrix_matches_symbolic_exponential`,
