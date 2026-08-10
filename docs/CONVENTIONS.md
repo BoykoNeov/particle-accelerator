@@ -972,6 +972,115 @@ which has no target to hide behind. Measured 2026-08-10 (xtrack 0.106.4): line
 tolerance — unlike H1's chromaticity gate (2.4e-3) nothing here is a first-order
 formula: both codes evaluate the same thick-element linear optics.
 
+## Closed orbit & its correction (I1 — implemented)
+
+`src/accsim/orbit.py`, always-on baseline (numpy only). Everything else in the
+package describes motion *about* the design orbit; this is where the beam
+actually is.
+
+**The element map is affine, and that is a new contract.** `Element` gained a
+concrete `kick(ref) → (6,)`, zero for every element but a `Corrector`, and
+`track()` is now `matrix(ref) @ state + kick(ref)`. A constant deflection —
+the same angle whatever the coordinates — is *inhomogeneous* and cannot appear
+anywhere in a 6×6 acting on `(x, px, …)`, so it needs its own slot. `Corrector`
+is thin (`length = 0`), `kick_x`/`kick_y` are angles [rad], and its `matrix()` is
+the **identity** — that is physics, not a placeholder: a dipole kick moves the
+closed orbit and leaves the map *about* it alone, so β, the tunes, chromaticity
+and dispersion are untouched. Steering and optics stay separate handles.
+
+**Composition transports the kick.** `Lattice.transfer_map() → (M, k)` follows
+the same right-to-left rule as `transfer_matrix`:
+
+    x → M₂(M₁x + k₁) + k₂ = (M₂M₁)x + (M₂k₁ + k₂),
+
+so a kick is carried by everything *downstream* of it, and the same kick at two
+places closes into two different orbits. The linear `Tracker` paths
+(`track`, `track_bunch`, `track_turns`) now go through this; before, they would
+have silently dropped every corrector kick while the element-by-element path
+kept it, breaking the promise that the two agree.
+
+**The closed orbit is the same solve as the dispersion.** `closed_orbit` solves
+the fixed point `(I − M₄)x_co = k₄` on the 4D transverse subspace at `δ = 0` —
+literally `_matched_dispersion`'s `D = (I − M₄)⁻¹d` with the corrector kicks in
+place of the map's `δ` column. Sharing that algebra is the physics: dispersion
+*is* the closed orbit of an off-momentum particle, and by linearity a particle at
+`δ` rides `x_co + D·δ`. `I − M₄` is singular exactly on an **integer tune**,
+where a kick repeats in phase every turn; `closed_orbit` raises
+`ClosedOrbitError` above a condition number of `1e12` rather than return a huge
+meaningless orbit. The textbook single-kick form
+`θ√(β_kβ(s))/(2 sin πQ)·cos(Δψ − πQ)` is a *consequence* here, never the
+implementation — it is derived in sympy in the gate and the exact solve checked
+against it (the G2 lesson: verify a recalled closed form against its exact
+invariant, don't implement it).
+
+**The response matrix is exact, not a finite difference.** The closed orbit is
+strictly *affine* in the corrector kicks, so `orbit(θ) = orbit(0) + Rθ` holds at
+any amplitude with no truncation error (gated at θ = 0.3 rad). Column *j* is
+taken by setting corrector *j* to one radian and subtracting the baseline;
+`orbit_response_matrix` is therefore the **second** response matrix in the
+package that mutates the lattice (after `insertion_response_matrix`), restoring
+every corrector from a snapshot in a `finally`. Kicks it does not own — a
+steering *error* being corrected against — cancel in the baseline subtraction to
+round-off, not algebraically: `(col + base) − base` costs the last bit or two.
+
+That exactness makes `correct_orbit` **one linear solve**, not an iteration —
+the same structural fact that makes `match_chromaticity` an exact solve.
+
+**`rms_after` is measured, never predicted.** It comes from re-solving the closed
+orbit of the corrected lattice. This matters because `correct_orbit` accepts a
+supplied `response`: a real machine *measures* its response matrix, and that
+measurement disagrees with the model. Evaluating `x0 + R·dθ` would report a
+perfect correction for **any** invertible `R`, right or wrong. Gated by handing
+the solver `1.5R` and asserting the reported residual is `rms_before/3`, while
+the prediction it did not use is `< 1e-16`.
+
+**Two correctors annul a steering error — outside the bump.** The closed orbit is
+fixed by two numbers per plane, so two independent correctors can zero it
+completely (measured 2.2e-19 at 14 monitors against 2 knobs — over-determined is
+not unreachable, the H2 lesson). Between the error and the last corrector the
+beam is genuinely off axis: that arc *is* the closed bump, and a gate asserts it
+stays there (7.5e-4) rather than claiming "orbit zero everywhere".
+
+**SVD truncation, made non-vacuous.** With as many correctors as monitors the
+plain solve is exact and truncation is never exercised, so the gate carries N > M
+and N < M *and* a near-degenerate pair — two correctors split by a 1 mm drift,
+hence nearly the same betatron phase, giving σ₁/σ₂ = 3157. Untruncated, the
+least-squares answer is *mathematically better* and asks those steerers for
+**0.66 rad** (38°, which no corrector magnet delivers) to buy a 32 % improvement;
+`n_singular=1` asks **6.8e-5 rad** and still improves the orbit — a norm ratio of
+9752. Both facts are asserted, since only their combination is the point. Two
+correctors either side of a *thin quad* (which advances no phase) are exactly
+rank 1; the round-off cutoff drops that direction by itself.
+
+**Corrector sign — pinned in the reference suite only.** Every analytic
+reference for the sign is one accsim also derives, so a sign gate there would be
+self-confirming (G1's pre-committed coefficient was wrong and xtrack fixed it).
+Established empirically 2026-08-10:
+
+    accsim Corrector(kick_x = +k)  ==  xt.Multipole(knl = [−k])
+    accsim Corrector(kick_y = +k)  ==  xt.Multipole(ksl = [+k])
+
+The asymmetry is the MAD-X multipole convention — `knl[0]` is the *normal* dipole
+component and carries the bend sign (`px −= knl[0]`), `ksl[0]` the skew one
+(`py += ksl[0]`). A test asserts the other horizontal choice is decisively wrong
+(the exactly negated orbit, a ~2 mm error), so the gate is not vacuous.
+
+**Scope, stated plainly.** Linear, `δ = 0` orbit theory.
+**Sextupole feed-down is out of scope**: a sextupole's linear map is a drift only
+because its Jacobian is taken at `(x, y) = 0`, and on a *distorted* orbit it feeds
+down to a quadrupole (and dipole) kick, so a real machine's optics *do* respond to
+its orbit. "Correctors do not move the optics" is a linear-order, on-axis-sextupole
+statement. Misalignments are not modelled as such — a quadrupole displaced by `dx`
+gives a kick `−k1·L·dx`; place an explicit `Corrector` of that angle. Correction
+is per plane (`plane='x'` / `'y'`); a coupled lattice is out of scope.
+
+Gates: `tests/analytic/test_orbit.py` (25), `tests/analytic/test_orbit_correction.py`
+(22), `tests/reference/test_orbit_xtrack.py` (5). xtrack's *iterative* closed-orbit
+search agrees with the closed-form solve to **1.9e-15 m** on a 1 mm orbit (1.6e-12
+relative) — the floor is xtrack's iteration, not accsim, whose own residual is
+exact — and confirms the corrected machine is flat outside the bump and still
+bumped inside it.
+
 ## Stability boundary (Stage 2 — validated)
 
 A transverse plane is stable iff its one-turn 2×2 block obeys `|½·Tr| < 1`

@@ -443,7 +443,9 @@ check is not worth building here — see the working agreement).
 **F1**, **F2**, **G1 in full** (betatron-coupling optics — skew quad, coupled
 normal-mode tunes, closest-tune-approach `ΔQ_min` — *and* its ε_y vertical-emittance
 half, the eigen-mode sharing, whose pre-committed coefficient was corrected by xtrack),
-**G2** (Edwards-Teng coupled Twiss) and **H1** (tune & chromaticity matching).
+**G2** (Edwards-Teng coupled Twiss), **H1** and **H2** (tune/chromaticity and
+insertion matching), and **I1** (closed orbit and its correction, which made the
+element map affine).
 Each is marked inline with what it delivered and what it deliberately did not. **No
 follow-up is currently open.** The next milestone means writing a *new* candidate —
 either extending an axis below or opening one — and, where it overlaps *Out of scope*
@@ -1204,6 +1206,68 @@ sustained arc.
   - Still **out of scope**: strength bounds, phase-advance targets, matching a
     coupled (skew) lattice, and targets spanning several lattices (a shared
     insertion matched from both sides).
+
+### I. Closed orbit — where the beam actually is, and steering it back (core accelerator)
+
+- **I1 — closed-orbit correction: dipole correctors, response matrix, SVD steering.**
+  ✅ **DONE (2026-08-10)** — every optics quantity up to here (β, Q, ξ, D, and both
+  matching milestones) describes motion *about* the design orbit and assumes the beam
+  is on it. A real machine never is, and steering it back is the most common
+  operational task in an accelerator. Shipped as two commits, always-on baseline
+  (numpy only): `Corrector` in `src/accsim/elements/corrector.py` and
+  `src/accsim/orbit.py` (`closed_orbit`, `propagate_orbit`, `orbit_response_matrix`,
+  `correct_orbit`).
+  - **It needed a new contract on `Element`, and that is the milestone's structural
+    content.** A corrector's action is *not* a matrix: the same angle for every
+    particle is inhomogeneous and cannot appear anywhere in a 6×6 acting on the
+    state. `Element` gained a concrete `kick(ref)` (zero for every element but a
+    corrector), `track()` became affine, and `Lattice.transfer_map()` composes
+    `(M₂M₁, M₂k₁ + k₂)` — so a kick is transported by everything *downstream* of it.
+    The composition gate uses **two** correctors at different places on purpose: with
+    one kick only a single term exists, so a transposed composition still produces a
+    perfectly plausible closed orbit.
+  - **The solve is a reuse, not new machinery.** `(I − M₄)x_co = k₄` is literally
+    `_matched_dispersion`'s `D = (I − M₄)⁻¹d` with the corrector kicks in place of the
+    map's `δ` column — dispersion *is* the closed orbit of an off-momentum particle.
+    The textbook `θ√(β_kβ)/(2 sin πQ)·cos(Δψ − πQ)` is a consequence, derived in sympy
+    and used only as the independent reference; the singular `I − M₄` is the **integer
+    resonance**, gated on a real focusing lattice walked to `Q_y = 0` exactly (where
+    the orbit has already grown 3100×) rather than on the degenerate no-focusing case.
+  - **Correction is one exact linear solve.** The closed orbit is strictly affine in
+    the kicks, so the response matrix is exact at any amplitude (gated at 0.3 rad) and
+    `correct_orbit` needs no iteration — the same structural fact that makes
+    `match_chromaticity` an exact solve. Two correctors annul a steering error
+    completely *outside* the resulting bump (2.2e-19 at 14 monitors against 2 knobs;
+    over-determined ≠ unreachable), and a gate asserts the orbit inside the bump is
+    deliberately **not** zero, because no corrector can undo what happened upstream.
+  - **`rms_after` is measured, never predicted** — a fresh closed-orbit solve of the
+    corrected lattice. This is load-bearing because `correct_orbit` accepts a supplied
+    `response`: an operational machine *measures* its response matrix. Evaluating
+    `x0 + R·dθ` would report a perfect correction for any invertible `R`, right or
+    wrong. Gated by handing it `1.5R` and asserting the reported residual is
+    `rms_before/3` while the unused prediction is `< 1e-16`.
+  - **SVD truncation is gated non-vacuously.** With N = M the plain solve is exact and
+    truncation is never exercised, so the suite carries N > M (minimum-norm, verified
+    against a null-space alternative) and N < M, plus a pair of correctors split by a
+    1 mm drift (σ₁/σ₂ = 3157) where the untruncated answer — which *is* the better fit
+    — asks for **0.66 rad** of steering to buy 32 %, and `n_singular=1` asks
+    **6.8e-5 rad**: a norm ratio of 9752.
+  - **The sign lives only in the reference suite**, per G1: every analytic reference
+    for it is one accsim also derives. Established by probe —
+    `Corrector(kick_x=+k) ≡ xt.Multipole(knl=[−k])` but `kick_y=+k ≡ ksl=[+k]`, the
+    MAD-X normal/skew asymmetry — with a test asserting the other choice is decisively
+    wrong. xtrack's *iterative* closed-orbit search agrees with the closed-form solve
+    to **1.9e-15 m** on a 1 mm orbit, and independently confirms the corrected machine
+    is flat outside the bump and still bumped inside it.
+    Gates: `tests/analytic/test_orbit.py` (25),
+    `tests/analytic/test_orbit_correction.py` (22),
+    `tests/reference/test_orbit_xtrack.py` (5). See CONVENTIONS.md →
+    *Closed orbit & its correction*.
+  - Still **out of scope**: sextupole feed-down on a distorted orbit (named
+    explicitly — it is what makes "correctors do not move the optics" a linear-order
+    statement), misalignments as element attributes rather than explicit correctors,
+    coupled (x-y) correction, local orbit bumps as a first-class API, corrector
+    strength limits, and BPM noise / calibration errors.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
