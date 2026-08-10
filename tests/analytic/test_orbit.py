@@ -31,6 +31,8 @@ import numpy as np
 import pytest
 
 from accsim import (
+    Aperture,
+    Bunch,
     ClosedOrbitError,
     Corrector,
     Drift,
@@ -502,6 +504,51 @@ def test_exact_integer_tune_has_no_closed_orbit(ref: ReferenceParticle) -> None:
     lat = Lattice(_weakened_ring(0.2), ref)
     with pytest.raises(ClosedOrbitError, match="integer"):
         closed_orbit(lat)
+
+
+def test_the_resonance_check_does_not_depend_on_there_being_a_kick(
+    ref: ReferenceParticle,
+) -> None:
+    """An integer tune is refused even with no corrector in the lattice.
+
+    Zero *is* a fixed point of a kick-free map, but on the resonance it is not the
+    only one, and returning it would claim a uniqueness the map does not have. The
+    check therefore runs before the zero-kick shortcut, which also keeps
+    ``orbit_response_matrix``'s zeroed baseline on the same code path as its
+    unit-kick columns.
+    """
+    lat = Lattice(_weakened_ring(0.2, kick_y=0.0), ref)
+    with pytest.raises(ClosedOrbitError, match="integer"):
+        closed_orbit(lat)
+    # ... while the same ring off the resonance is fine and exactly on axis.
+    assert np.array_equal(closed_orbit(Lattice(_weakened_ring(1.0, kick_y=0.0), ref)), np.zeros(4))
+
+
+def test_a_corrector_steers_a_bunch_into_an_aperture(ref: ReferenceParticle) -> None:
+    """The affine map reaches loss tracking too, not just the closed-orbit solve.
+
+    ``track_bunch_losses`` walks the elements itself, so it needs the kick
+    separately from ``Element.track``. A bunch that clears the collimator on the
+    design orbit is steered into it by a corrector — and the recorded loss
+    position is the aperture's, one element downstream of the kick.
+    """
+    half_gap = 2e-3
+    elems = _ring()
+    ap = Aperture("rectangular", half_gap, half_gap, name="jaw")
+    elems.insert(4, ap)
+    clean = Tracker(Lattice(elems, ref))
+
+    states = np.zeros((6, 9))
+    states[0] = np.linspace(-1e-3, 1e-3, 9)  # all well inside the +-2 mm jaw
+    assert clean.track_bunch_losses(Bunch(states.copy()), n_turns=1).n_lost == 0
+
+    steered = list(elems)
+    steered.insert(3, Corrector(kick_x=5e-3))  # 5 mrad over a 1 m drift -> 5 mm
+    result = Tracker(Lattice(steered, ref)).track_bunch_losses(Bunch(states.copy()), n_turns=1)
+    assert result.n_lost == 9
+    s_lost, counts = result.loss_map()
+    assert counts.tolist() == [9]
+    assert s_lost[0] == pytest.approx(2 * L_HALF)  # the jaw sits two drifts in
 
 
 def test_propagate_orbit_follows_a_trajectory_when_given_a_start(

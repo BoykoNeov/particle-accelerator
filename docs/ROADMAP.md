@@ -1259,10 +1259,16 @@ sustained arc.
     wrong. xtrack's *iterative* closed-orbit search agrees with the closed-form solve
     to **1.9e-15 m** on a 1 mm orbit, and independently confirms the corrected machine
     is flat outside the bump and still bumped inside it.
-    Gates: `tests/analytic/test_orbit.py` (25),
+    Gates: `tests/analytic/test_orbit.py` (27),
     `tests/analytic/test_orbit_correction.py` (22),
     `tests/reference/test_orbit_xtrack.py` (5). See CONVENTIONS.md →
     *Closed orbit & its correction*.
+  - **The affine map made loss tracking faster, not slower.** `track_bunch_losses`
+    walks the elements itself, so it needed the kick separately; hoisting the
+    per-element map out of the turn loop at the same time took 2000 turns × 31
+    elements × 200 particles from **1.416 s to 1.021 s**. A zero kick is skipped
+    rather than broadcast, and a gate steers a bunch into a collimator it
+    otherwise clears, so that path is not merely fast but tested.
   - Still **out of scope**: sextupole feed-down on a distorted orbit (named
     explicitly — it is what makes "correctors do not move the optics" a linear-order
     statement), misalignments as element attributes rather than explicit correctors,

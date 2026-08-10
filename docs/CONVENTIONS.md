@@ -988,6 +988,19 @@ the **identity** — that is physics, not a placeholder: a dipole kick moves the
 closed orbit and leaves the map *about* it alone, so β, the tunes, chromaticity
 and dispersion are untouched. Steering and optics stay separate handles.
 
+`closed_orbit` checks the conditioning **before** the zero-kick shortcut, so the
+contract does not depend on the machine being imperfect: on an integer tune a
+kick-free lattice does have zero as *a* fixed point but not the only one, and it
+keeps `orbit_response_matrix`'s zeroed baseline on the same code path as its
+unit-kick columns.
+
+**`track_bunch_losses` hoists the per-element map out of the turn loop**, and
+skips the kick add entirely when the kick is zero (every element but a
+corrector). That inner loop runs `n_turns × len(lattice)` times — 10⁵ and up in
+the long-term gates — and the hoist made it *faster* than before the affine map
+existed: measured 2000 turns × 31 elements × 200 particles, **1.416 s → 1.021 s**
+(28 %) with no corrector, 1.508 s → 1.073 s with one.
+
 **Composition transports the kick.** `Lattice.transfer_map() → (M, k)` follows
 the same right-to-left rule as `transfer_matrix`:
 
@@ -1074,8 +1087,11 @@ statement. Misalignments are not modelled as such — a quadrupole displaced by 
 gives a kick `−k1·L·dx`; place an explicit `Corrector` of that angle. Correction
 is per plane (`plane='x'` / `'y'`); a coupled lattice is out of scope.
 
-Gates: `tests/analytic/test_orbit.py` (25), `tests/analytic/test_orbit_correction.py`
-(22), `tests/reference/test_orbit_xtrack.py` (5). xtrack's *iterative* closed-orbit
+Gates: `tests/analytic/test_orbit.py` (27), `tests/analytic/test_orbit_correction.py`
+(22), `tests/reference/test_orbit_xtrack.py` (5). The affine path through
+`track_bunch_losses` is gated separately (a corrector steers a bunch into a
+collimator it otherwise clears), since that loop walks the elements itself rather
+than going through `Element.track`. xtrack's *iterative* closed-orbit
 search agrees with the closed-form solve to **1.9e-15 m** on a 1 mm orbit (1.6e-12
 relative) — the floor is xtrack's iteration, not accsim, whose own residual is
 exact — and confirms the corrected machine is flat outside the bump and still

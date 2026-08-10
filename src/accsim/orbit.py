@@ -89,11 +89,15 @@ def closed_orbit(lattice: Lattice) -> np.ndarray:
     and returns exactly zero — the design orbit.
 
     Raises :class:`ClosedOrbitError` on an integer tune, where ``I - M4`` is
-    singular and no orbit closes.
+    singular and no orbit closes. **That check comes first, before the zero-kick
+    shortcut**, so the contract does not depend on whether the machine happens to
+    be perfect: on an integer tune a kick-free lattice does have zero as *a* fixed
+    point, but not as the *only* one, and returning it would quietly claim a
+    uniqueness the map does not have. It also keeps
+    :func:`orbit_response_matrix`'s zeroed baseline on the same code path as its
+    unit-kick columns, so the two cannot disagree about whether an orbit exists.
     """
     m4, k4 = _affine_4d(*lattice.one_turn_map())
-    if not k4.any():
-        return np.zeros(4)  # a perfect machine sits exactly on the design orbit
     A = np.eye(4) - m4
     cond = float(np.linalg.cond(A))
     if not np.isfinite(cond) or cond > _COND_LIMIT:
@@ -103,6 +107,8 @@ def closed_orbit(lattice: Lattice) -> np.ndarray:
             "tune in at least one plane, where a kick repeats in phase every turn "
             "and the excursion never closes"
         )
+    if not k4.any():
+        return np.zeros(4)  # a perfect machine sits exactly on the design orbit
     return np.linalg.solve(A, k4)
 
 

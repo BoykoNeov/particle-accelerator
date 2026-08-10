@@ -198,11 +198,24 @@ class Tracker:
         loss_s = np.full(n, np.nan)
         loss_element = np.full(n, -1, dtype=int)
 
+        # Hoisted out of the turn loop: the lattice cannot change during a track,
+        # and this inner loop runs n_turns * len(lattice) times (1e5 and up in the
+        # long-term gates). The kick is stored as None when it is zero — which is
+        # every element but a corrector — so the common case never broadcasts it.
+        maps: list[tuple[np.ndarray, np.ndarray | None]] = []
+        for elem in self.lattice.elements:
+            k = elem.kick(ref)
+            maps.append((elem.matrix(ref), k[:, None] if k.any() else None))
+
         for turn in range(n_turns):
             s = 0.0
             for ei, elem in enumerate(self.lattice.elements):
                 if alive.any():
-                    states[:, alive] = elem.matrix(ref) @ states[:, alive] + elem.kick(ref)[:, None]
+                    M, k_col = maps[ei]
+                    if k_col is None:
+                        states[:, alive] = M @ states[:, alive]
+                    else:
+                        states[:, alive] = M @ states[:, alive] + k_col
                 if isinstance(elem, Aperture):
                     inside = np.asarray(elem.survives(states), dtype=bool)
                     newly = alive & ~inside
