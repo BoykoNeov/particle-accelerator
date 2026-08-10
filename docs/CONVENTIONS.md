@@ -467,7 +467,9 @@ strength `k2l = k2·L` [m⁻²]. Conventions:
   nonzero only when bends are present — so an uncomputed dipole term always
   coexists with it. The validated deliverables are the *feed-down term itself*,
   the accsim-internal *correction* (feed-down cancels the quad natural term), and
-  the *difference* cross-check below.
+  the *difference* cross-check below. Both are also **design-orbit** quantities —
+  they use on-axis `elem.matrix()` throughout, so a *steered* machine's β-beat from
+  I2 feed-down is not included; see *Sextupole feed-down on a distorted orbit*.
 - **Thin vs thick.** Thin sextupoles are exact single-point contributions (`β` and
   `D_x` continuous across the zero-length kick); thick sextupoles integrate
   `β·D_x` by trapezoidal sub-slicing across the drift-like body (`slices=64`), which
@@ -599,6 +601,12 @@ as one.
 
 Gates: `tests/analytic/test_sextupole_kick.py` (21),
 `tests/reference/test_sextupole_kick_xtrack.py` (7).
+
+**Follow-up.** J1's kick expanded about a *closed-orbit* offset rather than a
+dispersive one is **I2** (*Sextupole feed-down on a distorted orbit*), which is
+where the dipole and skew terms — the two J1 never produced — are gated, and where
+the closed orbit becomes a fixed point. J1 was sequenced first only so its own gate
+would not be circular.
 
 ## Betatron coupling — skew quad, normal-mode tunes, ΔQ_min (G1 — implemented)
 
@@ -1343,23 +1351,42 @@ rather than left to be discovered.
 
 **Reference cross-checks.** Element equivalences reused from I1/J1, not re-probed
 (`Corrector(kick_x=+k) ≡ knl=[−k]`, `kick_y=+k ≡ ksl=[+k]`,
-`ThinSextupole(k2l) ≡ knl=[0,0,+k2l]`). xtrack's own iterative nonlinear
-closed-orbit search agrees with accsim's Newton to **1e-12 m** at all 15 boundaries
-with *both* planes steered; its `TwissTable.R_matrix` (finite-differenced about its
-own orbit) matches `linearised_one_turn_map` to **1e-6**, normal and skew blocks
-together — a floor established as the two codes' *differencing* by the `k2l = 0`
-branch, which agrees with accsim's exact analytic matrix to `1e-9`. Tune shift
-`2e-3` rel, β `2e-5` rel, and `tw.c_minus` confirms the vertical bump couples
-(`> 1e-4`) while the horizontal one gives *exactly* `0.0`. **The gate that makes the
-rest meaningful**: I1's linear solve misses xtrack by `> 1e4 ×` the tolerance the
-nonlinear one meets — these are not measuring round-off.
+`ThinSextupole(k2l) ≡ knl=[0,0,+k2l]`). All figures **measured 2026-08-10**, with
+the tolerance and its headroom stated rather than chosen:
+
+| quantity | measured | tolerance | headroom |
+|---|---|---|---|
+| closed orbit, both planes steered, 15 boundaries | `1.6e-13 m` on a 1.1 mm orbit (`1.4e-10` rel) | `1e-12` | 6.4× |
+| `R_matrix` vs `linearised_one_turn_map`, 4×4 | `2.1e-11` on entries up to 7.0 | `1e-9` | 47× |
+| accsim's own FD floor (`k2l = 0` vs exact analytic 6×6) | `7.2e-12` | `1e-10` | 14× |
+
+The matrix floor belongs to **xtrack's** differencing, not accsim's: varying
+accsim's `step` over `1e-6`/`1e-7` moves the discrepancy by `0.1 %` (`2.149e-11` →
+`2.147e-11`), i.e. it is insensitive to accsim's choice, and xtrack's own
+`steps_R_matrix` is `dx = 1e-6`, `dpx = 1e-7`. Tune shift `2e-3` rel, β `2e-5` rel,
+and `tw.c_minus` confirms the vertical bump couples (`> 1e-4`) while the horizontal
+one gives `0.0`. **The gate that makes the rest meaningful**: I1's linear solve
+misses xtrack by `> 1e4 ×` the tolerance the nonlinear one meets — these are not
+measuring round-off.
 
 **Still out of scope:** the 6D (RF-coupled) closed orbit; feed-down from octupoles
 and higher multipoles; misalignments as element attributes; amplitude-dependent
-detuning and resonance driving terms; dynamic aperture.
+detuning and resonance driving terms; dynamic aperture. And explicitly —
+**`chromaticity()` is not corrected for feed-down**. It is a *design-orbit*
+quantity: `propagate_twiss` walks on-axis `elem.matrix()`, so a steered machine is
+evaluated with unperturbed β and dispersion, wrong at the β-beat level I2 measures
+(~0.4 % in `β_x` for a 0.3 mm orbit at `k2l = 20`). `linearised_element_maps`
+supplies everything a corrected version would need; I2 does not build the Twiss
+propagation on top of it. `test_chromaticity_is_a_design_orbit_quantity` asserts the
+blind spot so it is documented rather than discovered — the same treatment
+`correct_orbit(nonlinear=False)` gets.
 
-Gates: `tests/analytic/test_feeddown.py` (22),
-`tests/reference/test_feeddown_xtrack.py` (6).
+Gates: `tests/analytic/test_feeddown.py` (24),
+`tests/reference/test_feeddown_xtrack.py` (6). The quantitative gates all use
+`ThinSextupole` deliberately — a thick body's orbit varies across the magnet, so a
+thin-lens sum would carry an `O(L²)` error that would read as a loosened tolerance —
+but a thick `Sextupole(n_slices=4)` is separately gated through the same machinery
+(Newton converges, the fixed point holds, the departure is still `O(x_co²)`).
 
 ## Stability boundary (Stage 2 — validated)
 

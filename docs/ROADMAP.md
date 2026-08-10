@@ -1326,16 +1326,23 @@ sustained arc.
     *shrinks* the orbit), so convergence is **not** evidence of a stable machine; and
     the fixed point is **not unique** — from 50 m out Newton finds a different,
     outer orbit. Both are asserted rather than assumed away.
-  - Gates: `tests/analytic/test_feeddown.py` (22),
+  - Gates: `tests/analytic/test_feeddown.py` (24),
     `tests/reference/test_feeddown_xtrack.py` (6). xtrack's own iterative nonlinear
-    closed-orbit search agrees to **1e-12 m** at all boundaries with both planes
-    steered, and its `R_matrix` matches `linearised_one_turn_map` to `1e-6` (normal
-    *and* skew blocks); I1's linear solve misses xtrack by `>1e4×` that, which is what
-    makes the agreement mean something. See CONVENTIONS.md → *Sextupole feed-down on a
-    distorted orbit*.
+    closed-orbit search agrees to a **measured 1.6e-13 m** at all boundaries with both
+    planes steered (tolerance `1e-12`, 6.4× headroom), and its `R_matrix` matches
+    `linearised_one_turn_map` to a measured **2.1e-11** on entries up to 7.0 (normal
+    *and* skew blocks; tolerance `1e-9`, 47× headroom) — a floor that belongs to
+    xtrack's differencing, since varying accsim's step moves it by 0.1 %. I1's linear
+    solve misses xtrack by `>1e4×` that, which is what makes the agreement mean
+    something. See CONVENTIONS.md → *Sextupole feed-down on a distorted orbit*.
   - Still **out of scope**: the 6D (RF-coupled) closed orbit, feed-down from
     octupoles and higher multipoles, misalignments as element attributes,
     amplitude-dependent detuning / resonance driving terms, and dynamic aperture.
+    Named explicitly because the milestone statement raised it: **`chromaticity()`
+    is not feed-down-corrected** — it is a design-orbit quantity built on on-axis
+    `elem.matrix()`, so a steered machine carries the β-beat error I2 measures.
+    `linearised_element_maps` supplies what a corrected version needs; the Twiss
+    propagation on top of it is not built here, and a test asserts the blind spot.
 
 ### J. Nonlinear single-particle dynamics (core accelerator)
 

@@ -57,9 +57,11 @@ from accsim import (
     Lattice,
     OrbitConvergenceError,
     ReferenceParticle,
+    Sextupole,
     ThinQuadrupole,
     ThinSextupole,
     ThinSkewQuadrupole,
+    chromaticity,
     closed_orbit,
     closed_orbit_nonlinear,
     closed_twiss,
@@ -933,3 +935,84 @@ def test_the_linear_correction_path_is_untouched(ref: ReferenceParticle) -> None
     real = propagate_orbit_nonlinear(lat)
     rms_real = math.sqrt(float(np.mean([real[m][X] ** 2 for m in monitors])))
     assert rms_real > 1e-9
+
+
+def test_chromaticity_is_a_design_orbit_quantity(ref: ReferenceParticle) -> None:
+    """The blind spot I2 does **not** close, asserted rather than left to be found.
+
+    The milestone statement said the feed-down gradient moves "tunes, beta and
+    chromaticity". The first two are gated above. The third is not, and cannot be
+    without new machinery: :func:`~accsim.twiss.chromaticity` is built on
+    :func:`~accsim.twiss.propagate_twiss`, which walks each element's *on-axis*
+    ``matrix()`` — so it is a **design-orbit** quantity and does not move at all
+    when the machine is steered, however large the beta-beat actually is.
+
+    This test pins that non-response exactly (it is a property of the code path, so
+    the answer is bit-identical), alongside a measurement of the error being made:
+    beta really has moved, by the amount ``chromaticity`` is ignoring.
+    :func:`linearised_element_maps` is what a corrected version would be built on;
+    I2 does not build it. Directly analogous to
+    :func:`test_the_linear_correction_path_is_untouched`.
+    """
+    on_axis = _lattice(ref, k2l=K2L)
+    steered = _lattice(ref, k2l=K2L, kick_x=KICK)
+
+    # Bit-identical: no orbit enters the calculation at all.
+    assert chromaticity(steered) == chromaticity(on_axis)
+
+    # ...while the beta it is built on has moved by ~0.4%, which is the error.
+    beta_design = closed_twiss(steered).beta_x
+    beta_real = match_periodic(
+        linearised_one_turn_map(steered, closed_orbit_nonlinear(steered))
+    ).beta_x
+    assert abs(beta_real / beta_design - 1.0) > 1e-3
+
+
+def test_the_thick_sextupole_goes_through_the_same_machinery(
+    ref: ReferenceParticle,
+) -> None:
+    """A thick :class:`Sextupole` converges too, and feeds down the same way.
+
+    The gates above all use :class:`ThinSextupole` deliberately — a thick body's
+    orbit varies across the magnet, so the thin-lens sums would carry an ``O(L^2)``
+    error that would read as a loosened tolerance. But
+    :func:`closed_orbit_nonlinear` accepts thick sextupoles, and nothing else here
+    exercises that path: drift-kick-drift inside ``track()``, several slices, and a
+    non-zero length between the kick and the orbit that produced it.
+    """
+    lat = Lattice(
+        [
+            Corrector(kick_x=KICK, name="steerer"),
+            Sextupole(0.4, K2L / 0.4, name="sx", n_slices=4),
+            *_ring(),
+        ],
+        ref,
+    )
+    co = closed_orbit_nonlinear(lat)
+
+    state = np.zeros(DIM)
+    state[:4] = co
+    for elem in lat.elements:
+        state = elem.track(state, lat.ref)
+    assert np.allclose(state[:4], co, atol=1e-14, rtol=0.0)
+
+    # Same physics: the departure from the linear orbit is still O(x_co^2), and the
+    # optics still move. (Its *value* differs from the thin case at O(L^2), which
+    # is why the quantitative gates above use a thin sextupole.)
+    departures = []
+    for kick in (4e-4, 2e-4, 1e-4):
+        lat_k = Lattice(
+            [
+                Corrector(kick_x=kick),
+                Sextupole(0.4, K2L / 0.4, n_slices=4),
+                *_ring(),
+            ],
+            ref,
+        )
+        flat_k = Lattice([Corrector(kick_x=kick), Sextupole(0.4, 0.0), *_ring()], ref)
+        departures.append(
+            float(np.max(np.abs(closed_orbit_nonlinear(lat_k) - closed_orbit(flat_k))))
+        )
+    assert departures[0] > 1e-7
+    for a, b in zip(departures[:-1], departures[1:], strict=True):
+        assert a / b == pytest.approx(4.0, rel=0.02)

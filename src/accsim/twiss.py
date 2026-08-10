@@ -1111,6 +1111,17 @@ def chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
     which every shared term (including the dipole chromaticity) cancels exactly (a
     sextupole's linear map is a drift, so adding it leaves beta, dispersion and the
     tunes untouched).
+
+    **This is a design-orbit quantity.** Every ingredient comes from
+    :func:`propagate_twiss`, which uses each element's *on-axis*
+    :meth:`~accsim.elements.element.Element.matrix`, so a machine whose closed orbit
+    is displaced is evaluated with unperturbed ``beta`` and dispersion. On a
+    steered lattice with live sextupoles that is wrong at the feed-down beta-beat
+    level (I2 measures ~0.4% in ``beta_x`` for a 0.3 mm orbit at ``k2l = 20``), and
+    correcting it is **out of scope**: the machinery exists —
+    :func:`accsim.orbit.linearised_element_maps` gives the per-element maps about
+    the real orbit — but no Twiss propagation is built on top of it here. See
+    ``docs/CONVENTIONS.md`` -> *Sextupole feed-down on a distorted orbit*.
     """
     nx, ny = natural_chromaticity(lattice, slices)
     fx, fy = _sextupole_feeddown(lattice, slices)

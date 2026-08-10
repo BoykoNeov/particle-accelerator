@@ -63,17 +63,21 @@ N_CELLS = 3
 KICK = 2.0e-4  # steerer angle [rad]
 K2L = 20.0  # integrated sextupole strength [m^-2]
 
-# Measured 2026-08-10. The floor is the two *iterative* closed-orbit searches, not
-# accsim's Newton (whose own residual is driven to 1e-14 by construction).
+# Measured 2026-08-10: the two codes' closed orbits agree to 1.6e-13 m absolute
+# (1.4e-10 relative) on a ~1.1 mm orbit with both planes steered. The floor is the
+# two *iterative* searches, not accsim's Newton (whose own residual is driven to
+# 1e-14 by construction). Tolerance below with 6.4x headroom.
 ORBIT_ATOL = 1e-12
 
-# The one-turn matrix comparison is finite-difference against finite-difference —
-# xtrack's own `steps_R_matrix` against accsim's `step=1e-7` — so this floor
-# belongs to both codes' differencing, not to the physics. That it *is* the
-# differencing floor is established by the k2l = 0 branch of
-# `test_linearised_one_turn_map_matches_xtrack`, which compares against accsim's
-# exact analytic matrix at 1e-9 on the same setup.
-MATRIX_ATOL = 1e-6
+# Measured 2026-08-10: 2.1e-11 max absolute on 4x4 entries up to 7.0, i.e. 47x
+# headroom below the tolerance. The comparison is finite-difference against
+# finite-difference, and the floor is **xtrack's**, not accsim's: sweeping accsim's
+# `step` over 1e-6/1e-7 moves the discrepancy by 0.1% (2.149e-11 -> 2.147e-11), so
+# it is insensitive to accsim's choice, while xtrack's own `steps_R_matrix` is
+# dx=1e-6, dpx=1e-7. accsim's own differencing floor is a separate, smaller number
+# — 7.2e-12, gated by the k2l = 0 branch below against the exact analytic matrix.
+MATRIX_ATOL = 1e-9
+ACCSIM_FD_ATOL = 1e-10
 
 
 def _fractional_tunes(M: np.ndarray) -> tuple[float, float]:
@@ -185,15 +189,15 @@ def test_linearised_one_turn_map_matches_xtrack() -> None:
     entry by entry, against a code that knows nothing about the expansion accsim
     derived. Both planes are steered, so the off-blocks are genuinely populated.
 
-    The ``k2l = 0`` branch establishes what the tolerance means: there the map is
-    exactly accsim's analytic one-turn matrix, and the agreement at ``1e-9`` shows
-    the ``1e-6`` used for the feed-down case is the two codes' *finite differencing*
-    floor rather than a loosened physics tolerance.
+    The ``k2l = 0`` branch measures accsim's *own* differencing floor against its
+    exact analytic matrix (7.2e-12), which is smaller than the 2.1e-11 the two codes
+    reach — consistent with the floor being xtrack's differencing, as the constants
+    above record.
     """
     flat = _accsim_lattice(0.0, kick_x=KICK, kick_y=0.6 * KICK)
     co0 = closed_orbit_nonlinear(flat)
     exact, _ = flat.one_turn_map()
-    assert np.allclose(linearised_one_turn_map(flat, co0), exact, rtol=0, atol=1e-9)
+    assert np.allclose(linearised_one_turn_map(flat, co0), exact, rtol=0, atol=ACCSIM_FD_ATOL)
 
     lat = _accsim_lattice(K2L, kick_x=KICK, kick_y=0.6 * KICK)
     co = closed_orbit_nonlinear(lat)
@@ -251,7 +255,10 @@ def test_a_purely_vertical_steerer_moves_the_horizontal_orbit_in_xtrack_too() ->
     horizontal case, which is the ``x^2 - y^2`` structure showing up in the orbit.
     """
     _, tw0 = _xtrack_line(0.0, kick_y=KICK)
-    assert np.abs(np.array(tw0.x)).max() == 0.0  # exactly zero: nothing drives x
+    # Nothing drives x linearly, so this is zero to well below any orbit scale.
+    # (xtrack in fact returns exact 0.0 here, but asserting == 0.0 on a third-party
+    # iterative solver's output would be a flake waiting on a version bump.)
+    assert np.abs(np.array(tw0.x)).max() < 1e-18
 
     lat = _accsim_lattice(K2L, kick_y=KICK)
     x_acc = np.array([o[0] for o in propagate_orbit_nonlinear(lat)])
@@ -276,7 +283,7 @@ def test_the_vertical_bump_couples_the_planes_in_xtrack_too() -> None:
     is the horizontal bump, where xtrack reports exactly zero coupling.
     """
     _, tw_h = _xtrack_line(K2L, kick_x=KICK)
-    assert tw_h.c_minus == 0.0  # a horizontal bump keeps the planes separate
+    assert tw_h.c_minus < 1e-12  # a horizontal bump keeps the planes separate
 
     _, tw_v = _xtrack_line(K2L, kick_y=KICK)
     assert tw_v.c_minus > 1e-4  # ...a vertical one does not

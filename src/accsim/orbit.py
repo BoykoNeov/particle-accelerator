@@ -78,6 +78,7 @@ import numpy as np
 from .coords import DIM, PX, PY, X, Y
 from .elements.corrector import Corrector
 from .lattice import Lattice
+from .symplectic import jacobian
 
 _TRANSVERSE = [X, PX, Y, PY]  # the 4D transverse subspace (x, px, y, py)
 
@@ -167,13 +168,18 @@ def propagate_orbit(lattice: Lattice, orbit0: np.ndarray | None = None) -> list[
 class OrbitConvergenceError(ClosedOrbitError):
     """Newton failed to reach the nonlinear closed orbit.
 
-    Distinct from a plain :class:`ClosedOrbitError`, which says the *linear* map
-    has an eigenvalue 1 and no orbit exists at all. This says the iteration did
-    not converge — the orbit may still exist. The usual causes are a genuinely
-    unstable machine (feed-down ``k2 x_co`` is a gradient error, and a large one
-    can push the lattice off the stable tune range or onto a resonance) or an
-    excursion so large that the sextupole's quadratic kick dominates and Newton
-    diverges.
+    Distinct from a plain :class:`ClosedOrbitError`, which says the map has an
+    eigenvalue 1 and no orbit exists at all. This says only that the iteration ran
+    out of budget; the orbit may exist perfectly well.
+
+    **Instability is not a cause.** A closed orbit needs ``(I - M4)`` invertible,
+    not *stable*, so Newton converges happily through a machine feed-down has
+    wrecked — and feed-down is in any case self-limiting, since the gradient that
+    destabilises the lattice also stiffens the ``(I - M4)`` being inverted (raising
+    ``k2l`` by five orders of magnitude *shrinks* the orbit; measured in the
+    analytic suite). What actually raises this is a starting guess far enough out
+    that the quadratic kick dominates, or a ``max_iter`` too small for the
+    excursion.
 
     It subclasses :class:`ClosedOrbitError` so callers that already roll back on
     "no orbit" — :func:`correct_orbit` does — keep working unchanged.
@@ -347,8 +353,6 @@ def linearised_element_maps(
     derivative, so the ``O(step^2)`` truncation error vanishes identically and
     only round-off remains.
     """
-    from .symplectic import jacobian  # local: symplectic imports nothing from here
-
     o = closed_orbit_nonlinear(lattice) if orbit0 is None else np.asarray(orbit0, dtype=float)
     if o.shape != (4,):
         raise ValueError(f"orbit0 must be a length-4 (x, px, y, py) vector, got {o.shape}")
