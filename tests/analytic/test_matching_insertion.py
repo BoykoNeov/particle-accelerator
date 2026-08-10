@@ -56,6 +56,7 @@ from accsim import (
     closed_twiss,
     insertion_response_matrix,
     match_insertion,
+    matching,
     propagate_twiss,
     tunes,
 )
@@ -361,6 +362,73 @@ def test_periodic_target_at_an_interior_boundary(ref: ReferenceParticle) -> None
 # --------------------------------------------------------------------------
 # Dispersion targets
 # --------------------------------------------------------------------------
+
+
+def test_dispersion_target_in_the_periodic_branch(ref: ReferenceParticle) -> None:
+    """D_x at a ring boundary comes from the *re-solved* matched dispersion.
+
+    Different code from the line case: there the dispersion is transported
+    affinely from a fixed entrance, here it is the periodic solution of the
+    one-turn map, re-found every evaluation as the quadrupole moves.
+    """
+    from accsim import Dipole
+
+    qf = Quadrupole(0.3, 1.2)
+    qd = Quadrupole(0.3, -1.2)
+    cell = [qf, Drift(0.5), Dipole(1.0, 0.12), qd, Drift(0.5), Dipole(1.0, 0.12)]
+    lattice = Lattice(cell * 3, ref)
+
+    before = closed_twiss(lattice)
+    assert abs(before.disp_x) > 0.1  # the ring really is dispersive
+    want = before.disp_x * 0.9
+
+    result = match_insertion(
+        lattice, [Target("disp_x", at=0, value=want)], [Knob([qf], name="kqf")]
+    )
+    assert closed_twiss(lattice).disp_x == pytest.approx(want, rel=1e-11)
+    assert result.residual <= 1e-12
+    # Not vacuous: the strength moved and so did the dispersion.
+    assert qf.k1 != pytest.approx(1.2, rel=1e-4)
+    assert abs(closed_twiss(lattice).disp_x - before.disp_x) > 1e-3
+
+
+def test_response_matrix_leaves_the_lattice_untouched(ref: ReferenceParticle) -> None:
+    """Differencing perturbs the knobs, so it must restore them — even when it raises.
+
+    This is the only response matrix in the package that mutates the lattice at
+    all, and it is public: a standalone caller has no outer rollback to fall back
+    on. The failing case is an exception that is *not* ``UnstableLatticeError``.
+    """
+    lattice, qfs, qd = _thin_fodo(ref)
+    knobs = [Knob(list(qfs), [0.5, 0.5]), Knob([qd], [-1.0])]
+    targets = [Target("beta_x", at=0, value=1.0), Target("beta_y", at=0, value=1.0)]
+    strengths = [q.k1l for q in (*qfs, qd)]
+
+    insertion_response_matrix(lattice, targets, knobs)
+    assert [q.k1l for q in (*qfs, qd)] == strengths  # exact, not approximate
+
+    # Now fail the observation *after* the baseline, i.e. with a knob displaced.
+    # UnstableLatticeError is handled and would not exercise the finally.
+    class _BoomError(RuntimeError):
+        pass
+
+    real = matching._observe
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise _BoomError("the optics blew up mid-difference")
+        return real(*args, **kwargs)
+
+    matching._observe = flaky
+    try:
+        with pytest.raises(_BoomError):
+            insertion_response_matrix(lattice, targets, knobs)
+    finally:
+        matching._observe = real
+    assert calls["n"] > 1  # the failure really happened while a knob was displaced
+    assert [q.k1l for q in (*qfs, qd)] == strengths
 
 
 def test_dispersion_target_in_a_line(ref: ReferenceParticle) -> None:

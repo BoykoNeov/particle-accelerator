@@ -1189,7 +1189,7 @@ sustained arc.
     to hide behind. All at **machine precision** (`β*` 8.9e-16 relative, `α*`
     8.5e-16 absolute, ring `β` 7.8e-16 / 6.7e-16) — nothing here is a first-order
     formula, unlike H1's chromaticity half.
-    Gates: `tests/analytic/test_matching_insertion.py` (26),
+    Gates: `tests/analytic/test_matching_insertion.py` (28),
     `tests/reference/test_matching_insertion_xtrack.py` (4). See CONVENTIONS.md →
     *Insertion matching*.
   - Still **out of scope**: strength bounds, phase-advance targets, matching a

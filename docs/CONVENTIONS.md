@@ -913,12 +913,26 @@ unreachable and must raise.
 setting can move a local β, α or D. Same physical fact as H1's ordering argument,
 used for the opposite purpose.
 
+**`insertion_response_matrix` is the only response matrix in the package that
+mutates the lattice.** `tune_response_matrix` and `chromaticity_response_matrix`
+are pure integrals over the current optics; differencing has to *move* the knobs.
+Each knob is restored from a raw per-element **snapshot in a `finally`** — not by
+re-applying `v`, which would round-trip through `w_i·(strength_i/w_0)` and can
+land an ULP away for awkward weights. The `finally` is load-bearing because the
+function is public: `UnstableLatticeError` is caught inside the loop, but a
+`CoupledLatticeError` (periodic branch, skew lattice) is not, and without it the
+knob escapes at `v ± h` with no outer rollback to save it. Measured on the FODO
+gate: `0.33333383` left behind instead of `0.33333333`.
+
 Backtracking, ganging re-checks, degeneracy refusal and rollback are inherited
 from H1 unchanged; the periodic branch additionally catches `closed_twiss` raising
 mid-step, which a long first step routinely triggers (gate **counts** the unstable
 excursions before asserting convergence, as in H1).
 
-Gates: `tests/analytic/test_matching_insertion.py` (26),
+Gates: `tests/analytic/test_matching_insertion.py` (28), which covers the
+dispersion in **both** branches — the periodic one is different code (the
+re-solved `_matched_dispersion` of the one-turn map, not affine transport from a
+fixed entrance) and is where a real dispersion target is used;
 `tests/reference/test_matching_insertion_xtrack.py` (4). The reference gate covers
 **both** branches — xtrack's *open* twiss from the same entrance Twiss for the
 line, its closed twiss for the ring — and includes the **untargeted** y plane,

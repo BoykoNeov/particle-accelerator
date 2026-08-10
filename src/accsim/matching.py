@@ -794,6 +794,17 @@ def insertion_response_matrix(
     zero column and be reported as a degenerate knob. If one side of the central
     difference falls outside the stability boundary the column falls back to a
     one-sided difference against the baseline.
+
+    **This is the only response matrix in the package that mutates the lattice.**
+    :func:`tune_response_matrix` and :func:`chromaticity_response_matrix` are pure
+    integrals over the current optics; differencing has to *move* the knobs. Each
+    knob is restored from a raw per-element snapshot in a ``finally``, so the
+    lattice is byte-identical on return **and** on any exception — which matters
+    because this function is public and a standalone caller has no outer rollback
+    to fall back on (``UnstableLatticeError`` is handled here, but a
+    :class:`~accsim.twiss.CoupledLatticeError` from the periodic branch is not).
+    Restoring by re-applying ``v`` would instead round-trip through
+    ``w_i * (strength_i / w_0)`` and could land an ULP away for awkward weights.
     """
     _check_optics_knobs(knobs)
     _knob_index(knobs)
@@ -806,14 +817,17 @@ def insertion_response_matrix(
     for j, knob in enumerate(knobs):
         v = knob.value
         h = fd_step * max(abs(v), 1.0)
+        snapshot = knob.snapshot()
         sides: list[np.ndarray | None] = []
-        for sign in (+1.0, -1.0):
-            knob.apply(v + sign * h)
-            try:
-                sides.append(_observe(lattice, targets, twiss0))
-            except UnstableLatticeError:
-                sides.append(None)
-        knob.apply(v)
+        try:
+            for sign in (+1.0, -1.0):
+                knob.apply(v + sign * h)
+                try:
+                    sides.append(_observe(lattice, targets, twiss0))
+                except UnstableLatticeError:
+                    sides.append(None)
+        finally:
+            knob.restore(snapshot)
         plus, minus = sides
         if plus is not None and minus is not None:
             jac[:, j] = (plus - minus) / (2.0 * h)
