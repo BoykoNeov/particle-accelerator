@@ -2294,6 +2294,11 @@ dominant term is **not** in accsim's code and is easy to misattribute.
   that compile *is* the entire cost of the test. The structural claim (no reuse is
   possible) is load-independent; the **12.2 s** that build took is an **upper
   bound** measured while the machine was heavily contended, not a pinned number.
+- **Headline, both measured on a quiet box: 603.87 s → 343.12 s, a 43 % cut.**
+  Full suite before (562 tests, 4 warnings) vs the new `-m 'not reference'` default
+  (517 passed, 45 deselected). Reference is therefore ~261 s ≈ 43 % of the old run,
+  ~5.8 s per test / ~7 s per actual compile. This is the only before/after pair in
+  this section where both halves were taken under comparable load — quote this one.
 - **Reference is ~40 % of the suite, not "the bulk"** — this corrects an earlier
   claim here that extrapolated 12.2 s × 45 ≈ 540 s and concluded reference dominated.
   It does not. Measured **back-to-back in one contention window**, which is what makes
@@ -2388,7 +2393,25 @@ dominant term is **not** in accsim's code and is easy to misattribute.
 - **Do not target optimisation work off durations measured under contention.** In
   that `-n 8` run `test_tracked_aperture_cut_recovers_the_lifetime_xi` reported
   187.78 s against 8.81 s (+5.81 s setup) in a clean `-m slow` leg — roughly 20×
-  inflation, uniformly. Only compare timings taken back-to-back on a quiet box.
+  inflation. Only compare timings taken back-to-back on a quiet box.
+- **Worse: individual sympy test durations are not reproducible at all**, so per-test
+  targeting is unsound even between two clean runs. Same test, same code, serial both
+  times:
+
+  | test | contended | quiet |
+  | --- | --- | --- |
+  | `test_moment_weights_close_symbolically` | 128.52 s | **15.79 s** |
+  | `test_overlap_integrand_is_derived_from_rho1_rho2` | 42.47 s | **115.95 s** |
+
+  The second ran ~3× *slower* on the quieter box — contention cannot do that. sympy's
+  global cache and hash-ordered heuristics pick different solution paths per process,
+  and cost swings by an order of magnitude either way. Only **aggregate totals** over
+  the whole suite are meaningful here. Concretely: an earlier plan to rewrite
+  `test_moment_weights_close_symbolically` (unexpanded `sp.integrate` + `sp.simplify`
+  → the `sp.integrate(sp.expand_trig(sp.expand(...)))` form already used in
+  `test_lam_tung.py`) was dropped on exactly this basis — at 15.79 s quiet it was
+  never a hot spot, and the 128 s that motivated it was noise. Before touching a
+  physics test for speed, measure it in isolation several times.
 - **Turn counts are off-limits as a speed lever.** `N_TURNS = 10_000` and the other
   tracking gates need many synchrotron periods to be non-vacuous; shrinking them
   makes the tests pass without testing anything. Parallelism is the lever.
