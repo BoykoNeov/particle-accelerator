@@ -1400,7 +1400,13 @@ sustained arc.
     accsim reproduces it to `1.35e-3` of the effect while the design orbit answers
     **exactly zero, bit for bit**. Chromaticity needs no difference: `3.3e-5`/`1.3e-4`
     against `1.7e-3`/`2.6e-3`, i.e. 52× and 21×.
-    Gates: `tests/analytic/test_orbit_optics.py` (20),
+    **The natural half needs its own gate**, because the tracked gate constrains a
+    *difference* that cancels it: on a dispersion-free ring it is the exact thin-lens
+    sum `−(1/4π) Σ β_x k1l` over the quads *and* the feed-down gradients, with β from
+    the independently-gated on-orbit table (agreement `5e-13`). It discriminates
+    because the two contributions oppose: the sextupole's direct term is `−3.03e-3`
+    against the beat's `+1.52e-3`, so dropping it flips the sign of the answer.
+    Gates: `tests/analytic/test_orbit_optics.py` (21),
     `tests/reference/test_orbit_optics_xtrack.py` (4). See CONVENTIONS.md →
     *Optics on the real (steered) orbit*.
   - Still **out of scope**: off-axis feed-down from accsim's own linear elements

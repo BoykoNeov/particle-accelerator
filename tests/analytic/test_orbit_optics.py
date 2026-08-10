@@ -506,6 +506,66 @@ def test_the_tracked_route_is_blind_to_the_natural_chromaticity(ref: ReferencePa
     assert abs(tracked[0] / natural[0]) < 1e-6
 
 
+def test_the_natural_half_is_the_beta_weighted_sum_over_the_real_optics(
+    ref: ReferenceParticle,
+) -> None:
+    r"""The half the difference gate above **cancels**, pinned on its own.
+
+    :func:`test_tracked_feeddown_matches_the_on_orbit_split` gates
+    ``chromaticity_on_orbit - natural_chromaticity_on_orbit``, so the natural term
+    drops out of it entirely. It needs its own closed form, and on a
+    **dispersion-free** ring it has a simple exact one: there is no sextupole
+    feed-down chromaticity at all (``D_x = 0``), so the whole answer is the
+    thin-lens sum
+
+        xi_x = -(1/4pi) sum_e beta_x(e) k1l(e),   xi_y = +(1/4pi) sum_e beta_y(e) k1l(e)
+
+    taken over the real quadrupoles **and** each sextupole's feed-down gradient
+    ``k1l_eff = k2l x_co``, with ``beta`` read off :func:`propagate_twiss_on_orbit`
+    — which is gated independently, against the derived beat closed form, and comes
+    from finite-differencing ``track()`` rather than from the equivalent lattice
+    ``natural_chromaticity_on_orbit`` is built on. Agreement 5e-13.
+
+    **The gate has teeth because the two contributions fight each other.** Of the
+    total shift ``-1.51e-3``, the sextupole's own direct term is ``-3.03e-3`` and
+    the beta-beat acting on the pre-existing quadrupoles supplies ``+1.52e-3``.
+    Dropping the direct term does not shrink the answer, it **flips its sign** —
+    asserted below, so an implementation that beat ``beta`` correctly but forgot
+    that an off-axis sextupole is itself a quadrupole cannot pass.
+    """
+    inv_4pi = 1.0 / (4.0 * math.pi)
+    lat = _flat(ref, k2l=K2L, kick_x=KICK)
+    table = propagate_twiss_on_orbit(lat)
+    orbit = propagate_orbit_nonlinear(lat)
+
+    sum_x = sum_y = 0.0
+    direct_x = 0.0
+    for i, elem in enumerate(lat.elements):
+        if isinstance(elem, ThinQuadrupole):
+            k1l = elem.k1l
+        elif isinstance(elem, ThinSextupole):
+            k1l = elem.k2l * float(orbit[i][X])  # I2's derived feed-down gradient
+            direct_x = -inv_4pi * table[i].beta_x * k1l
+        else:
+            continue
+        sum_x += -inv_4pi * table[i].beta_x * k1l
+        sum_y += +inv_4pi * table[i].beta_y * k1l
+
+    natural = natural_chromaticity_on_orbit(lat)
+    assert natural[0] == pytest.approx(sum_x, abs=1e-11)
+    assert natural[1] == pytest.approx(sum_y, abs=1e-11)
+
+    # On a dispersion-free ring the sextupole term is the whole of the difference,
+    # so the two entry points coincide exactly rather than nearly.
+    assert chromaticity_on_orbit(lat) == natural
+
+    # ...and the direct term is not a correction to the beat, it dominates and
+    # opposes it: without it the reported shift would have the wrong sign.
+    shift = natural[0] - natural_chromaticity(lat)[0]
+    assert direct_x < 0.0 < shift - direct_x  # opposite signs
+    assert abs(direct_x) > 1.5 * abs(shift)  # ...and the larger of the two
+
+
 def test_chromaticity_on_orbit_reduces_to_chromaticity_when_flat(ref: ReferenceParticle) -> None:
     """Zero steering, bit-for-bit — no tolerance, because no orbit enters.
 

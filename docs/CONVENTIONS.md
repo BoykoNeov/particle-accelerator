@@ -1483,6 +1483,26 @@ it *is* the feed-down gradient acting on the dispersion.
 Zero steering is **bit-for-bit**: at `x_co = 0` every added gradient is exactly
 zero, so `chromaticity_on_orbit(lat) == chromaticity(lat)` as the same float.
 
+**The natural half needs its own gate, because the difference cancels it.** The
+tracked gate constrains `chromaticity_on_orbit − natural_chromaticity_on_orbit`, so
+the natural term drops out of it entirely. On a **dispersion-free** ring it has an
+exact closed form of its own — there is no sextupole feed-down chromaticity at all,
+so the whole answer is the thin-lens sum `ξ_x = −(1/4π) Σ β_x(e)·k1l(e)` over the
+real quadrupoles *and* each sextupole's `k1l_eff = k2l·x_co`, with `β` read off
+`propagate_twiss_on_orbit` (finite-differenced from `track()`, and separately gated
+against the derived beat form) rather than off the equivalent lattice. Agreement
+`5e-13`.
+
+That gate discriminates because **the two contributions oppose each other**: of a
+total shift `−1.51e-3`, the sextupole's own direct term is `−3.03e-3` and the beat
+acting on the pre-existing quadrupoles supplies `+1.52e-3`. Dropping the direct term
+does not shrink the answer, it **flips its sign** — an implementation that beat `β`
+correctly but forgot that an off-axis sextupole *is itself a quadrupole* cannot
+pass. Mutation-checked (2026-08-10) against xtrack as well: doubling, sign-flipping
+or omitting the feed-down gradient moves `dqx` to `−1.71e-3` / `+3.50e-3` /
+`+1.70e-3`, all beyond the `5e-4` the reference test allows, against `−3.3e-5` for
+the correct one.
+
 ### Scope lines, enforced rather than documented
 
 - **Thick sextupoles raise `NotImplementedError` in `linearised_lattice`** (and so
@@ -1541,7 +1561,7 @@ than an improved estimate. Chromaticity needs no difference — 52× closer in `
 21× in `y`. Control: the *unsteered* ring agrees between the two codes to `9.3e-10`
 in β, so the steered disagreement is the orbit and not the ring description.
 
-Gates: `tests/analytic/test_orbit_optics.py` (20),
+Gates: `tests/analytic/test_orbit_optics.py` (21),
 `tests/reference/test_orbit_optics_xtrack.py` (4, four cached `xt.Line` builds).
 
 **Still out of scope:** off-axis feed-down from accsim's *linear* elements (the

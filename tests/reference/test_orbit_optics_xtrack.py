@@ -205,6 +205,13 @@ def test_the_sextupole_induced_beta_change_matches_xtrack() -> None:
     des_change = _betx_design(K2L, KICK) - _betx_design(0.0, KICK)
     xt_change = np.array(_twiss(K2L, KICK).betx) - np.array(_twiss(0.0, KICK).betx)
 
+    # The two tables line up boundary for boundary only because the element lists
+    # are in lockstep and xt.Multipole is zero-length like Corrector/ThinSextupole.
+    # Asserted rather than assumed: adding an element to one list and not the other
+    # would compare different positions and read as a physics failure.
+    assert len(acc_change) == 1 + len(_accsim(K2L, KICK).elements)
+    assert len(xt_change) == len(acc_change)
+
     scale = np.abs(xt_change).max()
     assert scale > 1e-3  # non-vacuous: the sextupoles really do move beta
 
