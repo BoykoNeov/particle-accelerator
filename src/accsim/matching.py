@@ -793,7 +793,13 @@ def insertion_response_matrix(
     equivalent, a corrector at rest), and a purely relative step would give it a
     zero column and be reported as a degenerate knob. If one side of the central
     difference falls outside the stability boundary the column falls back to a
-    one-sided difference against the baseline.
+    one-sided difference against the baseline, over ``h`` and **not** ``2h`` —
+    the gate pins that denominator bit-exactly, because the surrounding
+    convergence tests cannot see it: with an exact residual the fixed point is
+    right however wrong the Jacobian is, so a halved column would only have cost
+    iterations. Near the boundary ``beta`` diverges and the one-sided truncation
+    error runs to tens of percent, which is why the gate compares against the
+    exact quotient rather than against a finer central difference.
 
     **This is the only response matrix in the package that mutates the lattice.**
     :func:`tune_response_matrix` and :func:`chromaticity_response_matrix` are pure
@@ -838,8 +844,9 @@ def insertion_response_matrix(
         else:
             raise MatchingError(
                 f"{knob!r} cannot be differenced: the lattice is unstable on both sides "
-                f"of v = {v:g} at step {h:g}, so this knob sits exactly on the stability "
-                "boundary"
+                f"of v = {v!r} at step {h:g}, so the stable window around v is narrower "
+                "than the step. Either v sits on the stability boundary, or fd_step is "
+                "too large for this knob"
             )
     return jac
 

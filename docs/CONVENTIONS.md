@@ -891,7 +891,35 @@ the closed solution of a thin FODO — measured agreement **7.9e-11** relative
 deliberately supports knobs starting at `v = 0`; a purely *relative* step would
 give such a knob a zero column and the conditioning check would report a
 degenerate knob on a perfectly well-posed problem. If one side of the central
-difference falls outside the stability boundary the column falls back to one-sided.
+difference falls outside the stability boundary the column falls back to one-sided,
+**over `h`, not `2h`** — and that denominator needs its own gate, because nothing
+else in the suite can see it. With an exact residual the fixed point is right
+however wrong the Jacobian is, so a halved column costs iterations and nothing
+else; and the gate that pins the Jacobian numerically runs on a comfortably stable
+lattice where both trial points succeed. So the one-sided branches are gated
+directly, by driving a trial point across the thin FODO's horizontal limit
+(`trace = 2` at exactly `vd = 1`, asserted rather than assumed) with the knob
+sitting `5e-7` inside it — less than one `h = 1e-6` step. The knob's *weight sign*
+selects which side dies, so both branches are covered.
+
+That gate asserts the column against the **exact one-sided quotient**, not against
+a finer central difference, and the reason is measured: right at the boundary β
+diverges, and the one-sided truncation error runs to **58–86 %** — *larger* than
+the factor of two a `2h` bug introduces, so a comparison against a finer difference
+could not tell the bug from the truncation. The exact quotient agrees bit for bit
+(relative difference `0.0`), and injecting `2h` fails it by exactly ×2.
+
+When *both* trial points are unstable it raises. The message says the stable window
+is narrower than the step, and deliberately does **not** claim the knob sits on the
+boundary — the gate reaches this branch with a huge `fd_step` on a knob that is
+nowhere near the limit, so that conclusion would not follow from what the code sees.
+
+**One ULP of the boundary raises `LinAlgError`, not `UnstableLatticeError`.** At
+`trace = 2` exactly, `I − M₄` is singular and `_matched_dispersion`'s solve fails.
+Measured width of that band: **1.11e-16** in `vd` — the knife edge only, reachable
+by deliberate bisection and not by a matcher's trial points, every one of which
+lands in the clean `UnstableLatticeError` region above. Left alone rather than
+papered over; the `finally` restore below is what keeps it harmless.
 
 **Default weight `1/max(|value|, 1)` — an unweighted 2-norm is meaningless here.**
 β is metres and can be ~100, α is dimensionless and ~1: unweighted, the matcher
@@ -929,10 +957,12 @@ from H1 unchanged; the periodic branch additionally catches `closed_twiss` raisi
 mid-step, which a long first step routinely triggers (gate **counts** the unstable
 excursions before asserting convergence, as in H1).
 
-Gates: `tests/analytic/test_matching_insertion.py` (28), which covers the
+Gates: `tests/analytic/test_matching_insertion.py` (32), which covers the
 dispersion in **both** branches — the periodic one is different code (the
 re-solved `_matched_dispersion` of the one-turn map, not affine transport from a
-fixed entrance) and is where a real dispersion target is used;
+fixed entrance) and is where a real dispersion target is used — and all three
+finite-difference fallbacks at the stability boundary (both one-sided branches
+and the both-unstable refusal);
 `tests/reference/test_matching_insertion_xtrack.py` (4). The reference gate covers
 **both** branches — xtrack's *open* twiss from the same entrance Twiss for the
 line, its closed twiss for the ring — and includes the **untargeted** y plane,

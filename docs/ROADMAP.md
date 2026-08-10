@@ -1189,7 +1189,16 @@ sustained arc.
     to hide behind. All at **machine precision** (`β*` 8.9e-16 relative, `α*`
     8.5e-16 absolute, ring `β` 7.8e-16 / 6.7e-16) — nothing here is a first-order
     formula, unlike H1's chromaticity half.
-    Gates: `tests/analytic/test_matching_insertion.py` (28),
+  - **The finite-difference fallbacks are gated directly**, because no other test
+    in the suite can see them: with an exact residual the fixed point is right
+    however wrong the Jacobian is, so a wrong one-sided denominator would only
+    cost iterations. A knob parked `5e-7` inside the thin FODO's `trace = 2` limit
+    drives one trial point across it; the weight sign selects which side dies.
+    The column is asserted against the **exact** one-sided quotient — near the
+    boundary β diverges and the truncation error runs to 58–86 %, *larger* than
+    the ×2 a `2h` denominator would introduce, so a finer difference could not
+    tell the bug from the truncation.
+    Gates: `tests/analytic/test_matching_insertion.py` (32),
     `tests/reference/test_matching_insertion_xtrack.py` (4). See CONVENTIONS.md →
     *Insertion matching*.
   - Still **out of scope**: strength bounds, phase-advance targets, matching a

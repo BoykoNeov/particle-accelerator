@@ -706,3 +706,106 @@ def test_backtracking_crosses_the_stability_boundary(ref: ReferenceParticle) -> 
     after = closed_twiss(lattice)
     assert after.beta_x == pytest.approx(want, rel=1e-11)
     assert after.beta_y == pytest.approx(want, rel=1e-11)
+
+
+# --------------------------------------------------------------------------
+# The finite-difference fallbacks at the stability boundary
+# --------------------------------------------------------------------------
+#
+# These three branches are invisible to every other gate in this file, and for a
+# structural reason worth stating. H2 uses the H1 pattern -- approximate Jacobian,
+# exact residual -- so the converged fixed point is exact no matter how wrong the
+# Jacobian is; a halved column would only cost iterations. So the convergence
+# gates cannot see a denominator bug, and the one gate that pins the Jacobian
+# numerically runs on a comfortably stable lattice where both trial points
+# succeed. Hence a dedicated gate that drives a trial point across the boundary.
+
+# The thin FODO's horizontal stability limit, trace = 2, sits at vd = 1 exactly;
+# the test asserts that rather than trusting it, so the constant is not magic.
+VD_CRIT = 1.0
+# Sit inside the boundary by less than one FD step, so v +- h straddles it.
+VD_MARGIN = 5e-7
+
+
+def _beta_x_at_entrance(ref: ReferenceParticle, vd: float) -> float:
+    """``beta_x`` at boundary 0 of a fresh thin FODO with this defocusing strength."""
+    lattice, _, _ = _thin_fodo(ref, vd=vd)
+    return propagate_twiss(lattice, closed_twiss(lattice))[0].beta_x
+
+
+def test_the_thin_fodo_stability_limit_is_where_the_gate_places_it(
+    ref: ReferenceParticle,
+) -> None:
+    """``VD_CRIT`` is the real boundary: trace = 2 exactly, stable below, not above."""
+    lattice, _, _ = _thin_fodo(ref, vd=VD_CRIT)
+    assert np.trace(lattice.one_turn_matrix()[:2, :2]) == 2.0
+
+    _beta_x_at_entrance(ref, VD_CRIT - VD_MARGIN)  # stable side: must not raise
+    with pytest.raises(UnstableLatticeError):
+        _beta_x_at_entrance(ref, VD_CRIT + VD_MARGIN)
+
+
+@pytest.mark.parametrize("weight", [-1.0, +1.0])
+def test_one_sided_difference_when_a_trial_point_is_unstable(
+    ref: ReferenceParticle, weight: float
+) -> None:
+    """A trial point off the stability edge falls back to a quotient over ``h``.
+
+    The knob weight flips which side dies -- ``vd = -weight * v``, so ``weight =
+    -1`` loses the ``+h`` point and ``weight = +1`` loses the ``-h`` point. Both
+    one-sided branches are covered by the parametrisation.
+
+    The column is asserted against the exact one-sided quotient rebuilt from the
+    public API, *not* against a finer central difference: right at the boundary
+    ``beta`` diverges, and the one-sided truncation error was measured at 58-86%
+    -- larger than the factor of two a ``2h`` denominator would introduce, so a
+    comparison against a finer difference could not tell the bug from the
+    truncation. The exact quotient agrees bit for bit and leaves no such room.
+    """
+    fd_step = 1e-6
+    vd0 = VD_CRIT - VD_MARGIN
+    lattice, _, qd = _thin_fodo(ref, vd=vd0)
+    knobs = [Knob([qd], [weight])]
+    targets = [Target("beta_x", at=0, value=1.0)]
+
+    v = knobs[0].value
+    h = fd_step * max(abs(v), 1.0)
+    assert h > VD_MARGIN, "the step must reach past the boundary or nothing is tested"
+
+    # Non-vacuity: one trial point really is unstable and the other really is not.
+    # Both weights lose the *same* physical point -- vd0 + h is past the limit --
+    # but it is reached from opposite signs of v, which is what makes this cover
+    # both branches rather than the same one twice.
+    with pytest.raises(UnstableLatticeError):
+        _beta_x_at_entrance(ref, vd0 + h)
+    _beta_x_at_entrance(ref, vd0 - h)
+
+    jac = insertion_response_matrix(lattice, targets, knobs, fd_step=fd_step)
+
+    base = _beta_x_at_entrance(ref, vd0)
+    other = _beta_x_at_entrance(ref, vd0 - h)
+    expected = (base - other) / h if weight < 0 else (other - base) / h
+    assert jac[0, 0] == pytest.approx(expected, rel=1e-14)
+    # And explicitly: a 2h denominator would read half of this.
+    assert jac[0, 0] != pytest.approx(0.5 * expected, rel=1e-3)
+
+    assert qd.k1l == -vd0, "the knob must come back exactly, boundary or not"
+
+
+def test_both_trial_points_unstable_is_reported_not_guessed(
+    ref: ReferenceParticle,
+) -> None:
+    """When the stable window is narrower than the step, say so and touch nothing.
+
+    Reached here with a deliberately huge ``fd_step`` rather than a knife-edge
+    knob, which is also why the message does not claim the knob sits *on* the
+    boundary -- that conclusion does not follow from what the code can see.
+    """
+    vd0 = VD_CRIT - VD_MARGIN
+    lattice, _, qd = _thin_fodo(ref, vd=vd0)
+    knobs = [Knob([qd], [-1.0])]
+    targets = [Target("beta_x", at=0, value=1.0)]
+
+    with pytest.raises(MatchingError, match="unstable on both sides"):
+        insertion_response_matrix(lattice, targets, knobs, fd_step=1.0)
+    assert qd.k1l == -vd0
