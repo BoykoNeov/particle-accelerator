@@ -212,20 +212,36 @@ def closed_twiss(lattice: Lattice) -> Twiss:
     return match_periodic(lattice.one_turn_matrix())
 
 
-def propagate_twiss(lattice: Lattice, twiss0: Twiss) -> list[Twiss]:
+def propagate_twiss(
+    lattice: Lattice, twiss0: Twiss, *, maps: Sequence[np.ndarray] | None = None
+) -> list[Twiss]:
     """Twiss at every element boundary, starting from ``twiss0``.
 
     Returns ``len(lattice) + 1`` points: the entrance, then the exit of each
     element in order. Phase advances accumulate continuously, so the last point's
     ``mu`` over one period equals ``2 pi Q``.
+
+    ``maps`` substitutes the transport and nothing else: one ``6x6`` per element,
+    in beam order, used in place of ``elem.matrix()``. The lattice is still needed
+    — ``s`` comes from the element lengths — and passing the on-axis matrices
+    explicitly reproduces the default bit for bit. Its purpose is
+    :func:`~accsim.orbit.linearised_element_maps`: the maps a particle near the
+    *real* closed orbit sees, which differ from the design matrices wherever an
+    off-axis sextupole feeds a gradient down. :func:`propagate_twiss_on_orbit` is
+    that combination packaged.
     """
+    if maps is not None and len(maps) != len(lattice.elements):
+        raise ValueError(
+            f"maps must have one matrix per element: got {len(maps)} for "
+            f"{len(lattice.elements)} elements"
+        )
     points = [twiss0]
     s = twiss0.s
     bx, ax, mux = twiss0.beta_x, twiss0.alpha_x, twiss0.mu_x
     by, ay, muy = twiss0.beta_y, twiss0.alpha_y, twiss0.mu_y
     disp = np.array([twiss0.disp_x, twiss0.disp_px, twiss0.disp_y, twiss0.disp_py])
-    for elem in lattice.elements:
-        M = elem.matrix(lattice.ref)
+    for i, elem in enumerate(lattice.elements):
+        M = elem.matrix(lattice.ref) if maps is None else maps[i]
         cx, cy = _blocks(M)
         bx, ax, dmux = _propagate_block(cx, bx, ax)
         by, ay, dmuy = _propagate_block(cy, by, ay)
@@ -556,7 +572,9 @@ def coupled_twiss(lattice: Lattice) -> CoupledTwiss:
     return match_periodic_coupled(lattice.one_turn_matrix())
 
 
-def propagate_coupled_twiss(lattice: Lattice) -> list[CoupledTwiss]:
+def propagate_coupled_twiss(
+    lattice: Lattice, *, maps: Sequence[np.ndarray] | None = None
+) -> list[CoupledTwiss]:
     """Matched normal-mode optics at every element boundary of a periodic lattice.
 
     Returns ``len(lattice) + 1`` points (entrance, then each element's exit). Unlike
@@ -572,13 +590,29 @@ def propagate_coupled_twiss(lattice: Lattice) -> list[CoupledTwiss]:
     ``Delta`` can pass through zero and modes 1/2 may swap between points; off
     resonance (the useful regime) it is stable, and the ``beta_1`` continuity is
     gated in the analytic tests.
+
+    ``maps`` substitutes the transport exactly as in :func:`propagate_twiss` — the
+    running transfer matrix and the one-turn map are both built from it. This is
+    the path a *vertically* steered machine needs: a normal sextupole at
+    ``y_co != 0`` is a skew quadrupole, so its on-orbit optics is coupled even
+    though its design optics is exactly not.
     """
-    one_turn = lattice.one_turn_matrix()
+    if maps is not None and len(maps) != len(lattice.elements):
+        raise ValueError(
+            f"maps must have one matrix per element: got {len(maps)} for "
+            f"{len(lattice.elements)} elements"
+        )
+    if maps is None:
+        one_turn = lattice.one_turn_matrix()
+    else:
+        one_turn = np.eye(6)
+        for m in maps:
+            one_turn = m @ one_turn
     points = [match_periodic_coupled(one_turn, s=0.0)]
     transfer = np.eye(6)
     s = 0.0
-    for elem in lattice.elements:
-        transfer = elem.matrix(lattice.ref) @ transfer
+    for i, elem in enumerate(lattice.elements):
+        transfer = (elem.matrix(lattice.ref) if maps is None else maps[i]) @ transfer
         s += elem.length
         local = transfer @ one_turn @ np.linalg.inv(transfer)
         points.append(match_periodic_coupled(local, s=s))
@@ -1126,3 +1160,145 @@ def chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
     nx, ny = natural_chromaticity(lattice, slices)
     fx, fy = _sextupole_feeddown(lattice, slices)
     return nx + fx, ny + fy
+
+
+# ---------------------------------------------------------------------------
+# I3: the same optics, evaluated on the real (steered) closed orbit
+# ---------------------------------------------------------------------------
+
+
+def _on_orbit_maps(lattice: Lattice, delta: float, step: float) -> list[np.ndarray]:
+    """Per-element maps about the nonlinear closed orbit (local import breaks no cycle)."""
+    from .orbit import linearised_element_maps
+
+    return linearised_element_maps(lattice, delta=delta, step=step)
+
+
+def closed_twiss_on_orbit(lattice: Lattice, *, delta: float = 0.0, step: float = 1e-7) -> Twiss:
+    """Matched Twiss at the entrance, on the machine's **real** closed orbit.
+
+    :func:`closed_twiss` with the one-turn map replaced by
+    :func:`~accsim.orbit.linearised_one_turn_map`. Identical to it whenever the
+    orbit is on axis or nothing in the lattice is nonlinear; different by the
+    feed-down beta-beat wherever an off-axis sextupole is live.
+
+    Raises :class:`CoupledLatticeError` if the *on-orbit* map is x-y coupled — a
+    normal sextupole at ``y_co != 0`` is a skew quadrupole, so this happens on a
+    vertically steered machine whose design optics is perfectly uncoupled. Use
+    :func:`coupled_twiss_on_orbit` there.
+    """
+    from .orbit import linearised_one_turn_map
+
+    return match_periodic(linearised_one_turn_map(lattice, delta=delta, step=step))
+
+
+def propagate_twiss_on_orbit(
+    lattice: Lattice, *, delta: float = 0.0, step: float = 1e-7
+) -> list[Twiss]:
+    r"""Twiss at every element boundary, on the machine's **real** closed orbit.
+
+    The milestone's headline function. ``beta``, ``alpha`` and the dispersion are
+    transported through the maps a particle near the *actual* orbit sees rather
+    than the design matrices, so a steered machine with live sextupoles reports the
+    beta-beat it really has. For a single thin sextupole that beat is the classic
+    single-gradient form
+
+        dbeta(s)/beta(s) = -k2l x_co beta(s_src) cos(2 |dpsi| - 2 pi Q) / (2 sin 2 pi Q)
+
+    (``+`` in ``y``), first order in the orbit offset, with a second-order residual
+    — both orders measured in the analytic suite.
+
+    Thick sextupoles are handled without special-casing, because the maps come from
+    differentiating each element's real ``track()``; only
+    :func:`~accsim.orbit.linearised_lattice`, and so the chromaticity functions
+    below, have to refuse them.
+    """
+    maps = _on_orbit_maps(lattice, delta, step)
+    one_turn = np.eye(6)
+    for m in maps:
+        one_turn = m @ one_turn
+    return propagate_twiss(lattice, match_periodic(one_turn), maps=maps)
+
+
+def tunes_on_orbit(
+    lattice: Lattice, *, delta: float = 0.0, step: float = 1e-7
+) -> tuple[float, float]:
+    """Full tunes ``(Qx, Qy)`` of the optics on the real closed orbit.
+
+    :func:`tunes` about the steered orbit. Like it, this is the **accumulated**
+    phase advance divided by ``2 pi``, so the integer part is carried. That is not
+    cosmetic: :func:`chromaticity_on_orbit`'s independent gate central-differences
+    this function in ``delta``, and a fractional-only tune read off the one-turn
+    map with ``acos`` would be wrong by an integer whenever the two sample points
+    straddled a half integer — a hazard removed rather than guarded.
+    """
+    end = propagate_twiss_on_orbit(lattice, delta=delta, step=step)[-1]
+    return end.mu_x / (2.0 * math.pi), end.mu_y / (2.0 * math.pi)
+
+
+def coupled_twiss_on_orbit(
+    lattice: Lattice, *, delta: float = 0.0, step: float = 1e-7
+) -> CoupledTwiss:
+    """Edwards-Teng normal-mode optics on the real closed orbit.
+
+    The vertically steered counterpart of :func:`closed_twiss_on_orbit`: a normal
+    sextupole at ``y_co != 0`` feeds down a **skew** gradient ``k2l y_co``, so the
+    machine the beam sees is x-y coupled even though its design map is exactly
+    block-diagonal. G2's machinery, reached from the orbit.
+    """
+    from .orbit import linearised_one_turn_map
+
+    return match_periodic_coupled(linearised_one_turn_map(lattice, delta=delta, step=step))
+
+
+def propagate_coupled_twiss_on_orbit(
+    lattice: Lattice, *, delta: float = 0.0, step: float = 1e-7
+) -> list[CoupledTwiss]:
+    """Normal-mode optics at every boundary, on the real closed orbit."""
+    return propagate_coupled_twiss(lattice, maps=_on_orbit_maps(lattice, delta, step))
+
+
+def natural_chromaticity_on_orbit(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
+    """:func:`natural_chromaticity` of the machine the beam on the real orbit sees.
+
+    Evaluated on :func:`~accsim.orbit.linearised_lattice`, so it picks up both the
+    beta-beat of the feed-down gradient *and* that gradient's own chromaticity —
+    an off-axis sextupole is a quadrupole, and a quadrupole has natural
+    chromaticity like any other.
+
+    Exposed separately from :func:`chromaticity_on_orbit` because the difference of
+    the two is the sextupole feed-down term at the beaten ``beta`` and dispersion,
+    which is exactly the quantity a tracked, linearised-map measurement can reach
+    independently — that is how the analytic suite gates this pair.
+    """
+    from .orbit import linearised_lattice
+
+    return natural_chromaticity(linearised_lattice(lattice), slices)
+
+
+def chromaticity_on_orbit(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
+    r"""Total first-order chromaticity of the machine on its **real** closed orbit.
+
+    The orbit-aware counterpart of :func:`chromaticity`, which is and remains a
+    design-orbit quantity. Both of its terms move when the machine is steered: the
+    natural part because the feed-down gradient beats ``beta`` and dispersion *and*
+    contributes its own gradient chromaticity, and the sextupole feed-down term
+    because it is an integral over the beaten ``beta`` and ``D_x``.
+
+    **Why this is not computed by tracking.** accsim's linear element maps carry no
+    ``delta`` dependence — ``track()`` through a quadrupole is its ``matrix()`` at
+    every momentum — so linearising the tracked map about the off-momentum orbit
+    measures the sextupole feed-down term and is exactly blind to the natural
+    chromaticity, which accsim supplies analytically (F2). Implementing this by
+    tracking alone would silently drop that entire term. Instead the existing,
+    validated integrals are run on :func:`~accsim.orbit.linearised_lattice`, and
+    the tracked route is kept as the independent gate on the half it can see.
+
+    Raises :class:`CoupledLatticeError` on a vertically steered machine (the
+    equivalent lattice then carries a skew quadrupole, and the 2x2 Courant-Snyder
+    integrals are not valid there), and :class:`NotImplementedError` for a thick
+    sextupole — see :func:`~accsim.orbit.linearised_lattice` for both.
+    """
+    from .orbit import linearised_lattice
+
+    return chromaticity(linearised_lattice(lattice), slices)

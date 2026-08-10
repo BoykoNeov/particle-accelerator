@@ -75,7 +75,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .coords import DIM, PX, PY, X, Y
+from .coords import DELTA, DIM, PX, PY, X, Y
 from .elements.corrector import Corrector
 from .lattice import Lattice
 from .symplectic import jacobian
@@ -104,12 +104,22 @@ def _affine_4d(M: np.ndarray, k: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return M[np.ix_(_TRANSVERSE, _TRANSVERSE)], k[_TRANSVERSE]
 
 
-def closed_orbit(lattice: Lattice) -> np.ndarray:
+def closed_orbit(lattice: Lattice, *, delta: float = 0.0) -> np.ndarray:
     """Closed orbit ``(x, px, y, py)`` at the entrance of a periodic ``lattice``.
 
-    Solves the fixed point ``(I - M4) x_co = k4`` of the one-turn affine map. A
-    lattice with no :class:`~accsim.elements.corrector.Corrector` has ``k4 = 0``
-    and returns exactly zero — the design orbit.
+    Solves the fixed point ``(I - M4) x_co = k4 + d delta`` of the one-turn affine
+    map. A lattice with no :class:`~accsim.elements.corrector.Corrector` at
+    ``delta = 0`` has a zero right-hand side and returns exactly zero — the design
+    orbit.
+
+    ``delta`` selects the momentum the orbit is closed at. The extra term is the
+    map's own dispersive column ``d = [R16, R26, R36, R46]``, so the answer at
+    ``delta`` is the corrector orbit **plus** ``D delta`` with ``D`` the matched
+    dispersion — the two are the same solve, which is why
+    :func:`~accsim.twiss._matched_dispersion` and this function share a formula.
+    Both terms must be present: seeding
+    :func:`closed_orbit_nonlinear` from the corrector part alone would start a
+    whole dispersion orbit away from the answer.
 
     Raises :class:`ClosedOrbitError` on an integer tune, where ``I - M4`` is
     singular and no orbit closes. **That check comes first, before the zero-kick
@@ -120,7 +130,9 @@ def closed_orbit(lattice: Lattice) -> np.ndarray:
     :func:`orbit_response_matrix`'s zeroed baseline on the same code path as its
     unit-kick columns, so the two cannot disagree about whether an orbit exists.
     """
-    m4, k4 = _affine_4d(*lattice.one_turn_map())
+    one_turn, kick = lattice.one_turn_map()
+    m4, k4 = _affine_4d(one_turn, kick)
+    rhs = k4 + one_turn[_TRANSVERSE, DELTA] * delta
     A = np.eye(4) - m4
     cond = float(np.linalg.cond(A))
     if not np.isfinite(cond) or cond > _COND_LIMIT:
@@ -130,9 +142,9 @@ def closed_orbit(lattice: Lattice) -> np.ndarray:
             "tune in at least one plane, where a kick repeats in phase every turn "
             "and the excursion never closes"
         )
-    if not k4.any():
+    if not rhs.any():
         return np.zeros(4)  # a perfect machine sits exactly on the design orbit
-    return np.linalg.solve(A, k4)
+    return np.linalg.solve(A, rhs)
 
 
 def propagate_orbit(lattice: Lattice, orbit0: np.ndarray | None = None) -> list[np.ndarray]:
@@ -186,29 +198,36 @@ class OrbitConvergenceError(ClosedOrbitError):
     """
 
 
-def _embed(x4: np.ndarray) -> np.ndarray:
-    """A transverse ``(x, px, y, py)`` as a full 6D state at ``zeta = delta = 0``."""
+def _embed(x4: np.ndarray, delta: float = 0.0) -> np.ndarray:
+    """A transverse ``(x, px, y, py)`` as a full 6D state at ``zeta = 0``, ``delta``."""
     state = np.zeros(DIM)
     state[_TRANSVERSE] = x4
+    state[DELTA] = delta
     return state
 
 
-def _tracked_turn(lattice: Lattice, x4: np.ndarray) -> np.ndarray:
-    """One turn of the **real** (element-by-element, nonlinear) map, transverse part."""
-    state = _embed(x4)
+def _tracked_turn(lattice: Lattice, x4: np.ndarray, delta: float = 0.0) -> np.ndarray:
+    """One turn of the **real** (element-by-element, nonlinear) map, transverse part.
+
+    ``delta`` is re-imposed at the entrance of every call rather than carried, which
+    is what makes the 4D fixed point well posed: see :func:`closed_orbit_nonlinear`.
+    """
+    state = _embed(x4, delta)
     for elem in lattice.elements:
         state = elem.track(state, lattice.ref)
     return state[_TRANSVERSE]
 
 
-def _turn_jacobian(lattice: Lattice, x4: np.ndarray, step: float) -> np.ndarray:
+def _turn_jacobian(lattice: Lattice, x4: np.ndarray, step: float, delta: float = 0.0) -> np.ndarray:
     """Central-difference ``4x4`` Jacobian of :func:`_tracked_turn` at ``x4``."""
     out = np.empty((4, 4))
     for j in range(4):
         plus, minus = x4.copy(), x4.copy()
         plus[j] += step
         minus[j] -= step
-        out[:, j] = (_tracked_turn(lattice, plus) - _tracked_turn(lattice, minus)) / (2.0 * step)
+        out[:, j] = (_tracked_turn(lattice, plus, delta) - _tracked_turn(lattice, minus, delta)) / (
+            2.0 * step
+        )
     return out
 
 
@@ -216,6 +235,7 @@ def closed_orbit_nonlinear(
     lattice: Lattice,
     guess: np.ndarray | None = None,
     *,
+    delta: float = 0.0,
     tol: float = 1e-14,
     max_iter: int = 50,
     step: float = 1e-8,
@@ -244,8 +264,18 @@ def closed_orbit_nonlinear(
     aperture, and this function makes **no claim** about which one you land on if
     you start far from the linear orbit).
 
+    ``delta`` closes the orbit at a fixed momentum instead of on the reference one,
+    which is what makes an *off-momentum* linearisation possible: a sextupole then
+    sits at ``x_co + D_x delta`` and feeds down a gradient that varies with
+    ``delta``. Since accsim's linear element maps carry no ``delta`` dependence of
+    their own, that feed-down is the **entire** momentum dependence of the
+    linearised optics — see :func:`~accsim.twiss.chromaticity_on_orbit`. The seed
+    is :func:`closed_orbit` at the same ``delta``, i.e. the dispersion orbit, so
+    the iteration still starts one order in.
+
     **The 4D subspace is the whole solve.** Newton runs on ``(x, px, y, py)`` with
-    ``zeta = delta = 0`` at the entrance, matching :func:`closed_orbit`'s contract.
+    ``zeta = 0`` and ``delta`` held fixed at the entrance, matching
+    :func:`closed_orbit`'s contract.
     It is not a restriction that could be lifted by iterating on all six: without
     an RF cavity there *is* no longitudinal fixed point — the drift's ``R56``
     leaves ``zeta -> zeta + const``, so ``J - I`` is exactly singular in the
@@ -267,18 +297,18 @@ def closed_orbit_nonlinear(
         raise ValueError(f"step must be > 0, got {step}")
 
     if guess is None:
-        x = closed_orbit(lattice)
+        x = closed_orbit(lattice, delta=delta)
     else:
         x = np.asarray(guess, dtype=float)
         if x.shape != (4,):
             raise ValueError(f"guess must be a length-4 (x, px, y, py) vector, got {x.shape}")
         x = x.copy()
 
-    residual = _tracked_turn(lattice, x) - x
+    residual = _tracked_turn(lattice, x, delta) - x
     for _ in range(max_iter):
         if np.max(np.abs(residual)) < tol:
             return x
-        A = _turn_jacobian(lattice, x, step) - np.eye(4)
+        A = _turn_jacobian(lattice, x, step, delta) - np.eye(4)
         cond = float(np.linalg.cond(A))
         if not np.isfinite(cond) or cond > _COND_LIMIT:
             raise ClosedOrbitError(
@@ -287,7 +317,7 @@ def closed_orbit_nonlinear(
                 "the machine — feed-down gradient included — sits on an **integer** tune"
             )
         x = x - np.linalg.solve(A, residual)
-        residual = _tracked_turn(lattice, x) - x
+        residual = _tracked_turn(lattice, x, delta) - x
     if np.max(np.abs(residual)) < tol:
         return x
     raise OrbitConvergenceError(
@@ -299,7 +329,7 @@ def closed_orbit_nonlinear(
 
 
 def propagate_orbit_nonlinear(
-    lattice: Lattice, orbit0: np.ndarray | None = None
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0
 ) -> list[np.ndarray]:
     """Nonlinear orbit ``(x, px, y, py)`` at every element boundary.
 
@@ -309,13 +339,18 @@ def propagate_orbit_nonlinear(
     defaults to :func:`closed_orbit_nonlinear`, in which case the last point equals
     the first.
 
-    ``zeta`` and ``delta`` start at zero and are carried along but not solved for
-    (see :func:`closed_orbit_nonlinear`); only the transverse part is returned.
+    ``zeta`` starts at zero and ``delta`` at the given value; both are carried along
+    but not solved for (see :func:`closed_orbit_nonlinear`), and only the transverse
+    part is returned.
     """
-    o = closed_orbit_nonlinear(lattice) if orbit0 is None else np.asarray(orbit0, dtype=float)
+    o = (
+        closed_orbit_nonlinear(lattice, delta=delta)
+        if orbit0 is None
+        else np.asarray(orbit0, dtype=float)
+    )
     if o.shape != (4,):
         raise ValueError(f"orbit0 must be a length-4 (x, px, y, py) vector, got {o.shape}")
-    state = _embed(o)
+    state = _embed(o, delta)
     points = [state[_TRANSVERSE].copy()]
     for elem in lattice.elements:
         state = elem.track(state, lattice.ref)
@@ -324,7 +359,7 @@ def propagate_orbit_nonlinear(
 
 
 def linearised_element_maps(
-    lattice: Lattice, orbit0: np.ndarray | None = None, *, step: float = 1e-7
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0, step: float = 1e-7
 ) -> list[np.ndarray]:
     r"""Each element's ``6x6`` map **linearised about the orbit at its entrance**.
 
@@ -351,13 +386,22 @@ def linearised_element_maps(
     rather than a Newton direction, so its round-off (``~eps/step``) is the
     accuracy of the result. A sextupole kick has an exactly constant second
     derivative, so the ``O(step^2)`` truncation error vanishes identically and
-    only round-off remains.
+    only round-off remains. Measured on a steered sextupole-free FODO ring
+    (2026-08-10): ``1.9e-13`` per element map, ``2.4e-12`` on their product.
+
+    ``delta`` linearises about the orbit at that momentum instead of the reference
+    one. It has to be given explicitly even when ``orbit0`` is supplied, because a
+    4D transverse vector does not carry the momentum it belongs to.
     """
-    o = closed_orbit_nonlinear(lattice) if orbit0 is None else np.asarray(orbit0, dtype=float)
+    o = (
+        closed_orbit_nonlinear(lattice, delta=delta)
+        if orbit0 is None
+        else np.asarray(orbit0, dtype=float)
+    )
     if o.shape != (4,):
         raise ValueError(f"orbit0 must be a length-4 (x, px, y, py) vector, got {o.shape}")
     ref = lattice.ref
-    state = _embed(o)
+    state = _embed(o, delta)
     maps = []
     for elem in lattice.elements:
         maps.append(jacobian(lambda s, e=elem: e.track(s, ref), state, step=step))
@@ -366,7 +410,7 @@ def linearised_element_maps(
 
 
 def linearised_one_turn_map(
-    lattice: Lattice, orbit0: np.ndarray | None = None, *, step: float = 1e-7
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0, step: float = 1e-7
 ) -> np.ndarray:
     """One-turn ``6x6`` map linearised about the (nonlinear) closed orbit.
 
@@ -376,11 +420,71 @@ def linearised_one_turn_map(
     :func:`~accsim.twiss.match_periodic` for the beta functions an off-axis
     sextupole produces, or to :func:`~accsim.twiss.match_periodic_coupled` for the
     x-y coupling a *vertically* off-axis one produces.
+    :func:`~accsim.twiss.closed_twiss_on_orbit` is the packaged form of the first.
     """
     M = np.eye(DIM)
-    for m in linearised_element_maps(lattice, orbit0, step=step):
+    for m in linearised_element_maps(lattice, orbit0, delta=delta, step=step):
         M = m @ M
     return M
+
+
+def linearised_lattice(
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0
+) -> Lattice:
+    r"""The equivalent **linear** machine the beam on the real orbit actually sees.
+
+    Every element is passed through unchanged except a thin sextupole, which is
+    joined by I2's derived feed-down split evaluated at its own orbit offset:
+
+        ThinQuadrupole(k1l_eff  = +k2l x_co)
+        ThinSkewQuadrupole(k1sl_eff = +k2l y_co)
+        ThinSextupole(k2l)              — kept, unchanged
+
+    The sextupole is **kept** because the split above is the *static* feed-down at
+    the orbit offset, while the sextupole still feeds down a further
+    ``delta``-dependent gradient ``k2 D_x delta`` at dispersion — different terms,
+    both physical. The dipole part of the split does not appear: it is what placed
+    the orbit these gradients are read at, and it is invisible to every
+    matrix-based optics function anyway (a
+    :class:`~accsim.elements.corrector.Corrector`'s ``matrix()`` is the identity).
+
+    This is the same machine :func:`linearised_element_maps` describes, reached
+    from I2's *derived* coefficients instead of by differentiating ``track()``; the
+    analytic suite gates the two against each other. It exists because the
+    chromaticity integrals (:func:`~accsim.twiss.natural_chromaticity` and the
+    sextupole feed-down term) walk element *types*, not maps, so they need a
+    lattice rather than a list of matrices.
+
+    Raises :class:`NotImplementedError` for a **thick** sextupole of non-zero
+    strength: its offset varies across the body, so collapsing it onto a single
+    gradient at the entrance orbit would carry an ``O(L^2)`` error — exactly the
+    error I2 avoided by using thin sextupoles throughout its own gates.
+    :func:`~accsim.twiss.propagate_twiss_on_orbit` has no such restriction, because
+    it differentiates the thick element's real ``track()``.
+    """
+    from .elements.quadrupole import ThinQuadrupole
+    from .elements.sextupole import Sextupole, ThinSextupole
+    from .elements.skew_quadrupole import ThinSkewQuadrupole
+
+    orbit = propagate_orbit_nonlinear(lattice, orbit0, delta=delta)
+    elements: list = []
+    for i, elem in enumerate(lattice.elements):
+        if isinstance(elem, ThinSextupole):
+            x_co, y_co = float(orbit[i][0]), float(orbit[i][2])
+            tag = elem.name
+            elements.append(ThinQuadrupole(elem.k2l * x_co, name=tag and f"{tag}_fd_quad"))
+            elements.append(ThinSkewQuadrupole(elem.k2l * y_co, name=tag and f"{tag}_fd_skew"))
+            elements.append(elem)
+        elif isinstance(elem, Sextupole) and elem.k2 != 0.0 and elem.length > 0.0:
+            raise NotImplementedError(
+                f"cannot linearise the thick Sextupole {elem.name!r} about an orbit: its "
+                "offset varies across the body, so a single entrance-orbit gradient would "
+                "carry an O(L^2) error. Slice it into ThinSextupole kicks, or use "
+                "propagate_twiss_on_orbit(), which differentiates track() directly"
+            )
+        else:
+            elements.append(elem)
+    return Lattice(elements, lattice.ref)
 
 
 # ---------------------------------------------------------------------------
