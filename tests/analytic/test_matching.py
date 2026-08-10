@@ -38,6 +38,7 @@ from accsim import (
     Quadrupole,
     ReferenceParticle,
     ThinQuadrupole,
+    UnstableLatticeError,
     closed_twiss,
     match_tunes,
     tune_response_matrix,
@@ -246,17 +247,38 @@ def test_match_tunes_works_on_thick_quads(ref: ReferenceParticle) -> None:
     assert tunes(lat) == pytest.approx(target, abs=1e-12)
 
 
-def test_match_tunes_survives_a_step_into_instability(ref: ReferenceParticle) -> None:
-    """A far-from-target start makes the full Newton step unstable; backtracking saves it.
+def test_match_tunes_survives_a_step_into_instability(
+    ref: ReferenceParticle, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A full Newton step crosses the stability boundary; backtracking recovers.
 
     Without step-halving the loop dies on :class:`UnstableLatticeError` instead of
-    converging — a FODO pushed toward the stability boundary is exactly where an
-    overshooting first-order step lands.
+    converging. Asserting only "it converged" would not distinguish that from a
+    run of clean full steps — most starts never trip the branch at all — so the
+    unstable excursion is **counted**: weak quads (``f = 3``) driven to a high
+    target overshoot exactly once, and the match still lands.
     """
-    lat = Lattice(_thin_fodo(1.0 / 0.55, 1.0 / 0.55), ref)  # near the boundary
-    target = (0.1100, 0.1050)
+    from accsim import matching
+
+    hits = 0
+    real_tunes = matching.tunes
+
+    def counting_tunes(lattice: Lattice) -> tuple[float, float]:
+        nonlocal hits
+        try:
+            return real_tunes(lattice)
+        except UnstableLatticeError:
+            hits += 1
+            raise
+
+    monkeypatch.setattr(matching, "tunes", counting_tunes)
+
+    lat = Lattice(_thin_fodo(1.0 / 3.0, 1.0 / 3.0), ref)  # weak quads, low tunes
+    target = (0.3500, 0.3500)  # far above them
     result = match_tunes(lat, target, _knobs(lat))
-    assert tunes(lat) == pytest.approx(target, abs=1e-12)
+
+    assert hits >= 1, "the backtracking branch never fired — this test proves nothing"
+    assert real_tunes(lat) == pytest.approx(target, abs=1e-12)
     assert result.iterations >= 1
 
 
@@ -275,6 +297,22 @@ def test_knob_rejects_inconsistent_initial_strengths(ref: ReferenceParticle) -> 
     """If the members are not already ganged, the knob's current value is undefined."""
     with pytest.raises(MatchingError, match="not consistent"):
         Knob([ThinQuadrupole(0.5), ThinQuadrupole(0.7)])
+
+
+def test_desynced_family_is_caught_at_match_time(ref: ReferenceParticle) -> None:
+    """A family that stops being ganged *after* construction is caught, not trusted.
+
+    ``Knob.value`` reads the first member, so once someone sets another member's
+    strength directly the knob silently misreports where the lattice is — and the
+    matcher would then overwrite that member from a wrong ``initial``. The
+    constructor's check alone cannot see this; the matcher re-checks.
+    """
+    lat = Lattice(_thin_fodo(), ref)
+    kf, kd = _knobs(lat)
+    lat[4].k1l = 0.9  # one half-quad moved behind the knob's back
+    with pytest.raises(MatchingError, match="not consistent"):
+        match_tunes(lat, (0.25, 0.17), (kf, kd))
+    assert lat[4].k1l == 0.9  # and nothing was overwritten
 
 
 def test_knob_rejects_an_unsupported_element(ref: ReferenceParticle) -> None:

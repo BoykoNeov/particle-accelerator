@@ -1133,11 +1133,12 @@ sustained arc.
     `tunes()` raises), degenerate knobs are refused on the condition number rather
     than solved, and a failed match rolls every strength back. No bounds and no
     `least_squares`, which sidesteps the "converged onto a bound, reported success"
-    trap.
+    trap. The backtracking gate **counts** unstable excursions rather than only
+    asserting convergence — measured first, because most starts never trip it.
   - **xtrack-validated on the matched machine** (not against xtrack's matcher —
     that would compare two optimisers): tunes to **4.0e-10 / 1.1e-9** including the
     integer part, total chromaticity to **2.4e-3 / 3.6e-4** on a correction of
-    ~1.8. Gates: `tests/analytic/test_matching.py` (17),
+    ~1.8. Gates: `tests/analytic/test_matching.py` (18),
     `tests/analytic/test_matching_chromaticity.py` (17),
     `tests/reference/test_matching_xtrack.py` (3). See CONVENTIONS.md → *Tune
     matching* / *Chromaticity matching*.

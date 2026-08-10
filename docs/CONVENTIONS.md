@@ -737,10 +737,20 @@ strength (which a purely *multiplicative* knob could never move). `k1` [m⁻²] 
 `k1l` [m⁻¹] are different units, so one knob may never span thick and thin
 members — refused, not silently coerced.
 
-**Newton must backtrack.** A first-order step from far away routinely overshoots
-the stability boundary, where `tunes()` *raises* rather than returning a wrong
-number. Each step is halved until it is both stable and residual-reducing; the
-FODO near-boundary test exists to exercise exactly that path.
+**Newton must backtrack.** A first-order step can overshoot the stability
+boundary, where `tunes()` *raises* rather than returning a wrong number. Each
+step is halved until it is both stable and residual-reducing. The gate **counts**
+the unstable excursions (weak quads `f = 3` driven to `Q = 0.35` overshoot exactly
+once) rather than only asserting convergence — measured first: most starts,
+including ones deliberately placed near the boundary, never trip the branch at
+all, so "it converged" alone would not have tested it.
+
+**A knob's `value` is only meaningful while the family is ganged.** `value` reads
+back from the first member, so if a caller sets another member's strength
+directly after construction, the knob silently misreports where the lattice is —
+and the matcher would overwrite that member from a wrong `initial`. Both matchers
+therefore re-run `check_ganged()` before reading `value`, not just the
+constructor.
 
 **Mutation and rollback.** `Lattice.__init__` copies the element *list* but shares
 the element *objects*, so copying a `Lattice` does not protect `k1` — matching
@@ -798,7 +808,7 @@ Cross-refusals carry the reason: sextupole knobs are rejected by `match_tunes`
 as well, so the response would not be linear"). A sextupole at `D_x = 0` has no
 response at all and is caught by the same condition-number check.
 
-Gates: `tests/analytic/test_matching.py` (17),
+Gates: `tests/analytic/test_matching.py` (18),
 `tests/analytic/test_matching_chromaticity.py` (17),
 `tests/reference/test_matching_xtrack.py` (3). The reference gate hands the
 *matched* strengths to xtrack and asks it, independently, what optics they

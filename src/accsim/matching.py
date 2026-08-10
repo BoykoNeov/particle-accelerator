@@ -169,7 +169,19 @@ class Knob:
         self.name = name
         self.attr = attrs.pop()
 
-        values = [getattr(e, self.attr) / wi for e, wi in zip(elems, w, strict=True)]
+        self.check_ganged()
+
+    def check_ganged(self) -> None:
+        """Verify the members still share one value, i.e. that :attr:`value` means something.
+
+        Called at construction *and* again by every matcher before it reads
+        :attr:`value`: nothing stops a caller from setting one member's strength
+        directly in between, after which the family is no longer ganged and
+        :attr:`value` — read from the first member — would silently misreport it.
+        """
+        values = [
+            getattr(e, self.attr) / wi for e, wi in zip(self.elements, self.weights, strict=True)
+        ]
         v0 = values[0]
         if not all(math.isclose(v, v0, rel_tol=1e-9, abs_tol=1e-12) for v in values):
             raise MatchingError(
@@ -180,7 +192,10 @@ class Knob:
 
     @property
     def value(self) -> float:
-        """Current knob value ``v``, read back from the first member."""
+        """Current knob value ``v``, read back from the first member.
+
+        Meaningful only while the family is ganged; see :meth:`check_ganged`.
+        """
         return getattr(self.elements[0], self.attr) / self.weights[0]
 
     def apply(self, v: float) -> None:
@@ -364,6 +379,8 @@ def match_tunes(
         raise MatchingError(f"targets must be (Q_x, Q_y), got {targets!r}")
     _knob_index(knobs)  # fail fast on overlapping knobs, before touching anything
 
+    for knob in knobs:
+        knob.check_ganged()  # ``value`` is only meaningful while the family is ganged
     snapshots = [k.snapshot() for k in knobs]
     initial = tuple(k.value for k in knobs)
 
@@ -556,6 +573,8 @@ def match_chromaticity(
         raise MatchingError(f"targets must be (Q'_x, Q'_y), got {targets!r}")
     _knob_index(knobs)  # fail fast on overlapping knobs, before touching anything
 
+    for knob in knobs:
+        knob.check_ganged()  # ``value`` is only meaningful while the family is ganged
     snapshots = [k.snapshot() for k in knobs]
     initial = tuple(k.value for k in knobs)
 
