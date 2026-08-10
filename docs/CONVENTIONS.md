@@ -1195,14 +1195,12 @@ component and carries the bend sign (`px −= knl[0]`), `ksl[0]` the skew one
 (`py += ksl[0]`). A test asserts the other horizontal choice is decisively wrong
 (the exactly negated orbit, a ~2 mm error), so the gate is not vacuous.
 
-**Scope, stated plainly.** Linear, `δ = 0` orbit theory.
-**Sextupole feed-down is out of scope**: a sextupole's linear map is a drift only
-because its Jacobian is taken at `(x, y) = 0`, and on a *distorted* orbit it feeds
-down to a quadrupole (and dipole) kick, so a real machine's optics *do* respond to
-its orbit. "Correctors do not move the optics" is a linear-order, on-axis-sextupole
-statement. Misalignments are not modelled as such — a quadrupole displaced by `dx`
-gives a kick `−k1·L·dx`; place an explicit `Corrector` of that angle. Correction
-is per plane (`plane='x'` / `'y'`); a coupled lattice is out of scope.
+**Scope, stated plainly.** Linear, `δ = 0` orbit theory. Sextupole feed-down was
+out of scope here and is now **I2** (below), which is where the qualification
+"correctors do not move the optics is a linear-order, on-axis-sextupole statement"
+is discharged. Misalignments are not modelled as such — a quadrupole displaced by
+`dx` gives a kick `−k1·L·dx`; place an explicit `Corrector` of that angle.
+Correction is per plane (`plane='x'` / `'y'`); a coupled lattice is out of scope.
 
 Gates: `tests/analytic/test_orbit.py` (27), `tests/analytic/test_orbit_correction.py`
 (22), `tests/reference/test_orbit_xtrack.py` (5). The affine path through
@@ -1213,6 +1211,155 @@ search agrees with the closed-form solve to **1.9e-15 m** on a 1 mm orbit (1.6e-
 relative) — the floor is xtrack's iteration, not accsim, whose own residual is
 exact — and confirms the corrected machine is flat outside the bump and still
 bumped inside it.
+
+## Sextupole feed-down on a distorted orbit (I2 — implemented)
+
+The deferral I1 named by name. Expanding J1's kick about an orbit offset
+`(x_co, y_co)` — `x = x_co + X`, `y = y_co + Y` — splits **one sextupole into four
+elements**, every coefficient derived symbolically (`test_feeddown_expansion_is_derived`),
+never recalled:
+
+| term | strength | equals the element |
+|---|---|---|
+| dipole | `θ_x = −½·k2l·(x_co² − y_co²)`, `θ_y = +k2l·x_co·y_co` | `Corrector` |
+| normal quad | `k1l_eff = +k2l·x_co` | `ThinQuadrupole` |
+| skew quad | `k1sl_eff = +k2l·y_co` | `ThinSkewQuadrupole` |
+| sextupole | unchanged | itself |
+
+Those three elements are separately validated (two of them against xtrack), so the
+decomposition borrows their credibility instead of asserting its own.
+
+**Sign trap — the expansion's `θ` is not the equivalent element's kick.** The table
+above is the Taylor series in the *betatron deviation* `X = x − x_co`. A
+`ThinQuadrupole` placed in a lattice acts on the **laboratory** `x` and so already
+delivers `−k1l_eff·x_co` at the orbit; cancelling that back out means the
+*equivalent lattice* needs `Corrector(+½·k2l·(x_co² − y_co²), −k2l·x_co·y_co)` —
+the same coefficients with the **opposite sign**. Both are right; they answer
+different questions. Getting this wrong builds a plausible equivalent lattice that
+is silently wrong, so `_equivalent_lattice` spells it out.
+
+**The orbit stops being a solve.** `θ_x` depends on the very orbit it displaces, so
+the closed orbit is the fixed point of a *nonlinear* map, not `(I − M4)x = k4`.
+`closed_orbit_nonlinear` Newtons on the tracked map. Three conventions:
+
+- **4D, `zeta = delta = 0`**, mirroring `closed_orbit`. Not a liftable restriction:
+  without RF there *is* no longitudinal fixed point (`R56` leaves `zeta → zeta +
+  const`), so `J − I` is exactly singular in that block and 6D Newton has nothing
+  to converge to. J1's test dodged this by pinning `zeta`/`delta` inside its turn
+  map; I2 iterates on the transverse subspace instead.
+- **Seeded from `closed_orbit`** — the correct first-order guess, so a linear
+  lattice reproduces I1's answer at round-off for free.
+- `OrbitConvergenceError` **subclasses** `ClosedOrbitError`, so I1-era callers that
+  roll back on "no orbit" keep working, but it says something different: out of
+  budget, not eigenvalue 1.
+
+**Two honest non-claims, both gated.** Feed-down is **self-limiting** — raising
+`k2l` by 10⁵ *shrinks* the orbit, because the same gradient stiffens the `(I − M4)`
+being inverted; convergence is therefore **not** evidence of a stable machine
+(closure needs `(I − M4)` invertible, not stable). And the fixed point is **not
+unique**: started 50 m out, Newton converges onto a genuinely different orbit
+(0.074 m — an outer, unstable one). The docstring claims nothing about which one a
+far guess finds, and a test asserts both really are fixed points.
+
+**`linearised_element_maps` is the optics primitive, not a one-turn Jacobian.**
+`propagate_twiss` calls each element's *on-axis* `matrix()` and would miss feed-down
+entirely, so the per-element Jacobian about the propagated orbit is what optics are
+read from. Their product in beam order *is* the one-turn Jacobian by the chain rule
+(gated to bit-equality against `linearised_one_turn_map`, and to `1e-8` against a
+whole-turn finite difference). Every linear element comes back as its own matrix, so
+the sextupole is the only place the linearisation differs.
+
+### What gates the coefficient — and why the tune shift is not the lead
+
+`ΔQ_x = +β_x·k2l·x_co/(4π)` (mirror `−β_y·…` in y) is **demoted to a consistency
+check**: J1 already measured `k1l_eff` by finite-differencing `track()` about a
+dispersive offset, and redoing it about a corrector-induced one is the same
+measurement. It is made non-vacuous anyway — **four** sextupoles at two different
+`β_x` with alternating-sign `k2l`, so the sum has real cancellation (asserted:
+`|Σ| < 0.6·Σ|·|`) — and its residual is checked to fall **quadratically** with `k2l`.
+
+**The lead gate is the dipole term, because it has no J1 analogue.** The departure
+`x_nl − x_lin` must equal I1's *linear* response to a `Corrector` of the derived
+`θ`, computed from the **linear** orbit. The content is the **order**, not the
+magnitude: measured over four steerer sizes, the departure falls by **4** per
+halving (`O(x_co²)`) while the residual falls by **8** (`O(x_co³)`). A mis-scaled
+kick cannot satisfy both — a consistently doubled sextupole (J1's `_Misscaled`,
+which passes every structural check) is caught as a clean factor of 2.
+
+**And a ratio J1 structurally could not have.** `θ_x / k1l_eff = −x_co/2` is **pure
+geometry** — no `k2l` in it — measured off the tracked map as (constant part of the
+kick)/(slope of the kick). J1 only ever saw the gradient, and a gradient alone fixes
+the product `k2l·x_co`, never the split between the two terms.
+
+**β at the source, exactly, not a recalled β-beat form** (the G2 trap). The test
+ring is a **palindrome**, so `α = 0` where the sextupole sits and the perturbed map
+there is just `M0·Q`. The 2×2 is solved in sympy with no expansion:
+`(β′/β)² = sin²μ / (1 − (cos μ − k1l·β·sin μ/2)²)`. It is compared **squared** on
+purpose — `M12 = β·sin μ` is *negative* in this ring (fractional tune > ½), and
+squaring keeps the statement exact instead of asserting a `sin μ` branch. The gate's
+content is *localisation*: feeding it the other plane's `β_k` is rejected.
+
+### The vertical orbit — the strongest non-rerun gate
+
+J1 only ever exercised feed-down in the horizontal, dispersive plane. A vertical
+orbit makes a *normal* sextupole a **skew** quadrupole, i.e. a coupling source,
+reaching G1/G2's machinery from a direction nothing in the package had taken. Three
+consequences, all gated:
+
+- **`y = py = 0` is an exact invariant subspace** of the kick (at `y = 0` it is
+  `Δpx = −½k2l·x²`, `Δpy = 0`), so a horizontal bump keeps the orbit planar at
+  **exactly zero**, not to tolerance. That is what makes the vertical results
+  attributable to the vertical bump rather than to leakage.
+- **A purely vertical steerer moves the horizontal orbit**, through
+  `θ_x = +½·k2l·y_co²` — flatly impossible linearly (xtrack reports *exactly* `0.0`
+  at `k2l = 0`). Its sign is **opposite** to the horizontal case: the `x² − y²`
+  structure showing up in the orbit rather than in the tune.
+- **`θ_y = +k2l·x_co·y_co` needs both planes**; no single bump switches it on.
+
+### Orbit correction becomes a loop — and it converges *linearly*
+
+The operational punchline. `orbit_response_matrix` stays the affine **model**
+response (its "exact, not a finite difference" claim is now explicitly scoped to
+the linear lattice); `correct_orbit` gained `nonlinear=False`, which when `True`
+measures `x0` and `rms_after` from the nonlinear orbit. One pass then leaves an
+`O(k2l·x_co²)` residual (measured: falls by **4** per halving of the error kick)
+instead of I1's machine zero, because the model `R` knows nothing about the dipole
+the steering itself created.
+
+**The convergence is linear, not quadratic, and that distinction is physics.** `R`
+is rebuilt from the *linear* model every pass, so it never learns the feed-down
+gradient: the loop is a stale-Jacobian fixed-point iteration whose contraction
+factor is **constant** rather than shrinking — measured at **4.951e-4**, identical
+to 4 digits over three consecutive passes (2.9e-4 → 1.5e-7 → 7.5e-11 → 3.7e-14). A
+true Newton, relinearising each pass, is what would be quadratic. The test asserts
+the factor *repeats*, which is far sharper than "it gets smaller". Control: the same
+machine at `k2l = 0` still lands on machine zero in one pass, with a square
+3-corrector/3-monitor problem so "did not reach zero" cannot be least-squares
+over-determination in disguise.
+
+`nonlinear=False` remains bit-for-bit I1 — including, deliberately, reporting
+machine zero on a machine whose real orbit is not zero. That blind spot is asserted
+rather than left to be discovered.
+
+**Reference cross-checks.** Element equivalences reused from I1/J1, not re-probed
+(`Corrector(kick_x=+k) ≡ knl=[−k]`, `kick_y=+k ≡ ksl=[+k]`,
+`ThinSextupole(k2l) ≡ knl=[0,0,+k2l]`). xtrack's own iterative nonlinear
+closed-orbit search agrees with accsim's Newton to **1e-12 m** at all 15 boundaries
+with *both* planes steered; its `TwissTable.R_matrix` (finite-differenced about its
+own orbit) matches `linearised_one_turn_map` to **1e-6**, normal and skew blocks
+together — a floor established as the two codes' *differencing* by the `k2l = 0`
+branch, which agrees with accsim's exact analytic matrix to `1e-9`. Tune shift
+`2e-3` rel, β `2e-5` rel, and `tw.c_minus` confirms the vertical bump couples
+(`> 1e-4`) while the horizontal one gives *exactly* `0.0`. **The gate that makes the
+rest meaningful**: I1's linear solve misses xtrack by `> 1e4 ×` the tolerance the
+nonlinear one meets — these are not measuring round-off.
+
+**Still out of scope:** the 6D (RF-coupled) closed orbit; feed-down from octupoles
+and higher multipoles; misalignments as element attributes; amplitude-dependent
+detuning and resonance driving terms; dynamic aperture.
+
+Gates: `tests/analytic/test_feeddown.py` (22),
+`tests/reference/test_feeddown_xtrack.py` (6).
 
 ## Stability boundary (Stage 2 — validated)
 

@@ -59,12 +59,17 @@ from .matching import (
 )
 from .orbit import (
     ClosedOrbitError,
+    OrbitConvergenceError,
     OrbitCorrection,
     OrbitCorrectionError,
     closed_orbit,
+    closed_orbit_nonlinear,
     correct_orbit,
+    linearised_element_maps,
+    linearised_one_turn_map,
     orbit_response_matrix,
     propagate_orbit,
+    propagate_orbit_nonlinear,
 )
 from .radiation import (
     RadiationIntegrals,
@@ -212,6 +217,12 @@ __all__ = [
     "OrbitCorrectionError",
     "orbit_response_matrix",
     "correct_orbit",
+    # sextupole feed-down on a distorted orbit (I2)
+    "OrbitConvergenceError",
+    "closed_orbit_nonlinear",
+    "propagate_orbit_nonlinear",
+    "linearised_element_maps",
+    "linearised_one_turn_map",
     # tracking-based tune (NAFF)
     "naff",
     "ellipse_from_trajectory",

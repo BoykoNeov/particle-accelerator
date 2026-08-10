@@ -45,6 +45,15 @@ test_sextupole_xtrack.py`` pins against xtrack's real tracking. Symplecticity
 does *not* gate the coefficient — every gradient kick is symplectic whatever its
 strength.
 
+The gradient is only one of the terms. Expanding the kick about a full orbit
+offset ``(x_co, y_co)`` also produces a **dipole** ``-1/2 k2l (x_co^2 - y_co^2)``
+and a **skew** quadrupole ``k1sl_eff = k2l y_co``, so an off-axis sextupole steers
+the beam and couples the planes as well as focusing it. Because the dipole term
+depends on the orbit it displaces, the closed orbit of a machine with a live
+sextupole is a *fixed point* rather than a linear solve — see
+:func:`accsim.orbit.closed_orbit_nonlinear` and ``docs/CONVENTIONS.md`` ->
+*Sextupole feed-down on a distorted orbit*.
+
 The nonlinear map
 -----------------
 :meth:`ThinSextupole.track` applies the kick above exactly. It is a *gradient*

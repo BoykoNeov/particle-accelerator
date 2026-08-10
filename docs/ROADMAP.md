@@ -1270,31 +1270,72 @@ sustained arc.
     elements × 200 particles from **1.416 s to 1.021 s**. A zero kick is skipped
     rather than broadcast, and a gate steers a bunch into a collimator it
     otherwise clears, so that path is not merely fast but tested.
-  - Still **out of scope**: sextupole feed-down on a distorted orbit (named
-    explicitly — it is what makes "correctors do not move the optics" a linear-order
-    statement), misalignments as element attributes rather than explicit correctors,
-    coupled (x-y) correction, local orbit bumps as a first-class API, corrector
-    strength limits, and BPM noise / calibration errors.
+  - Deferred to **I2** (below, now done): sextupole feed-down on a distorted orbit —
+    what makes "correctors do not move the optics" a linear-order statement. Still
+    **out of scope**: misalignments as element attributes rather than explicit
+    correctors, coupled (x-y) correction, local orbit bumps as a first-class API,
+    corrector strength limits, and BPM noise / calibration errors.
 
-- **I2 — sextupole feed-down on a distorted orbit.** 🔓 **OPEN — the next
-  milestone.** The deferral I1 named by name, and the statement that qualifies
-  "correctors do not move the optics" as a *linear-order* claim. A sextupole sitting
-  at closed-orbit offset `x_co` acts as a quadrupole of `k1_eff = k2·x_co` (moving
-  tunes, β and chromaticity) *plus* a dipole of `−½k2l·x_co²`.
-  - **The obvious gate would be a rerun, and must be avoided.** J1 already measures
-    `k1_eff` by finite-differencing `track()` about a dispersive offset; redoing it
-    with a corrector-induced offset instead of a dispersive one is the same
-    measurement, not an independent check of I2's claim.
-  - **What has no J1 analogue is the dipole term, because it moves the orbit
-    itself.** `−½k2l·x_co²` is a `Corrector` whose strength depends on the orbit, so
-    the closed orbit stops being the linear solve `(I − M₄)x_co = k₄` that
-    `orbit.py` implements and becomes the fixed point of a *nonlinear* map. That
-    orbit → feed-down → orbit coupling is the milestone's actual content.
-  - Candidate gates, none of them reruns: the nonlinear closed orbit departs from
-    `closed_orbit()`'s linear answer by a predictable `O(k2l·x_co²)` that vanishes as
-    `x_co → 0`; the tune shifts `ΔQ_x = +β_x k2 x_co L/(4π)` and its mirror in y,
-    against xtrack's twiss about *its own* found closed orbit; and the β-beat, where
-    a sign error hides that the tune shift averages away.
+- **I2 — sextupole feed-down on a distorted orbit.** ✅ **DONE (2026-08-10)** — the
+  deferral I1 named by name, and the claim it qualified. Expanding J1's kick about an
+  orbit offset splits **one sextupole into four elements**, each equal to one accsim
+  already validates: a `Corrector` `θ_x = −½k2l(x_co²−y_co²)`, `θ_y = +k2l·x_co·y_co`;
+  a `ThinQuadrupole` `k1l_eff = +k2l·x_co`; a `ThinSkewQuadrupole`
+  `k1sl_eff = +k2l·y_co`; and the sextupole, unchanged. Every coefficient is derived
+  in sympy. New (baseline, numpy only): `closed_orbit_nonlinear`,
+  `propagate_orbit_nonlinear`, `linearised_element_maps`, `linearised_one_turn_map`,
+  `OrbitConvergenceError`, and a `nonlinear` flag on `correct_orbit`.
+  - **The orbit stops being a solve.** `θ_x` depends on the orbit it displaces, so
+    the closed orbit is the fixed point of a *nonlinear* map, not `(I−M₄)x = k₄`.
+    Newton runs on the **4D** subspace, seeded from `closed_orbit`: without RF there
+    is no longitudinal fixed point at all (`R56` leaves `zeta → zeta + const`, so
+    `J−I` is exactly singular there), and the seed makes "linear lattice ⇒ I1's
+    answer at round-off" a free gate.
+  - **The lead gate is the dipole, because the tune shift would be a rerun.** J1
+    already measured `k1l_eff` by finite-differencing `track()`, so `ΔQ_x =
+    +β_x k2l x_co/(4π)` is demoted to a consistency check (made non-vacuous with four
+    sextupoles at two `β_x` and alternating-sign `k2l`, `|Σ| < 0.6Σ|·|`). The headline
+    is instead that the orbit *departure* equals I1's linear response to the derived
+    `θ` — and the content is the **order**: over four steerer sizes the departure
+    falls by **4** per halving (`O(x_co²)`) while the residual falls by **8**
+    (`O(x_co³)`). J1's consistently-mis-scaled sextupole, which passes every
+    structural check, is caught as a clean factor of 2.
+  - **A discriminator J1 structurally could not have**: `θ_x/k1l_eff = −x_co/2` is
+    pure geometry, with no `k2l` in it. A gradient alone fixes the product `k2l·x_co`
+    and never the split between the two terms.
+  - **The vertical orbit is the strongest non-rerun gate.** A *normal* sextupole at
+    `y_co ≠ 0` is a **skew** quadrupole — betatron coupling, reaching G1/G2's
+    machinery from a direction nothing in the package had taken. `y = py = 0` is an
+    **exact** invariant subspace (asserted at zero, not to tolerance), so a purely
+    vertical steerer moving the *horizontal* orbit via `θ_x = +½k2l·y_co²` — with the
+    opposite sign, the `x²−y²` structure in the orbit — is unambiguous, and flatly
+    impossible linearly (xtrack reports exactly `0.0` at `k2l = 0`).
+  - **β at the source is solved exactly, not recalled** (the G2 trap): the test ring
+    is a palindrome, so `α = 0` at the sextupole and the 2×2 gives
+    `(β′/β)² = sin²μ/(1 − (cos μ − k1l β sin μ/2)²)`. Compared **squared** because
+    `M12 = β sin μ` is negative in this ring, which keeps it exact instead of
+    asserting a `sin μ` branch.
+  - **The operational punchline: correction becomes a loop — a *linearly* convergent
+    one.** One pass leaves `O(k2l·x_co²)` instead of I1's machine zero. The
+    contraction factor is **constant at 4.951e-4** (identical to 4 digits over three
+    passes) because `R` is rebuilt from the *linear* model every time and never learns
+    the feed-down gradient — a stale-Jacobian iteration, where a true Newton would be
+    quadratic. The test asserts the factor *repeats*, which is sharper than "it
+    shrinks". `nonlinear=False` stays bit-for-bit I1, blind spot and all.
+  - **Two honest non-claims, gated.** Feed-down is **self-limiting** (10⁵× `k2l`
+    *shrinks* the orbit), so convergence is **not** evidence of a stable machine; and
+    the fixed point is **not unique** — from 50 m out Newton finds a different,
+    outer orbit. Both are asserted rather than assumed away.
+  - Gates: `tests/analytic/test_feeddown.py` (22),
+    `tests/reference/test_feeddown_xtrack.py` (6). xtrack's own iterative nonlinear
+    closed-orbit search agrees to **1e-12 m** at all boundaries with both planes
+    steered, and its `R_matrix` matches `linearised_one_turn_map` to `1e-6` (normal
+    *and* skew blocks); I1's linear solve misses xtrack by `>1e4×` that, which is what
+    makes the agreement mean something. See CONVENTIONS.md → *Sextupole feed-down on a
+    distorted orbit*.
+  - Still **out of scope**: the 6D (RF-coupled) closed orbit, feed-down from
+    octupoles and higher multipoles, misalignments as element attributes,
+    amplitude-dependent detuning / resonance driving terms, and dynamic aperture.
 
 ### J. Nonlinear single-particle dynamics (core accelerator)
 
@@ -1362,9 +1403,10 @@ sustained arc.
     `k2`; no coefficient is claimed), octupoles and higher multipoles, and
     normal-form / Lie-map machinery.
 
-The open follow-up on this axis' physics is **I2** (below, under axis I): feed-down
+The follow-up on this axis' physics was **I2** (above, under axis I) — feed-down
 belongs to the closed-orbit axis, and J1 was sequenced ahead of it only so its gate
-would not be circular.
+would not be circular. That sequencing paid: I2's gates are built on J1's kick and
+none of them is a rerun of it. ✅ Done.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

@@ -32,15 +32,37 @@ is the same statement said with Twiss parameters. That form is a *consequence*
 here, used in the tests as an independent reference; the module always solves the
 fixed point.
 
-**Scope, stated plainly.** This is linear, ``delta = 0`` orbit theory:
+**Feed-down: when the orbit stops being a linear solve.** Everything above is the
+linear theory, and it is exact only while every element's map is its matrix. A
+sextupole's is not. Its linear map is a drift *only because* the Jacobian is
+taken at ``(x, y) = 0``; expanding the kick about an orbit offset
+``(x_co, y_co)`` (see :mod:`accsim.elements.sextupole`) splits it into
 
-- Correctors change the orbit, never the optics — their linear map is the
-  identity, so beta and the tunes are untouched (asserted in the analytic suite).
-- **Sextupole feed-down is out of scope.** A sextupole's linear map is a drift
-  only because its Jacobian is taken at ``(x, y) = 0``; on a *distorted* orbit it
-  feeds down to a quadrupole (and a dipole) kick, so a real machine's optics do
-  respond to the orbit. Nothing here models that. The claim "correctors do not
-  move the optics" is a linear-order, on-axis-sextupole statement.
+    dipole      theta_x = -1/2 k2l (x_co^2 - y_co^2),  theta_y = +k2l x_co y_co
+    normal quad k1l_eff  = +k2l x_co
+    skew quad   k1sl_eff = +k2l y_co
+    sextupole   unchanged
+
+so an off-axis sextupole *is* a corrector, a gradient error and a coupling source
+at once. Two consequences run through this module:
+
+- The dipole term depends on the orbit it displaces, so the closed orbit becomes
+  the fixed point of a **nonlinear** map rather than the solve ``(I - M4) x = k4``
+  — that is :func:`closed_orbit_nonlinear`, which Newtons on the tracked map.
+- The quadrupole terms mean **correctors do move the optics** once a sextupole is
+  off-axis: beta, the tunes and (through the skew term) the x-y coupling all
+  respond to steering. The linear-order claim above is a statement about
+  on-axis sextupoles, and :func:`linearised_element_maps` is how the optics
+  *about* a distorted orbit are read instead.
+
+**Scope, stated plainly.** The linear entry points (:func:`closed_orbit`,
+:func:`propagate_orbit`, :func:`orbit_response_matrix`) remain linear,
+``delta = 0`` orbit theory and are unchanged; the feed-down entry points are
+opt-in, and :func:`correct_orbit` takes a ``nonlinear`` flag rather than changing
+under existing callers. Beyond that:
+
+- ``delta = 0`` throughout, linear and nonlinear alike: the longitudinal
+  coordinates are not solved for (see :func:`closed_orbit_nonlinear`).
 - Misalignments are not modelled as such. A quadrupole displaced by ``dx``
   produces a kick ``-k1 L dx``; represent it by placing an explicit
   :class:`~accsim.elements.corrector.Corrector` of that angle.
@@ -53,7 +75,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .coords import PX, PY, X, Y
+from .coords import DIM, PX, PY, X, Y
 from .elements.corrector import Corrector
 from .lattice import Lattice
 
@@ -135,6 +157,226 @@ def propagate_orbit(lattice: Lattice, orbit0: np.ndarray | None = None) -> list[
         o = m4 @ o + k4
         points.append(o)
     return points
+
+
+# ---------------------------------------------------------------------------
+# Feed-down: the orbit that has to solve itself
+# ---------------------------------------------------------------------------
+
+
+class OrbitConvergenceError(ClosedOrbitError):
+    """Newton failed to reach the nonlinear closed orbit.
+
+    Distinct from a plain :class:`ClosedOrbitError`, which says the *linear* map
+    has an eigenvalue 1 and no orbit exists at all. This says the iteration did
+    not converge — the orbit may still exist. The usual causes are a genuinely
+    unstable machine (feed-down ``k2 x_co`` is a gradient error, and a large one
+    can push the lattice off the stable tune range or onto a resonance) or an
+    excursion so large that the sextupole's quadratic kick dominates and Newton
+    diverges.
+
+    It subclasses :class:`ClosedOrbitError` so callers that already roll back on
+    "no orbit" — :func:`correct_orbit` does — keep working unchanged.
+    """
+
+
+def _embed(x4: np.ndarray) -> np.ndarray:
+    """A transverse ``(x, px, y, py)`` as a full 6D state at ``zeta = delta = 0``."""
+    state = np.zeros(DIM)
+    state[_TRANSVERSE] = x4
+    return state
+
+
+def _tracked_turn(lattice: Lattice, x4: np.ndarray) -> np.ndarray:
+    """One turn of the **real** (element-by-element, nonlinear) map, transverse part."""
+    state = _embed(x4)
+    for elem in lattice.elements:
+        state = elem.track(state, lattice.ref)
+    return state[_TRANSVERSE]
+
+
+def _turn_jacobian(lattice: Lattice, x4: np.ndarray, step: float) -> np.ndarray:
+    """Central-difference ``4x4`` Jacobian of :func:`_tracked_turn` at ``x4``."""
+    out = np.empty((4, 4))
+    for j in range(4):
+        plus, minus = x4.copy(), x4.copy()
+        plus[j] += step
+        minus[j] -= step
+        out[:, j] = (_tracked_turn(lattice, plus) - _tracked_turn(lattice, minus)) / (2.0 * step)
+    return out
+
+
+def closed_orbit_nonlinear(
+    lattice: Lattice,
+    guess: np.ndarray | None = None,
+    *,
+    tol: float = 1e-14,
+    max_iter: int = 50,
+    step: float = 1e-8,
+) -> np.ndarray:
+    r"""Closed orbit ``(x, px, y, py)`` of the **nonlinear** one-turn map.
+
+    The fixed point of the map particles actually follow —
+    :meth:`~accsim.elements.element.Element.track` element by element, so a
+    sextupole's ``x^2 - y^2`` kick acts — found by Newton:
+
+        x <- x - (J - I)^-1 (T(x) - x),
+
+    where ``T`` is the tracked turn and ``J`` its Jacobian. This is
+    :func:`closed_orbit` when nothing in the lattice is nonlinear, and differs
+    from it by the sextupole dipole feed-down ``-1/2 k2l (x_co^2 - y_co^2)``
+    otherwise: that kick is a corrector whose strength is set by the very orbit it
+    displaces, which is exactly what makes the problem a fixed point rather than a
+    solve. The departure is ``O(k2l x_co^2)`` and vanishes as the orbit is
+    steered flat, so a well-corrected machine barely notices — and a badly steered
+    one does.
+
+    ``guess`` defaults to :func:`closed_orbit`, the correct first-order answer, so
+    the iteration starts one order in and typically converges in three or four
+    steps. Pass an explicit start to chase a different fixed point (the map has
+    more than one; the far ones are the unstable orbits outside the dynamic
+    aperture, and this function makes **no claim** about which one you land on if
+    you start far from the linear orbit).
+
+    **The 4D subspace is the whole solve.** Newton runs on ``(x, px, y, py)`` with
+    ``zeta = delta = 0`` at the entrance, matching :func:`closed_orbit`'s contract.
+    It is not a restriction that could be lifted by iterating on all six: without
+    an RF cavity there *is* no longitudinal fixed point — the drift's ``R56``
+    leaves ``zeta -> zeta + const``, so ``J - I`` is exactly singular in the
+    longitudinal block and 6D Newton has nothing to converge to. With an RF cavity
+    present ``zeta`` slips through the turn and feeds back into ``delta``, so the
+    4D fixed point found here is not the 6D one; the full 6D orbit is out of scope
+    here exactly as it is for the linear solve.
+
+    Raises :class:`OrbitConvergenceError` if Newton does not reach ``tol``
+    (max-abs residual, in the mixed units of the state vector), and
+    :class:`ClosedOrbitError` from the default ``guess`` if the *linear* lattice
+    has no closed orbit to start from.
+    """
+    if tol <= 0.0:
+        raise ValueError(f"tol must be > 0, got {tol}")
+    if max_iter < 1:
+        raise ValueError(f"max_iter must be >= 1, got {max_iter}")
+    if step <= 0.0:
+        raise ValueError(f"step must be > 0, got {step}")
+
+    if guess is None:
+        x = closed_orbit(lattice)
+    else:
+        x = np.asarray(guess, dtype=float)
+        if x.shape != (4,):
+            raise ValueError(f"guess must be a length-4 (x, px, y, py) vector, got {x.shape}")
+        x = x.copy()
+
+    residual = _tracked_turn(lattice, x) - x
+    for _ in range(max_iter):
+        if np.max(np.abs(residual)) < tol:
+            return x
+        A = _turn_jacobian(lattice, x, step) - np.eye(4)
+        cond = float(np.linalg.cond(A))
+        if not np.isfinite(cond) or cond > _COND_LIMIT:
+            raise ClosedOrbitError(
+                f"no closed orbit: the tracked map's (J - I) is singular to working "
+                f"precision (condition number {cond:.3g}) at the current iterate, i.e. "
+                "the machine — feed-down gradient included — sits on an **integer** tune"
+            )
+        x = x - np.linalg.solve(A, residual)
+        residual = _tracked_turn(lattice, x) - x
+    if np.max(np.abs(residual)) < tol:
+        return x
+    raise OrbitConvergenceError(
+        f"the nonlinear closed orbit did not converge in {max_iter} Newton steps: "
+        f"max residual {np.max(np.abs(residual)):.3g} > tol {tol:.3g}. Either the "
+        "orbit excursion is large enough that the sextupole kick dominates, or the "
+        "feed-down gradient has pushed the machine outside its stable tune range"
+    )
+
+
+def propagate_orbit_nonlinear(
+    lattice: Lattice, orbit0: np.ndarray | None = None
+) -> list[np.ndarray]:
+    """Nonlinear orbit ``(x, px, y, py)`` at every element boundary.
+
+    The counterpart of :func:`propagate_orbit`: ``len(lattice) + 1`` points, but
+    each step is the element's **tracked** map rather than its affine one, so the
+    orbit through a sextupole is bent by that sextupole's own kick. ``orbit0``
+    defaults to :func:`closed_orbit_nonlinear`, in which case the last point equals
+    the first.
+
+    ``zeta`` and ``delta`` start at zero and are carried along but not solved for
+    (see :func:`closed_orbit_nonlinear`); only the transverse part is returned.
+    """
+    o = closed_orbit_nonlinear(lattice) if orbit0 is None else np.asarray(orbit0, dtype=float)
+    if o.shape != (4,):
+        raise ValueError(f"orbit0 must be a length-4 (x, px, y, py) vector, got {o.shape}")
+    state = _embed(o)
+    points = [state[_TRANSVERSE].copy()]
+    for elem in lattice.elements:
+        state = elem.track(state, lattice.ref)
+        points.append(state[_TRANSVERSE].copy())
+    return points
+
+
+def linearised_element_maps(
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, step: float = 1e-7
+) -> list[np.ndarray]:
+    r"""Each element's ``6x6`` map **linearised about the orbit at its entrance**.
+
+    The optics a particle near the closed orbit actually sees. For every linear
+    element this returns :meth:`~accsim.elements.element.Element.matrix` to
+    round-off; for a sextupole at orbit offset ``(x_co, y_co)`` it returns the
+    matrix of a drift *plus* the feed-down gradients ``k1l_eff = k2l x_co``
+    (normal) and ``k1sl_eff = k2l y_co`` (skew) — which is why steering a machine
+    with sextupoles moves beta, the tunes and the coupling.
+
+    This is the primitive the feed-down optics are read from, rather than a single
+    one-turn Jacobian, because Twiss propagation needs a matrix *per element*:
+    :func:`~accsim.twiss.propagate_twiss` calls each element's on-axis
+    ``matrix()`` and would miss the feed-down entirely. Their product in beam
+    order is the one-turn Jacobian by the chain rule, exactly — see
+    :func:`linearised_one_turn_map`.
+
+    The constant (dipole) part of the feed-down does **not** appear: a Jacobian is
+    the linear part only. That term has already done its work in placing the orbit
+    these maps are taken about.
+
+    ``step`` is the central-difference increment. The default is looser than
+    :func:`closed_orbit_nonlinear`'s because here the answer *is* the Jacobian
+    rather than a Newton direction, so its round-off (``~eps/step``) is the
+    accuracy of the result. A sextupole kick has an exactly constant second
+    derivative, so the ``O(step^2)`` truncation error vanishes identically and
+    only round-off remains.
+    """
+    from .symplectic import jacobian  # local: symplectic imports nothing from here
+
+    o = closed_orbit_nonlinear(lattice) if orbit0 is None else np.asarray(orbit0, dtype=float)
+    if o.shape != (4,):
+        raise ValueError(f"orbit0 must be a length-4 (x, px, y, py) vector, got {o.shape}")
+    ref = lattice.ref
+    state = _embed(o)
+    maps = []
+    for elem in lattice.elements:
+        maps.append(jacobian(lambda s, e=elem: e.track(s, ref), state, step=step))
+        state = elem.track(state, ref)
+    return maps
+
+
+def linearised_one_turn_map(
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, step: float = 1e-7
+) -> np.ndarray:
+    """One-turn ``6x6`` map linearised about the (nonlinear) closed orbit.
+
+    The product of :func:`linearised_element_maps` in beam order — ``M_n ... M_1``,
+    last element leftmost, the same ordering
+    :meth:`accsim.Lattice.one_turn_map` uses. Feed it to
+    :func:`~accsim.twiss.match_periodic` for the beta functions an off-axis
+    sextupole produces, or to :func:`~accsim.twiss.match_periodic_coupled` for the
+    x-y coupling a *vertically* off-axis one produces.
+    """
+    M = np.eye(DIM)
+    for m in linearised_element_maps(lattice, orbit0, step=step):
+        M = m @ M
+    return M
 
 
 # ---------------------------------------------------------------------------
@@ -227,9 +469,11 @@ def _check_monitors(lattice: Lattice, monitors: Sequence[int] | None) -> list[in
     return mon
 
 
-def _orbit_at(lattice: Lattice, monitors: Sequence[int], coord: int) -> np.ndarray:
+def _orbit_at(
+    lattice: Lattice, monitors: Sequence[int], coord: int, nonlinear: bool = False
+) -> np.ndarray:
     """One plane's closed orbit sampled at the monitor boundaries."""
-    table = propagate_orbit(lattice)
+    table = propagate_orbit_nonlinear(lattice) if nonlinear else propagate_orbit(lattice)
     return np.array([table[m][coord] for m in monitors])
 
 
@@ -245,18 +489,28 @@ def orbit_response_matrix(
     **boundary** indices (``None`` = every boundary); ``plane`` selects ``'x'``
     (driving ``kick_x``) or ``'y'`` (driving ``kick_y``).
 
-    **This response is exact, not a finite difference.** The closed orbit is
-    strictly *affine* in the corrector kicks — the fixed point ``(I - M4)^-1 k4``
-    is linear in ``k4``, and ``k4`` is linear in the kicks — so
+    **This is the model response, and within the linear model it is exact rather
+    than a finite difference.** The *linear* closed orbit is strictly affine in the
+    corrector kicks — the fixed point ``(I - M4)^-1 k4`` is linear in ``k4``, and
+    ``k4`` is linear in the kicks — so
 
         orbit(theta) = orbit(0) + R theta
 
     holds for any kick, however large, with no truncation error. Column ``j`` is
     therefore taken by setting corrector ``j`` to one radian, all other *listed*
-    correctors to zero, and subtracting the baseline. That single consequence is
-    what makes :func:`correct_orbit` one linear solve rather than an iteration,
-    exactly as a sextupole's strict affineness makes
-    :func:`~accsim.matching.match_chromaticity` an exact solve.
+    correctors to zero, and subtracting the baseline.
+
+    **A live sextupole breaks that affineness at second order.** Once the orbit is
+    off-axis at a sextupole, feed-down adds a dipole ``-1/2 k2l x_co^2`` and a
+    gradient ``k2l x_co`` — the first is a corrector the steering itself creates,
+    the second changes ``M4``, so neither the inhomogeneity nor the matrix stays
+    fixed and the true orbit is only ``orbit(0) + R theta + O(k2l theta^2)``. This
+    function keeps returning the affine model response, which is the right thing:
+    it is the response an operational machine's *model* predicts, the correction it
+    drives converges quadratically, and the correction loop is closed by
+    **measuring** the resulting orbit (``nonlinear=True`` in :func:`correct_orbit`)
+    rather than trusting the prediction. Feed-down is the reason real orbit
+    correction iterates.
 
     Kicks not owned by a listed corrector (a steering *error* you are correcting
     against) stay put and cancel in the baseline subtraction, so the matrix is the
@@ -296,14 +550,35 @@ def correct_orbit(
     *,
     n_singular: int | None = None,
     response: np.ndarray | None = None,
+    nonlinear: bool = False,
 ) -> OrbitCorrection:
     r"""Steer the closed orbit to zero at the monitors, and apply the kicks.
 
     Solves ``R dtheta = -x0`` for the corrector changes, where ``x0`` is the
-    present orbit at the monitors. Because ``R`` is exact (see
-    :func:`orbit_response_matrix`) this is **one linear solve**, not an iteration:
-    with enough independent correctors the orbit lands on zero to machine
-    precision in a single application.
+    present orbit at the monitors. In a linear lattice ``R`` is exact (see
+    :func:`orbit_response_matrix`) and this is **one linear solve**, not an
+    iteration: with enough independent correctors the orbit lands on zero to
+    machine precision in a single application.
+
+    ``nonlinear=True`` measures ``x0`` and :attr:`~OrbitCorrection.rms_after` from
+    the **nonlinear** closed orbit (:func:`closed_orbit_nonlinear`) instead, which
+    is what a machine with live sextupoles actually has. One application then no
+    longer lands on zero: sextupole feed-down leaves a residual ``O(k2l x_co^2)``,
+    because the model response ``R`` knows nothing about the dipole kick the
+    steering itself created at each off-axis sextupole. Applying it again corrects
+    that residual, and again. **This is why real orbit correction is a loop rather
+    than a solve**, and it is the operational content of feed-down.
+
+    That loop converges **linearly, not quadratically**, and the distinction is
+    physics rather than pedantry. ``R`` is recomputed from the *linear* model every
+    pass, so it never learns the feed-down gradient ``k2l x_co``; the iteration is
+    a stale-Jacobian fixed-point map, whose contraction factor is the relative size
+    of that gradient error and stays *constant* pass after pass (measured at
+    ``4.95e-4`` in the analytic suite, three passes running). It is fast — four
+    passes take a 0.3 mm orbit to machine precision — but a true Newton, which
+    would relinearise about the current orbit each pass, is what would be
+    quadratic. The flag defaults to ``False`` so the linear contract is unchanged
+    for lattices where it holds.
 
     ``n_singular`` keeps only the largest ``n`` singular values of ``R``, the
     standard defence against an ill-conditioned corrector set. Two correctors
@@ -349,7 +624,7 @@ def correct_orbit(
             f"matrix, got {n_singular}"
         )
 
-    x0 = _orbit_at(lattice, mon, coord)
+    x0 = _orbit_at(lattice, mon, coord, nonlinear)
     rms_before = float(np.sqrt(np.mean(x0**2)))
 
     u, s, vt = np.linalg.svd(R, full_matrices=False)
@@ -369,7 +644,7 @@ def correct_orbit(
         setattr(c, attr, float(v))
     try:
         # Measured, not predicted: the orbit of the machine as it now stands.
-        x1 = _orbit_at(lattice, mon, coord)
+        x1 = _orbit_at(lattice, mon, coord, nonlinear)
     except ClosedOrbitError:
         for c, v in zip(corr, initial, strict=True):
             setattr(c, attr, float(v))
