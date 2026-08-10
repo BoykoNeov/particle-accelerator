@@ -439,10 +439,11 @@ Directions the project could grow next, each written as a *candidate milestone*:
 defined, as always, by its **analytic gate** (a direction without a closed-form
 check is not worth building here — see the working agreement).
 
-**As of 2026-07-21 the delivered candidates are** A1–A3, B1, C1, C2, D1–D5, E1, E2,
-**F1**, **F2**, and **G1 in full** (betatron-coupling optics — skew quad, coupled
+**As of 2026-08-10 the delivered candidates are** A1–A3, B1, C1, C2, D1–D5, E1, E2,
+**F1**, **F2**, **G1 in full** (betatron-coupling optics — skew quad, coupled
 normal-mode tunes, closest-tune-approach `ΔQ_min` — *and* its ε_y vertical-emittance
-half, the eigen-mode sharing, whose pre-committed coefficient was corrected by xtrack).
+half, the eigen-mode sharing, whose pre-committed coefficient was corrected by xtrack),
+**G2** (Edwards-Teng coupled Twiss) and **H1** (tune & chromaticity matching).
 Each is marked inline with what it delivered and what it deliberately did not. **No
 follow-up is currently open.** The next milestone means writing a *new* candidate —
 either extending an axis below or opening one — and, where it overlaps *Out of scope*
