@@ -754,7 +754,60 @@ condition number is checked (`> 1e10` raises `MatchingError`) rather than lettin
 a bare 2×2 solve return a huge meaningless step. No bounds and no `least_squares`
 — plain Newton sidesteps the "converged onto a bound, reported success" trap.
 
-Gate: `tests/analytic/test_matching.py`.
+### Chromaticity matching — an exact solve, not an iteration (H1)
+
+`match_chromaticity` drives two **sextupole** families to a target `(ξ_x, ξ_y)`.
+The two halves of H1 are deliberately **not** the same algorithm, and the reason
+is physics, not taste:
+
+> A sextupole's *linear* map is a drift, so changing `k2` moves neither `β`, nor
+> the dispersion, nor the tunes.
+
+The total chromaticity is therefore **strictly affine** in the sextupole
+strengths, `ξ(v) = ξ(v₀) + S·(v − v₀)`, with `S` a genuine constant rather than a
+local linearisation — so the answer is one solve, `v = v₀ + S⁻¹(target − ξ(v₀))`,
+exact from any starting point including `k2 = 0`. Newton here would be machinery
+pretending the problem is harder than it is.
+
+    dξ_x/dv_j = +(1/4π) Σ_i w_i ∮ β_x D_x ds,
+    dξ_y/dv_j = −(1/4π) Σ_i w_i ∮ β_y D_x ds
+
+(the same `+`/`−` split as the feed-down above — the `x² − y²` structure of the
+kick, which is exactly what lets two families pull two negative natural
+chromaticities toward zero independently). Targets are the **total** ξ (natural +
+feed-down), the quantity `chromaticity()` returns and a real machine measures;
+the natural part is the `k2`-independent constant of the affine relation.
+
+**The affineness is asserted, not assumed.** The gate checks `S` computed at two
+different `k2` baselines is identical to ~1e-16, that `ξ(v) − ξ(0) = S·v` for a
+large arbitrary `v`, and that the post-solve residual is at machine precision
+(measured **1.1e-16**) rather than merely inside a tolerance. A miss is raised as
+an error, not iterated over — it would mean affineness is broken, which for
+sextupoles cannot happen. `chromaticity_response_matrix` mirrors
+`chromaticity()`'s own quadrature term for term (same trapezoid, same drift
+transport of `D_x` through a thick body) precisely so that residual stays at
+machine precision instead of at the `slices` discretisation error.
+
+**Ordering is a consequence, not a convention:** match the tunes first and the
+chromaticity second, because the second step provably cannot disturb the first.
+A gate asserts the tunes survive the chromaticity match to 1e-13.
+
+Cross-refusals carry the reason: sextupole knobs are rejected by `match_tunes`
+("a sextupole's linear map is a drift"), quadrupole knobs by
+`match_chromaticity` ("moving a quadrupole moves β, the dispersion and the tunes
+as well, so the response would not be linear"). A sextupole at `D_x = 0` has no
+response at all and is caught by the same condition-number check.
+
+Gates: `tests/analytic/test_matching.py` (17),
+`tests/analytic/test_matching_chromaticity.py` (17),
+`tests/reference/test_matching_xtrack.py` (3). The reference gate hands the
+*matched* strengths to xtrack and asks it, independently, what optics they
+produce — deliberately **not** a comparison against xtrack's own matcher, which
+would compare two optimisers and say nothing about the physics. Measured
+2026-08-10: tunes agree to **4.0e-10 / 1.1e-9** (integer part included), total
+chromaticity to **2.4e-3 / 3.6e-4** on a correction of ~1.8, i.e. ~1.3e-3
+relative — accsim's first-order feed-down vs. xtrack's real nonlinear kick, the
+same model difference `test_sextupole_xtrack` documents.
 
 ## Stability boundary (Stage 2 — validated)
 

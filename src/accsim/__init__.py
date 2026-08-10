@@ -47,6 +47,8 @@ from .matching import (
     Knob,
     MatchingError,
     MatchResult,
+    chromaticity_response_matrix,
+    match_chromaticity,
     match_tunes,
     tune_response_matrix,
 )
@@ -178,6 +180,8 @@ __all__ = [
     "MatchingError",
     "tune_response_matrix",
     "match_tunes",
+    "chromaticity_response_matrix",
+    "match_chromaticity",
     # tracking-based tune (NAFF)
     "naff",
     "ellipse_from_trajectory",

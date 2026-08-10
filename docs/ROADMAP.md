@@ -1099,6 +1099,52 @@ sustained arc.
   - Still **out of scope**: mode phase advance / coupled tune from propagation (use
     `normal_mode_tunes`), solenoid coupling, and the ε_y radiation envelope (option B).
 
+### H. Matching — asking the lattice for the optics you want (core accelerator)
+
+- **H1 — tune & chromaticity matching.** ✅ **DONE (2026-08-10)** — the missing verb
+  in "build a machine": D1 could *build* a lattice and report its optics, but there
+  was no way to **ask** for `(Q_x, Q_y)` or `(ξ_x, ξ_y)` and get the strengths that
+  deliver them. Shipped as two commits, always-on baseline (numpy/scipy only), in
+  `src/accsim/matching.py`:
+  - **`match_tunes` — two quad families, Newton on the β-weighted Jacobian.**
+    `tune_response_matrix` gives `dQ_x/dv = +(1/4π) Σ w_i ∮β_x ds`, `dQ_y/dv =
+    −(1/4π) Σ w_i ∮β_y ds` — the *same* first-order perturbation integral as the
+    natural chromaticity, with the opposite sign because there the perturbation is
+    `dk1 = −k1·δ`. Sign, `4π` and the per-member weighting are pinned against a
+    symbolic `dQ/dv` differentiated from the thin one-turn map, which knows about
+    none of the three.
+  - **The Jacobian is first-order; the residual is exact.** `tunes()` supplies the
+    residual, so the *fixed point* is exact — the gate asserts the recovered
+    **strengths** against a known lattice (to 1e-9), not merely a small residual.
+    Targets are full tunes, integer part included.
+  - **`match_chromaticity` — two sextupole families, one exact linear solve.** Not
+    an iteration, because a sextupole's linear map is a drift: `ξ` is *strictly
+    affine* in `k2`, so `v = v₀ + S⁻¹(target − ξ(v₀))` lands exactly, from any
+    start including `k2 = 0`. Asserted directly: `S` is identical at two different
+    baselines (~1e-16), `ξ(v) − ξ(0) = S·v` for large arbitrary `v`, and the
+    post-solve residual is **1.1e-16** — machine precision, not a tolerance.
+  - **Ordering is a consequence, not a convention.** Match tunes then chromaticity,
+    because sextupoles provably cannot move the tunes; a gate asserts the tunes
+    survive the second match to 1e-13. Both matchers refuse the other's knob type
+    *with the physical reason*.
+  - **Knobs use MAD-X expression semantics** (`strength_i = w_i·v`) — the only form
+    that handles both a family split into half-quads (weights `0.5`) and a family
+    starting from zero. Newton backtracks over the stability boundary (where
+    `tunes()` raises), degenerate knobs are refused on the condition number rather
+    than solved, and a failed match rolls every strength back. No bounds and no
+    `least_squares`, which sidesteps the "converged onto a bound, reported success"
+    trap.
+  - **xtrack-validated on the matched machine** (not against xtrack's matcher —
+    that would compare two optimisers): tunes to **4.0e-10 / 1.1e-9** including the
+    integer part, total chromaticity to **2.4e-3 / 3.6e-4** on a correction of
+    ~1.8. Gates: `tests/analytic/test_matching.py` (17),
+    `tests/analytic/test_matching_chromaticity.py` (17),
+    `tests/reference/test_matching_xtrack.py` (3). See CONVENTIONS.md → *Tune
+    matching* / *Chromaticity matching*.
+  - Still **out of scope**: general N-knob / M-target weighted objectives, strength
+    bounds, β\* or dispersion matching at an insertion, and matching a coupled
+    (skew) lattice — H1 is deliberately 2 families → 2 targets, twice.
+
 ## Out of scope (unless a milestone explicitly calls for it)
 
 Beyond even the expansion axes above — research-grade unless a milestone explicitly
