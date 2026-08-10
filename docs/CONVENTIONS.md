@@ -747,10 +747,26 @@ all, so "it converged" alone would not have tested it.
 
 **A knob's `value` is only meaningful while the family is ganged.** `value` reads
 back from the first member, so if a caller sets another member's strength
-directly after construction, the knob silently misreports where the lattice is —
-and the matcher would overwrite that member from a wrong `initial`. Both matchers
-therefore re-run `check_ganged()` before reading `value`, not just the
-constructor.
+directly after construction, the knob silently misreports where the lattice is.
+Both matchers therefore re-run `check_ganged()` before reading `value`, not just
+the constructor. **The two matchers fail differently without it, measured by
+disabling the re-check:**
+
+- `match_tunes` is the real hazard: the residual is evaluated on the lattice the
+  matcher itself produced, so Newton converges happily to the target and
+  *silently overwrites* the desynced member (`k1l = 0.4 → 0.679` on the FODO
+  gate), reporting success. Nothing downstream catches it.
+- `match_chromaticity` mostly catches it already — but names the wrong cause. A
+  wrong baseline breaks the affine prediction, so the post-solve residual check
+  fires with "the chromaticity is not affine in these knobs", a *physics* claim
+  about what is really a bookkeeping error. Below a desync of ~1e-9 (still above
+  `check_ganged`'s `abs_tol = 1e-12`) even that misses and the member is
+  overwritten. So here the re-check buys the correct diagnosis plus a narrow
+  window, not the difference between caught and uncaught.
+
+The gates assert on the *message* (`"not consistent"`) for that reason, and use a
+desync small enough that the start is still stable — otherwise the refusal would
+come from the stability guard and the test would prove nothing.
 
 **Mutation and rollback.** `Lattice.__init__` copies the element *list* but shares
 the element *objects*, so copying a `Lattice` does not protect `k1` — matching
@@ -809,7 +825,7 @@ as well, so the response would not be linear"). A sextupole at `D_x = 0` has no
 response at all and is caught by the same condition-number check.
 
 Gates: `tests/analytic/test_matching.py` (18),
-`tests/analytic/test_matching_chromaticity.py` (17),
+`tests/analytic/test_matching_chromaticity.py` (18),
 `tests/reference/test_matching_xtrack.py` (3). The reference gate hands the
 *matched* strengths to xtrack and asks it, independently, what optics they
 produce — deliberately **not** a comparison against xtrack's own matcher, which

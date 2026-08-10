@@ -310,6 +310,29 @@ def test_failed_chromaticity_match_restores_strengths(ref: ReferenceParticle) ->
     assert [lat[1].k2l, lat[5].k2l] == before
 
 
+def test_desynced_sextupole_family_is_caught_at_match_time(ref: ReferenceParticle) -> None:
+    """The exact linear solve re-checks ganging too, not only the Newton matcher.
+
+    Same hazard as on the quadrupole side: ``Knob.value`` reads back the first
+    member, so a member set directly behind the knob's back makes ``value``
+    misreport where the lattice is — and the solve would then overwrite that
+    member from a wrong ``initial``. The SF family is split into two co-located
+    thin halves (physically the original single kick, since thin kicks at the
+    same ``s`` add) purely so there is a second member to desync.
+    """
+    cell = _dispersive_cell()
+    cell.insert(2, ThinSextupole(0.0, name="sf_b"))
+    lat = Lattice(cell, ref)
+    ksf = Knob([lat[1], lat[2]], weights=[0.5, 0.5], name="ksf")
+    ksd = Knob([lat[6]], weights=[-1.0], name="ksd")
+
+    lat[2].k2l = 0.7  # one half moved behind the knob's back, after construction
+    with pytest.raises(MatchingError, match="not consistent"):
+        match_chromaticity(lat, (0.0, 0.0), (ksf, ksd))
+    assert lat[2].k2l == 0.7  # and nothing was overwritten
+    assert lat[1].k2l == 0.0
+
+
 def test_overlapping_chromaticity_knobs_are_refused(ref: ReferenceParticle) -> None:
     """One sextupole in two knobs is not two independent variables."""
     lat = Lattice(_dispersive_cell(2.0, -3.0), ref)

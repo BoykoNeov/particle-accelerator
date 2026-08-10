@@ -1139,7 +1139,7 @@ sustained arc.
     that would compare two optimisers): tunes to **4.0e-10 / 1.1e-9** including the
     integer part, total chromaticity to **2.4e-3 / 3.6e-4** on a correction of
     ~1.8. Gates: `tests/analytic/test_matching.py` (18),
-    `tests/analytic/test_matching_chromaticity.py` (17),
+    `tests/analytic/test_matching_chromaticity.py` (18),
     `tests/reference/test_matching_xtrack.py` (3). See CONVENTIONS.md → *Tune
     matching* / *Chromaticity matching*.
   - Still **out of scope**: general N-knob / M-target weighted objectives, strength

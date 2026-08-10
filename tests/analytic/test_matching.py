@@ -277,7 +277,7 @@ def test_match_tunes_survives_a_step_into_instability(
     target = (0.3500, 0.3500)  # far above them
     result = match_tunes(lat, target, _knobs(lat))
 
-    assert hits >= 1, "the backtracking branch never fired — this test proves nothing"
+    assert hits == 1, "the backtracking branch never fired — this test proves nothing"
     assert real_tunes(lat) == pytest.approx(target, abs=1e-12)
     assert result.iterations >= 1
 
@@ -306,13 +306,23 @@ def test_desynced_family_is_caught_at_match_time(ref: ReferenceParticle) -> None
     strength directly the knob silently misreports where the lattice is — and the
     matcher would then overwrite that member from a wrong ``initial``. The
     constructor's check alone cannot see this; the matcher re-checks.
+
+    Measured with the re-check disabled, this exact start does **not** fail some
+    other way: Newton converges happily to ``(0.25, 0.17)`` and overwrites the
+    desynced half-quad ``0.4 -> 0.679``, reporting success. Nothing downstream
+    would have caught it, because the residual is evaluated on the lattice the
+    matcher itself produced. The desync is kept small enough that the start is
+    still *stable* (``k1l = 0.9`` is not — it would be refused for having no
+    matched optics, which would test the stability guard instead of this one).
     """
     lat = Lattice(_thin_fodo(), ref)
     kf, kd = _knobs(lat)
-    lat[4].k1l = 0.9  # one half-quad moved behind the knob's back
+    lat[4].k1l = 0.4  # one half-quad moved behind the knob's back (nominal 1/3)
+    tunes(lat)  # ...and the desynced start is still stable, so the refusal below
+    #             can only be about ganging, not about missing optics
     with pytest.raises(MatchingError, match="not consistent"):
         match_tunes(lat, (0.25, 0.17), (kf, kd))
-    assert lat[4].k1l == 0.9  # and nothing was overwritten
+    assert lat[4].k1l == 0.4  # and nothing was overwritten
 
 
 def test_knob_rejects_an_unsupported_element(ref: ReferenceParticle) -> None:
