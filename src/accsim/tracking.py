@@ -160,8 +160,8 @@ class Tracker:
         lattice the two agree to round-off.
         """
         if not nonlinear:
-            M = self.lattice.transfer_matrix()
-            return Particle.from_array(M @ particle.state)
+            M, k = self.lattice.transfer_map()
+            return Particle.from_array(M @ particle.state + k)
         return Particle.from_array(self._track_once(particle.state.copy()))
 
     def _track_once(self, state: np.ndarray) -> np.ndarray:
@@ -172,8 +172,8 @@ class Tracker:
 
     def track_bunch(self, bunch: Bunch) -> Bunch:
         """Track every particle in a bunch once through the lattice."""
-        M = self.lattice.transfer_matrix()
-        return Bunch(M @ bunch.states)
+        M, k = self.lattice.transfer_map()
+        return Bunch(M @ bunch.states + k[:, None])
 
     def track_bunch_losses(self, bunch: Bunch, n_turns: int = 1) -> LossResult:
         """Track a bunch with aperture loss accounting (linear optics).
@@ -202,7 +202,7 @@ class Tracker:
             s = 0.0
             for ei, elem in enumerate(self.lattice.elements):
                 if alive.any():
-                    states[:, alive] = elem.matrix(ref) @ states[:, alive]
+                    states[:, alive] = elem.matrix(ref) @ states[:, alive] + elem.kick(ref)[:, None]
                 if isinstance(elem, Aperture):
                     inside = np.asarray(elem.survives(states), dtype=bool)
                     newly = alive & ~inside
@@ -236,8 +236,8 @@ class Tracker:
                 s = self._track_once(s)
                 history[turn] = s
         else:
-            M = self.lattice.one_turn_matrix()
+            M, k = self.lattice.one_turn_map()
             for turn in range(1, n_turns + 1):
-                s = M @ s
+                s = M @ s + k
                 history[turn] = s
         return history

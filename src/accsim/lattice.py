@@ -42,9 +42,38 @@ class Lattice:
             M = elem.matrix(self.ref) @ M
         return M
 
+    def transfer_map(self) -> tuple[np.ndarray, np.ndarray]:
+        r"""Accumulated **affine** map ``(M, k)``: ``state_out = M @ state_in + k``.
+
+        :meth:`transfer_matrix` is the homogeneous half; ``k`` accumulates the
+        constant kicks of any
+        :class:`~accsim.elements.corrector.Corrector` in the sequence and is
+        exactly zero otherwise, so ``M`` alone remains the whole map for every
+        optics calculation in the package.
+
+        Composition follows the same right-to-left rule as the matrices. Applying
+        element 1 then element 2,
+
+            x -> M2 (M1 x + k1) + k2 = (M2 M1) x + (M2 k1 + k2),
+
+        so a kick is transported by *everything downstream of it* — which is why
+        the same kick at two different places closes into two different orbits.
+        """
+        M = np.eye(DIM)
+        k = np.zeros(DIM)
+        for elem in self.elements:
+            Me = elem.matrix(self.ref)
+            M = Me @ M
+            k = Me @ k + elem.kick(self.ref)
+        return M, k
+
     def one_turn_matrix(self) -> np.ndarray:
         """One-turn map for a closed sequence (alias of :meth:`transfer_matrix`)."""
         return self.transfer_matrix()
+
+    def one_turn_map(self) -> tuple[np.ndarray, np.ndarray]:
+        """One-turn affine map for a closed sequence (alias of :meth:`transfer_map`)."""
+        return self.transfer_map()
 
     def __len__(self) -> int:
         return len(self.elements)

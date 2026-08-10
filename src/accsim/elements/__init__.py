@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .aperture import Aperture, Collimator
 from .beambeam import BeamBeam
+from .corrector import Corrector
 from .dipole import Dipole
 from .drift import Drift
 from .element import Element
@@ -18,6 +19,7 @@ __all__ = [
     "Quadrupole",
     "ThinQuadrupole",
     "Dipole",
+    "Corrector",
     "Sextupole",
     "ThinSextupole",
     "SkewQuadrupole",

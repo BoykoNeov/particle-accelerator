@@ -25,6 +25,7 @@ from .elements import (
     Aperture,
     BeamBeam,
     Collimator,
+    Corrector,
     Dipole,
     Drift,
     Element,
@@ -56,6 +57,7 @@ from .matching import (
     match_tunes,
     tune_response_matrix,
 )
+from .orbit import ClosedOrbitError, closed_orbit, propagate_orbit
 from .radiation import (
     RadiationIntegrals,
     damping_partition_numbers,
@@ -126,6 +128,7 @@ __all__ = [
     "Quadrupole",
     "ThinQuadrupole",
     "Dipole",
+    "Corrector",
     "Sextupole",
     "ThinSextupole",
     "SkewQuadrupole",
@@ -191,6 +194,10 @@ __all__ = [
     "InsertionMatchResult",
     "insertion_response_matrix",
     "match_insertion",
+    # closed orbit (I1)
+    "ClosedOrbitError",
+    "closed_orbit",
+    "propagate_orbit",
     # tracking-based tune (NAFF)
     "naff",
     "ellipse_from_trajectory",
