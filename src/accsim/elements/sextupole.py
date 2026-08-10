@@ -76,7 +76,11 @@ def _drift_matrix(length: float, ref: ReferenceParticle) -> np.ndarray:
 
 
 def _apply_kick(state: np.ndarray, k2l: float) -> np.ndarray:
-    r"""Apply the thin sextupole kick of integrated strength ``k2l`` in place.
+    r"""Apply the thin sextupole kick of integrated strength ``k2l``, mutating ``state``.
+
+    Writes into the array it is handed and returns it — callers pass a fresh copy
+    (or a temporary) so nothing owned by the caller is clobbered.
+
 
     ``Delta px = -1/2 k2l (x^2 - y^2)``, ``Delta py = +k2l (x y)``. No ``1/(1 +
     delta)`` scaling: ``px`` is normalised to the *reference* momentum ``p0``, and
@@ -145,9 +149,12 @@ class Sextupole(Element):
 
     def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         # Drift-kick-drift, n_slices times (see the class docstring for the order
-        # of accuracy this buys and what it costs).
+        # of accuracy this buys and what it costs). The split carries no constant
+        # part -- a sextupole's ``kick()`` is the inherited zero -- so at k2 = 0 the
+        # base class's affine map is the right answer *and* keeps this override
+        # honest about the (M, k) contract rather than quietly dropping k.
         if self.k2 == 0.0:
-            return self.matrix(ref) @ state
+            return super().track(state, ref)
         n = self.n_slices
         half = _drift_matrix(0.5 * self.length / n, ref)
         k2l_slice = self.k2l / n

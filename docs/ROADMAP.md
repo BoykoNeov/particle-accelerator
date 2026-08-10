@@ -1276,6 +1276,26 @@ sustained arc.
     coupled (x-y) correction, local orbit bumps as a first-class API, corrector
     strength limits, and BPM noise / calibration errors.
 
+- **I2 — sextupole feed-down on a distorted orbit.** 🔓 **OPEN — the next
+  milestone.** The deferral I1 named by name, and the statement that qualifies
+  "correctors do not move the optics" as a *linear-order* claim. A sextupole sitting
+  at closed-orbit offset `x_co` acts as a quadrupole of `k1_eff = k2·x_co` (moving
+  tunes, β and chromaticity) *plus* a dipole of `−½k2l·x_co²`.
+  - **The obvious gate would be a rerun, and must be avoided.** J1 already measures
+    `k1_eff` by finite-differencing `track()` about a dispersive offset; redoing it
+    with a corrector-induced offset instead of a dispersive one is the same
+    measurement, not an independent check of I2's claim.
+  - **What has no J1 analogue is the dipole term, because it moves the orbit
+    itself.** `−½k2l·x_co²` is a `Corrector` whose strength depends on the orbit, so
+    the closed orbit stops being the linear solve `(I − M₄)x_co = k₄` that
+    `orbit.py` implements and becomes the fixed point of a *nonlinear* map. That
+    orbit → feed-down → orbit coupling is the milestone's actual content.
+  - Candidate gates, none of them reruns: the nonlinear closed orbit departs from
+    `closed_orbit()`'s linear answer by a predictable `O(k2l·x_co²)` that vanishes as
+    `x_co → 0`; the tune shifts `ΔQ_x = +β_x k2 x_co L/(4π)` and its mirror in y,
+    against xtrack's twiss about *its own* found closed orbit; and the β-beat, where
+    a sign error hides that the tune shift averages away.
+
 ### J. Nonlinear single-particle dynamics (core accelerator)
 
 - **J1 — the thin nonlinear kick becomes real.** ✅ **DONE (2026-08-10)** — every
@@ -1342,9 +1362,9 @@ sustained arc.
     `k2`; no coefficient is claimed), octupoles and higher multipoles, and
     normal-form / Lie-map machinery.
 
-- **J2 — sextupole feed-down on a distorted orbit (I2).** Next: the deferral I1
-  named, now with a non-circular gate available — the nonlinear kick J1 shipped can
-  be finite-differenced in-package instead of leaning entirely on xtrack.
+The open follow-up on this axis' physics is **I2** (below, under axis I): feed-down
+belongs to the closed-orbit axis, and J1 was sequenced ahead of it only so its gate
+would not be circular.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

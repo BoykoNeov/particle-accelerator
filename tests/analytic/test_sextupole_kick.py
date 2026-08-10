@@ -150,7 +150,8 @@ def test_thin_kick_matches_multipole_field_expansion(ref: ReferenceParticle) -> 
     for x0, y0 in [(1e-3, 4e-4), (-2e-3, 1e-3), (5e-4, -3e-3), (0.0, 2e-3), (2e-3, 0.0)]:
         state = np.array([x0, 0.1, y0, -0.2, 0.0, 0.0])
         out = elem.track(state, ref)
-        subs = {x: x0, y: y0, kn * L: k2l, kn: k2l, L: 1.0}
+        # k2l = kn * L, realised as kn = k2l with unit length.
+        subs = {x: x0, y: y0, kn: k2l, L: 1.0}
         assert out[PX] - state[PX] == pytest.approx(float(dpx_sym.subs(subs)), abs=1e-15)
         assert out[PY] - state[PY] == pytest.approx(float(dpy_sym.subs(subs)), abs=1e-15)
 
@@ -423,6 +424,31 @@ def test_thick_sextupole_with_zero_k2_is_exactly_a_drift(ref: ReferenceParticle)
         elem = Sextupole(0.4, 0.0, n_slices=n)
         assert np.allclose(elem.track(state, ref), elem.matrix(ref) @ state, atol=0.0)
         assert np.allclose(elem.matrix(ref), Drift(0.4).matrix(ref), atol=0.0)
+
+
+class _KickingSextupole(Sextupole):
+    """A sextupole with a (physically fictitious) constant kick, to test the contract."""
+
+    def kick(self, ref: ReferenceParticle) -> np.ndarray:
+        k = np.zeros(DIM)
+        k[PX] = 1e-5
+        return k
+
+
+def test_thick_track_respects_the_affine_contract_at_zero_strength(
+    ref: ReferenceParticle,
+) -> None:
+    """A ``track()`` override must not drop ``kick()`` — I1's contract, gated.
+
+    ``Sextupole.kick()`` is the inherited zero, so a dropped constant part would be
+    invisible in every physical lattice and would sit there until some later element
+    inherited the shortcut. Subclassing in a nonzero kick makes the omission
+    observable.
+    """
+    state = np.array([1e-3, 2e-4, -5e-4, 3e-4, 1e-3, 2e-4])
+    elem = _KickingSextupole(0.4, 0.0)
+    expected = elem.matrix(ref) @ state + elem.kick(ref)
+    assert np.allclose(elem.track(state, ref), expected, atol=0.0)
 
 
 def test_thick_sextupole_is_symplectic_at_every_slicing(ref: ReferenceParticle) -> None:
