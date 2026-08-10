@@ -126,16 +126,19 @@ class RFCavity(Element):
             ref.beta0**2 * ref.total_energy_eV
         )
 
-    def energy_kick_delta(self, zeta: float, ref: ReferenceParticle) -> float:
+    def energy_kick_delta(self, zeta: float | np.ndarray, ref: ReferenceParticle) -> float:
         """Full nonlinear momentum kick ``Delta delta`` at longitudinal ``zeta``.
 
         ``(q V / (beta0^2 E0)) * [sin(phi_s - k_rf zeta) - sin(phi_s)]`` — the
         ``sin`` (not its linearisation) that gives the RF bucket its separatrix.
         Used by the nonlinear tracker; :meth:`matrix` is its ``zeta -> 0`` slope.
+
+        ``zeta`` may be an array (one entry per particle), in which case the kick
+        is returned elementwise — the bunch path of the nonlinear tracker.
         """
         k = self.k_rf(ref)
         amp = ref.charge * self.voltage / (ref.beta0**2 * ref.total_energy_eV)
-        return amp * (math.sin(self.phi_s - k * zeta) - math.sin(self.phi_s))
+        return amp * (np.sin(self.phi_s - k * np.asarray(zeta)) - math.sin(self.phi_s))
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:
         # Thin longitudinal shear: identity except the small-amplitude R65 kick.
@@ -148,8 +151,10 @@ class RFCavity(Element):
         # R65 linearisation). Only ``delta`` changes; the kick depends on ``zeta``.
         # This delta-kick is a symplectic shear -- composed with the linear arc it
         # forms the pendulum whose separatrix is the RF bucket.
+        # ``state`` may be a (6,) vector or a (6, n) bunch; the zeta-dependent kick
+        # is elementwise either way.
         out = np.array(state, dtype=float, copy=True)
-        out[DELTA] += self.energy_kick_delta(float(out[ZETA]), ref)
+        out[DELTA] += self.energy_kick_delta(out[ZETA], ref)
         return out
 
     def __repr__(self) -> str:

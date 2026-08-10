@@ -444,13 +444,14 @@ check is not worth building here — see the working agreement).
 normal-mode tunes, closest-tune-approach `ΔQ_min` — *and* its ε_y vertical-emittance
 half, the eigen-mode sharing, whose pre-committed coefficient was corrected by xtrack),
 **G2** (Edwards-Teng coupled Twiss), **H1** and **H2** (tune/chromaticity and
-insertion matching), and **I1** (closed orbit and its correction, which made the
-element map affine).
-Each is marked inline with what it delivered and what it deliberately did not. **No
-follow-up is currently open.** The next milestone means writing a *new* candidate —
-either extending an axis below or opening one — and, where it overlaps *Out of scope*
-below, pulling that item into scope. Ordered by proximity to what is already built, not
-by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
+insertion matching), **I1** (closed orbit and its correction, which made the
+element map affine), and **J1** (the sextupole's nonlinear kick as a real map).
+Each is marked inline with what it delivered and what it deliberately did not. **The
+open follow-up is J2** — sextupole feed-down on a distorted orbit, the deferral I1
+named, which J1 was sequenced ahead of so that its gate would not be circular.
+Beyond that, a new milestone means writing a *new* candidate — either extending an
+axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
+item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
 sustained arc.
 
 ### A. Drell-Yan angular physics (extends the Collins-Soper A_FB, Phase 2)
@@ -1274,6 +1275,76 @@ sustained arc.
     statement), misalignments as element attributes rather than explicit correctors,
     coupled (x-y) correction, local orbit bumps as a first-class API, corrector
     strength limits, and BPM noise / calibration errors.
+
+### J. Nonlinear single-particle dynamics (core accelerator)
+
+- **J1 — the thin nonlinear kick becomes real.** ✅ **DONE (2026-08-10)** — every
+  element up to here acted through an affine map, so the sextupole carried `k2` but
+  had no map at all: its `matrix()` is a drift and the strength was felt only
+  through feed-down chromaticity. J1 gives it the kick
+  `Δpx = −½k2l(x²−y²)`, `Δpy = +k2l·x·y`, exactly in `ThinSextupole.track()` and by
+  drift–kick–drift in `Sextupole.track()` (`n_slices`). Always-on baseline (numpy
+  only). `matrix()` is unchanged in both — the kick has no linear part at the
+  origin, which is the physics rather than an omission.
+  - **The milestone's content is which gate pins the ½, not the kick itself.** The
+    obvious structural checks are *all* blind to the coefficient, because a
+    mis-scaled sextupole is still a sextupole: symplecticity at any amplitude (true
+    for any gradient kick, any strength), the curl-free/Maxwell condition (the
+    *same* statement for a thin kick, not an independent one), identity Jacobian at
+    the origin, small-amplitude tracked tunes, and a sympy derivation from a
+    potential reverse-engineered out of the kick. A table of them is in
+    CONVENTIONS.md, and the suite carries a **consistently mis-scaled** sextupole
+    (`1` for `½` in *both* components) that passes every one of them.
+  - **What discriminates is feed-down.** Linearising the new nonlinear map about the
+    off-momentum closed orbit (Newton on the tracked map, then its FD Jacobian) and
+    reading `dQ/dδ` off the result recovers a quantity accsim already computes by a
+    completely different route — `chromaticity − natural_chromaticity`, pinned
+    symbolically and cross-checked against xtrack's real tracking at `rel ≈ 5e-4`.
+    Since accsim's linear matrices carry no `δ` of their own, the whole
+    `δ`-dependence of the tracked tunes *is* the feed-down. Agreement `rel 1e-5`;
+    the mis-scaled sextupole is caught as a clean **factor of two**. Scaling only
+    `Δpx` is the other class of bug — no longer a field at all — and symplecticity
+    *does* catch that one.
+  - **The coefficient is derived from the field, anchored on the quadrupole.** The
+    `½` is the `1/n!` of `B_y + iB_x = (Bρ)Σₙ kₙ(x+iy)ⁿ/n!`, the same expansion
+    whose `n = 1` term is the `Quadrupole` already validated against xtrack *and*
+    MAD-X — so the derivation borrows its credibility from an independently
+    validated convention instead of from its own algebra.
+  - **The sign is a probe, and the thick element is compared by difference.**
+    `ThinSextupole(k2l) ≡ xt.Multipole(knl=[0,0,+k2l])` **bit-for-bit** (exact
+    because a thin kick has no length, so there is no drift model to disagree
+    about); the opposite sign misses by exactly twice the kick. A raw thick
+    comparison instead leaves `~1e-8` that is **present unchanged at `k2 = 0`** —
+    it is `−L·px·δ`, xtrack's exact drift against accsim's linear one, and belongs
+    to the drift. Toggling `k2` isolates the nonlinear content (`rel 1e-3`).
+    ⚠️ `n_slices` converges accsim onto the *exact* map, **not** onto xtrack, whose
+    thick sextupole is itself a single-kick split — so `n_slices = 1` is its closest
+    match and a "raise slices until they agree" gate would have read a modelling
+    choice as a bug.
+  - **Approximations flagged.** Drift–kick–drift is symplectic exactly but only
+    second order: `O(L³)` per slice at fixed `k2`, `O(1/n_slices²)` overall (both
+    ratios *measured*, 0.125 and 0.25). At fixed *integrated* `k2l` the `k2²L³` term
+    is `k2l²L`, so the thin-lens limit is approached only **linearly** — a short
+    thick sextupole is not a thin one.
+  - **Tracking-path fallout.** `Tracker.track`/`track_turns` still default to
+    `nonlinear=False`, which now *silently drops* a sextupole's kick — asserted in
+    the suite so it is documented rather than discovered.
+    `track_bunch_losses` gained a `nonlinear` flag (its hoisted matrices would
+    otherwise linearise a sextupole), and `RFCavity.track` was vectorised over a
+    bunch to make that path work at all. `accsim.symplectic` gained `jacobian()` and
+    `is_symplectic_map()`.
+    Gates: `tests/analytic/test_sextupole_kick.py` (21),
+    `tests/reference/test_sextupole_kick_xtrack.py` (7). See CONVENTIONS.md →
+    *The sextupole's nonlinear map*.
+  - Still **out of scope**: dynamic aperture and frequency maps (nonlinear tracking
+    against apertures is now *possible*, and nothing gates it), amplitude-detuning
+    and resonance-driving-term closed forms (sextupole detuning is second order in
+    `k2`; no coefficient is claimed), octupoles and higher multipoles, and
+    normal-form / Lie-map machinery.
+
+- **J2 — sextupole feed-down on a distorted orbit (I2).** Next: the deferral I1
+  named, now with a non-circular gate available — the nonlinear kick J1 shipped can
+  be finite-differenced in-package instead of leaning entirely on xtrack.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

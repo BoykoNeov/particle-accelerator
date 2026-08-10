@@ -59,9 +59,17 @@ class Element(abc.ABC):
         The default is the affine map ``matrix(ref) @ state + kick(ref)`` — exact
         for every linear element, so element-by-element tracking of a purely linear
         lattice equals a single :meth:`~accsim.lattice.Lattice.transfer_map` product.
-        Nonlinear elements (e.g. :class:`~accsim.elements.rfcavity.RFCavity`, whose
-        ``sin`` kick gives the RF bucket its separatrix) override this. This is the
-        seam the long-term (Stage 3+) tracker plugs into.
+        Nonlinear elements override this: the
+        :class:`~accsim.elements.rfcavity.RFCavity`, whose ``sin`` kick gives the RF
+        bucket its separatrix, and the
+        :class:`~accsim.elements.sextupole.ThinSextupole` /
+        :class:`~accsim.elements.sextupole.Sextupole`, whose ``x^2 - y^2`` kick is
+        invisible to ``matrix`` (it has no linear part at the origin) and acts only
+        here. This is the seam the long-term tracker plugs into.
+
+        An overriding element's map must still be **symplectic** — check it with
+        :func:`accsim.symplectic.is_symplectic_map`, which linearises ``track`` by
+        finite differences at a given amplitude.
 
         ``state`` may be a single ``(6,)`` vector or a ``(6, n)`` bunch; the kick
         broadcasts over the particle axis (it is the same for every particle).

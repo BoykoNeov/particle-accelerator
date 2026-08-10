@@ -85,7 +85,7 @@ from .reference import (
     PROTON_MASS_EV,
     ReferenceParticle,
 )
-from .symplectic import J6, is_symplectic
+from .symplectic import J6, is_symplectic, is_symplectic_map, jacobian
 from .tracking import Bunch, LossResult, Particle, Tracker
 from .tune import ellipse_from_trajectory, naff, tracked_tunes
 from .twiss import (
@@ -167,6 +167,8 @@ __all__ = [
     "equilibrium_energy_spread",
     # symplectic helpers
     "is_symplectic",
+    "is_symplectic_map",
+    "jacobian",
     "J6",
     # twiss / optics
     "Twiss",

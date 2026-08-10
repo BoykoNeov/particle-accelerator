@@ -156,8 +156,17 @@ class Tracker:
         ``nonlinear=False`` (default) uses the accumulated linear transfer matrix.
         ``nonlinear=True`` pushes the state element-by-element through each
         element's :meth:`~accsim.elements.element.Element.track`, so nonlinear
-        maps (the RF cavity's ``sin`` kick) act exactly. For a purely linear
-        lattice the two agree to round-off.
+        maps act exactly: the RF cavity's ``sin`` kick and the sextupole's
+        ``x^2 - y^2`` kick.
+
+        **A lattice containing a sextupole is not a purely linear lattice.** The
+        two paths agree to round-off only when every element's map *is* its
+        matrix; with a sextupole (or an RF cavity) present, ``nonlinear=False``
+        silently drops the nonlinear part — for a sextupole that means tracking
+        its drift map and nothing else. That default is deliberate (every optics
+        quantity in the package is built on the linear map, and the sextupole's
+        linear map really is a drift), but it is a choice the caller has to make
+        knowingly.
         """
         if not nonlinear:
             M, k = self.lattice.transfer_map()
@@ -175,15 +184,30 @@ class Tracker:
         M, k = self.lattice.transfer_map()
         return Bunch(M @ bunch.states + k[:, None])
 
-    def track_bunch_losses(self, bunch: Bunch, n_turns: int = 1) -> LossResult:
-        """Track a bunch with aperture loss accounting (linear optics).
+    def track_bunch_losses(
+        self, bunch: Bunch, n_turns: int = 1, nonlinear: bool = False
+    ) -> LossResult:
+        """Track a bunch with aperture loss accounting.
 
         Walks the lattice element-by-element for ``n_turns`` turns, accumulating
         the geometric ``s``. At each :class:`~accsim.elements.aperture.Aperture`
         the surviving particles are tested against its geometric predicate; a
         particle that fails is recorded (turn, ``s``, element index) and
         **frozen** — its state stops advancing and it is skipped on every later
-        element and turn. Non-aperture elements act through their linear 6x6.
+        element and turn.
+
+        ``nonlinear=False`` (default) acts with each element's affine 6x6, hoisted
+        out of the turn loop. ``nonlinear=True`` routes every element through its
+        :meth:`~accsim.elements.element.Element.track` instead, so a sextupole's
+        (or RF cavity's) nonlinear map acts on the bunch. The flag exists because
+        the default would otherwise *silently* linearise a sextupole in a
+        loss-aware track — the answer would look fine and be the wrong physics.
+
+        It is not a dynamic-aperture facility. Nonlinear tracking against apertures
+        is the machinery DA studies are built from, but nothing in the package
+        gates amplitude-dependent survival, and DA is out of scope
+        (``docs/ROADMAP.md``); treat a loss count from a nonlinear track as
+        illustrative unless you have gated it yourself.
 
         Returns a :class:`LossResult`. Loss location is the aperture's geometric
         ``s`` around the ring, not the particle's ``zeta``.
@@ -203,19 +227,23 @@ class Tracker:
         # long-term gates). The kick is stored as None when it is zero — which is
         # every element but a corrector — so the common case never broadcasts it.
         maps: list[tuple[np.ndarray, np.ndarray | None]] = []
-        for elem in self.lattice.elements:
-            k = elem.kick(ref)
-            maps.append((elem.matrix(ref), k[:, None] if k.any() else None))
+        if not nonlinear:
+            for elem in self.lattice.elements:
+                k = elem.kick(ref)
+                maps.append((elem.matrix(ref), k[:, None] if k.any() else None))
 
         for turn in range(n_turns):
             s = 0.0
             for ei, elem in enumerate(self.lattice.elements):
                 if alive.any():
-                    M, k_col = maps[ei]
-                    if k_col is None:
-                        states[:, alive] = M @ states[:, alive]
+                    if nonlinear:
+                        states[:, alive] = elem.track(states[:, alive], ref)
                     else:
-                        states[:, alive] = M @ states[:, alive] + k_col
+                        M, k_col = maps[ei]
+                        if k_col is None:
+                            states[:, alive] = M @ states[:, alive]
+                        else:
+                            states[:, alive] = M @ states[:, alive] + k_col
                 if isinstance(elem, Aperture):
                     inside = np.asarray(elem.survives(states), dtype=bool)
                     newly = alive & ~inside
@@ -236,8 +264,9 @@ class Tracker:
 
         ``nonlinear=False`` (default) applies the one-turn matrix each turn (fast,
         exact for linear lattices). ``nonlinear=True`` pushes element-by-element so
-        the RF cavity's ``sin`` kick acts exactly — the path for RF-bucket /
-        separatrix long-term tracking.
+        the RF cavity's ``sin`` kick and the sextupole's ``x^2 - y^2`` kick act
+        exactly — the path for RF-bucket / separatrix long-term tracking, and the
+        only path on which a sextupole does anything at all (see :meth:`track`).
         """
         if n_turns < 0:
             raise ValueError(f"n_turns must be >= 0, got {n_turns}")
