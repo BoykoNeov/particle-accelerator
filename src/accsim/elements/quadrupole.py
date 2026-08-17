@@ -146,7 +146,8 @@ class Quadrupole(Element):
 
     so **``k1 > 0`` focuses in x and defocuses in y**. The transverse blocks are
     the closed-form solutions of these (cos/sin in the focusing plane, cosh/sinh
-    in the defocusing plane); ``k1 = 0`` reduces exactly to a :class:`Drift`.
+    in the defocusing plane); ``k1 = 0`` reduces exactly to a :class:`Drift`'s
+    **matrix** — but not, quite, to its ``track``; see the warning below.
 
     Longitudinal: the reference orbit is straight, so the time-of-flight slip over
     length ``L`` is the same as a drift, ``R56 = L/gamma0^2`` (cross-checked

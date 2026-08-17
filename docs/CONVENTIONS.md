@@ -218,12 +218,25 @@ finite-difference floor, `2.7e-13`.
 
 A zero-strength thick `Sextupole`/`Octupole`/`Quadrupole` is documented as "identical
 to a `Drift` of length `L`". That is still true of its **matrix** and no longer of its
-`track`: those elements keep the affine default while `Drift` is exact. Physically a
-zero-strength magnet *is* a drift, so this is a real inconsistency and the price of
-doing one element at a time. The rest of the L axis removes it.
+`track`. Physically a zero-strength magnet *is* a drift, so this is a real
+inconsistency and the price of doing one element at a time.
 
-> **L2 update (2026-08-17): it does not remove it for the quadrupole — it narrows it
-> from first order to third.** See *The quadrupole's momentum-dependent map* below.
+**Updated and re-verified 2026-08-17 (L2)** — the three elements are no longer in the
+same position, and the paragraph above was describing a code path rather than checking
+one:
+
+- **`Quadrupole(L, 0).track`** is now the **expanded** drift `x += L·px/(1+δ)`, not the
+  affine default and not the exact drift. The gap to `Drift` narrows from first order
+  (`O(px·δ)`) to third (`O(px³)`); it is **not** closed, and the ROADMAP's prediction
+  that L2 would close it was wrong. See *The quadrupole's momentum-dependent map* below.
+- **`Sextupole(L, 0).track` and `Octupole(L, 0).track`** do keep the affine default —
+  they short-circuit on `k2 == 0` / `k3 == 0` — so for those two the paragraph stands as
+  written. Checked in `elements/sextupole.py` and `elements/octupole.py`, not inherited.
+- A related fact the original paragraph did not cover: at **nonzero** strength those two
+  slice with `_drift_matrix`, the **linear** drift, not with `Drift.track`. So the
+  drift-kick-drift split has carried the pre-L1 drift since J1, and `n_slices → ∞`
+  converges onto the *paraxial* thick multipole rather than onto the exact one. That is
+  the same model boundary L2 records for the quadrupole, reached by a different route.
 
 Gates: `tests/analytic/test_drift.py` (13), `tests/analytic/test_exact_drift_dispersion.py`
 (5), `tests/analytic/test_symplectic_canonical.py` (14),
@@ -357,6 +370,12 @@ Two consequences worth carrying:
 - **`SkewQuadrupole` got the same map**, through the 45° roll conjugation it is already
   defined by. Leaving it linear while `Quadrupole(roll=−45°)` became chromatic would
   have made the same magnet behave two ways depending on how it was spelled.
+- **`Dipole(L, 0, k1)` and `Quadrupole(L, k1)` are the same magnet and now track
+  differently** — identical matrices, and the bend's `track` is still its matrix. This
+  is a *new* divergence created by L2, it is deliberate (L3 closes it), and it is
+  **load-bearing**: `test_the_bend_is_the_only_thing_tracking_is_still_blind_to` uses
+  exactly that pair as a controlled experiment, since swapping one for the other changes
+  the tracked chromaticity and nothing else.
 - **`is_symplectic_map` now *accepts* a correct exact map at small amplitude.** The
   `(ζ, δ)` residual is second order in the amplitude *and* suppressed by `1/γ₀²`; on a
   `γ₀ = 20` ring at amplitude `1e-3` it is `8.4e-10`, under the default `atol` of

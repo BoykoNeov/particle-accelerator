@@ -166,10 +166,16 @@ class Tracker:
 
         A plain :class:`~accsim.elements.drift.Drift` is now in the same position, and
         much less obviously: its exact map is ``x += L px / pz``, so the two paths part
-        company for *any* particle with a transverse angle, by ``O(px^2)``. On a
-        sextupole ring that is 1% of the sextupole's own difference — small, but not
-        round-off, and not zero. They still agree exactly for a particle with
-        ``px = py = 0``.
+        company for *any* particle with a transverse angle, by ``O(px^2)``. The thick
+        :class:`~accsim.elements.quadrupole.Quadrupole` joined it (L2): it lengthens an
+        off-*axis* particle's path even at zero angle, and focuses by ``k1/(1 + delta)``
+        off momentum. On a sextupole ring the two together are 1.3% of the sextupole's
+        own difference — small, but not round-off, and not zero.
+
+        So the exception is narrower than it was: the two paths agree exactly only for a
+        particle on the **design orbit**, ``x = px = y = py = 0``. ``px = py = 0`` is no
+        longer enough, because a quadrupole's path lengthening is driven by position and
+        not only by angle.
 
         That default is deliberate (every optics quantity in the package is built on the
         linear map), but it is a choice the caller has to make knowingly.

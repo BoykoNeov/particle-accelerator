@@ -436,7 +436,17 @@ def linearised_element_maps(
     ``M[zeta, py]``. Those four entries are the vertical dispersion an orbit angle
     makes — the physics the exact map exists for — and this function is the only route
     that sees them, because it differentiates ``track()`` rather than reading element
-    types. On the design orbit (``px = py = 0``) every element still returns its
+    types.
+
+    **A thick** :class:`~accsim.elements.quadrupole.Quadrupole` **is in the same
+    position since L2, and for a different variable.** Its focusing is
+    ``k1/(1 + delta)``, so at a nonzero orbit *offset* — an angle is not needed — its
+    Jacobian grows a ``delta`` column too: an off-centre trajectory is deflected
+    differently by momentum, which is the quadrupole's share of natural chromaticity
+    seen locally. The drift's terms switch on with the orbit angle, the quadrupole's
+    with the orbit position, and a steered machine generally has both.
+
+    On the design orbit (``x = px = y = py = 0``) every element still returns its
     ``matrix`` to round-off, which is what keeps an unsteered machine's on-orbit optics
     bit-for-bit equal to its design optics.
 
@@ -526,16 +536,19 @@ def linearised_lattice(
     element *types*, not maps, so they need a lattice rather than a list of matrices.
 
     **What it cannot represent, and why it returns an answer anyway.** A
-    :class:`~accsim.elements.drift.Drift` at a nonzero orbit angle has a ``delta``
-    column and a conjugate ``zeta`` row in its exact Jacobian (see
-    :func:`linearised_element_maps`). No accsim element carries a transverse
-    ``delta`` column without also bending, so there is nothing here to build those
-    entries out of, and they are simply absent — on a steered FODO ring the two routes
-    differ by ``5.4e-3`` in the one-turn map because of it.
+    :class:`~accsim.elements.drift.Drift` at a nonzero orbit *angle* has a ``delta``
+    column and a conjugate ``zeta`` row in its exact Jacobian, and since L2 a thick
+    :class:`~accsim.elements.quadrupole.Quadrupole` at a nonzero orbit *offset* has one
+    too (see :func:`linearised_element_maps` for both). No accsim element carries a
+    transverse ``delta`` column without also bending, so there is nothing here to build
+    those entries out of, and they are simply absent — on a steered FODO ring the two
+    routes differ by ``5.4e-3`` in the one-turn map because of it.
 
     That is an omission rather than a wrong number, and the distinction is what
-    decides the behaviour. The dropped terms carry **no gradient**, so no chromaticity
-    integral reads them and everything this function exists to feed is unaffected.
+    decides the behaviour. The dropped terms carry **no gradient** — at ``delta = 0``
+    the quadrupole's transverse block *is* its matrix, so only the ``delta`` column and
+    ``zeta`` row are lost — so no chromaticity integral reads them and everything this
+    function exists to feed is unaffected.
     Refusing would break the feed-down machinery over a term it never looks at — which
     is why the rolled-multipole branch above *does* refuse (it would emit a wrong
     split) and this does not. But anything that wants **dispersion** from a linearised
