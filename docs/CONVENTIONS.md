@@ -701,29 +701,36 @@ Details that are load-bearing rather than incidental:
 
 **Scope, enforced rather than documented.**
 
-- `orbit.linearised_lattice` **raises** on a non-zero octupole: its feed-down split
-  (sextupole + gradient + skew + dipole) is out of scope, and passing it through
-  would report a drift — i.e. claim the beam on a distorted orbit sees no gradient
-  from it. `linearised_element_maps` handles octupoles correctly because it
-  differentiates `track()`, and `closed_orbit_nonlinear` inherits that.
-- **So the I3 on-orbit family splits in half, and which half is not obvious.** The
-  entry points that differentiate `track()` — `closed_twiss_on_orbit`,
-  `propagate_twiss_on_orbit`, `tunes_on_orbit`, `coupled_twiss_on_orbit` — **work**
-  with a live octupole and see its feed-down gradient. The ones that walk element
-  *types* through `linearised_lattice` — `chromaticity_on_orbit`,
-  `natural_chromaticity_on_orbit` — **raise**. Gated through the user-facing calls,
-  not only by calling `linearised_lattice` directly, so an edit that stopped routing
-  through it could not drop the guard unnoticed.
-- `chromaticity()` ignoring octupoles is **right at first order**: expanding
-  `x = x_β + D_x δ` gives an octupole a *sextupole* term linear in `δ` and a gradient
-  only at `δ²`, so `Q′` is untouched and `Q″` is the honest blind spot (derived in
-  sympy, gated).
+- ⚠️ **Superseded by J3 (2026-08-17), recorded because the reasoning still holds.**
+  At J2 `orbit.linearised_lattice` **raised** on any non-zero octupole — the split was
+  not derived, and passing the element through would report a drift, i.e. claim the
+  beam on a distorted orbit sees no gradient from it. J3 derived the split, so the
+  line now sits at **thick vs thin**: a `ThinOctupole` is expanded, a thick `Octupole`
+  still raises for the `O(L²)` reason. See *Octupole feed-down on a distorted orbit*.
+- **So at J2 the I3 on-orbit family split in half — it no longer does.** The entry
+  points that differentiate `track()` (`closed_twiss_on_orbit`,
+  `propagate_twiss_on_orbit`, `tunes_on_orbit`, `coupled_twiss_on_orbit`) always
+  worked with a live octupole; the ones that walk element *types* through
+  `linearised_lattice` (`chromaticity_on_orbit`, `natural_chromaticity_on_orbit`)
+  raised at J2 and **answer since J3**. The guard is still gated through the
+  user-facing calls rather than only by calling `linearised_lattice` directly, so an
+  edit that stopped routing through it could not drop the thick-element guard
+  unnoticed.
+- `chromaticity()` ignoring octupoles is **right at first order on the design
+  orbit**: expanding `x = x_β + D_x δ` about `x_co = 0` gives an octupole a
+  *sextupole* term linear in `δ` and a gradient only at `δ²`, so `Q′` is untouched and
+  `Q″` is the honest blind spot (derived in sympy, gated). On a **distorted** orbit
+  the same expansion about `x_co ≠ 0` produces a δ-linear gradient `k3l·x_co·D_x`,
+  which is J3's first rung — genuine `Q′` of the real machine, not a piece of `Q″`
+  arriving late. `Q″` stays uncomputed on **both** orbits (the `½k3l·D_x²` gradient,
+  and the δ-dependence of `x_co` itself).
 - `Tracker.track(nonlinear=False)` silently drops the kick, exactly as for the
   sextupole — asserted so it is documented rather than discovered. A detuning study
   run on the default path measures exactly zero, convincingly.
-- Not claimed: sextupole (second-order) detuning, the octupole's own second-order
-  term, octupole feed-down on a distorted orbit, resonance driving terms, normal-form
-  machinery, dynamic aperture, and octupoles as matching knobs.
+- Not claimed **at J2**: sextupole (second-order) detuning, the octupole's own
+  second-order term, octupole feed-down on a distorted orbit (**delivered by J3**),
+  resonance driving terms, normal-form machinery, dynamic aperture, and octupoles as
+  matching knobs.
 
 Gates: `tests/analytic/test_octupole_kick.py` (20),
 `tests/analytic/test_amplitude_detuning.py` (12),

@@ -63,11 +63,15 @@ bump does **not** steer the beam horizontally through an octupole — where thro
 a sextupole it does.
 
 On the **design** orbit none of this exists, and that non-response is the
-milestone's own reference point: expanding ``x = x_beta + D_x delta`` on axis
-makes an octupole a *second*-order chromatic element (its ``delta`` term is a
-sextupole, not a gradient), so :func:`accsim.twiss.chromaticity` is right at first
-order and ``Q''`` is the blind spot. Steering the machine is what turns that into
-a first-order effect.
+milestone's own reference point: expanding ``x = x_beta + D_x delta`` about
+``x_co = 0`` makes an octupole a *second*-order chromatic element (its ``delta``
+term is a sextupole, not a gradient), so :func:`accsim.twiss.chromaticity` is right
+at first order there and ``Q''`` is the blind spot. Steering the machine is what
+turns that into a first-order effect: expanding about ``x_co != 0`` instead gives a
+``delta``-linear gradient ``k3l x_co D_x``, which is the ``Q'`` of the real machine
+rather than a piece of ``Q''`` arriving late. ``Q''`` itself is uncomputed on
+**both** orbits — the ``1/2 k3l D_x^2`` gradient, and the ``delta``-dependence of
+``x_co`` — and remains out of scope.
 
 A **thick** octupole is still refused by :func:`accsim.orbit.linearised_lattice`,
 for the thick sextupole's reason: its offset varies across the body, so one
