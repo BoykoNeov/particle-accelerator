@@ -38,6 +38,7 @@ from .elements import (
     ThinQuadrupole,
     ThinSextupole,
     ThinSkewQuadrupole,
+    ThinSkewSextupole,
 )
 from .lattice import Lattice, matrix_of
 from .lifetime import quantum_lifetime
@@ -159,6 +160,7 @@ __all__ = [
     "ThinOctupole",
     "SkewQuadrupole",
     "ThinSkewQuadrupole",
+    "ThinSkewSextupole",
     "RFCavity",
     "Aperture",
     "Collimator",

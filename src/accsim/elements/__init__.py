@@ -11,7 +11,7 @@ from .element import Element
 from .octupole import Octupole, ThinOctupole
 from .quadrupole import Quadrupole, ThinQuadrupole
 from .rfcavity import RFCavity
-from .sextupole import Sextupole, ThinSextupole
+from .sextupole import Sextupole, ThinSextupole, ThinSkewSextupole
 from .skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "ThinOctupole",
     "SkewQuadrupole",
     "ThinSkewQuadrupole",
+    "ThinSkewSextupole",
     "RFCavity",
     "Aperture",
     "Collimator",

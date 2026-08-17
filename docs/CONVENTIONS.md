@@ -734,6 +734,61 @@ to both runs so its bias cancels) and agrees within **1.1 %** on the diagonal an
 **0.3 %** on the cross terms — the residual being the second-order-in-action term the
 first-order form does not carry.
 
+## The skew sextupole (J3 part 1 — implemented)
+
+The `n = 2` **skew** term of the same expansion, written with both families present:
+
+```
+B_y + iB_x = (Bρ)·Σₙ (kₙ + i·kₙₛ)(x + iy)ⁿ/n!
+Δpx = +k2sl (x y),      Δpy = +(1/2) k2sl (x² − y²)
+k2sl = k2s·L  [m⁻²]                                    (MAD-X / Xsuite)
+```
+
+`ThinSkewSextupole` lives in `src/accsim/elements/sextupole.py`, always-on baseline
+(numpy only). `matrix()` is the identity. There is deliberately **no thick
+`SkewSextupole`** — nothing needs one, and a thick sextupole is already refused by
+`linearised_lattice` for its own `O(L²)` reason.
+
+**Why it exists at all:** J3's octupole feed-down produces one. An octupole at a
+*vertical* orbit offset is a skew sextupole of strength `k2sl = k3l·y_co`, and
+dropping that term would be exactly the silent omission the octupole branch of
+`linearised_lattice` exists to prevent.
+
+⚠️ **This is the one element in the package whose sign no analytic gate can pin.**
+Nothing accsim computes responds to it: `chromaticity` sums `k2l` over *normal*
+sextupoles at `D_x`, `amplitude_detuning` walks octupoles. So the analytic suite is
+structural (symplectic, curl-free, identity `matrix()`, identity Jacobian at the
+origin) or shape-only, and **all of it is satisfied by the opposite sign**. The
+convention is fixed by probe alone (G1 rule), measured 2026-08-17:
+`ThinSkewSextupole(k2sl) ≡ xt.Multipole(ksl=[0,0,+k2sl])`, agreement a few ulp,
+`−k2sl` missing by exactly twice the kick. The normal/skew asymmetry is not
+cosmetic — `Corrector` already needs `knl=[−k]` for `kick_x=+k` but `ksl=[+k]` for
+`kick_y=+k`.
+
+**Two things the analytic suite *can* do**, and they are what make the coefficient
+non-circular:
+
+- The `kₙ + i·kₙₛ` series is written **once** and evaluated at three places. Its
+  `n = 1` skew term must reproduce `ThinSkewQuadrupole` (xtrack-pinned in G1) and its
+  `n = 2` normal term must reproduce `ThinSextupole` (xtrack-pinned in J1), so the
+  `1/2` and the *relative* sign of the two skew components inherit two independent
+  verdicts. The only difference between the families is the `i` on the strength.
+- **The roll angle is solved for, not recalled.** A skew sextupole is a normal one
+  rolled by **−30°** (`π/(2(n+1))` for a `2(n+1)`-pole). Sympy is asked which rolls
+  satisfy `R(φ)ᵀ·k_normal(R(φ)r) = k_skew(r)`; the coefficient conditions collapse
+  onto the *tripled* angle, so the answer is a family `−π/6 + 2πn/3` — the sextupole's
+  three-fold symmetry. Recorded because it is **not unique** (`+π/2` is the same
+  magnet) and because `+π/6` satisfies the same shape with the opposite sign.
+
+**The chromatic effect a skew sextupole really has is not modelled.** At dispersion
+it feeds down a `δ`-dependent *skew* gradient `k1sl = k2sl·D_x·δ` — chromatic
+**coupling**, a quantity this package does not compute anywhere. `chromaticity()`
+returning bit-identical values with and without one is asserted in the suite so the
+blind spot is documented rather than discovered.
+
+Gates: `tests/analytic/test_skew_sextupole.py` (11),
+`tests/reference/test_skew_sextupole_xtrack.py` (4).
+
 ## Betatron coupling — skew quad, normal-mode tunes, ΔQ_min (G1 — implemented)
 
 The linear x-y coupling milestone (expansion axis **G1**). Three baseline pieces

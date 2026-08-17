@@ -84,6 +84,20 @@ def _drift_matrix(length: float, ref: ReferenceParticle) -> np.ndarray:
     return M
 
 
+def _apply_skew_kick(state: np.ndarray, k2sl: float) -> np.ndarray:
+    r"""Apply the thin **skew** sextupole kick ``k2sl``, mutating ``state``.
+
+    ``Delta px = +k2sl (x y)``, ``Delta py = +1/2 k2sl (x^2 - y^2)`` — the normal
+    kick's two components swapped and re-signed, which is what multiplying the
+    strength by ``i`` in the field expansion does. Same ``p0`` normalisation and same
+    ``(6,)``-or-``(6, n)`` handling as :func:`_apply_kick`.
+    """
+    x, y = state[X], state[Y]
+    state[PX] += k2sl * (x * y)
+    state[PY] += 0.5 * k2sl * (x * x - y * y)
+    return state
+
+
 def _apply_kick(state: np.ndarray, k2l: float) -> np.ndarray:
     r"""Apply the thin sextupole kick of integrated strength ``k2l``, mutating ``state``.
 
@@ -217,3 +231,65 @@ class ThinSextupole(Element):
     def __repr__(self) -> str:
         name = f", name={self.name!r}" if self.name is not None else ""
         return f"ThinSextupole(k2l={self.k2l}{name})"
+
+
+class ThinSkewSextupole(Element):
+    r"""A thin **skew** sextupole: a zero-length kick of integrated strength ``k2sl``.
+
+    ``k2sl = k2s * L`` [m^-2]. The kick is
+
+        Delta px = +k2sl (x y),      Delta py = +1/2 k2sl (x^2 - y^2),
+
+    applied exactly by :meth:`track` — the normal sextupole's two components swapped
+    and re-signed. In the field expansion
+    ``B_y + i B_x = (B rho) sum_n (k_n + i k_ns) (x + i y)^n / n!`` that is the whole
+    difference between the two families: the strength is multiplied by ``i``.
+    Geometrically it is a normal :class:`ThinSextupole` **rolled by -30 degrees**
+    about the beam axis (``pi / (2 (n + 1))`` for a ``2(n+1)``-pole), the sextupole's
+    counterpart of the 45 degree roll that makes
+    :class:`~accsim.elements.skew_quadrupole.ThinSkewQuadrupole` out of a normal quad.
+    The angle is *solved for* rather than recalled in
+    ``tests/analytic/test_skew_sextupole.py``, which also records that it is not
+    unique (a sextupole field is unchanged by a third of a turn) and that ``+30``
+    degrees gives exactly the opposite kick.
+
+    Like every thin nonlinear kick its **linear** map is the identity, so beta,
+    dispersion, the tunes and the linear coupling do not depend on ``k2sl``. It is
+    exactly symplectic at any amplitude, being minus the gradient of
+    ``V = -k2sl (3 x^2 y - y^3) / 6`` — a structural property of any gradient kick,
+    which is why it pins nothing about the coefficient.
+
+    **Where this element comes from, and what reads it.** It exists because J3's
+    octupole feed-down produces one: an octupole at a *vertical* orbit offset
+    ``y_co`` is a skew sextupole of strength ``k2sl = k3l y_co``
+    (see :func:`accsim.orbit.linearised_lattice`), and dropping that term would have
+    been the silent omission the octupole branch exists to avoid. Nothing else in the
+    package reads it — :func:`accsim.twiss.chromaticity` sums normal sextupoles at
+    ``D_x``, so the chromatic effect a skew sextupole actually has (a
+    ``delta``-dependent *skew* gradient ``k1sl = k2sl D_x delta``, i.e. chromatic
+    coupling) is **not modelled anywhere**, and is asserted as a non-response in the
+    analytic suite rather than left to be discovered. There is deliberately no thick
+    ``SkewSextupole``: nothing needs one yet, and the thick sextupole is already
+    refused by ``linearised_lattice`` for its own ``O(L^2)`` reason.
+
+    Because no accsim quantity responds to it, **its sign cannot be pinned by any
+    analytic gate here** and is fixed by probe against xtrack
+    (``ThinSkewSextupole(k2sl) == xt.Multipole(ksl=[0, 0, +k2sl])``), the same rule
+    J1 and J2 followed for the normal sextupole and the octupole.
+    """
+
+    def __init__(self, k2sl: float, name: str | None = None) -> None:
+        super().__init__(0.0, name=name)
+        self.k2sl = float(k2sl)
+
+    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+        # Zero linear part: a thin skew sextupole is the identity map at the origin.
+        return np.eye(DIM)
+
+    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+        # The full nonlinear kick -- exact, not a linearisation. Only (px, py) move.
+        return _apply_skew_kick(np.array(state, dtype=float, copy=True), self.k2sl)
+
+    def __repr__(self) -> str:
+        name = f", name={self.name!r}" if self.name is not None else ""
+        return f"ThinSkewSextupole(k2sl={self.k2sl}{name})"
