@@ -44,7 +44,11 @@ taken at ``(x, y) = 0``; expanding the kick about an orbit offset
     sextupole   unchanged
 
 so an off-axis sextupole *is* a corrector, a gradient error and a coupling source
-at once. Two consequences run through this module:
+at once. An off-axis **octupole** (J3) is all of that *and* a sextupole: its cubic
+kick reaches two orders below itself, adding
+``k2l_eff = k3l x_co`` and ``k2sl_eff = k3l y_co`` to the same four terms, with the
+gradients now quadratic in the orbit (``k1l_eff = 1/2 k3l (x_co^2 - y_co^2)``) and
+the dipole cubic. Two consequences run through this module:
 
 - The dipole term depends on the orbit it displaces, so the closed orbit becomes
   the fixed point of a **nonlinear** map rather than the solve ``(I - M4) x = k4``
@@ -464,18 +468,34 @@ def linearised_lattice(
     :func:`~accsim.twiss.propagate_twiss_on_orbit` has no such restriction, because
     it differentiates the thick element's real ``track()``.
 
-    Raises :class:`NotImplementedError` for an **octupole** of non-zero strength,
-    thin or thick. Its cubic kick expands about an orbit offset into a sextupole,
-    a gradient, a skew and a dipole term, none of which is derived here — octupole
-    feed-down is out of scope (``docs/ROADMAP.md`` -> J2). Passing it through
-    unchanged would be worse than refusing: an octupole's ``matrix()`` is a drift,
-    so the returned lattice would quietly claim the beam sees no gradient from it.
-    :func:`linearised_element_maps` *does* handle octupoles, because it
-    differentiates ``track()`` rather than walking element types.
+    A **thin octupole** is joined by J3's split, the same expansion carried one
+    order further — its cubic kick reaches two orders below itself, so it produces a
+    sextupole pair as well as a gradient pair:
+
+        ThinQuadrupole(k1l_eff  = +1/2 k3l (x_co^2 - y_co^2))
+        ThinSkewQuadrupole(k1sl_eff = +k3l x_co y_co)
+        ThinSextupole(k2l_eff  = +k3l x_co)
+        ThinSkewSextupole(k2sl_eff = +k3l y_co)
+        ThinOctupole(k3l)               — kept, unchanged
+
+    The sextupole pair is what makes an octupole a **first-order** chromatic element
+    on a distorted orbit: ``k2l_eff`` at dispersion feeds down the usual
+    ``beta k2l D_x / (4 pi)``, where an on-axis octupole contributes to ``Q'``
+    exactly nothing (its own ``delta`` term is a sextupole, not a gradient — J2).
+    The gradient pair moves beta, the tunes and the coupling as for the sextupole,
+    but one order later: it is quadratic in the orbit, not linear. Neither the
+    octupole nor the skew sextupole is read by any chromaticity integral, so keeping
+    them costs nothing and dropping them would be a claim rather than an omission.
+
+    Raises :class:`NotImplementedError` for a **thick** octupole of non-zero
+    strength, for exactly the thick sextupole's reason: its offset varies across the
+    body, so a single entrance-orbit split would carry an ``O(L^2)`` error.
+    :func:`linearised_element_maps` handles both, because it differentiates
+    ``track()`` rather than walking element types.
     """
     from .elements.octupole import Octupole, ThinOctupole
     from .elements.quadrupole import ThinQuadrupole
-    from .elements.sextupole import Sextupole, ThinSextupole
+    from .elements.sextupole import Sextupole, ThinSextupole, ThinSkewSextupole
     from .elements.skew_quadrupole import ThinSkewQuadrupole
 
     orbit = propagate_orbit_nonlinear(lattice, orbit0, delta=delta)
@@ -494,14 +514,26 @@ def linearised_lattice(
                 "carry an O(L^2) error. Slice it into ThinSextupole kicks, or use "
                 "propagate_twiss_on_orbit(), which differentiates track() directly"
             )
-        elif (isinstance(elem, ThinOctupole) and elem.k3l != 0.0) or (
-            isinstance(elem, Octupole) and elem.k3 != 0.0
-        ):
+        elif isinstance(elem, ThinOctupole):
+            x_co, y_co = float(orbit[i][0]), float(orbit[i][2])
+            tag = elem.name
+            elements.append(
+                ThinQuadrupole(
+                    0.5 * elem.k3l * (x_co * x_co - y_co * y_co), name=tag and f"{tag}_fd_quad"
+                )
+            )
+            elements.append(
+                ThinSkewQuadrupole(elem.k3l * x_co * y_co, name=tag and f"{tag}_fd_skew")
+            )
+            elements.append(ThinSextupole(elem.k3l * x_co, name=tag and f"{tag}_fd_sext"))
+            elements.append(ThinSkewSextupole(elem.k3l * y_co, name=tag and f"{tag}_fd_skewsext"))
+            elements.append(elem)
+        elif isinstance(elem, Octupole) and elem.k3 != 0.0 and elem.length > 0.0:
             raise NotImplementedError(
-                f"cannot linearise the octupole {elem.name!r} about an orbit: its feed-down "
-                "split (sextupole + gradient + skew + dipole) is out of scope, and passing it "
-                "through would silently report a drift. Use linearised_element_maps() or "
-                "propagate_twiss_on_orbit(), which differentiate track() directly"
+                f"cannot linearise the thick Octupole {elem.name!r} about an orbit: its "
+                "offset varies across the body, so a single entrance-orbit split would "
+                "carry an O(L^2) error. Slice it into ThinOctupole kicks, or use "
+                "propagate_twiss_on_orbit(), which differentiates track() directly"
             )
         else:
             elements.append(elem)

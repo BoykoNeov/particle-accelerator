@@ -734,6 +734,103 @@ to both runs so its bias cancels) and agrees within **1.1 %** on the diagonal an
 **0.3 %** on the cross terms — the residual being the second-order-in-action term the
 first-order form does not carry.
 
+## Octupole feed-down on a distorted orbit (J3 — implemented)
+
+J2's octupole was exact on axis and *refused* off it. J3 derives what it refused.
+Expanding the cubic kick about an orbit offset `(x_co, y_co)` splits **one octupole
+into six elements** (derived in sympy, never recalled):
+
+```
+dipole       θx = −(1/6)k3l·x_co(x_co² − 3y_co²),  θy = +(1/6)k3l·y_co(3x_co² − y_co²)
+normal quad  k1l_eff  = +(1/2)k3l(x_co² − y_co²)
+skew quad    k1sl_eff = +k3l·x_co·y_co
+normal sext  k2l_eff  = +k3l·x_co
+skew sext    k2sl_eff = +k3l·y_co
+octupole     unchanged
+```
+
+`orbit.linearised_lattice` now emits the four *elements* (the dipole does not appear:
+it is what placed the orbit these are read at, and a `Corrector`'s `matrix()` is the
+identity anyway) and keeps the octupole. A **thick** `Octupole` still raises, for the
+thick sextupole's `O(L²)` reason; `linearised_element_maps` handles both, since it
+differentiates `track()`.
+
+**A cubic kick reaches two orders below itself**, where the sextupole's quadratic kick
+reached one. That is the whole milestone: the same coefficient set drives three
+quantities the package computes by three unrelated routes, at three different powers
+of the orbit.
+
+| rung | quantity | mechanism | power | residual |
+|---|---|---|---|---|
+| 1 | `Q′` (chromaticity integrals) | `k2l_eff` at dispersion | `x_co` | `x_co³` |
+| 2 | tunes / β (linearised matrix) | `k1l_eff` | `x_co²` | `x_co⁴` |
+| 3 | the closed orbit (Newton) | the dipole | `x_co³` | `x_co⁵` |
+
+Measured over four halvings of the steerer: 2.0 / 4.0 / 8.0 with residuals 8 / 16 /
+32, and the three exponents fitted directly as 1, 2, 3 to within 2 %.
+
+⚠️ **Neither half of the gate works alone**, and this is J1/J2's lesson for the third
+time. A uniformly mis-scaled octupole (`1` for `1/6`) leaves all three *powers*
+untouched — it is caught only as a clean factor **6** in magnitude. A single
+magnitude check at a single amplitude is exactly what a wrong coefficient survives.
+Both are in `test_octupole_feeddown.py` and the file says so.
+
+Details that are load-bearing:
+
+- **Rung 1 starts from exactly zero.** On the design orbit an octupole contributes
+  *nothing* to `Q′` (J2: its `δ` term is a sextupole, not a gradient), so
+  `chromaticity_on_orbit == chromaticity` bit-for-bit on axis. Steering turns that
+  into a first-order effect — a quantity the package previously said did not exist.
+  The tracked route (`tunes_on_orbit` at `δ = ±h`) reaches the same number by a route
+  with no integral in it: the gap between them falls by **4 per halving of `h`**
+  (measured 4.09e-3 → 6.40e-5), i.e. it is the central difference's own `O(h²)` and
+  extrapolates to zero. A wrong `k2l_eff` would leave an `h`-independent gap.
+- **The six-way identity is exact, and therefore had to be made non-blind.** For a
+  thin octupole the expansion terminates, so the chain of six reproduces the kick to
+  round-off. It is run with **both** planes steered (both offsets asserted non-zero,
+  or the skew pair vanishes and its signs are unconstrained) and each of the six
+  coefficients is flipped in turn and shown to break it.
+- **`θx/k1l_eff = −x_co/3` is pure geometry** — no `k3l` in it — where the sextupole's
+  (I2) is `−x_co/2`. A gradient measurement alone fixes the product `k3l·x_co²` and
+  never the split.
+- **`x = px = 0` is an *exact* invariant subspace, as well as `y = py = 0`.** The
+  octupole's kick is odd in both coordinates, so a purely vertical bump does **not**
+  steer the beam horizontally — where through a sextupole (whose `Δpx` is *even* in
+  `y`) it does. Asserted at exact zero, and the sharpest single distinction between
+  the two elements' feed-down.
+- **Coupling needs both planes here.** `k1sl_eff = k3l·x_co·y_co` is a *product*, so a
+  vertical bump alone leaves `γ_c` exactly 1, where a sextupole's `k2l·y_co` would
+  couple. The skew *sextupole* is live with a vertical bump alone but has no linear
+  part, so it is invisible to `γ_c` — which is its own element's blind spot, restated.
+- **The equivalent lattice is exact; the residual is the differencing.** Against
+  accsim's own `linearised_one_turn_map` the gap falls as `step²` (1.66e-6 → 1.85e-9
+  over steps 2.7e-6 → 1e-7). ⚠️ Steps must be a *constant* factor apart or the
+  expected ratio alternates (9 vs 11.1) and reads as a broken scaling.
+
+**xtrack cross-check** (`tests/reference/test_octupole_feeddown_xtrack.py`, 6):
+
+- Nonlinear closed orbit vs xtrack's own iterative search, both planes steered:
+  agreement `1e-12` m, while I1's linear solve misses by `>1e3×` that.
+- **The derived split as a whole matrix.** `linearised_lattice(...).one_turn_map()` —
+  built from the derived coefficients, *no finite difference on accsim's side* —
+  against xtrack's `R_matrix`. The residual is **xtrack's own differencing**, proven
+  three ways: it falls as xtrack's `steps_R_matrix` squared (1.17e-7 → 1.17e-9 for
+  `dx` 1e-6 → 1e-7), it is strictly proportional to `k3l`, and at `k3l = 0` the two
+  codes agree to 7e-13 on the same steered ring.
+- **Chromaticity on a steered octupole ring**, the milestone itself: xtrack's `dqx`
+  moves by far more than the bend-nonlinearity floor, accsim's design-orbit
+  `chromaticity` reports the unsteered number bit-for-bit and is decisively wrong, and
+  `chromaticity_on_orbit` closes the gap by more than an order of magnitude.
+
+Gates: `tests/analytic/test_octupole_feeddown.py` (17),
+`tests/reference/test_octupole_feeddown_xtrack.py` (6), plus the two J2 scope tests in
+`test_octupole_kick.py` **converted** rather than deleted (thin handled, thick
+refused; the whole on-orbit family now answers).
+
+Not claimed, unchanged from J2: the octupole's second-order detuning, `Q″`, resonance
+driving terms and normal-form machinery, decapoles and above, the 6D closed orbit, and
+misalignments as element attributes.
+
 ## The skew sextupole (J3 part 1 — implemented)
 
 The `n = 2` **skew** term of the same expansion, written with both families present:

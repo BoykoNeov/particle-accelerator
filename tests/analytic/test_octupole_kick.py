@@ -398,19 +398,34 @@ def test_short_thick_octupole_approaches_the_thin_one(ref: ReferenceParticle) ->
 # --------------------------------------------------------------------------
 
 
-def test_linearised_lattice_refuses_an_octupole(ref: ReferenceParticle) -> None:
-    """Feed-down is out of scope, so the *derived* linearisation raises rather than lies.
+def test_linearised_lattice_handles_a_thin_octupole_and_refuses_a_thick_one(
+    ref: ReferenceParticle,
+) -> None:
+    """The scope line J2 drew, as **J3** left it. This is the boundary, not the physics.
 
-    Passing the octupole through would report a drift — i.e. claim the beam on a
-    distorted orbit sees no gradient from it, which is false.
+    J2 refused every octupole here, because passing one through would report a drift —
+    i.e. claim the beam on a distorted orbit sees no gradient from it. J3 derived the
+    six-way split, so a *thin* octupole is now expanded rather than refused, and the
+    line has moved to where the thick sextupole's already was: a thick body's offset
+    varies across it, so a single entrance-orbit split would carry an ``O(L^2)`` error.
+
+    The physics of the split is gated in ``tests/analytic/test_octupole_feeddown.py``;
+    what is asserted here is only which inputs are accepted.
     """
     cell = [Quadrupole(0.3, 1.6), Drift(1.0), Quadrupole(0.3, -1.6), Drift(1.0)]
-    for oct_elem in (ThinOctupole(3e4, name="oct"), Octupole(0.2, 1e5, name="oct")):
-        lat = Lattice([*cell, oct_elem, *cell], ref)
-        with pytest.raises(NotImplementedError, match="octupole"):
-            linearised_lattice(lat)
-    # A zero-strength octupole is a drift and is allowed through unchanged.
-    lat0 = Lattice([*cell, ThinOctupole(0.0), *cell], ref)
+
+    thin = Lattice([*cell, ThinOctupole(3e4, name="oct"), *cell], ref)
+    expanded = linearised_lattice(thin)
+    # One octupole in, five elements out: quad + skew + sextupole + skew sextupole,
+    # then the octupole itself (all zero-strength here — the ring is not steered).
+    assert len(expanded.elements) == len(thin.elements) + 4
+
+    thick = Lattice([*cell, Octupole(0.2, 1e5, name="oct"), *cell], ref)
+    with pytest.raises(NotImplementedError, match="thick Octupole"):
+        linearised_lattice(thick)
+
+    # A zero-strength thick octupole is a drift and is allowed through unchanged.
+    lat0 = Lattice([*cell, Octupole(0.2, 0.0), *cell], ref)
     assert len(linearised_lattice(lat0).elements) == len(lat0.elements)
 
 
@@ -430,20 +445,21 @@ def test_linearised_element_maps_does_see_the_octupole(ref: ReferenceParticle) -
     assert maps[0][PY, Y] == pytest.approx(+k3l * x_off**2 / 2.0, rel=1e-5)
 
 
-def test_on_orbit_family_splits_in_half_around_a_live_octupole(ref: ReferenceParticle) -> None:
-    """On a steered ring, half the on-orbit optics works and half refuses — which half.
+def test_the_whole_on_orbit_family_now_works_around_a_live_thin_octupole(
+    ref: ReferenceParticle,
+) -> None:
+    """J2 split this family in half; J3 closed the half that refused.
 
-    The distinction is *how each one gets its maps*, not what it computes.
-    :func:`~accsim.twiss.tunes_on_orbit` and its siblings differentiate the real
-    ``track()``, so they see the octupole's feed-down gradient and give an answer.
+    The two routes to on-orbit optics are still different — :func:`tunes_on_orbit`
+    and its siblings differentiate the real ``track()``, while
     :func:`~accsim.twiss.chromaticity_on_orbit` walks element **types** through
-    :func:`~accsim.orbit.linearised_lattice`, where the octupole's split is not
-    derived — so it raises rather than silently reporting a drift.
+    :func:`~accsim.orbit.linearised_lattice` — but with the split derived, both now
+    answer for a thin octupole and *agree*, which is J3's own gate. What remains here
+    is the J2 statement they share: an octupole on a distorted orbit changes the
+    optics, and the Newton path converges on a cubic kick.
 
-    Gated through the user-facing entry point, not only by calling
-    ``linearised_lattice`` directly: a future edit that stopped routing through it
-    would drop the guard with nothing to catch it. The Newton path of
-    ``closed_orbit_nonlinear`` is exercised here too, on a cubic kick.
+    The refusal that used to be asserted here now applies only to a **thick**
+    octupole, and is checked in the test above.
     """
     cell = [Quadrupole(0.3, 1.6), Drift(1.0), Quadrupole(0.3, -1.6), Drift(1.0)]
     steered = Lattice(
@@ -455,17 +471,16 @@ def test_on_orbit_family_splits_in_half_around_a_live_octupole(ref: ReferencePar
     orbit = closed_orbit_nonlinear(steered)
     assert abs(orbit[X]) > 1e-5
 
-    # Works: the maps come from differentiating track().
     q_steered = tunes_on_orbit(steered)
     q_design = tunes_on_orbit(design)
     assert all(math.isfinite(q) for q in q_steered)
     assert abs(q_steered[0] - q_design[0]) > 1e-9  # the octupole really has fed down
 
-    # Refuses: the maps would come from a feed-down split that is not derived.
-    with pytest.raises(NotImplementedError, match="octupole"):
-        chromaticity_on_orbit(steered)
-    with pytest.raises(NotImplementedError, match="octupole"):
-        natural_chromaticity_on_orbit(steered)
+    # No longer raises: the split is derived, so the type-walking route answers too.
+    for value in (*chromaticity_on_orbit(steered), *natural_chromaticity_on_orbit(steered)):
+        assert math.isfinite(value)
+    # ...and it is a *different* number from the design-orbit one, which is the point.
+    assert chromaticity_on_orbit(steered) != chromaticity_on_orbit(design)
 
 
 def test_nonlinear_bunch_tracking_applies_the_kick(ref: ReferenceParticle) -> None:

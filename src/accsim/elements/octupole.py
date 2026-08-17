@@ -39,17 +39,41 @@ derived in sympy and computed by :func:`accsim.twiss.amplitude_detuning`. The
 off-diagonal term is ``-2x`` the diagonal at ``beta_x = beta_y`` and the matrix
 is symmetric because it descends from a Hamiltonian — neither is imposed.
 
-Feed-down, and what is deliberately not modelled
-------------------------------------------------
-About an orbit offset the cubic kick expands into a sextupole-like, a
-quadrupole-like, a skew and a dipole term, exactly as the sextupole's quadratic
-kick expands in :func:`accsim.orbit.linearised_element_maps`. That expansion is
-**not** implemented: octupole feed-down is out of scope, and the linearising
-helpers *raise* on an octupole rather than silently treating it as a drift.
-At nonzero dispersion the same expansion in ``x = x_beta + D_x delta`` makes an
-octupole a **second**-order chromatic element (its ``delta`` term is a sextupole,
-not a gradient), so :func:`accsim.twiss.chromaticity` is correct at first order
-and ``Q''`` is the blind spot; both are asserted in the suite.
+Feed-down: a cubic kick reaches two orders below itself
+-------------------------------------------------------
+About an orbit offset ``(x_co, y_co)`` the cubic kick expands into **six** terms
+(J3, derived in ``tests/analytic/test_octupole_feeddown.py`` and applied by
+:func:`accsim.orbit.linearised_lattice`):
+
+    dipole       theta_x = -1/6 k3l x_co (x_co^2 - 3 y_co^2)
+                 theta_y = +1/6 k3l y_co (3 x_co^2 - y_co^2)
+    normal quad  k1l_eff  = +1/2 k3l (x_co^2 - y_co^2)
+    skew quad    k1sl_eff = +k3l x_co y_co
+    normal sext  k2l_eff  = +k3l x_co
+    skew sext    k2sl_eff = +k3l y_co
+    octupole     unchanged
+
+Where the sextupole's quadratic kick reached one order down (a gradient), this
+reaches two — which is why the three effects appear at three *different* powers
+of the orbit: the chromaticity moves as ``x_co`` (through ``k2l_eff`` at
+dispersion), the tunes as ``x_co^2`` (through ``k1l_eff``), and the closed orbit
+itself as ``x_co^3``. The skew pair vanishes on a flat orbit, and ``x = px = 0``
+is an *exact* invariant subspace as well as ``y = py = 0``, so a purely vertical
+bump does **not** steer the beam horizontally through an octupole — where through
+a sextupole it does.
+
+On the **design** orbit none of this exists, and that non-response is the
+milestone's own reference point: expanding ``x = x_beta + D_x delta`` on axis
+makes an octupole a *second*-order chromatic element (its ``delta`` term is a
+sextupole, not a gradient), so :func:`accsim.twiss.chromaticity` is right at first
+order and ``Q''`` is the blind spot. Steering the machine is what turns that into
+a first-order effect.
+
+A **thick** octupole is still refused by :func:`accsim.orbit.linearised_lattice`,
+for the thick sextupole's reason: its offset varies across the body, so one
+entrance-orbit split would carry an ``O(L^2)`` error.
+:func:`accsim.orbit.linearised_element_maps` handles it, differentiating
+``track()`` rather than walking element types.
 """
 
 from __future__ import annotations

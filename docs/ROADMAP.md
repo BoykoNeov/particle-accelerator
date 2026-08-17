@@ -450,10 +450,13 @@ I1 named, which J1 was sequenced ahead of so that its gate would not be circular
 **I3** (the optics evaluated on that orbit, closing the gap I2 asserted), **J1**
 (the sextupole's nonlinear kick as a real map) and, as of 2026-08-17, **J2** (the
 octupole and amplitude-dependent detuning — the first tune that belongs to the
-particle rather than to the machine).
+particle rather than to the machine) and **J3** (octupole feed-down on a distorted
+orbit, which needed a new `ThinSkewSextupole` element to be written without dropping
+a term).
 Each is marked inline with what it delivered and what it deliberately did not.
-**The one open milestone is J3** (octupole feed-down on a distorted orbit — the
-deferral J2 named), opened 2026-08-17; no other axis below has an open follow-up.
+**As of 2026-08-17 there is no open follow-up on any axis below** — J3 (octupole
+feed-down on a distorted orbit, the deferral J2 named) closed the last one the same
+day it was opened.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -1544,10 +1547,10 @@ sustained arc.
     terms and normal-form / Lie-map machinery, dynamic aperture and frequency maps,
     decapoles and above, and octupoles as matching knobs.
 
-- **J3 — octupole feed-down on a distorted orbit.** 🚧 **OPEN (opened 2026-08-17)** —
-  the deferral J2 named by name. J2's octupole is exact on axis and *refused* off it:
-  `orbit.linearised_lattice` raises rather than report a drift. J3 derives what it
-  refuses. Expanding the cubic kick about an orbit offset `(x_co, y_co)` splits **one
+- **J3 — octupole feed-down on a distorted orbit.** ✅ **DONE (2026-08-17)** —
+  the deferral J2 named by name. J2's octupole was exact on axis and *refused* off it:
+  `orbit.linearised_lattice` raised rather than report a drift. J3 derives what it
+  refused. Expanding the cubic kick about an orbit offset `(x_co, y_co)` splits **one
   octupole into six elements** (derived in sympy, 2026-08-17 — not recalled):
 
       dipole       theta_x = -1/6 k3l x_co (x_co^2 - 3 y_co^2)
@@ -1567,7 +1570,9 @@ sustained arc.
     `k3l`, where an on-axis octupole is exactly zero and `Q''` is J2's blind spot),
     the tunes as `x_co^2` (through `k1l_eff`), and the closed orbit itself as
     `x_co^3` (through the dipole). One coefficient set has to satisfy all three
-    ratios at once.
+    ratios at once. **Met:** measured 2.0 / 4.0 / 8.0 per halving of the steerer,
+    residuals one order better in each case (8 / 16 / 32), and the three exponents
+    fitted directly as 1, 2, 3 to within 2 %.
   - **The ladder is blind on its own, and the magnitude gate is blind on its own.**
     A uniformly mis-scaled octupole (`1` for `1/6`, which J2 already carries through
     every structural check) leaves all three *powers* untouched and is caught only as
@@ -1600,6 +1605,21 @@ sustained arc.
     `track()`. Out of scope, unchanged from J2: the octupole's second-order detuning,
     `Q''`, resonance driving terms and normal-form machinery, decapoles and above,
     the 6D closed orbit, and misalignments as element attributes.
+  - **Delivered in two commits, element first.** `ThinSkewSextupole`
+    (`src/accsim/elements/sextupole.py`) with its own gates, then the feed-down
+    branch of `linearised_lattice`. J2's two scope tests were **converted, not
+    deleted** — the refusal now applies to a thick octupole only, and the whole
+    on-orbit optics family (`chromaticity_on_orbit` included) answers for a thin one.
+    The xtrack cross-check compares the **derived** equivalent lattice — no finite
+    difference on accsim's side — against xtrack's `R_matrix`, and shows the residual
+    is xtrack's own differencing step by three independent measurements. On the
+    steered bendy ring accsim's design-orbit chromaticity is decisively wrong and the
+    on-orbit answer closes the gap by more than an order of magnitude.
+    Gates: `tests/analytic/test_skew_sextupole.py` (11),
+    `tests/analytic/test_octupole_feeddown.py` (17),
+    `tests/reference/test_skew_sextupole_xtrack.py` (4),
+    `tests/reference/test_octupole_feeddown_xtrack.py` (6). See CONVENTIONS.md →
+    *Octupole feed-down on a distorted orbit* and *The skew sextupole*.
 
 The follow-up on J1's physics was **I2** (above, under axis I) — feed-down
 belongs to the closed-orbit axis, and J1 was sequenced ahead of it only so its gate
