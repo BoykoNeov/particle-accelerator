@@ -447,10 +447,12 @@ half, the eigen-mode sharing, whose pre-committed coefficient was corrected by x
 insertion matching), **I1** (closed orbit and its correction, which made the
 element map affine), **I2** (sextupole feed-down on a distorted orbit — the deferral
 I1 named, which J1 was sequenced ahead of so that its gate would not be circular),
-**I3** (the optics evaluated on that orbit, closing the gap I2 asserted), and **J1**
-(the sextupole's nonlinear kick as a real map).
+**I3** (the optics evaluated on that orbit, closing the gap I2 asserted), **J1**
+(the sextupole's nonlinear kick as a real map) and, as of 2026-08-17, **J2** (the
+octupole and amplitude-dependent detuning — the first tune that belongs to the
+particle rather than to the machine).
 Each is marked inline with what it delivered and what it deliberately did not.
-**As of 2026-08-10 there is no open follow-up on any axis below.**
+**As of 2026-08-17 there is no open follow-up on any axis below.**
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -1482,7 +1484,65 @@ sustained arc.
     `k2`; no coefficient is claimed), octupoles and higher multipoles, and
     normal-form / Lie-map machinery.
 
-The follow-up on this axis' physics was **I2** (above, under axis I) — feed-down
+- **J2 — the octupole, and the tune that belongs to the particle.** ✅ **DONE
+  (2026-08-17)** — the first quantity in the package where the tune depends on the
+  *amplitude* of the particle rather than only on the machine. Baseline (numpy only):
+  `Octupole`/`ThinOctupole` in `src/accsim/elements/octupole.py` with the kick
+  `Δpx = −⅙k3l(x³−3xy²)`, `Δpy = +⅙k3l(3x²y−y³)`, and
+  `accsim.twiss.amplitude_detuning`, the symmetric 2×2 anharmonicity
+  `∂Qx/∂Jx = +k3l βx²/(16π)`, `∂Qx/∂Jy = ∂Qy/∂Jx = −k3l βxβy/(8π)`.
+  - **Why the octupole and not the sextupole.** A sextupole detunes too, but only
+    through *second*-order perturbation theory — quadratic in `k2`, and therefore
+    **linear in the action**, i.e. indistinguishable from the octupole's term by an
+    amplitude scan. The octupole's term is first order in `k3l` and falls out of a
+    single phase average, which is what makes an analytic gate possible at all. The
+    detuning ring therefore carries **no sextupoles**, and that background is
+    *measured* rather than assumed away: `amplitude_detuning` returns exactly zero
+    for a sextupole-only ring while tracking shows a real shift scaling as **k2²**.
+  - **The `1/6` is anchored, not asserted.** It is the `1/3!` of the same
+    normal-multipole expansion whose `n = 1` term is the xtrack- *and* MAD-X-validated
+    `Quadrupole` and whose `n = 2` term is J1's sextupole. J1's lesson repeats
+    verbatim — symplecticity, Maxwell/curl-free, identity Jacobian at the origin,
+    `matrix()` == drift, and a potential reverse-engineered out of the kick are **all
+    blind** to the coefficient, and a deliberately mis-scaled octupole (`1` for `1/6`)
+    is carried through every one of them to prove it.
+  - **The averaging machinery is itself anchored.** `ΔQ = (1/2π)∂⟨V⟩/∂J` is first run
+    on `V = k1l x²/2`, where it must reproduce `β k1l/(4π)` — checked symbolically
+    *and* against accsim's own matrix tunes on a real ring. Only then is it pointed at
+    the octupole potential.
+  - **The tracked gate is an order gate.** Tracking sees all orders; the closed form
+    is first order in both `k3l` and the action, so a single tolerance at a single
+    amplitude would swallow exactly the coefficient error the gate exists to catch.
+    Over four halvings the measured detuning falls by **4** and the residual by
+    **16**; measured signal ratios 4.10/4.02/4.005 against residual ratios
+    17.8/16.4/16.1. The mis-scaled octupole is caught as a clean **factor of 6**.
+  - **Three traps, each closed by an assertion rather than by care.** The launch has
+    `px = py = 0`, so the action is `(1+α²)u₀²/(2β)` — the ring is a palindrome and
+    `α = 0` is asserted, because a silent `1+α²` rescales every slope. The working
+    point (`Qx = 0.294`, `Qy = 0.637`) is chosen by scan to sit 0.137 from every
+    resonance an octupole drives (`4Qx`, `4Qy`, `2Qx ± 2Qy`) and from the tunes NAFF
+    reads badly. And the measurement is a **difference** against the same ring with
+    the octupole removed, which cancels NAFF's own bias instead of leaving it in the
+    answer at the level the detuning lives.
+  - **Scope enforced, not documented.** `orbit.linearised_lattice` *raises* on a live
+    octupole (feed-down is out of scope, and passing it through would report a drift),
+    while `linearised_element_maps` handles it because it differentiates `track()`. A
+    sympy gate derives that an octupole at dispersion has **no** first-order
+    chromaticity — its `δ` term is a sextupole, not a gradient — so `chromaticity()`
+    ignoring it is right and `Q″` is the honest blind spot.
+    Gates: `tests/analytic/test_octupole_kick.py` (18),
+    `tests/analytic/test_amplitude_detuning.py` (12),
+    `tests/reference/test_octupole_xtrack.py` (7). The reference suite fits the
+    anharmonicity matrix from **xtrack's own tracked particles** and agrees within
+    1.1 % on the diagonal and 0.3 % on the cross terms; the sign is a probe
+    (`ThinOctupole(k3l) ≡ xt.Multipole(knl=[0,0,0,+k3l])`, one ulp, opposite sign off
+    by twice the kick). See CONVENTIONS.md → *The octupole and amplitude detuning*.
+  - Still **out of scope**: sextupole (second-order) detuning and the octupole's own
+    second-order term, octupole feed-down on a distorted orbit, resonance driving
+    terms and normal-form / Lie-map machinery, dynamic aperture and frequency maps,
+    decapoles and above, and octupoles as matching knobs.
+
+The follow-up on J1's physics was **I2** (above, under axis I) — feed-down
 belongs to the closed-orbit axis, and J1 was sequenced ahead of it only so its gate
 would not be circular. That sequencing paid: I2's gates are built on J1's kick and
 none of them is a rerun of it. ✅ Done.

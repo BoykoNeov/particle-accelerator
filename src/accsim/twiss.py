@@ -1165,6 +1165,92 @@ def chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
+# J2: amplitude-dependent detuning (the octupole anharmonicity)
+# ---------------------------------------------------------------------------
+
+_INV_16PI = 1.0 / (16.0 * math.pi)
+
+
+def amplitude_detuning(lattice: Lattice, slices: int = 64) -> np.ndarray:
+    r"""First-order octupole anharmonicity ``dQ/dJ`` as a symmetric ``2x2`` [m^-1].
+
+    Returns
+
+        [[dQ_x/dJ_x, dQ_x/dJ_y],
+         [dQ_y/dJ_x, dQ_y/dJ_y]]
+
+    the rate at which each tune moves with each plane's action ``J`` [m rad], where
+    a particle of action ``J_u`` reaches ``u_max = sqrt(2 J_u beta_u)``. Every other
+    tune in this package is a property of the *machine*; this is the first quantity
+    that makes the tune a property of the **particle** — which is what octupoles are
+    installed for (Landau damping) and what limits how far a beam can be squeezed
+    before it walks onto a resonance.
+
+    The closed form, per octupole of integrated strength ``k3l`` at ``(beta_x,
+    beta_y)``:
+
+        dQ_x/dJ_x = + k3l beta_x^2 / (16 pi),
+        dQ_y/dJ_y = + k3l beta_y^2 / (16 pi),
+        dQ_x/dJ_y = dQ_y/dJ_x = - k3l beta_x beta_y / (8 pi),
+
+    got by averaging the octupole potential ``V = k3l (x^4 - 6 x^2 y^2 + y^4)/24``
+    over both betatron phases at fixed action and reading ``dQ_u = (1/2pi)
+    d<V>/dJ_u``. The derivation is redone in sympy in
+    ``tests/analytic/test_amplitude_detuning.py``, where the same ``dQ = (1/2pi)
+    d<V>/dJ`` machinery is anchored on the quadrupole's known ``beta k1l/(4 pi)``.
+
+    Two properties fall out of the derivation rather than being imposed, and both
+    are gated: the matrix is **symmetric** (it is a second derivative of one
+    averaged Hamiltonian), and the cross term is **-2x** the diagonal when
+    ``beta_x = beta_y`` — a pure number, independent of ``k3l`` and of the optics.
+
+    Thin octupoles are exact single-point contributions; a thick octupole is
+    integrated by trapezoidal sub-slicing of ``beta^2`` across its body, whose
+    linear map is a drift.
+
+    **Scope.** First order in ``k3l`` and octupoles only. Sextupoles also detune,
+    at *second* order in ``k2`` and through a different mechanism (the second-order
+    term of perturbation theory, not the first); no closed form for it is claimed
+    anywhere in this package, and it is **not** included here. A ring carrying both
+    will therefore detune by more than this function reports — measurably so once
+    ``k2`` is large. Nor does this include the octupole's own second-order
+    contribution, so it is the tangent at zero amplitude, not the tune at large
+    amplitude.
+    """
+    from .elements.octupole import Octupole, ThinOctupole
+    from .elements.quadrupole import _focusing_block
+
+    tw0 = closed_twiss(lattice)
+    bx, ax = tw0.beta_x, tw0.alpha_x
+    by, ay = tw0.beta_y, tw0.alpha_y
+    dxx = dyy = dxy = 0.0
+    for elem in lattice.elements:
+        if isinstance(elem, ThinOctupole):
+            dxx += +_INV_16PI * elem.k3l * bx * bx
+            dyy += +_INV_16PI * elem.k3l * by * by
+            dxy += -2.0 * _INV_16PI * elem.k3l * bx * by
+        elif isinstance(elem, Octupole) and elem.k3 != 0.0 and elem.length > 0.0:
+            ds = elem.length / slices
+            db = _focusing_block(0.0, ds)  # octupole linear map is a drift
+            int_xx, int_yy, int_xy = 0.5 * bx * bx, 0.5 * by * by, 0.5 * bx * by
+            for i in range(slices):
+                bx, ax, _ = _propagate_block(db, bx, ax)
+                by, ay, _ = _propagate_block(db, by, ay)
+                w = 0.5 if i == slices - 1 else 1.0  # half-weight at both ends
+                int_xx += w * bx * bx
+                int_yy += w * by * by
+                int_xy += w * bx * by
+            dxx += +_INV_16PI * elem.k3 * int_xx * ds
+            dyy += +_INV_16PI * elem.k3 * int_yy * ds
+            dxy += -2.0 * _INV_16PI * elem.k3 * int_xy * ds
+            continue  # beta already advanced across the body
+        cx, cy = _blocks(elem.matrix(lattice.ref))
+        bx, ax, _ = _propagate_block(cx, bx, ax)
+        by, ay, _ = _propagate_block(cy, by, ay)
+    return np.array([[dxx, dxy], [dxy, dyy]])
+
+
+# ---------------------------------------------------------------------------
 # I3: the same optics, evaluated on the real (steered) closed orbit
 # ---------------------------------------------------------------------------
 

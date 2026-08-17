@@ -606,7 +606,118 @@ Gates: `tests/analytic/test_sextupole_kick.py` (21),
 dispersive one is **I2** (*Sextupole feed-down on a distorted orbit*), which is
 where the dipole and skew terms — the two J1 never produced — are gated, and where
 the closed orbit becomes a fixed point. J1 was sequenced first only so its own gate
-would not be circular.
+would not be circular. The *next* multipole is **J2**, below.
+
+## The octupole and amplitude detuning (J2 — implemented)
+
+The `n = 3` term of the same expansion, and the first quantity in the package where
+the tune belongs to the **particle** rather than to the machine.
+
+```
+Δpx = −(1/6) k3l (x³ − 3xy²),      Δpy = +(1/6) k3l (3x²y − y³)
+k3 = (1/Bρ)(∂³B_y/∂x³)  [m⁻⁴],     k3l = k3·L  [m⁻³]     (MAD-X / Xsuite)
+```
+
+`Octupole` (thick, drift–kick–drift with `n_slices`) and `ThinOctupole` live in
+`src/accsim/elements/octupole.py`, always-on baseline (numpy only). `matrix()` is a
+drift (thin: the identity) — an octupole has no linear part at all, so β, dispersion
+and the linear tunes are **bit-for-bit** independent of `k3l`.
+
+**The coefficient.** The `1/6` is the `1/3!` of the same normal-multipole expansion
+above, anchored at `n = 1` (`Quadrupole`, xtrack- *and* MAD-X-validated) and `n = 2`
+(`ThinSextupole`, pinned against xtrack in J1). Every structural check is blind to
+it exactly as in J1 — symplecticity, curl-free/Maxwell, identity Jacobian at the
+origin, `matrix()` == drift, and a sympy derivation from a potential
+reverse-engineered out of the kick — and a deliberately mis-scaled octupole (`1` for
+`1/6`) is carried through all of them to prove it.
+
+**The sign, by probe (G1 rule):** `ThinOctupole(k3l) ≡ xt.Multipole(knl=[0,0,0,+k3l])`.
+Agreement is **one ulp**, not bit-for-bit as for the sextupole: xtrack reaches the
+cubic through its general `knl` recursion, so the arithmetic ordering differs in the
+last bit. `−k3l` misses by exactly twice the kick.
+
+### Amplitude detuning — the physics gate
+
+`accsim.twiss.amplitude_detuning(lattice)` returns the symmetric 2×2 anharmonicity
+
+```
+∂Qx/∂Jx = + k3l βx²/(16π),   ∂Qy/∂Jy = + k3l βy²/(16π),
+∂Qx/∂Jy = ∂Qy/∂Jx = − k3l βx βy/(8π)                      [m⁻¹, J in m·rad]
+```
+
+with `u_max = √(2 J_u β_u)`. Derived by averaging `V = k3l(x⁴ − 6x²y² + y⁴)/24` over
+both betatron phases at fixed action and taking `ΔQ_u = (1/2π)·∂⟨V⟩/∂J_u`. Thin
+octupoles contribute at a point; a thick one integrates β² across its body (β
+transports as through a drift), and the gap to the thin element closes as **O(L²)**.
+
+Two properties fall out rather than being imposed, and both are gated: the matrix is
+**symmetric** (one averaged Hamiltonian), and for a single octupole the cross term is
+exactly `−2√(∂Qx/∂Jx · ∂Qy/∂Jy)` — i.e. `−2×` the diagonal at `βx = βy`, a pure
+number carrying no `k3l` and no optics.
+
+**The averaging machinery is anchored, not assumed.** `ΔQ = (1/2π)∂⟨V⟩/∂J` is first
+run on `V = k1l x²/2`, where it must reproduce `β k1l/(4π)` — checked symbolically
+*and* against accsim's own matrix tunes by adding a weak `ThinQuadrupole` to a real
+ring. Only then is it pointed at the octupole.
+
+**The tracked gate is an order gate, not a tolerance.** Tracking sees all orders; the
+closed form is first order in both `k3l` and the action, so one tolerance at one
+amplitude would swallow exactly the coefficient error the gate exists to catch. Over
+four halvings of the launch amplitude the measured detuning falls by **4** (linear in
+the action) while the residual falls by **16** (quadratic). Measured 2026-08-17:
+signal ratios 4.10 / 4.02 / 4.005, residual ratios 17.8 / 16.4 / 16.1. The mis-scaled
+octupole is caught as a clean **factor of 6**.
+
+Details that are load-bearing rather than incidental:
+
+- **The ring carries no sextupoles.** A sextupole detunes too — at *second* order in
+  `k2`, and therefore **linearly in the action**, indistinguishable from the
+  octupole's term by an amplitude scan. That background does not vanish as `k3l → 0`
+  and no closed form for it is claimed anywhere here. It is measured instead:
+  `amplitude_detuning` returns exactly zero for a sextupole-only ring while tracking
+  shows a real shift scaling as **k2²** (gated).
+- **The working point matters.** `Qx = 0.294`, `Qy = 0.637`, chosen by scan to sit
+  0.137 from every resonance an octupole itself drives (`4Qx`, `4Qy`, `2Qx ± 2Qy`)
+  and from the tunes NAFF reads badly (0, ½, 1). Sitting near one reads as a
+  coefficient error.
+- **The action carries a `1 + α²`.** `tracked_tunes` launches with `px = py = 0`, so
+  `J = (1 + α²)u₀²/(2β)`, not `u₀²/(2β)`. The ring is a palindrome so `α = 0` at the
+  launch point — asserted, not assumed, because a silent `1 + α²` rescales every
+  measured slope.
+- **The measurement is a difference** against the same ring with the octupole
+  removed, tracked at the same amplitude. NAFF has its own `O(1/n_turns)` bias;
+  differencing two measurements made the same way cancels it, while comparing against
+  an exact linear tune would leave it in the answer at the level the detuning lives.
+- `tracked_tunes` refuses a zero launch amplitude in either plane, so one action can
+  never be isolated: the four matrix entries come from a least-squares **plane fit**
+  over a (Jx, Jy) grid, which makes the symmetry an experimental result.
+
+**Scope, enforced rather than documented.**
+
+- `orbit.linearised_lattice` **raises** on a non-zero octupole: its feed-down split
+  (sextupole + gradient + skew + dipole) is out of scope, and passing it through
+  would report a drift — i.e. claim the beam on a distorted orbit sees no gradient
+  from it. `linearised_element_maps` handles octupoles correctly because it
+  differentiates `track()`, and `closed_orbit_nonlinear` inherits that.
+- `chromaticity()` ignoring octupoles is **right at first order**: expanding
+  `x = x_β + D_x δ` gives an octupole a *sextupole* term linear in `δ` and a gradient
+  only at `δ²`, so `Q′` is untouched and `Q″` is the honest blind spot (derived in
+  sympy, gated).
+- `Tracker.track(nonlinear=False)` silently drops the kick, exactly as for the
+  sextupole — asserted so it is documented rather than discovered. A detuning study
+  run on the default path measures exactly zero, convincingly.
+- Not claimed: sextupole (second-order) detuning, the octupole's own second-order
+  term, octupole feed-down on a distorted orbit, resonance driving terms, normal-form
+  machinery, dynamic aperture, and octupoles as matching knobs.
+
+Gates: `tests/analytic/test_octupole_kick.py` (18),
+`tests/analytic/test_amplitude_detuning.py` (12),
+`tests/reference/test_octupole_xtrack.py` (7). The reference suite fits the
+anharmonicity matrix from **xtrack's own tracked particles** (actions built from
+xtrack's twiss; accsim supplies only the D2-validated NAFF step, applied identically
+to both runs so its bias cancels) and agrees within **1.1 %** on the diagonal and
+**0.3 %** on the cross terms — the residual being the second-order-in-action term the
+first-order form does not carry.
 
 ## Betatron coupling — skew quad, normal-mode tunes, ΔQ_min (G1 — implemented)
 
