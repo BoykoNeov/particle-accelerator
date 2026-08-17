@@ -33,7 +33,7 @@ class Drift(Element):
     than assumed.
     """
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         L = self.length
         M = np.eye(DIM)
         M[X, PX] = L

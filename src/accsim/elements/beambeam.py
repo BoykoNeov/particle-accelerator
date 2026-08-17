@@ -236,7 +236,7 @@ class BeamBeam(Element):
             )
         return self.strengths(ref)[0]
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         # Linear (axis) limit: a thin lens focusing the planes by K_x, K_y.
         M = np.eye(DIM)
         kx, ky = self.strengths(ref)

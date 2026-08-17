@@ -161,8 +161,9 @@ class Sextupole(Element):
         *,
         dx: float = 0.0,
         dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(length, name=name, dx=dx, dy=dy)
+        super().__init__(length, name=name, dx=dx, dy=dy, roll=roll)
         if n_slices < 1:
             raise ValueError(f"n_slices must be >= 1, got {n_slices}")
         self.k2 = float(k2)
@@ -173,7 +174,7 @@ class Sextupole(Element):
         """Integrated strength ``k2l = k2 * L`` [m^-2]."""
         return self.k2 * self.length
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         # Linear map of a sextupole is a drift: no focusing, no dispersion.
         return _drift_matrix(self.length, ref)
 
@@ -223,12 +224,18 @@ class ThinSextupole(Element):
     """
 
     def __init__(
-        self, k2l: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+        self,
+        k2l: float,
+        name: str | None = None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(0.0, name=name, dx=dx, dy=dy)
+        super().__init__(0.0, name=name, dx=dx, dy=dy, roll=roll)
         self.k2l = float(k2l)
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         # Zero linear part: a thin sextupole is the identity map at the origin.
         return np.eye(DIM)
 
@@ -286,12 +293,18 @@ class ThinSkewSextupole(Element):
     """
 
     def __init__(
-        self, k2sl: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+        self,
+        k2sl: float,
+        name: str | None = None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(0.0, name=name, dx=dx, dy=dy)
+        super().__init__(0.0, name=name, dx=dx, dy=dy, roll=roll)
         self.k2sl = float(k2sl)
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         # Zero linear part: a thin skew sextupole is the identity map at the origin.
         return np.eye(DIM)
 

@@ -8,6 +8,7 @@ import numpy as np
 
 from ..coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from ..reference import ReferenceParticle
+from .alignment import arc_motion, frame_change, roll_motion
 from .element import Element
 from .quadrupole import _focusing_block
 
@@ -22,7 +23,7 @@ def _dispersion_integrals(K: float, L: float) -> tuple[float, float, float]:
     - ``c2 = (s1 - L)/K``                                                   -> ``-L^3/6``
 
     The combined-function dipole's dispersion is ``R16 = h*c1``, ``R26 = h*s1``,
-    and its longitudinal slip carries ``h^2*c2`` (see :meth:`Dipole._body_matrix`).
+    and its longitudinal slip carries ``h^2*c2`` (see :meth:`Dipole._arc_matrix`).
     All three have removable singularities at ``K = 0`` (the ``h^2 = -k1`` tune),
     handled by the leading Taylor terms so a combined-function magnet tuned exactly
     there is still exact to machine precision.
@@ -142,6 +143,25 @@ class Dipole(Element):
     wrong one, :meth:`kick` and :meth:`_track_body` raise
     :class:`NotImplementedError` when ``angle != 0`` and an offset is set. A
     straight dipole (``angle = 0``, i.e. a gradient magnet) is displaced normally.
+
+    **A bending dipole may be rolled, and that curved geometry is now implemented**
+    (K2) — it is the piece the refusal above said was missing, done for the roll
+    rather than for the offset. ``roll`` turns the magnet about the beam axis while
+    the machine stays where it is (MAD-X ``EALIGN``'s ``DPSI``, xtrack's
+    ``rot_s_rad_no_frame``), which is *not* the same as rolling the reference frame
+    with it (MAD-X ``TILT``): the frame-following version has **exactly zero kick**,
+    because the design orbit was rolled too. What a real roll error produces, to
+    first order in ``phi`` and exactly in the bend angle, is
+
+        Delta p_y = -phi sin(angle),     Delta y = -phi rho (1 - cos angle),
+
+    an angle **and** an offset — the arc's sagitta tipped out of the plane. The
+    horizontal loss is only second order (``1 - cos phi``), and there is a residual
+    frame roll ``phi (1 - cos angle)`` that makes a rolled bend a genuine **coupling**
+    source as well. Because the kick is momentum-dependent through the body, a rolled
+    bend is the package's first **source** of vertical dispersion: everything else
+    that produces ``D_y`` (G1's skew quadrupole) only rotates dispersion the
+    horizontal bends already made. See :meth:`_alignment_exit`.
     """
 
     def __init__(
@@ -155,8 +175,9 @@ class Dipole(Element):
         *,
         dx: float = 0.0,
         dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(length, name=name, dx=dx, dy=dy)
+        super().__init__(length, name=name, dx=dx, dy=dy, roll=roll)
         if length == 0.0 and angle != 0.0:
             raise ValueError("a finite bend angle requires a positive length")
         self.angle = float(angle)
@@ -174,7 +195,7 @@ class Dipole(Element):
         """Bending radius ``rho = L/theta`` [m] (``inf`` for a straight dipole)."""
         return self.length / self.angle if self.angle != 0.0 else math.inf
 
-    def _body_matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _arc_matrix(self, ref: ReferenceParticle) -> np.ndarray:
         """The bare bend body (no edges)."""
         L = self.length
         theta = self.angle
@@ -237,17 +258,55 @@ class Dipole(Element):
         M[ZETA, DELTA] = L / ref.gamma0**2 + h * h * c2
         return M
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
-        body = self._body_matrix(ref)
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
+        body = self._arc_matrix(ref)
         if self.e1 == 0.0 and self.e2 == 0.0:
             return body  # pure sector: byte-identical to the original map
         h = self.curvature
         # Entrance edge acts first: M = Edge(e2) @ Body @ Edge(e1).
         return _edge_matrix(h, self.e2) @ body @ _edge_matrix(h, self.e1)
 
+    def _alignment_exit(self, ref: ReferenceParticle) -> tuple[np.ndarray, np.ndarray]:
+        """The rigid motion that puts a **rolled bend's** exit face back (K2).
+
+        For a straight element (or an unrolled one) this is the base class's plain
+        inverse rotation. For a *bending* magnet it is not, and that is the whole of
+        K2: rolling the magnet by ``phi`` about the entrance ``s`` axis leaves its
+        exit frame at
+
+            T = A^-1 . R_s(phi) . A,
+
+        where ``A`` (:func:`~accsim.elements.alignment.arc_motion`) is the design
+        arc's own rigid motion. Conjugating by ``A`` is what makes ``T`` *not* a
+        rotation about ``s``: it comes out as a displacement, a pitch, a yaw and only
+        ``phi cos(angle)`` of roll, so undoing it needs the full frame change
+        (:func:`~accsim.elements.alignment.frame_change`) rather than
+        ``s_rotation(-roll)``.
+
+        Two consequences, both first order in ``phi`` and both measured against
+        xtrack rather than argued:
+
+        - a **vertical angle** ``-phi sin(angle)`` — the roll acts on the bend's
+          *chord*, not on its angle, so this is ``phi theta`` only for a weak bend;
+        - a **vertical offset** ``-phi rho (1 - cos angle)`` — the sagitta of the arc,
+          tipped out of the plane. In accsim's dispersion solve this term dominates
+          the vertical dispersion, so dropping it is not a small error.
+        """
+        if self.angle == 0.0 or self.roll == 0.0:
+            return super()._alignment_exit(ref)
+        arc = arc_motion(self.angle, self.rho)
+        motion = np.linalg.solve(arc, roll_motion(self.roll) @ arc)
+        return frame_change(motion, ref)
+
     def _refuse_misalignment(self) -> None:
-        """A *bending* dipole may not be displaced — see the class docstring (K1)."""
-        if self.is_misaligned and self.angle != 0.0:
+        """A *bending* dipole may not be **displaced** — class docstring (K1).
+
+        Rolled it may be: K2 implements the curved-body geometry for the roll, which
+        is exactly what this refusal said was missing. The offset is still refused,
+        because a *translated* curved body is a different rigid motion again and
+        nothing in the package needs it — see the class docstring.
+        """
+        if self.is_displaced and self.angle != 0.0:
             raise NotImplementedError(
                 f"cannot displace the bending Dipole {self.name!r} (angle={self.angle}): "
                 "K1's misalignment is a translation of a straight element, and a bend's "

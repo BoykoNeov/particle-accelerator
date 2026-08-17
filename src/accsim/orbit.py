@@ -528,6 +528,16 @@ def linearised_lattice(
     orbit = propagate_orbit_nonlinear(lattice, orbit0, delta=delta)
     elements: list = []
     for i, elem in enumerate(lattice.elements):
+        if elem.roll != 0.0 and isinstance(elem, (ThinSextupole, ThinOctupole)):
+            raise NotImplementedError(
+                f"cannot linearise the rolled {type(elem).__name__} {elem.name!r} "
+                f"(roll={elem.roll}) about an orbit: the feed-down split below is written "
+                "for a normal multipole, and rolling one mixes it with its skew partner "
+                "at every order. The rolled element's own track() is exact — use "
+                "propagate_twiss_on_orbit() or linearised_element_maps(), which "
+                "differentiate track() instead of walking element types. Rolled higher "
+                "multipoles are out of scope for K2 (docs/ROADMAP.md)"
+            )
         if isinstance(elem, ThinSextupole):
             # The offset in the *magnet's* frame: a displaced magnet sees the orbit
             # shifted by -d, which is how a misalignment feeds down at all (K1).

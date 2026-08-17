@@ -710,10 +710,32 @@ def closest_tune_approach(lattice: Lattice) -> float:
     :func:`normal_mode_tunes` eigenvalue gap — converging with an ``O((k1s l)^2)``
     residual as the coupling is taken to zero. Returns ``0.0`` for a lattice with no
     skew quadrupoles.
+
+    **The sum walks element *types*, so a coupling source it does not know about is
+    refused rather than silently summed as zero** (K2). A **rolled** element couples
+    the planes without being a skew quadrupole — a rolled bend does it through the
+    residual frame roll ``phi (1 - cos angle)``, a rolled normal quadrupole does it
+    outright — and for such a lattice this function would otherwise return a
+    reassuring ``0.0`` for a ring that is demonstrably coupled. The test is
+    **measured**, not by type: an element whose own matrix has a nonzero transverse
+    off-block and is not a skew quadrupole is one this sum cannot see.
+    :func:`normal_mode_tunes` is the eigenvalue path, and it sees everything.
     """
     from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
 
     ref = lattice.ref
+    for elem in lattice.elements:
+        if isinstance(elem, (SkewQuadrupole, ThinSkewQuadrupole)):
+            continue
+        M = elem.matrix(ref)
+        if M[np.ix_([X, PX], [Y, PY])].any() or M[np.ix_([Y, PY], [X, PX])].any():
+            raise CoupledLatticeError(
+                f"{type(elem).__name__} {elem.name!r} couples x and y without being a "
+                f"skew quadrupole (roll={elem.roll}), and this sum walks element types: "
+                "it would report DeltaQ_min = 0 for a ring that is coupled. Use "
+                "normal_mode_tunes(), which diagonalises the one-turn map and sees "
+                "every source"
+            )
     # Unperturbed (coupling-off) one-turn and matched Twiss.
     decoupled = [_decoupled(elem.matrix(ref)) for elem in lattice.elements]
     one_turn = np.eye(6)

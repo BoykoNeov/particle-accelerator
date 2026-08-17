@@ -155,8 +155,9 @@ class Octupole(Element):
         *,
         dx: float = 0.0,
         dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(length, name=name, dx=dx, dy=dy)
+        super().__init__(length, name=name, dx=dx, dy=dy, roll=roll)
         if n_slices < 1:
             raise ValueError(f"n_slices must be >= 1, got {n_slices}")
         self.k3 = float(k3)
@@ -167,7 +168,7 @@ class Octupole(Element):
         """Integrated strength ``k3l = k3 * L`` [m^-3]."""
         return self.k3 * self.length
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         # Linear map of an octupole is a drift: no focusing, no dispersion.
         return _drift_matrix(self.length, ref)
 
@@ -212,12 +213,18 @@ class ThinOctupole(Element):
     """
 
     def __init__(
-        self, k3l: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+        self,
+        k3l: float,
+        name: str | None = None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(0.0, name=name, dx=dx, dy=dy)
+        super().__init__(0.0, name=name, dx=dx, dy=dy, roll=roll)
         self.k3l = float(k3l)
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         # Zero linear part: a thin octupole is the identity map at the origin.
         return np.eye(DIM)
 

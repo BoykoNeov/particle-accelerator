@@ -140,7 +140,7 @@ class RFCavity(Element):
         amp = ref.charge * self.voltage / (ref.beta0**2 * ref.total_energy_eV)
         return amp * (np.sin(self.phi_s - k * np.asarray(zeta)) - math.sin(self.phi_s))
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         # Thin longitudinal shear: identity except the small-amplitude R65 kick.
         M = np.eye(DIM)
         M[DELTA, ZETA] = self.slope(ref)

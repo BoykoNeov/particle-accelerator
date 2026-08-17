@@ -63,12 +63,13 @@ class Corrector(Element):
         *,
         dx: float = 0.0,
         dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(0.0, name=name, dx=dx, dy=dy)
+        super().__init__(0.0, name=name, dx=dx, dy=dy, roll=roll)
         self.kick_x = float(kick_x)
         self.kick_y = float(kick_y)
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         """The identity: a constant kick has no linear part (see the class docstring)."""
         return np.eye(DIM)
 

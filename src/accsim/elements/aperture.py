@@ -71,7 +71,7 @@ class Aperture(Element):
         self.half_x = float(half_x)
         self.half_y = float(half_y)
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         """Identity: an aperture does not bend, focus, or slip the beam."""
         return np.eye(DIM)
 

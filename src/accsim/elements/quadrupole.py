@@ -64,11 +64,12 @@ class Quadrupole(Element):
         *,
         dx: float = 0.0,
         dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(length, name=name, dx=dx, dy=dy)
+        super().__init__(length, name=name, dx=dx, dy=dy, roll=roll)
         self.k1 = float(k1)
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         L = self.length
         M = np.eye(DIM)
         xb = _focusing_block(self.k1, L)  # x'' + k1 x = 0
@@ -110,12 +111,18 @@ class ThinQuadrupole(Element):
     """
 
     def __init__(
-        self, k1l: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+        self,
+        k1l: float,
+        name: str | None = None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        roll: float = 0.0,
     ) -> None:
-        super().__init__(0.0, name=name, dx=dx, dy=dy)
+        super().__init__(0.0, name=name, dx=dx, dy=dy, roll=roll)
         self.k1l = float(k1l)
 
-    def matrix(self, ref: ReferenceParticle) -> np.ndarray:
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         M = np.eye(DIM)
         M[PX, X] = -self.k1l  # focusing in x for k1l > 0
         M[PY, Y] = self.k1l  # defocusing in y for k1l > 0
