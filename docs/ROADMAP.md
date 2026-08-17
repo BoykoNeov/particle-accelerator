@@ -2056,7 +2056,16 @@ move.
     order in the roll (`4.7e-8`), because `frame_change()` is the affine linearisation of
     the true frame change — "exact for accsim's linear elements", which the body no longer
     is. `matrix()`/`kick()` are untouched, so every K2 number stands.
-  - Blast radius **nine analytic tests and two reference**, against L1's 29 and L2's 5.
+  - **A second reference gap closed on the way.** `test_orbit_optics_xtrack.py` had to
+    open by stating that accsim's linear elements do not feed down off axis, worth
+    `6.4e-4` in β against xtrack, and hoped for "a number to improve on". It is now
+    `5.4e-10`, with the old `6.4e-4` *moved* onto the design route where a bilinear term
+    legitimately cannot live. Its downstream β-change gate went `1.35e-3 → 2.8e-7` of the
+    effect and was tightened `5e-3 → 1e-6` rather than left loose.
+  - **One dark code path found and closed:** nothing in the suite tracked an *edged*
+    pure sector bend — `test_dipole_edges.py` only ever compared matrices — so the
+    `Edge · body · Edge` composition's order and its `h` argument had no gate.
+  - Blast radius **nine analytic tests and three reference**, against L1's 29 and L2's 5.
 
 - **L4 (candidate) — the curved quadrupole's expanded map.** The only element left whose
   `track` is its `matrix`. MAD-X's `track_thick_cfd` — exact in `δ`, paraxial in the

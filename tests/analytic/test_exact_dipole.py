@@ -277,6 +277,58 @@ def test_the_straight_limit_is_the_exact_drift_and_needs_no_branch(ref: Referenc
         assert np.abs(got - weak.matrix(ref)).max() < 1.0e-12
 
 
+def test_an_edged_bend_composes_the_exact_body_with_the_same_thin_kicks(
+    ref: ReferenceParticle,
+) -> None:
+    r"""The edged branch of ``track``, which nothing else in the suite reaches.
+
+    ``tests/analytic/test_dipole_edges.py`` never calls ``track()`` — it compares
+    matrices — so ``Edge(e2) . body . Edge(e1)`` inside :meth:`_track_body` is a code
+    path with no gate of its own, and two things in it can be wrong while every other
+    test in this file passes: the **order** of the composition, and the ``h`` passed to
+    :func:`~accsim.elements.dipole._edge_matrix` (an edge kick is ``h tan e``, so an
+    edge built with the wrong curvature is silently weaker or stronger).
+
+    Both are pinned here by rebuilding the composition by hand, which is worth doing
+    precisely because it *is* the same two functions: what is being checked is the
+    wiring, not the physics. The Jacobian identity is then re-asserted with the edges
+    on, because that is the claim the docstring makes and it had no test.
+
+    A rectangular bend (``e1 = e2 = theta/2``) is used for the second half: its edges
+    exactly cancel the body's horizontal weak focusing, so if the entrance and exit
+    kicks were swapped or one were dropped, the horizontal block would stop looking
+    like a drift and the matrix comparison would catch it.
+    """
+    from accsim.elements.dipole import _edge_matrix, exact_sector_bend_map
+
+    h = ANGLE / L_B
+    e1, e2 = 0.10, 0.15
+    edged = Dipole(L_B, ANGLE, e1=e1, e2=e2)
+
+    by_hand = _edge_matrix(h, e2) @ exact_sector_bend_map(_edge_matrix(h, e1) @ STATE, L_B, h, ref)
+    np.testing.assert_allclose(edged.track(STATE, ref), by_hand, rtol=0, atol=1e-16)
+
+    # Order matters, and is asserted to matter: the reversed composition is a different
+    # map, so the line above is a statement rather than a tautology.
+    reversed_order = _edge_matrix(h, e1) @ exact_sector_bend_map(
+        _edge_matrix(h, e2) @ STATE, L_B, h, ref
+    )
+    assert np.abs(reversed_order - by_hand).max() > 1e-6
+
+    # The invariant, with the edges on: each edge is exactly linear, so composing them
+    # around an exact body leaves matrix() the exact origin Jacobian.
+    got = jacobian(lambda st: edged.track(st, ref), np.zeros(DIM), step=1.0e-7)
+    assert np.abs(got - edged.matrix(ref)).max() < 1.0e-13
+    assert is_symplectic_map_canonical(lambda st: edged.track(st, ref), STATE, ref)
+
+    # A rectangular bend's edges cancel the body's horizontal focusing exactly — a
+    # structural property that a swapped or missing edge would destroy.
+    rect = Dipole(L_B, ANGLE, e1=ANGLE / 2.0, e2=ANGLE / 2.0)
+    rect_jac = jacobian(lambda st: rect.track(st, ref), np.zeros(DIM), step=1.0e-7)
+    assert abs(rect_jac[PX, X]) < 1.0e-12  # R21 = 0: the horizontal block is a drift
+    assert np.abs(rect_jac - rect.matrix(ref)).max() < 1.0e-13
+
+
 def test_symplectic_in_the_canonical_pair_and_rejected_by_the_other_one(
     ref: ReferenceParticle,
 ) -> None:
@@ -432,10 +484,15 @@ def _first_order_dispersion(lat: Lattice, ref: ReferenceParticle, *, naive: bool
     """``D`` re-solved with the bend's derived first-order entries put into the matrices.
 
     Shares no arithmetic with :func:`~accsim.orbit.linearised_element_maps`, which gets
-    there by differencing ``track()``. ``naive=True`` builds K2's specification instead —
-    the two ``delta``-column terms with the planes symmetric and no coupling at all —
-    which is what the package would have been asked to reproduce had this milestone
-    taken that formula at its word.
+    there by differencing ``track()``.
+
+    ``naive=True`` builds the **``delta`` column alone**: the vertical source, and the
+    horizontal one with the planes taken to be mirror images. That is the shape of K2's
+    ``p_y L (h <D_x> - 1)`` — though not literally K2's number, since this uses each
+    magnet's own exact coefficient ``-p rho sin t`` rather than the ring's ``<D_x>``, and
+    is therefore if anything the *more* favourable version of it. It is still wrong by a
+    factor of 3.8, and the reason is structural rather than a matter of coefficients: the
+    exact bend also couples the planes, and no ``delta`` column can stand in for that.
     """
     orbit = propagate_orbit_nonlinear(lat)
     M = np.eye(DIM)
@@ -495,14 +552,19 @@ def test_the_dispersion_matches_the_derived_closed_form_and_k2s_formula_does_not
     *understood*, not merely measured.
 
     **K2's specification was incomplete, and only an exact bend could show it.**
-    ``Delta d_y = p_y L (h <D_x> - 1)`` is the ``delta`` column alone; the exact bend
-    also couples the planes, ``M[y, x] = py sin t`` and ``M[y, px] = py rho (1 - cos t)``,
-    and those entries transport the ring's 2.1 m of *horizontal* dispersion into the
-    vertical. On this ring that path is the larger one: K2's formula gives ``3.3e-4``
-    where the answer is ``8.6e-5``, wrong by a factor of 3.8 and in the wrong direction.
-    It reproduced xtrack to 0.2% on K2's own rings, so this is a correction to the
-    formula's *scope*, not a contradiction of that measurement — and the reference
-    cross-check (``tests/reference/test_roll_xtrack.py``) is where the two are reconciled.
+    ``Delta d_y = p_y L (h <D_x> - 1)`` is a ``delta`` column and nothing else; the exact
+    bend also couples the planes, ``M[y, x] = py sin t`` and
+    ``M[y, px] = py rho (1 - cos t)``, and those entries transport the ring's 2.1 m of
+    *horizontal* dispersion into the vertical. On this ring that path is the larger one:
+    the ``delta``-column-only account gives ``3.3e-4`` where the answer is ``8.6e-5``,
+    wrong by a factor of 3.8 and in the wrong direction — and that is with each magnet's
+    exact coefficient rather than K2's ring-averaged ``<D_x>``, so the gap is not a
+    coefficient that could be tuned.
+
+    K2's formula reproduced xtrack to 0.2% on K2's *own* rings, so this is a correction
+    to its **scope**, not a contradiction of that measurement; the reference cross-check
+    (``tests/reference/test_roll_xtrack.py``) runs both accounts side by side on those
+    rings, where the formula still lands at 0.2% and the package now lands at 1.7e-8.
     """
     lat = _ring(ref)
     tracked = coupled_twiss_on_orbit(lat).disp_y

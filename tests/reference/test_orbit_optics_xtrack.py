@@ -7,24 +7,25 @@ derives the beta-beat closed form and gates the convergence order; what it canno
 do is confirm that the *whole* answer, on a bendy ring with eight sextupoles, is
 what an independent tracker reports.
 
-**One modelling difference has to be stated first, because it sets what these
-comparisons can say.** accsim's :class:`~accsim.elements.dipole.Dipole` and
-:class:`~accsim.elements.quadrupole.Quadrupole` are *exactly* linear maps, so an
-off-axis orbit changes nothing about them. xtrack's ``Bend`` and ``Quadrupole``
-are exact nonlinear maps, whose Jacobian at a 1.25 mm offset is genuinely not the
-on-axis one. That difference is **first order in the orbit** and belongs to
-accsim's element models, not to I3:
-:func:`test_accsims_linear_elements_do_not_feed_down_off_axis` isolates it at
-``k2l = 0``, where accsim has nothing to feed down at all and yet xtrack's beta
-still moves by 6.4e-4 relative.
+**A modelling difference used to have to be stated first, and L3 closed it.** When
+this file was written accsim's :class:`~accsim.elements.dipole.Dipole` and
+:class:`~accsim.elements.quadrupole.Quadrupole` were *exactly* linear maps, so an
+off-axis orbit changed nothing about them, while xtrack's are exact nonlinear maps
+whose Jacobian at a 1.25 mm offset is genuinely not the on-axis one. That difference
+was first order in the orbit and worth 6.4e-4 in beta. L1, L2 and L3 gave those
+elements their exact maps, and
+:func:`test_the_bends_off_axis_feed_down_now_matches_xtrack` now measures the same
+quantity at **5.4e-10** — with the old 6.4e-4 having *moved*, undiminished, onto
+accsim's design-orbit route, which is where a linear-optics blindness belongs.
 
-So the beta gate is a **with-minus-without-sextupole difference**, the same device
-J1 used for its chromaticity cross-check: the bend nonlinearity is common to both
-terms and cancels, leaving the sextupole feed-down alone. It is a strong form of
-the comparison rather than a weak one — accsim's design-orbit route predicts
-**exactly zero** change there (a sextupole's ``matrix()`` is a drift, bit for bit),
-so the gate asks accsim to reproduce an effect its previous answer said did not
-exist.
+The beta gate is still a **with-minus-without-sextupole difference**, the same device
+J1 used for its chromaticity cross-check, and it is a strong form of the comparison
+rather than a weak one: accsim's design-orbit route predicts **exactly zero** change
+there (a sextupole's ``matrix()`` is a drift, bit for bit), so the gate asks accsim to
+reproduce an effect its previous answer said did not exist. What has changed is that
+the difference no longer *cancels* anything — the undifferenced tables agree on their
+own to 1.1e-9, asserted alongside — so it is now the sharper question rather than a
+necessary one, and its bound has been tightened by three and a half orders to match.
 
 Element equivalences are the ones I1 and J1 established, reused rather than
 re-probed::
@@ -79,11 +80,11 @@ KICK = 6.0e-4  # steerer angle [rad] -> a ~1.25 mm orbit
 FLAT_BETA_RTOL = 1e-8
 FLAT_DQ_ATOL = 1e-4
 
-# Measured 2026-08-10: accsim reproduces xtrack's sextupole-induced beta change to
-# 1.35e-3 of that change (8.9e-6 m on a 6.6e-3 m effect). The leftover is the bend
-# nonlinearity above, which cancels only to the extent that the orbit is the same
-# with and without the sextupole -- the feed-down dipole moves it slightly.
-BETA_CHANGE_RTOL = 5e-3
+# Measured 2026-08-17 (L3): accsim reproduces xtrack's sextupole-induced beta change to
+# 2.8e-7 of that change (1.8e-9 m on a 6.6e-3 m effect). It was 1.35e-3 (8.9e-6 m) while
+# the leftover was the bend nonlinearity; with the bends' exact map in place that term
+# is gone from both sides and what remains is the differencing floor.
+BETA_CHANGE_RTOL = 1e-6  # was 5e-3, sized for a bend-model gap L3 closed (measured 2.8e-7)
 
 _LINES: dict[tuple[float, float], object] = {}
 
@@ -165,27 +166,43 @@ def test_the_unsteered_ring_is_the_control() -> None:
         assert computed[0] == pytest.approx(reference, abs=FLAT_DQ_ATOL)
 
 
-def test_accsims_linear_elements_do_not_feed_down_off_axis() -> None:
-    """The modelling difference, isolated and measured rather than absorbed.
+def test_the_bends_off_axis_feed_down_now_matches_xtrack() -> None:
+    """The modelling difference this test was written to record, **closed by L3**.
 
-    With ``k2l = 0`` and the ring steered by 1.25 mm, accsim has **nothing** to feed
-    down: its bends and quadrupoles are exactly linear maps, so the on-orbit optics
-    is the design optics to 4e-11. xtrack's bends are exact nonlinear maps, so its
-    beta moves by 6.4e-4 relative — an effect that is first order in the orbit and
-    belongs to accsim's element models, not to anything I3 does.
+    It used to say: with ``k2l = 0`` and the ring steered by 1.25 mm, accsim has
+    *nothing* to feed down — its bends and quadrupoles were exactly linear maps, so
+    the on-orbit optics equalled the design optics to 4e-11, while xtrack's exact
+    bends moved beta by 6.4e-4 relative. It closed with the hope that "a future
+    milestone giving the bends their real off-axis map has a number to improve on".
 
-    Recorded here so the 1.35e-3 residual of the beta gate below is understood
-    rather than mistaken for a feed-down error, and so that a future milestone
-    giving the bends their real off-axis map has a number to improve on.
+    L1, L2 and L3 are that milestone, and the number moved from **6.4e-4 to 5.4e-10**
+    — six orders. What is worth noticing is *where the 6.4e-4 went*: it did not shrink,
+    it **moved to the design route**, which now disagrees with xtrack by exactly the
+    amount the on-orbit route used to. That is the correct place for it. The design
+    optics is built on ``matrix()``, the feed-down terms are bilinear, and no 6x6 can
+    hold them; being blind there is a property of linear optics, not a defect.
+
+    So the assertion is inverted from "accsim has no feed-down" to "accsim's feed-down
+    is xtrack's", and the design route is kept in the test as the measured contrast.
     """
     lat = _accsim(0.0, KICK)
     assert abs(propagate_orbit_nonlinear(lat)[0][0]) > 1e-4  # genuinely steered
 
     on_orbit, design = _betx_on_orbit(0.0, KICK), _betx_design(0.0, KICK)
-    assert np.abs(on_orbit - design).max() < 1e-9  # accsim: no feed-down at all
+    xt_betx = np.array(_twiss(0.0, KICK).betx)
 
-    beat_vs_xtrack = np.abs(on_orbit / np.array(_twiss(0.0, KICK).betx) - 1.0).max()
-    assert 1e-4 < beat_vs_xtrack < 3e-3  # xtrack's own off-axis nonlinearity
+    # The on-orbit route is now xtrack's own answer.
+    assert np.abs(on_orbit / xt_betx - 1.0).max() < 1e-8
+
+    # ...and the old disagreement has migrated to the design route, undiminished.
+    assert np.abs(design / xt_betx - 1.0).max() == pytest.approx(6.365e-4, rel=1e-2)
+    # Non-vacuous: the two accsim routes really have parted company off axis.
+    assert np.abs(on_orbit - design).max() > 1e-3
+
+    # First order in the orbit, which is what says it is feed-down and not a constant
+    # modelling offset: halving the steerer halves the design route's error.
+    halved = np.abs(_betx_design(0.0, KICK / 2) / np.array(_twiss(0.0, KICK / 2).betx) - 1.0).max()
+    assert np.abs(design / xt_betx - 1.0).max() / halved == pytest.approx(2.0, rel=2e-2)
 
 
 def test_the_sextupole_induced_beta_change_matches_xtrack() -> None:
@@ -199,7 +216,17 @@ def test_the_sextupole_induced_beta_change_matches_xtrack() -> None:
     sextupole's ``matrix()`` is a drift: adding one changes no matrix anywhere. So
     this is not a 4x improvement on an existing estimate, it is an effect that was
     previously invisible. xtrack puts it at 6.6e-3 m (0.22 % of beta) and accsim's
-    on-orbit route reproduces it to 8.9e-6 m, 1.35e-3 of the effect.
+    on-orbit route reproduces it to **1.8e-9 m, 2.8e-7 of the effect** — it was
+    8.9e-6 m, 1.35e-3 of the effect, before L1-L3 gave the elements their exact maps.
+
+    **The difference construction is no longer load-bearing, and that is the news.**
+    It existed to cancel a bend nonlinearity present in xtrack's terms and absent from
+    accsim's; with that gap closed, the *undifferenced* beta tables agree to 1.1e-9
+    relative, which is asserted below as well. The difference is kept because it is
+    still the sharper question — it isolates what the sextupoles do — but it is now a
+    convenience rather than a necessity, and the bound has been tightened by three and
+    a half orders to match. Leaving it at ``5e-3`` would have hidden any future
+    regression inside a tolerance sized for a model gap that no longer exists.
     """
     acc_change = _betx_on_orbit(K2L, KICK) - _betx_on_orbit(0.0, KICK)
     des_change = _betx_design(K2L, KICK) - _betx_design(0.0, KICK)
@@ -219,6 +246,12 @@ def test_the_sextupole_induced_beta_change_matches_xtrack() -> None:
     assert np.abs(des_change).max() == 0.0
 
     assert np.abs(acc_change - xt_change).max() < BETA_CHANGE_RTOL * scale
+
+    # And the tables the difference was built from now agree on their own, which is
+    # what says the cancellation above is no longer doing any work.
+    for k2l in (0.0, K2L):
+        direct = _betx_on_orbit(k2l, KICK) / np.array(_twiss(k2l, KICK).betx) - 1.0
+        assert np.abs(direct).max() < 1e-8
 
 
 def test_chromaticity_on_orbit_tracks_xtrack_where_the_design_orbit_drifts() -> None:

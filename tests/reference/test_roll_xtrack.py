@@ -489,7 +489,14 @@ def test_the_model_gap_is_fully_accounted_for_and_not_a_mystery(
     and L3 are those three maps. So the assertion has moved from the reconstruction to
     :func:`~accsim.twiss.coupled_twiss_on_orbit`, and the number moved with it: from
     ``2e-3`` relative to **``1.7e-8``** on the rolled ring and ``3.5e-9`` on the steered
-    one, on both ``dy`` and ``dpy``.
+    one.
+
+    ``dpy`` is asserted too, but the two rings say different things about it and the
+    difference is worth naming rather than averaging over. On the **rolled** ring it is
+    a genuine relative agreement (``1.2008097e-5`` against ``1.2008098e-5``). On the
+    **steered** ring ``dpy`` is *zero by symmetry* — xtrack reports ``4.2e-14`` and
+    accsim ``7.2e-14``, both round-off — so what the assertion checks there is an
+    absolute floor, not a relative match, and the ``abs=1e-12`` is what carries it.
 
     The design optics still reports the old answers and is still *right* to: the terms
     are bilinear in ``(p, delta)`` and cannot live in a 6x6 at all. On the rolled ring

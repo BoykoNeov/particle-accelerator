@@ -555,9 +555,42 @@ five. Each was restated with its new content rather than renumbered:
   separation is now a factor of 12 rather than 100. Both are stated as measured ratios,
   because the honest reading is that each exact map narrows them again.
 
-Gates: `tests/analytic/test_exact_dipole.py` (14),
+### A second reference gap closed, and where its old number went
+
+`test_orbit_optics_xtrack.py` opened with a modelling difference it had to state before
+anything else: accsim's elements were exactly linear, so an off-axis orbit changed
+nothing about them, while xtrack's exact bends moved `β` by `6.4e-4` relative. Its test
+closed with the hope that "a future milestone giving the bends their real off-axis map
+has a number to improve on". That number is now **`5.4e-10`**.
+
+What is worth recording is *where the `6.4e-4` went*: it did not shrink, it **moved to
+the design route**, which now disagrees with xtrack by exactly what the on-orbit route
+used to, and is first order in the orbit (asserted as that order). That is the correct
+home for it — a 6×6 cannot hold a bilinear term, so linear optics is blind there by
+construction, not by defect.
+
+Downstream, the sextupole-induced β-change cross-check went from `1.35e-3` of the effect
+to `2.8e-7`, and its tolerance was **tightened** `5e-3 → 1e-6` rather than left: a bound
+sized for a model gap that no longer exists would hide any future regression. The
+with-minus-without-sextupole *difference* construction is also no longer load-bearing —
+the undifferenced β tables now agree to `1.1e-9` on their own, which is asserted
+alongside it.
+
+### The edged bend was a dark code path
+
+`_track_body` composes `Edge(e2) · body · Edge(e1)`, and `tests/analytic/test_dipole_edges.py`
+**never calls `track()`** — it compares matrices. So the composition had no gate: its
+*order*, and the `h` passed to `_edge_matrix` (an edge kick is `h·tan e`), could both
+have been wrong while every other L3 gate passed. Now pinned by rebuilding the
+composition by hand, by asserting the reversed order is a *different* map (`>1e-6`), and
+by re-checking the Jacobian identity and canonical symplecticity with the edges on. A
+rectangular bend (`e1 = e2 = θ/2`) is used as the structural check: its edges cancel the
+body's horizontal weak focusing exactly, so `R21 = 0` in the tracked Jacobian, which a
+swapped or dropped edge would destroy.
+
+Gates: `tests/analytic/test_exact_dipole.py` (15),
 `tests/reference/test_dipole_xtrack.py` (3 new), and the converted
-`tests/reference/test_roll_xtrack.py`.
+`tests/reference/test_roll_xtrack.py` and `tests/reference/test_orbit_optics_xtrack.py`.
 
 ## Quadrupole strength sign (Stage 1 — implemented)
 
