@@ -24,6 +24,13 @@ class Drift(Element):
     ``1/gamma0^2`` coefficient; the energy-deviation convention would instead give
     ``L/(beta0^2 gamma0^2)``. As ``gamma0 -> inf`` the coupling vanishes — at
     ultrarelativistic energy all particles travel at ~c regardless of ``delta``.
+
+    **Displacing a drift does exactly nothing** (K1): there is no field to be off the
+    centre of, and the misalignment kick ``(I - M) d`` of
+    :meth:`~accsim.elements.element.Element.kick` comes out identically zero because a
+    drift moves ``x`` only through ``px``. It accepts ``dx``/``dy`` all the same, so
+    that a lattice can be misaligned wholesale and the invariance asserted rather
+    than assumed.
     """
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:

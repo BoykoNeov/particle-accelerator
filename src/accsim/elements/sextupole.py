@@ -153,9 +153,16 @@ class Sextupole(Element):
     """
 
     def __init__(
-        self, length: float, k2: float, name: str | None = None, n_slices: int = 1
+        self,
+        length: float,
+        k2: float,
+        name: str | None = None,
+        n_slices: int = 1,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
     ) -> None:
-        super().__init__(length, name=name)
+        super().__init__(length, name=name, dx=dx, dy=dy)
         if n_slices < 1:
             raise ValueError(f"n_slices must be >= 1, got {n_slices}")
         self.k2 = float(k2)
@@ -170,14 +177,14 @@ class Sextupole(Element):
         # Linear map of a sextupole is a drift: no focusing, no dispersion.
         return _drift_matrix(self.length, ref)
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         # Drift-kick-drift, n_slices times (see the class docstring for the order
         # of accuracy this buys and what it costs). The split carries no constant
         # part -- a sextupole's ``kick()`` is the inherited zero -- so at k2 = 0 the
         # base class's affine map is the right answer *and* keeps this override
         # honest about the (M, k) contract rather than quietly dropping k.
         if self.k2 == 0.0:
-            return super().track(state, ref)
+            return super()._track_body(state, ref)
         n = self.n_slices
         half = _drift_matrix(0.5 * self.length / n, ref)
         k2l_slice = self.k2l / n
@@ -188,9 +195,8 @@ class Sextupole(Element):
         return out
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
         slices = f", n_slices={self.n_slices}" if self.n_slices != 1 else ""
-        return f"Sextupole(length={self.length}, k2={self.k2}{slices}{name})"
+        return f"Sextupole(length={self.length}, k2={self.k2}{slices}{self._repr_tail()})"
 
 
 class ThinSextupole(Element):
@@ -216,21 +222,22 @@ class ThinSextupole(Element):
     module docstring).
     """
 
-    def __init__(self, k2l: float, name: str | None = None) -> None:
-        super().__init__(0.0, name=name)
+    def __init__(
+        self, k2l: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+    ) -> None:
+        super().__init__(0.0, name=name, dx=dx, dy=dy)
         self.k2l = float(k2l)
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:
         # Zero linear part: a thin sextupole is the identity map at the origin.
         return np.eye(DIM)
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         # The full nonlinear kick -- exact, not a linearisation. Only (px, py) move.
         return _apply_kick(np.array(state, dtype=float, copy=True), self.k2l)
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"ThinSextupole(k2l={self.k2l}{name})"
+        return f"ThinSextupole(k2l={self.k2l}{self._repr_tail()})"
 
 
 class ThinSkewSextupole(Element):
@@ -278,18 +285,19 @@ class ThinSkewSextupole(Element):
     J1 and J2 followed for the normal sextupole and the octupole.
     """
 
-    def __init__(self, k2sl: float, name: str | None = None) -> None:
-        super().__init__(0.0, name=name)
+    def __init__(
+        self, k2sl: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+    ) -> None:
+        super().__init__(0.0, name=name, dx=dx, dy=dy)
         self.k2sl = float(k2sl)
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:
         # Zero linear part: a thin skew sextupole is the identity map at the origin.
         return np.eye(DIM)
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         # The full nonlinear kick -- exact, not a linearisation. Only (px, py) move.
         return _apply_skew_kick(np.array(state, dtype=float, copy=True), self.k2sl)
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"ThinSkewSextupole(k2sl={self.k2sl}{name})"
+        return f"ThinSkewSextupole(k2sl={self.k2sl}{self._repr_tail()})"

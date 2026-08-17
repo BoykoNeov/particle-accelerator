@@ -45,8 +45,16 @@ class SkewQuadrupole(Element):
     ``R(pi/4)``-roll-of-a-normal-quad identity is the internal analytic gate.
     """
 
-    def __init__(self, length: float, k1s: float, name: str | None = None) -> None:
-        super().__init__(length, name=name)
+    def __init__(
+        self,
+        length: float,
+        k1s: float,
+        name: str | None = None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
+    ) -> None:
+        super().__init__(length, name=name, dx=dx, dy=dy)
         self.k1s = float(k1s)
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:
@@ -64,8 +72,7 @@ class SkewQuadrupole(Element):
         return M
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"SkewQuadrupole(length={self.length}, k1s={self.k1s}{name})"
+        return f"SkewQuadrupole(length={self.length}, k1s={self.k1s}{self._repr_tail()})"
 
 
 class ThinSkewQuadrupole(Element):
@@ -86,8 +93,10 @@ class ThinSkewQuadrupole(Element):
     (``DeltaQ_min``) analytic gate.
     """
 
-    def __init__(self, k1sl: float, name: str | None = None) -> None:
-        super().__init__(0.0, name=name)
+    def __init__(
+        self, k1sl: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+    ) -> None:
+        super().__init__(0.0, name=name, dx=dx, dy=dy)
         self.k1sl = float(k1sl)
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:
@@ -97,5 +106,4 @@ class ThinSkewQuadrupole(Element):
         return M
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"ThinSkewQuadrupole(k1sl={self.k1sl}{name})"
+        return f"ThinSkewQuadrupole(k1sl={self.k1sl}{self._repr_tail()})"

@@ -668,7 +668,7 @@ def test_a_mis_scaled_octupole_is_caught_as_a_factor_of_six(ref: ReferencePartic
     """
 
     class _Misscaled(ThinOctupole):
-        def track(self, state: np.ndarray, ref_: ReferenceParticle) -> np.ndarray:
+        def _track_body(self, state: np.ndarray, ref_: ReferenceParticle) -> np.ndarray:
             out = np.array(state, dtype=float, copy=True)
             x, y = out[X], out[Y]
             out[PX] -= self.k3l * (x**3 - 3.0 * x * y**2)

@@ -46,10 +46,25 @@ class Corrector(Element):
     Longitudinal: none. The path-length change from a kicked trajectory is second
     order in the kick angle (``Delta L ~ L*theta^2/2``), below the linear order this
     element works at, so ``zeta`` and ``delta`` pass through untouched.
+
+    **Displacing a corrector does nothing at all** (K1): its ``matrix`` is the
+    identity, so the misalignment term ``(I - matrix) d`` of
+    :meth:`~accsim.elements.element.Element.kick` is *exactly* zero, and its kick
+    does not depend on where the particle is. A constant kick has no centre to
+    miss — the same translation invariance a :class:`~accsim.elements.drift.Drift`
+    has, and asserted at exact zero rather than to tolerance.
     """
 
-    def __init__(self, kick_x: float = 0.0, kick_y: float = 0.0, name: str | None = None) -> None:
-        super().__init__(0.0, name=name)
+    def __init__(
+        self,
+        kick_x: float = 0.0,
+        kick_y: float = 0.0,
+        name: str | None = None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
+    ) -> None:
+        super().__init__(0.0, name=name, dx=dx, dy=dy)
         self.kick_x = float(kick_x)
         self.kick_y = float(kick_y)
 
@@ -57,12 +72,11 @@ class Corrector(Element):
         """The identity: a constant kick has no linear part (see the class docstring)."""
         return np.eye(DIM)
 
-    def kick(self, ref: ReferenceParticle) -> np.ndarray:
+    def _kick_body(self, ref: ReferenceParticle) -> np.ndarray:
         k = np.zeros(DIM)
         k[PX] = self.kick_x
         k[PY] = self.kick_y
         return k
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"Corrector(kick_x={self.kick_x}, kick_y={self.kick_y}{name})"
+        return f"Corrector(kick_x={self.kick_x}, kick_y={self.kick_y}{self._repr_tail()})"

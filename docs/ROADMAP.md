@@ -1645,9 +1645,31 @@ makes sense together.
 *The skew sextupole*, non-uniqueness included. Extending it to the octupole
 (`22.5°`) is a data point, not a gate, and K claims no credit for it.
 
-- **K1 — transverse offsets, and the orbit statistics they produce.** 🚧 **OPEN
-  (opened 2026-08-17)** — an `(dx, dy)` attribute on elements, plus the first
-  quantity in the package that is **statistical** rather than deterministic.
+- **K1 — transverse offsets, and the orbit statistics they produce.** ✅ **SHIPPED
+  (2026-08-17)** — an `(dx, dy)` attribute on elements, plus the first
+  quantity in the package that is **statistical** rather than deterministic. Full
+  write-up at CONVENTIONS.md → *Misalignments — transverse offsets*. Gates:
+  `tests/analytic/test_misalignment.py` (33),
+  `tests/reference/test_misalignment_xtrack.py` (6). Four things the entry below did
+  not anticipate, each recorded in CONVENTIONS:
+  - **The whole linear effect is a constant kick, and `matrix()` needed no change at
+    all.** A translation leaves the homogeneous matrix untouched, so the misalignment
+    is entirely `(I − M) d` in `Element.kick()`. That is what makes β and the tunes
+    *bit-for-bit* unchanged (now asserted) and hence the ensemble average legitimate.
+  - **The extension point had to move** to `_kick_body` / `_track_body`, because
+    `kick`/`track` became the template methods that apply the shift. The sextupole's
+    and octupole's zero-strength `super().track(...)` shortcut would otherwise have
+    shifted the state **twice** — caught by I1's existing affine-contract gate.
+  - **A displaced *bending* dipole is a different model, and is refused.** A bend
+    rotates the reference frame through itself, so entry and exit translations are not
+    the same transformation; xtrack displaces the curved body as a rigid object (its
+    misalignment header takes the straight branch only when `angle == 0`) and the two
+    differ by `3.6e-5` where the aligned maps agree to `5.8e-9`. `Dipole` raises
+    rather than approximating.
+  - **The pole scan had to run the other way.** Weakening the quads toward `Q → 0`
+    loses *stability* before reaching the integer (a FODO with no focusing is a drift
+    ring); the scan strengthens them toward `Q → 1` instead. With the measured β-sum
+    divided out, `p·|sin πQ|` is constant to 10 digits while `p·sin²` moves by 153×.
   - **The offset half is a refactor, and its gate says so.** A displaced element is
     precisely the feed-down expansion this package has already pinned twice: a
     displaced sextupole is **I2**, a displaced octupole is **J3**. So the gate is
@@ -1715,12 +1737,16 @@ makes sense together.
     (feeding `dx = −x_co` must reproduce their numbers), but the convention is fixed
     **by probe** against `xt.Quadrupole(...).shift_x` / `.shift_y` (present in
     xtrack 0.106.4, verified 2026-08-17), the J1/J2/J3 rule that already had to be
-    applied to `ThinSkewSextupole`.
+    applied to `ThinSkewSextupole`. **Met, and better than planned:** the *thin*
+    probe (`xt.Multipole(knl=…, shift_x=…)`) is bit-for-bit, so it pins the sign with
+    no tolerance at all; the thick quad is the one that carries the pre-existing
+    linear-matrix-vs-thick-map difference, and the displacement adds nothing to it.
   - The `1/sin πQ` pole is not a new claim — `orbit.py:29` already carries the
     single-kick form and CONVENTIONS.md:1434 records that it is a *consequence*
     there, never the definition. K1's novelty is the **ensemble**, not the pole.
   - Effort **M**. Out of scope for K1: rolls (K2), longitudinal displacement
-    (`ds`), misalignment of a *thick* element's body as distinct from its ends, and
+    (`ds`), misalignment of a *thick* element's body as distinct from its ends,
+    displaced **bending** dipoles (refused — see the shipped summary above), and
     correction strategies beyond I1's existing SVD steering.
 
 - **K2 — the rolled dipole, and the first vertical dispersion *source*.**

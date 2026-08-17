@@ -127,6 +127,21 @@ class Dipole(Element):
     As ``theta -> 0`` every curvature term vanishes (and the edges too, since
     ``h -> 0``) and the map reduces exactly to a :class:`Drift` of length ``L``
     (``R56 -> L/gamma0^2``).
+
+    **A bending dipole refuses to be displaced** (K1), and the refusal is measured
+    rather than cautious. K1's misalignment is the translation ``d + body(state - d)``
+    — one translation in, the same one back out — which is right for a *straight*
+    element. A bend rotates the reference frame through itself, so the exit
+    translation lives in a frame turned by ``theta`` and is not the entry one:
+    displacing a bend is a **rigid-body** displacement of a curved body, with an
+    angular and a path-length consequence the straight formula does not have. xtrack
+    implements exactly that distinction (its misalignment header falls back to the
+    straight formula only when ``angle == 0``), and the two models differ by ``3.6e-5``
+    on a 0.3 mm shift where the *aligned* maps differ by ``5.8e-9``
+    (``tests/reference/test_misalignment_xtrack.py``). Rather than quietly ship the
+    wrong one, :meth:`kick` and :meth:`_track_body` raise
+    :class:`NotImplementedError` when ``angle != 0`` and an offset is set. A
+    straight dipole (``angle = 0``, i.e. a gradient magnet) is displaced normally.
     """
 
     def __init__(
@@ -137,8 +152,11 @@ class Dipole(Element):
         e1: float = 0.0,
         e2: float = 0.0,
         name: str | None = None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
     ) -> None:
-        super().__init__(length, name=name)
+        super().__init__(length, name=name, dx=dx, dy=dy)
         if length == 0.0 and angle != 0.0:
             raise ValueError("a finite bend angle requires a positive length")
         self.angle = float(angle)
@@ -227,8 +245,30 @@ class Dipole(Element):
         # Entrance edge acts first: M = Edge(e2) @ Body @ Edge(e1).
         return _edge_matrix(h, self.e2) @ body @ _edge_matrix(h, self.e1)
 
+    def _refuse_misalignment(self) -> None:
+        """A *bending* dipole may not be displaced — see the class docstring (K1)."""
+        if self.is_misaligned and self.angle != 0.0:
+            raise NotImplementedError(
+                f"cannot displace the bending Dipole {self.name!r} (angle={self.angle}): "
+                "K1's misalignment is a translation of a straight element, and a bend's "
+                "reference frame rotates through it, so entry and exit translations are "
+                "not the same transformation. xtrack models this as a rigid-body "
+                "displacement of the curved body (measured disagreement 3.6e-5 against "
+                "an aligned-model difference of 5.8e-9 — tests/reference/"
+                "test_misalignment_xtrack.py), which accsim does not implement. Represent "
+                "a bend's steering error with an explicit Corrector, or displace the "
+                "quadrupoles, which is where a real machine's orbit comes from anyway"
+            )
+
+    def kick(self, ref: ReferenceParticle) -> np.ndarray:
+        self._refuse_misalignment()
+        return super().kick(ref)
+
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+        self._refuse_misalignment()
+        return super()._track_body(state, ref)
+
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
         grad = f", k1={self.k1}" if self.k1 else ""
         edges = f", e1={self.e1}, e2={self.e2}" if (self.e1 or self.e2) else ""
-        return f"Dipole(length={self.length}, angle={self.angle}{grad}{edges}{name})"
+        return f"Dipole(length={self.length}, angle={self.angle}{grad}{edges}{self._repr_tail()})"

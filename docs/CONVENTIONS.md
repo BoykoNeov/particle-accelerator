@@ -1852,8 +1852,221 @@ Gates: `tests/analytic/test_orbit_optics.py` (21),
 **Still out of scope:** off-axis feed-down from accsim's *linear* elements (the
 bend/quad nonlinearity above); coupled (Edwards-Teng) chromaticity on a vertically
 steered machine; thick-sextupole chromaticity on orbit; and everything I2 already
-listed — the 6D closed orbit, octupoles, misalignments as element attributes,
-amplitude-dependent detuning, dynamic aperture.
+listed — the 6D closed orbit, octupoles, amplitude-dependent detuning, dynamic
+aperture. Misalignments as element attributes were on that list until **K1**, below.
+
+## Misalignments — transverse offsets (K1 — implemented)
+
+Every element carries `(dx, dy)` [m]: **where the magnet actually is**, relative to
+where the lattice puts it. `dx > 0` means the magnet has moved towards positive `x`,
+so a particle on the design orbit passes through it at body coordinate `−dx`. The map
+is the element's own map **conjugated by that translation**:
+
+    track(state) = d + body(state − d),      d = (dx, 0, dy, 0, 0, 0)
+
+— step into the magnet's frame, apply the magnet, step back out.
+
+### A translation does not touch the matrix; the whole linear effect is a kick
+
+Expanding the conjugation for a linear body,
+
+    M (state − d) + k = M state + (k + (I − M) d),
+
+so `matrix()` is returned **unchanged** and the entire linear content of a
+misalignment is the constant term `(I − M) d`, added in `Element.kick()`. Three
+consequences, all asserted at exact zero rather than to a tolerance:
+
+- **A displacement moves no optics.** β, the tunes, dispersion and the coupling of a
+  misaligned ring are *bit-for-bit* those of the aligned one. This is not a nicety:
+  it is what allows K1's ensemble average over displacements to be taken at fixed
+  optics.
+- **A `Drift` and a `Corrector` are translation-invariant** — `(I − M) d` is
+  identically zero for both (a drift moves `x` only through `px`; a corrector's `M`
+  is the identity). They still *accept* `dx`/`dy`, so a lattice can be misaligned
+  wholesale and the invariance asserted instead of assumed.
+- **Offsets cannot couple the planes.** Both cross-derivatives of a displaced quad's
+  kick vanish identically (`∂Δpx/∂y = ∂Δpy/∂x = 0`), so no displacement of an
+  unrolled quadrupole produces a skew term. Only a **roll** can (K2) — this is what
+  separates the two halves of axis K cleanly.
+
+### The quadrupole case is exact, and the two planes' signs differ
+
+A quad's gradient is uniform, so a displaced quad is **exactly** a quad plus a dipole
+with no higher terms at all (remainder identically `0`), where I2 and J3 each split
+one element into a family:
+
+    theta_x = +k1l·dx        theta_y = −k1l·dy
+
+— the **same** displacement sign giving **opposite** kick signs, because accsim's
+thin quad is `px → px − k1l x` but `py → py + k1l y`. That asymmetry had already
+bitten this package once (`Corrector` needs `knl=[−k]` for `kick_x=+k` but
+`ksl=[+k]` for `kick_y=+k`, above), so it is derived in sympy and asserted.
+
+For a **thick** quad the kick is the full `(I − M) d` (which also displaces `x` and
+`y`); it collapses onto `(+k1 L dx, −k1 L dy)` as `L → 0`, so the thin form is a
+limit, not an identity.
+
+### The sign, by probe — `dx` is xtrack's `shift_x`
+
+`x_rms` goes as `d²`, so **no statistical gate can see the sign of an offset**: it
+cannot tell "the magnet moved right" from "the beam sits right of the magnet centre",
+which is exactly the relative sign that flips silently. Fixed by probe (measured
+2026-08-17), the J1/J2/J3 rule:
+
+    ThinQuadrupole(k1l, dx=d, dy=d')  ==  xt.Multipole(knl=[0, k1l], shift_x=d, shift_y=d')
+    ThinSextupole(k2l, dx=d, dy=d')   ==  xt.Multipole(knl=[0, 0, k2l], shift_x=d, shift_y=d')
+
+**bit-for-bit** at the probe state — both codes translate, apply the same polynomial
+and translate back. The probe is run as a *delta*: the aligned pair is pinned first
+(also bit-identical) and the shift then added to both sides, so it isolates the one
+sign K1 owns instead of re-litigating the `knl` convention. The opposite sign misses
+by exactly twice the displacement kick. Across a scan of amplitudes the agreement is
+a few ulp rather than bit-exact, because xtrack reaches the same polynomial through
+its general `knl` recursion.
+
+The thick quad agrees to `1.3e-7` shifted against `1.6e-7` aligned — i.e. the
+misalignment adds **no** error of its own, the residual being the pre-existing
+linear-matrix-vs-thick-map difference. A flipped sign misses by `3.9e-4`.
+
+### The extension point moved: `_kick_body` / `_track_body`
+
+`Element.kick()` and `Element.track()` are now the template methods that add the
+misalignment. Subclasses override **`_kick_body`** (constant part in the element's own
+frame; only `Corrector` does) and **`_track_body`** (the nonlinear map; `Sextupole`,
+`ThinSextupole`, `ThinSkewSextupole`, `Octupole`, `ThinOctupole`, `RFCavity`,
+`BeamBeam`). Overriding the public pair would apply the shift twice or drop it.
+
+The trap this created, and how it was caught: the sextupole's and octupole's
+zero-strength shortcut used to read `return super().track(state, ref)`, which after
+K1 re-enters the wrapper and **shifts the state twice**. It is now
+`super()._track_body(...)`. The gate that caught it already existed —
+`test_thick_track_respects_the_affine_contract_at_zero_strength`, whose fictitious
+constant-kick subclass exists precisely to make a dropped or double-counted constant
+part observable.
+
+### Nonlinear elements: the linear orbit is blind, and says so
+
+A thin sextupole's `matrix()` is the identity, so `(I − M) d` is **exactly zero** and
+`closed_orbit` returns exactly zero for a machine whose only imperfection is a
+displaced sextupole — while the real map has an `O(d)` gradient and an `O(d²)` dipole
+kick `−½k2l(dx² − dy²)`. This is not new blindness (it is the same statement as
+"`matrix()` is the Jacobian **at the origin**", the reason `closed_orbit_nonlinear`
+exists), but before K1 that zero was *right* and after K1 it is *wrong*, so it is
+recorded as a verdict rather than a footnote:
+
+- `closed_orbit` on a displaced-sextupole ring returns exactly `0`;
+- `closed_orbit_nonlinear` finds the real orbit and lands on the orbit of the
+  hand-assembled I2 family to `1e-14` — the two lattices have literally the same map;
+- `orbit_statistics` **refuses** a displaced sextupole or octupole as a source rather
+  than returning a reassuring zero, pointing the caller at the nonlinear solve.
+
+### A displaced element *is* I2 / J3 — exactly, not to a tolerance
+
+The consistency requirement that makes K1 a refactor rather than new physics: a
+magnet displaced by `d` and a beam displaced by `−d` are the same physics, so
+
+    ThinSextupole(k2l, dx, dy)  ==  I2's four-term family at (x_co, y_co) = (−dx, −dy)
+    ThinOctupole(k3l, dx, dy)   ==  J3's six-term family at (x_co, y_co) = (−dx, −dy)
+
+and because both splits are exact rearrangements of a polynomial (not truncations),
+the agreement is **exact**. A tolerance here would hide a wrong coefficient in the
+third digit. No coefficient was at risk, and none moved.
+
+`linearised_lattice` evaluates the feed-down split at the offset **in the magnet's own
+frame**, `x_co − dx`, not at the lab orbit. Without that, every misalignment would be
+invisible to the chromaticity integrals, which walk element *types* rather than maps.
+Both halves matter: on the ring used in the gate, dropping `−dx` gives `1e-6` instead
+of `9e-4` (a factor of 900) and dropping `x_co` ignores the 0.3 µm orbit the
+displacement itself created.
+
+### A bending dipole refuses to be displaced — and the refusal is measured
+
+K1's conjugation is a **straight**-element statement. A bend rotates the reference
+frame through itself, so translating in at the entry and out at the exit are not the
+same transformation: displacing a bend is a **rigid-body** motion of a curved body,
+with an angular and a path-length consequence the straight formula does not have.
+xtrack implements exactly that distinction — its misalignment header
+(`track_misalignments.h`) takes the straight branch only when `angle == 0`, and
+otherwise conjugates the displacement by the frame transport to the anchor.
+
+Measured 2026-08-17 on `Dipole(1.0, 0.12)` with `dx = 3e-4`: the straight formula
+misses xtrack by **`3.6e-5`**, where the *aligned* maps agree to **`5.8e-9`** — four
+thousand times the model difference, which is not a tolerance question. So
+`Dipole.kick()` / `Dipole._track_body()` raise `NotImplementedError` when `angle != 0`
+and an offset is set, on the statistical path too (where the offset is set after
+construction and a silent wrong model would be averaged over hundreds of machines with
+nobody looking). A **straight** dipole (`angle = 0`, i.e. a pure gradient magnet) is
+displaced like anything else. Represent a bend's steering error with an explicit
+`Corrector`, or displace the quadrupoles — which is where a real machine's orbit comes
+from anyway.
+
+### The statistical orbit: exact ensemble average, textbook form *measured*
+
+`orbit_statistics(lattice, dx_rms=…, dy_rms=…)` is the first quantity in the package
+that is **statistical** rather than deterministic: the rms closed orbit over an
+*ensemble* of machines built to a given alignment tolerance. Nothing is sampled — the
+closed orbit is exactly linear in the displacements, so
+
+    <x_co(s)²> = Σ_i (∂x_co(s)/∂d_i)² <d_i²>
+
+with the derivatives from `misalignment_response` (one exact solve per source per
+plane; `misalign(lattice, rng, …)` draws one machine from the ensemble). The cross
+terms die because the displacements are uncorrelated — **that** is the ensemble
+average, and it is the only assumption. Exact linearity is asserted from 1 µm to
+**1 m**, six orders either side of the tolerance.
+
+Written out with I1's single-kick closed form, the result is, still exactly,
+
+    <x_co²>(s) = beta(s)·theta_rms²/(4 sin²(pi Q)) · Σ_i beta_i cos²(dpsi_i − pi Q)   [EXACT]
+
+reproduced by the solve to **`4.5e-16`** relative at every boundary in both planes.
+The textbook `Σ_i beta_i/(8 sin²(pi Q))` needs one further step, `cos² → ½`, and
+**that step is not an ensemble average**: the phases are deterministic properties of
+the lattice, and averaging over displacement samples never touches them. On the 6-cell
+thin FODO used here the textbook form is **12% high** (ratio `1.120…1.123`), so the
+suite computes the exact sum from the ring's own phases and measures the departure
+instead of inheriting it. Distribution-free: a uniform distribution of the same rms
+reproduces the same prediction, since only the second moment enters. A 400-machine
+Monte-Carlo agrees within its own `~4%` standard error (mean ratio within `3%`).
+
+Two halves, neither able to fake the other:
+
+- **Magnitude** — the prefactor and the β-weighting at one working point (`1e-12`).
+- **Pole** — the `1/|sin pi Q|` divergence, blind to any constant factor.
+
+The pole scan has two traps, both walked into and recorded:
+
+1. **Direction.** Weakening the quadrupoles to drive `Q → 0` does *not* work: a FODO
+   with no focusing left is a drift ring, and it loses stability (`|½Tr| → 1`, raised
+   as `UnstableLatticeError`) **before** the integer is reached. The scan therefore
+   *strengthens* the quads toward `Q_total → 1`, crossing it between `scale = 1.45`
+   and `1.46`.
+2. **Contamination.** Retuning quadrupoles moves β and the source strengths at the
+   same time as `Q`, so the raw rms is *not* a pure `1/|sin pi Q|` (it grows by only
+   17× while `1/|sin|` grows by 150×). The divisor
+   `sqrt(beta(0)·Σ_i k1l_i² beta_i cos²(dpsi_i − pi Q))·d_rms` is built from
+   `propagate_twiss`'s **measured** numbers and contains no `sin`, so what is left is
+   the pole and nothing else: `p·|sin pi Q| = 0.5` constant to **10 digits** across the
+   scan, while `p·sin²` moves by a factor **153**. The exponent is pinned; the constant
+   is not (by construction).
+
+The J1/J2/J3 failure mode is built and shown to slip past the pole: a misalignment
+kick wrong by a constant factor scales every orbit by that factor, so `p·|sin|` stays
+perfectly constant (just at the wrong value) while the magnitude gate misses by exactly
+the factor. Requiring both halves is what closes the gap.
+
+`1/|sin pi Q| → ∞` and `(I − M4)` going singular are one statement, so the statistical
+entry point inherits I1's `ClosedOrbitError` at the integer rather than returning a
+huge but meaningless number — checked at `scale = 0.2`, I1's own exactly-on-resonance
+working point (`Q_y = 0`), so the two suites agree about where the resonance is.
+
+Gates: `tests/analytic/test_misalignment.py` (33, ~3.5 s),
+`tests/reference/test_misalignment_xtrack.py` (6, six `xt.Line` builds, ~57 s).
+
+**Out of scope for K1:** rolls (`rot_s_rad`; K2), longitudinal displacement (`ds`),
+misalignment of a thick element's *body* as distinct from its ends, displaced bending
+dipoles (refused, above), misalignment **correction** beyond I1's existing SVD
+steering, and statistics of anything but the closed orbit.
 
 ## Stability boundary (Stage 2 — validated)
 

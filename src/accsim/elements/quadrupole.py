@@ -56,8 +56,16 @@ class Quadrupole(Element):
     Hamiltonian generator ``A`` (pinned symbolically in the analytic tests).
     """
 
-    def __init__(self, length: float, k1: float, name: str | None = None) -> None:
-        super().__init__(length, name=name)
+    def __init__(
+        self,
+        length: float,
+        k1: float,
+        name: str | None = None,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
+    ) -> None:
+        super().__init__(length, name=name, dx=dx, dy=dy)
         self.k1 = float(k1)
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:
@@ -71,8 +79,7 @@ class Quadrupole(Element):
         return M
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"Quadrupole(length={self.length}, k1={self.k1}{name})"
+        return f"Quadrupole(length={self.length}, k1={self.k1}{self._repr_tail()})"
 
 
 class ThinQuadrupole(Element):
@@ -88,10 +95,24 @@ class ThinQuadrupole(Element):
     This is the ``L -> 0`` limit of :class:`Quadrupole` at fixed ``k1l`` and is
     symplectic (each plane's kick has unit determinant). It is the building block
     for the thin-lens FODO closed form used in the Stage 1 acceptance test.
+
+    **Displaced** (``dx``, ``dy``; K1), it is a quadrupole plus a
+    :class:`~accsim.elements.corrector.Corrector` and *nothing else* — the one
+    misalignment in the package with no higher terms at all, because a quadrupole's
+    gradient is uniform. From ``px -> px - k1l (x - dx)``,
+
+        theta_x = +k1l dx,      theta_y = -k1l dy,
+
+    the same displacement sign giving opposite kick signs in the two planes (the
+    ``py -> py + k1l y`` asymmetry). Both cross-derivatives of that kick vanish
+    identically, so **no displacement of an unrolled quadrupole couples the
+    planes** — only a roll can (K2).
     """
 
-    def __init__(self, k1l: float, name: str | None = None) -> None:
-        super().__init__(0.0, name=name)
+    def __init__(
+        self, k1l: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+    ) -> None:
+        super().__init__(0.0, name=name, dx=dx, dy=dy)
         self.k1l = float(k1l)
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:
@@ -106,5 +127,4 @@ class ThinQuadrupole(Element):
         return 1.0 / self.k1l
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"ThinQuadrupole(k1l={self.k1l}{name})"
+        return f"ThinQuadrupole(k1l={self.k1l}{self._repr_tail()})"

@@ -260,7 +260,7 @@ class _MisscaledSextupole(ThinSextupole):
     structural property of the real map survives; only the strength is wrong.
     """
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         out = np.array(state, dtype=float, copy=True)
         out[PX] -= 1.0 * self.k2l * (out[X] ** 2 - out[Y] ** 2)
         out[PY] += 2.0 * self.k2l * out[X] * out[Y]
@@ -275,7 +275,7 @@ class _NonGradientSextupole(ThinSextupole):
     curl-free transverse field.
     """
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         out = np.array(state, dtype=float, copy=True)
         out[PX] -= 1.0 * self.k2l * (out[X] ** 2 - out[Y] ** 2)
         out[PY] += self.k2l * out[X] * out[Y]
@@ -427,9 +427,15 @@ def test_thick_sextupole_with_zero_k2_is_exactly_a_drift(ref: ReferenceParticle)
 
 
 class _KickingSextupole(Sextupole):
-    """A sextupole with a (physically fictitious) constant kick, to test the contract."""
+    """A sextupole with a (physically fictitious) constant kick, to test the contract.
 
-    def kick(self, ref: ReferenceParticle) -> np.ndarray:
+    Overrides ``_kick_body``, the constant-part hook — K1 moved the extension point
+    there when :meth:`Element.kick` grew the misalignment term ``(I - M) d``, and
+    this class overriding the *public* ``kick`` instead is precisely how the two
+    would drift apart unnoticed.
+    """
+
+    def _kick_body(self, ref: ReferenceParticle) -> np.ndarray:
         k = np.zeros(DIM)
         k[PX] = 1e-5
         return k
@@ -438,12 +444,16 @@ class _KickingSextupole(Sextupole):
 def test_thick_track_respects_the_affine_contract_at_zero_strength(
     ref: ReferenceParticle,
 ) -> None:
-    """A ``track()`` override must not drop ``kick()`` — I1's contract, gated.
+    """A ``_track_body()`` override must not drop ``_kick_body()`` — I1's contract, gated.
 
-    ``Sextupole.kick()`` is the inherited zero, so a dropped constant part would be
-    invisible in every physical lattice and would sit there until some later element
+    ``Sextupole._kick_body()`` is the inherited zero, so a dropped constant part would
+    be invisible in every physical lattice and would sit there until some later element
     inherited the shortcut. Subclassing in a nonzero kick makes the omission
     observable.
+
+    It is also the gate that caught K1's own version of the trap: the zero-strength
+    shortcut used to read ``super().track(...)``, which after K1 re-enters the
+    misalignment wrapper and would shift the state **twice**.
     """
     state = np.array([1e-3, 2e-4, -5e-4, 3e-4, 1e-3, 2e-4])
     elem = _KickingSextupole(0.4, 0.0)

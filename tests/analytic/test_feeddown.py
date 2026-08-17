@@ -412,7 +412,7 @@ def test_a_mis_scaled_kick_breaks_the_dipole_gate(ref: ReferenceParticle) -> Non
     """
 
     class _Misscaled(ThinSextupole):
-        def track(self, state: np.ndarray, ref_: ReferenceParticle) -> np.ndarray:
+        def _track_body(self, state: np.ndarray, ref_: ReferenceParticle) -> np.ndarray:
             out = np.array(state, dtype=float, copy=True)
             out[PX] -= 1.0 * self.k2l * (out[X] ** 2 - out[Y] ** 2)
             out[PY] += 2.0 * self.k2l * out[X] * out[Y]

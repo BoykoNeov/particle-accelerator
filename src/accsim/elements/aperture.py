@@ -91,8 +91,10 @@ class Aperture(Element):
         return (x / self.half_x) ** 2 + (y / self.half_y) ** 2 <= 1.0
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"Aperture({self.shape!r}, half_x={self.half_x}, half_y={self.half_y}{name})"
+        return (
+            f"Aperture({self.shape!r}, half_x={self.half_x}, half_y={self.half_y}"
+            f"{self._repr_tail()})"
+        )
 
 
 class Collimator(Aperture):

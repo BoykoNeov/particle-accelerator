@@ -69,13 +69,30 @@ under existing callers. Beyond that:
 
 - ``delta = 0`` throughout, linear and nonlinear alike: the longitudinal
   coordinates are not solved for (see :func:`closed_orbit_nonlinear`).
-- Misalignments are not modelled as such. A quadrupole displaced by ``dx``
-  produces a kick ``-k1 L dx``; represent it by placing an explicit
-  :class:`~accsim.elements.corrector.Corrector` of that angle.
+
+**Misalignments, and the first statistical quantity in the package (K1).** A
+displaced element is no longer represented by hand: every
+:class:`~accsim.elements.element.Element` carries ``(dx, dy)`` and turns it into
+the kick ``(I - M) d`` itself (see that class's docstring for the conjugation this
+comes from), so a misaligned machine is solved by the same
+``(I - M4) x_co = k4`` above with nothing new in this module. What *is* new is that
+the displacements of a real machine are not known — only their **statistics** are.
+:func:`orbit_statistics` answers the question that replaces "where is the orbit?"
+when that is so: *how big is the orbit, on average, for this class of machine?* It
+is built on the exact linearity of the closed orbit in the displacements
+(:func:`misalignment_response`), so the quadrature sum
+
+    <x_co(s)^2> = sum_i (dx_co(s)/dd_i)^2 <d_i^2>
+
+is an ensemble average and nothing else — no assumption about betatron phases being
+spread, which is the step the textbook ``beta(s) theta_rms^2 sum_i beta_i /
+(8 sin^2 pi Q)`` takes and which the analytic suite *measures* rather than inherits.
+:func:`misalign` draws one machine from that ensemble.
 """
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -83,7 +100,9 @@ import numpy as np
 
 from .coords import DELTA, DIM, PX, PY, X, Y
 from .elements.corrector import Corrector
+from .elements.element import Element
 from .lattice import Lattice
+from .reference import ReferenceParticle
 from .symplectic import jacobian
 
 _TRANSVERSE = [X, PX, Y, PY]  # the 4D transverse subspace (x, px, y, py)
@@ -492,6 +511,14 @@ def linearised_lattice(
     body, so a single entrance-orbit split would carry an ``O(L^2)`` error.
     :func:`linearised_element_maps` handles both, because it differentiates
     ``track()`` rather than walking element types.
+
+    **Misalignments (K1) enter through the offset the magnet actually sees.** Every
+    ``x_co`` above is the orbit in the *element's own frame*, ``x_co - dx``, not the
+    orbit in the lattice frame: a sextupole displaced by ``dx`` on a perfectly
+    centred orbit feeds down exactly as much as a centred sextupole on an orbit
+    ``-dx`` away, which is the whole content of K1's consistency requirement. Using
+    the lab orbit here instead would make this function — and the chromaticity
+    integrals built on it — silently blind to every misalignment.
     """
     from .elements.octupole import Octupole, ThinOctupole
     from .elements.quadrupole import ThinQuadrupole
@@ -502,7 +529,9 @@ def linearised_lattice(
     elements: list = []
     for i, elem in enumerate(lattice.elements):
         if isinstance(elem, ThinSextupole):
-            x_co, y_co = float(orbit[i][0]), float(orbit[i][2])
+            # The offset in the *magnet's* frame: a displaced magnet sees the orbit
+            # shifted by -d, which is how a misalignment feeds down at all (K1).
+            x_co, y_co = float(orbit[i][0]) - elem.dx, float(orbit[i][2]) - elem.dy
             tag = elem.name
             elements.append(ThinQuadrupole(elem.k2l * x_co, name=tag and f"{tag}_fd_quad"))
             elements.append(ThinSkewQuadrupole(elem.k2l * y_co, name=tag and f"{tag}_fd_skew"))
@@ -515,7 +544,8 @@ def linearised_lattice(
                 "propagate_twiss_on_orbit(), which differentiates track() directly"
             )
         elif isinstance(elem, ThinOctupole):
-            x_co, y_co = float(orbit[i][0]), float(orbit[i][2])
+            # The magnet's own frame again (K1) — see the ThinSextupole branch above.
+            x_co, y_co = float(orbit[i][0]) - elem.dx, float(orbit[i][2]) - elem.dy
             tag = elem.name
             elements.append(
                 ThinQuadrupole(
@@ -818,3 +848,226 @@ def correct_orbit(
         singular_values=s,
         n_used=keep,
     )
+
+
+# ---------------------------------------------------------------------------
+# Misalignments: the orbit of a machine nobody has measured yet (K1)
+# ---------------------------------------------------------------------------
+
+_OFFSET_PLANES = ("dx", "dy")
+
+
+@dataclass(frozen=True)
+class OrbitStatistics:
+    """Expected closed-orbit distortion from random misalignments (:func:`orbit_statistics`).
+
+    Not one machine's orbit — the **rms over an ensemble** of machines whose elements
+    are displaced independently with the given rms. Nothing here is sampled: the
+    closed orbit is exactly linear in the displacements, so the ensemble average is a
+    quadrature sum of exact derivatives.
+
+    - ``rms`` — ``(n_boundaries, 4)``, the rms of ``(x, px, y, py)`` at every element
+      boundary, in :func:`propagate_orbit`'s ordering (entrance first).
+    - ``response`` — ``(n_boundaries, 4, n_sources, 2)``, the derivative of the orbit
+      with respect to each source's ``(dx, dy)``. Exposed because it is what shows
+      *which* magnet a large orbit comes from.
+    - ``sources`` — indices into ``lattice.elements`` of the elements treated as
+      misaligned, in order.
+    """
+
+    rms: np.ndarray
+    response: np.ndarray
+    sources: tuple[int, ...]
+
+    @property
+    def x_rms(self) -> np.ndarray:
+        """Rms horizontal orbit [m] at every boundary."""
+        return self.rms[:, 0]
+
+    @property
+    def y_rms(self) -> np.ndarray:
+        """Rms vertical orbit [m] at every boundary."""
+        return self.rms[:, 2]
+
+    @property
+    def n_sources(self) -> int:
+        return len(self.sources)
+
+
+def _offset_response_planes(elem: Element, ref: ReferenceParticle) -> tuple[bool, bool]:
+    """Whether displacing ``elem`` in ``(x, y)`` changes its **linear** map at all.
+
+    Measured, not looked up by type: the misalignment kick is ``(I - M) d``, so the
+    test is whether that vector is nonzero for a unit displacement. A
+    :class:`~accsim.elements.drift.Drift` and a
+    :class:`~accsim.elements.corrector.Corrector` give ``False`` because they are
+    translation-invariant; a thin sextupole gives ``False`` because its ``M`` is the
+    identity — its displacement is felt only by the nonlinear map (see
+    :func:`orbit_statistics` for why that is refused rather than returned as zero).
+    """
+    A = np.eye(DIM) - elem.matrix(ref)
+    return bool(A[:, X].any()), bool(A[:, Y].any())
+
+
+def _default_sources(lattice: Lattice) -> list[int]:
+    """Indices of every element whose linear map responds to a displacement."""
+    return [
+        i for i, e in enumerate(lattice.elements) if any(_offset_response_planes(e, lattice.ref))
+    ]
+
+
+def _with_offset(lattice: Lattice, index: int, plane: str, value: float) -> Lattice:
+    """A copy of ``lattice`` with element ``index`` displaced by a further ``value``.
+
+    Shallow-copies the one element, so the caller's lattice — and every other
+    element — is untouched. Elements hold only scalars and (in the beam-beam case)
+    arrays that are never written to.
+    """
+    elements = list(lattice.elements)
+    twin = copy.copy(elements[index])
+    setattr(twin, plane, getattr(twin, plane) + value)
+    elements[index] = twin
+    return Lattice(elements, lattice.ref)
+
+
+def misalignment_response(
+    lattice: Lattice, sources: Sequence[int] | None = None
+) -> tuple[np.ndarray, tuple[int, ...]]:
+    r"""Derivative of the closed orbit with respect to each element's ``(dx, dy)``.
+
+    Returns ``(response, sources)`` with ``response`` of shape
+    ``(n_boundaries, 4, n_sources, 2)``: the change in ``(x, px, y, py)`` at every
+    boundary per metre of displacement of each source, ``x`` plane then ``y``.
+
+    **Exact, not a finite difference.** The linear closed orbit is
+    ``x_co = (I - M4)^-1 k4`` and a displacement enters only through ``k4``, so the
+    orbit is *exactly* linear in every ``d_i``: each column is one displaced solve
+    minus the baseline, and the result does not depend on the step used. (The suite
+    gates that by doubling a displacement and getting exactly twice the orbit.) It is
+    the same construction as :func:`orbit_response_matrix`, with magnet displacements
+    as the knobs instead of corrector angles.
+
+    ``sources`` defaults to every element whose linear map responds to a displacement
+    at all — measured element by element, not selected by type.
+
+    Raises :class:`OrbitCorrectionError` if a named source cannot respond in either
+    plane, which is how a caller learns that a displaced sextupole is invisible here
+    (:func:`orbit_statistics` says what to use instead).
+    """
+    idx = _default_sources(lattice) if sources is None else [int(i) for i in sources]
+    n = len(lattice.elements)
+    for i in idx:
+        if not 0 <= i < n:
+            raise OrbitCorrectionError(f"source index {i} is outside the lattice (0..{n - 1})")
+        if not any(_offset_response_planes(lattice.elements[i], lattice.ref)):
+            raise OrbitCorrectionError(
+                f"element {i} ({lattice.elements[i]!r}) has no linear response to a "
+                "displacement: its matrix is unchanged by one, so (I - M) d is exactly "
+                "zero. A thin multipole above the quadrupole is felt only through its "
+                "nonlinear map — use closed_orbit_nonlinear() / linearised_lattice(), "
+                "which do see the feed-down a displaced sextupole or octupole produces"
+            )
+    if not idx:
+        raise OrbitCorrectionError(
+            "no element in this lattice responds to a displacement: without a gradient "
+            "there is nothing for a misalignment to act on"
+        )
+
+    base = np.array(propagate_orbit(lattice))  # (n_boundaries, 4)
+    unit = 1.0  # exact linearity: any nonzero step gives the same derivative
+    response = np.empty((base.shape[0], 4, len(idx), 2))
+    for j, i in enumerate(idx):
+        for p, plane in enumerate(_OFFSET_PLANES):
+            shifted = np.array(propagate_orbit(_with_offset(lattice, i, plane, unit)))
+            response[:, :, j, p] = (shifted - base) / unit
+    return response, tuple(idx)
+
+
+def orbit_statistics(
+    lattice: Lattice,
+    *,
+    dx_rms: float = 0.0,
+    dy_rms: float = 0.0,
+    sources: Sequence[int] | None = None,
+) -> OrbitStatistics:
+    r"""Expected rms closed orbit for a machine misaligned to a given tolerance.
+
+    The first quantity in this package that is **statistical**. It answers "how big is
+    the orbit in a machine built to this tolerance?" — the only question that can be
+    asked before the machine exists, and the form in which alignment tolerances are
+    actually specified and paid for.
+
+    For displacements that are zero-mean and mutually uncorrelated, with *any*
+    distribution having the given second moment,
+
+        <x_co(s)^2> = sum_i (dx_co(s)/ddx_i)^2 <dx_i^2>
+                    + sum_i (dx_co(s)/ddy_i)^2 <dy_i^2>,
+
+    the cross terms dying because the displacements are uncorrelated. That is a
+    genuine ensemble average and the only assumption made here; everything else is
+    exact, the derivatives coming from :func:`misalignment_response`.
+
+    **What this deliberately is not.** It is not the textbook
+    ``<x_co^2> = beta(s) theta_rms^2 sum_i beta_i / (8 sin^2 pi Q)``. Writing the
+    derivatives with the single-kick closed form gives, still exactly,
+
+        <x_co(s)^2> = beta(s) theta_rms^2 / (4 sin^2 pi Q)
+                      * sum_i beta_i cos^2(dpsi_i - pi Q),
+
+    and the textbook form needs one further step, ``cos^2 -> 1/2``. **That step is not
+    an ensemble average**: the phases ``dpsi_i`` are deterministic properties of the
+    lattice, and averaging over displacement samples never touches them. The ``1/8``
+    therefore holds only for sources whose betatron phases happen to be spread, and
+    the analytic suite computes the exact sum from the ring's own phases and
+    *measures* the departure instead of inheriting it.
+
+    ``dx_rms`` / ``dy_rms`` are the per-element rms displacements [m], the same for
+    every source — the usual way a tolerance is quoted. ``sources`` defaults to every
+    element whose linear map responds to a displacement.
+
+    **Scope: the linear response only.** A displaced sextupole or octupole is
+    invisible here *and this says so*, by refusing such a source rather than
+    returning zero: its kick is quadratic (or cubic) in the displacement and lives
+    entirely in the nonlinear map (:func:`closed_orbit_nonlinear`,
+    :func:`linearised_lattice`). Like every linear entry point in this module it is
+    ``delta = 0`` orbit theory, and it treats the optics as fixed — which is exact,
+    because a displacement changes no element's ``matrix()`` and so moves neither
+    ``beta`` nor the tunes.
+    """
+    if dx_rms < 0.0 or dy_rms < 0.0:
+        raise ValueError(f"rms displacements must be >= 0, got ({dx_rms}, {dy_rms})")
+    response, idx = misalignment_response(lattice, sources)
+    variance = np.array([dx_rms**2, dy_rms**2])
+    rms = np.sqrt(np.einsum("bcsp,p->bc", response**2, variance))
+    return OrbitStatistics(rms=rms, response=response, sources=idx)
+
+
+def misalign(
+    lattice: Lattice,
+    rng: np.random.Generator,
+    *,
+    dx_rms: float = 0.0,
+    dy_rms: float = 0.0,
+    sources: Sequence[int] | None = None,
+) -> Lattice:
+    """One machine drawn from the ensemble :func:`orbit_statistics` describes.
+
+    Returns a **new** lattice whose sources carry independent Gaussian displacements
+    of the given rms; the input lattice and its elements are untouched (each displaced
+    element is shallow-copied). An element already carrying an offset keeps it and has
+    the random one added, so a known displacement and a tolerance superpose.
+
+    Gaussian is a choice, not a requirement: :func:`orbit_statistics` depends on the
+    displacements only through their second moment, which the analytic suite checks by
+    reproducing the same prediction from a uniform distribution.
+    """
+    if dx_rms < 0.0 or dy_rms < 0.0:
+        raise ValueError(f"rms displacements must be >= 0, got ({dx_rms}, {dy_rms})")
+    idx = _default_sources(lattice) if sources is None else [int(i) for i in sources]
+    out = Lattice(list(lattice.elements), lattice.ref)
+    for i in idx:
+        if dx_rms:
+            out = _with_offset(out, i, "dx", float(rng.normal(0.0, dx_rms)))
+        if dy_rms:
+            out = _with_offset(out, i, "dy", float(rng.normal(0.0, dy_rms)))
+    return out

@@ -147,9 +147,16 @@ class Octupole(Element):
     """
 
     def __init__(
-        self, length: float, k3: float, name: str | None = None, n_slices: int = 1
+        self,
+        length: float,
+        k3: float,
+        name: str | None = None,
+        n_slices: int = 1,
+        *,
+        dx: float = 0.0,
+        dy: float = 0.0,
     ) -> None:
-        super().__init__(length, name=name)
+        super().__init__(length, name=name, dx=dx, dy=dy)
         if n_slices < 1:
             raise ValueError(f"n_slices must be >= 1, got {n_slices}")
         self.k3 = float(k3)
@@ -164,13 +171,13 @@ class Octupole(Element):
         # Linear map of an octupole is a drift: no focusing, no dispersion.
         return _drift_matrix(self.length, ref)
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         # Drift-kick-drift, n_slices times. The split carries no constant part -- an
         # octupole's ``kick()`` is the inherited zero -- so at k3 = 0 the base class's
         # affine map is the right answer *and* keeps this override honest about the
         # (M, k) contract rather than quietly dropping k.
         if self.k3 == 0.0:
-            return super().track(state, ref)
+            return super()._track_body(state, ref)
         n = self.n_slices
         half = _drift_matrix(0.5 * self.length / n, ref)
         k3l_slice = self.k3l / n
@@ -181,9 +188,8 @@ class Octupole(Element):
         return out
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
         slices = f", n_slices={self.n_slices}" if self.n_slices != 1 else ""
-        return f"Octupole(length={self.length}, k3={self.k3}{slices}{name})"
+        return f"Octupole(length={self.length}, k3={self.k3}{slices}{self._repr_tail()})"
 
 
 class ThinOctupole(Element):
@@ -205,18 +211,19 @@ class ThinOctupole(Element):
     whether the ``1/6`` is right — see the module docstring for what does.
     """
 
-    def __init__(self, k3l: float, name: str | None = None) -> None:
-        super().__init__(0.0, name=name)
+    def __init__(
+        self, k3l: float, name: str | None = None, *, dx: float = 0.0, dy: float = 0.0
+    ) -> None:
+        super().__init__(0.0, name=name, dx=dx, dy=dy)
         self.k3l = float(k3l)
 
     def matrix(self, ref: ReferenceParticle) -> np.ndarray:
         # Zero linear part: a thin octupole is the identity map at the origin.
         return np.eye(DIM)
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         # The full nonlinear kick -- exact, not a linearisation. Only (px, py) move.
         return _apply_kick(np.array(state, dtype=float, copy=True), self.k3l)
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
-        return f"ThinOctupole(k3l={self.k3l}{name})"
+        return f"ThinOctupole(k3l={self.k3l}{self._repr_tail()})"

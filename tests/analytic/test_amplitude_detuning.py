@@ -369,7 +369,7 @@ class _MisScaledOctupole(ThinOctupole):
     measurement must miss it by exactly 6.
     """
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         out = np.array(state, dtype=float, copy=True)
         x, y = out[0], out[2]
         out[1] -= self.k3l * (x**3 - 3.0 * x * y**2)

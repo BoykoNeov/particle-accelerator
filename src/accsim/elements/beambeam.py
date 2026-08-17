@@ -244,7 +244,7 @@ class BeamBeam(Element):
         M[PY, Y] = ky
         return M
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         r"""Full nonlinear Gaussian kick; ``state`` is ``(6,)`` or ``(6, N)``.
 
         Only ``(px, py)`` change — a thin kick leaves the positions untouched. Round
@@ -263,9 +263,8 @@ class BeamBeam(Element):
         return out
 
     def __repr__(self) -> str:
-        name = f", name={self.name!r}" if self.name is not None else ""
         sigma_y = "" if self.sigma_y is None else f", sigma_y={self.sigma_y}"
         return (
             f"BeamBeam(n_particles={self.n_particles}, sigma={self.sigma}{sigma_y}, "
-            f"strong_charge={self.strong_charge}{name})"
+            f"strong_charge={self.strong_charge}{self._repr_tail()})"
         )
