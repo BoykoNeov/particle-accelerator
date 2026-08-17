@@ -46,6 +46,7 @@ from accsim import (
 )
 from accsim.coords import DELTA, DIM, PX, PY, X, Y
 from accsim.elements.alignment import s_rotation
+from accsim.twiss import coupled_twiss_on_orbit
 
 pytestmark = pytest.mark.reference
 
@@ -382,10 +383,17 @@ def test_xtrack_confirms_a_rolled_bend_is_a_vertical_dispersion_source(
     )
 
 
-def test_a_steered_ring_isolates_the_linear_models_blind_spot(
+def test_a_steered_ring_isolates_the_design_optics_blind_spot(
     ring_twiss, ref: ReferenceParticle
 ) -> None:
-    r"""Why the ring-level ``D_y`` **value** is not a gate, measured in isolation.
+    r"""Why the ring-level ``D_y`` **value** was not a gate, measured in isolation.
+
+    **Read this together with the model-gap test below, which now closes it.** What is
+    isolated here is a property of ``matrix()``, and that property is permanent: the
+    design optics is built on 6x6 matrices, the missing terms are bilinear, and no
+    amount of exact tracking changes what a matrix can hold. What L1-L3 changed is that
+    the *on-orbit* route now supplies the physical answer, so the sentence "accsim
+    returns exactly 0" below is still true and no longer the whole story.
 
     accsim's linear elements drop the ``1/(1 + delta)`` on angles — a drift is
     ``y += L py``, where the exact map is ``y += L py / pz``. That missing
@@ -472,19 +480,28 @@ def _missing_source_dispersion(lat: Lattice, ref: ReferenceParticle) -> np.ndarr
 def test_the_model_gap_is_fully_accounted_for_and_not_a_mystery(
     ring_twiss, ref: ReferenceParticle
 ) -> None:
-    r"""The gap is *understood*, to 0.2 % — which is what makes it a known limit.
+    r"""**The gap is closed** — the package's own answer, not a hand reconstruction.
 
-    A blind spot that is merely named is a hope; one whose size is predicted from its
-    own algebra is a fact. Putting the two dropped terms back by hand — ``py L (h <D_x>
-    - 1)`` at every element, on accsim's own closed orbit — reproduces xtrack's ``dy``
-    **and** ``dpy`` on both the rolled and the steered ring, from an accsim ``D_y`` that
-    is an order of magnitude out (and, on the steered ring, exactly zero).
+    This test was written by K2 as a *specification*. It could then only put the two
+    dropped terms back by hand and show that doing so reproduced xtrack to 0.2 %, with
+    a note that representing them for real meant exact nonlinear maps for ``Drift``,
+    ``Quadrupole`` and ``Dipole`` and would re-baseline every gate in the suite. L1, L2
+    and L3 are those three maps. So the assertion has moved from the reconstruction to
+    :func:`~accsim.twiss.coupled_twiss_on_orbit`, and the number moved with it: from
+    ``2e-3`` relative to **``1.7e-8``** on the rolled ring and ``3.5e-9`` on the steered
+    one, on both ``dy`` and ``dpy``.
 
-    This is deliberately **not** wired into the package: the terms are bilinear
-    (``py delta``), so they cannot live in a 6x6 at all. Representing them means exact
-    nonlinear maps for ``Drift`` / ``Quadrupole`` / ``Dipole``, which would re-baseline
-    every gate in the suite. It is a future milestone, and this test is its
-    specification.
+    The design optics still reports the old answers and is still *right* to: the terms
+    are bilinear in ``(p, delta)`` and cannot live in a 6x6 at all. On the rolled ring
+    that is an order of magnitude out, and on the steered ring it is exactly zero. The
+    two routes are not in conflict — they are the linear map and the exact one.
+
+    The hand reconstruction is kept, demoted to what it always was: an *independent*
+    first-order account, built from the closed form rather than by differencing
+    ``track()``. It agrees to 0.2 %, and the fact that the package now does five orders
+    better than its own specification is the measure of what the exact maps added — the
+    reconstruction has only the ``delta`` column, and the exact bend also couples the
+    planes (``tests/analytic/test_exact_dipole.py``).
     """
     for label, lat in (
         ("rolled", _accsim_ring(ref, RING_ROLL)),
@@ -494,7 +511,18 @@ def test_the_model_gap_is_fully_accounted_for_and_not_a_mystery(
             elems = list(_accsim_ring(ref, 0.0).elements)
             elems.insert(1, Corrector(kick_y=STEER))
             lat = Lattice(elems, ref)
-        got = _missing_source_dispersion(lat, ref)
         tw = ring_twiss[label]
+
+        # The package, against xtrack. This is the milestone.
+        on_orbit = coupled_twiss_on_orbit(lat)
+        assert on_orbit.disp_y == pytest.approx(tw.dy[0], rel=1e-6), label
+        assert on_orbit.disp_py == pytest.approx(tw.dpy[0], rel=1e-5, abs=1e-12), label
+
+        # The design optics, which cannot carry the terms and says so plainly.
+        design = coupled_twiss(lat).disp_y
+        assert abs(design - tw.dy[0]) > 0.5 * abs(tw.dy[0]), label
+
+        # K2's own first-order account, still good to 0.2 % and no better.
+        got = _missing_source_dispersion(lat, ref)
         assert got[2] == pytest.approx(tw.dy[0], rel=3e-3), label
         assert got[3] == pytest.approx(tw.dpy[0], rel=5e-3, abs=1e-12), label

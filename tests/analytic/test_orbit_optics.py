@@ -514,6 +514,7 @@ def test_tracked_feeddown_matches_the_on_orbit_split(ref: ReferenceParticle) -> 
     the sextupole term alone. It is the same ring in both arms, so differencing removes it
     exactly.
     """
+    gaps = []
     for kick in (8e-4, 4e-4, 2e-4, 1e-4):
         lat = _dispersive(ref, CHROMA_K2L, kick)
         baseline = _dispersive(ref, 0.0, kick)
@@ -521,60 +522,89 @@ def test_tracked_feeddown_matches_the_on_orbit_split(ref: ReferenceParticle) -> 
         natural = natural_chromaticity_on_orbit(lat)
         tracked = _tracked_feeddown_chromaticity(lat)
         drift_only = _tracked_feeddown_chromaticity(baseline)
-        # The 1e-3 bound, against values of order 2, is the cross term the subtraction
-        # cannot remove: the sextupole's fed-down dipole moves the orbit, which changes
-        # the drift's own chromatic contribution slightly, so the two arms' drift terms
-        # are not identical. It is 3e-4 relative and does not grow with the steerer.
-        assert total[0] - natural[0] == pytest.approx(tracked[0] - drift_only[0], abs=1e-3)
-        assert total[1] - natural[1] == pytest.approx(tracked[1] - drift_only[1], abs=1e-3)
-        # Non-vacuous: the feed-down term itself is three orders above that bound.
+        gap = (
+            abs((total[0] - natural[0]) - (tracked[0] - drift_only[0])),
+            abs((total[1] - natural[1]) - (tracked[1] - drift_only[1])),
+        )
+        gaps.append(gap)
+        # Non-vacuous: the feed-down term itself is three orders above the gap.
         assert abs(total[0] - natural[0]) > 0.1
+        assert gap[0] < 2e-3 and gap[1] < 2e-3
+
+    # What the subtraction cannot remove is a *cross term*: the sextupole's fed-down
+    # dipole moves the orbit, so the two arms' element maps are linearised about
+    # slightly different trajectories and their chromatic contributions do not cancel
+    # exactly. It used to be flat in the steerer at 3e-4 relative, because only the
+    # drift carried the effect and a drift's contribution does not depend on where the
+    # orbit is. L3 made the *bend* chromatic too, and a bend's new terms are all
+    # proportional to the orbit angle — so the gap is now **linear in the steerer**,
+    # which is asserted as that order rather than absorbed into a wider bound. At the
+    # largest steerer it is 5.8e-4 (x) and 1.6e-3 (y) on values of order 2.
+    for plane in (0, 1):
+        for big, small in zip(gaps[:-1], gaps[1:], strict=True):
+            assert big[plane] / small[plane] == pytest.approx(2.0, rel=5e-2)
 
 
-def test_the_tracked_route_is_now_blind_only_to_the_bends_share_of_the_chromaticity(
+def test_the_tracked_route_now_sees_the_whole_natural_chromaticity(
     ref: ReferenceParticle,
 ) -> None:
-    r"""Why the gate above is a *difference* — and how much of that blind spot is left.
+    r"""Why the gate above is a *difference* — and the blind spot that is now closed.
 
     It used to be total. Every accsim element map carried no ``delta`` dependence at
     all, so the tracked tunes of a sextupole-free machine did not move with momentum —
     exactly zero — while the machine plainly had a natural chromaticity that accsim
-    supplied analytically. Two milestones have eaten into it:
+    supplied analytically. Three milestones ate into it, on this same ring:
 
     - **L1**, the exact :class:`~accsim.elements.drift.Drift`: ``x`` moves by
       ``L px / pz`` with ``pz ~ 1 + delta``, so a drift's effective length is
       ``L (1 - delta)`` — a first-order chromatic element with no magnet involved.
       That took this ring from ``3.7e-8`` to ``-0.1289``, 45% of its ``-0.2893``.
     - **L2**, the momentum-dependent :class:`~accsim.elements.quadrupole.Quadrupole`:
-      a stiffer particle is focused by ``k1/(1+delta)``. That takes it to ``-0.1665``,
+      a stiffer particle is focused by ``k1/(1+delta)``. That took it to ``-0.1665``,
       **58%**.
+    - **L3**, the exact :class:`~accsim.elements.dipole.Dipole`: the bend's weak
+      focusing, its dispersion and its path length all become momentum-dependent
+      together, because they are one circle. ``-0.28934``, **100%**.
 
-    What is left is the **dipole**, whose map is still linear until L3 — its ``h^2``,
-    dispersion and edge terms have no tracked counterpart at all. On a ring with *no*
-    bend the tracked route now recovers the natural chromaticity in full, which is
-    asserted in ``tests/analytic/test_exact_quadrupole.py`` against this same integral
-    and is what makes the shortfall here attributable rather than merely observed.
+    "100%" is asserted where it is exact rather than where it is convenient. On the
+    **unsteered** ring the two routes agree to ``4.5e-9`` absolute — a relative
+    ``1.6e-8``, which is the tune-extraction floor and not a physics difference. On the
+    steered ring a residual appears that is **linear in the steerer** (``2.05e-5`` at
+    ``4e-4``, halving with it, and exactly zero without it): the analytic integral is
+    taken over the design optics while tracking sees the machine the beam is actually
+    in. That is the same orbit-driven class of term the on-orbit functions exist for,
+    and pinning its *order* is what distinguishes it from a wrong coefficient.
 
-    So ``chromaticity_on_orbit`` must still be built as a difference on a bendy
-    machine. The fraction is asserted to be neither 0 nor 1, because both would be
-    wrong for different reasons and a bound on the size alone would not say so.
+    ``chromaticity_on_orbit`` is still built as a difference above, but no longer
+    because tracking is blind — only because the tracked route carries the natural term
+    as well as the feed-down one, and the difference is what isolates the feed-down.
     """
-    lat = _dispersive(ref, k2l=0.0, kick_x=4e-4)
-    tracked = _tracked_feeddown_chromaticity(lat)
-    natural = natural_chromaticity(lat)
-    assert natural[0] < -0.2 and natural[1] < -0.3  # the machine plainly has one...
+    clean = _dispersive(ref, k2l=0.0, kick_x=0.0)
+    natural_clean = natural_chromaticity(clean, slices=2048)
+    tracked_clean = _tracked_feeddown_chromaticity(clean)
+    assert natural_clean[0] < -0.2 and natural_clean[1] < -0.3  # the machine has one...
 
-    # ...and the tracked route now recovers most of it, but not the bends' part.
-    assert tracked[0] == pytest.approx(-0.166549, rel=1e-4)
-    assert tracked[1] == pytest.approx(-0.168901, rel=1e-4)
-    for plane in (0, 1):
-        share = tracked[plane] / natural[plane]
-        assert 0.4 < share < 0.8, "neither blind nor complete — the bends' share is missing"
+    # ...and tracking now reproduces it, on a ring full of bends, to the tune floor.
+    assert tracked_clean[0] == pytest.approx(natural_clean[0], rel=1e-7)
+    assert tracked_clean[1] == pytest.approx(natural_clean[1], rel=1e-7)
+    assert tracked_clean[0] == pytest.approx(-0.2893402, rel=1e-6)
 
-    # And the same sign as the natural chromaticity, so it adds to it rather than
-    # fighting it: a drift is focusing-neutral but not momentum-neutral.
-    assert tracked[0] * natural[0] > 0.0
-    assert tracked[1] * natural[1] > 0.0
+    # Steered, a residual appears, and it is first order in the orbit rather than a
+    # fixed shortfall — which is what says it is the design-vs-real-optics difference
+    # and not a missing share of the map.
+    def residual(kick: float) -> float:
+        lat = _dispersive(ref, k2l=0.0, kick_x=kick)
+        return abs(_tracked_feeddown_chromaticity(lat)[0] - natural_chromaticity(lat, 2048)[0])
+
+    big, small = residual(4e-4), residual(2e-4)
+    assert big == pytest.approx(2.05e-5, rel=2e-2)
+    assert big / small == pytest.approx(2.0, rel=1e-2)
+    assert big < 1e-4 * abs(natural_clean[0])  # and it is tiny beside the answer
+
+    # Same sign as the natural chromaticity, so the tracked route adds to it rather
+    # than fighting it: a drift is focusing-neutral but not momentum-neutral.
+    assert tracked_clean[0] * natural_clean[0] > 0.0
+    assert tracked_clean[1] * natural_clean[1] > 0.0
 
 
 def test_the_natural_half_is_the_beta_weighted_sum_over_the_real_optics(
@@ -877,17 +907,20 @@ def test_delta_is_carried_into_the_linearised_maps(ref: ReferenceParticle) -> No
     off = propagate_twiss_on_orbit(lat, delta=1e-3)
     assert any(abs(a.beta_x / b.beta_x - 1.0) > 1e-6 for a, b in zip(flat, off, strict=True))
     # ...and a multipole-free lattice is *almost* unmoved by delta. "Unmoved" was the
-    # claim while accsim's maps carried no delta dependence at all; both L1 and L2 have
-    # since put one in — a drift's effective length is L/pz ~ L(1 - delta), and a thick
-    # quadrupole focuses an off-momentum particle by k1/(1 + delta) — so beta really
-    # moves. That is chromatic beta-beat, which a real machine has and this package
-    # previously could not produce at all.
+    # claim while accsim's maps carried no delta dependence at all; L1, L2 and L3 have
+    # each put one in — a drift's effective length is L/pz ~ L(1 - delta), a thick
+    # quadrupole focuses an off-momentum particle by k1/(1 + delta), and a bend traces a
+    # circle of radius rho(1 + delta) — so beta really moves. That is chromatic
+    # beta-beat, which a real machine has and this package previously could not produce
+    # at all.
     #
-    # Measured 2.4e-4 relative (1.8e-4 with the drift's share alone, before the quadrupole
-    # gained its own), still two orders below the 1e-2 sextupole signal above, so the
-    # discrimination this test rests on survives. The bound is stated as that ratio
-    # rather than as a tolerance, and the sextupole-free beat is asserted to be nonzero
-    # so the new effect is documented rather than hidden inside a widened number.
+    # Measured 1.8e-4 with the drift's share alone, 2.4e-4 once the quadrupole had its
+    # own, and 4.8e-4 now that the bend does. **The claim that it is "two orders below"
+    # the sextupole signal has expired**: the separation is now a factor of 12, not 100,
+    # because the multipole-free beat has grown while the sextupole's has not. That is
+    # still a clean discrimination and it is stated as the measured ratio, because the
+    # honest reading of this trend is that each exact map narrows it and the next one
+    # will narrow it again.
     linear = _dispersive(ref, k2l=0.0, kick_x=2e-4)
     beat = [
         abs(a.beta_x / b.beta_x - 1.0)
@@ -897,9 +930,9 @@ def test_delta_is_carried_into_the_linearised_maps(ref: ReferenceParticle) -> No
             strict=True,
         )
     ]
-    assert max(beat) == pytest.approx(2.4135e-4, rel=1e-2)
+    assert max(beat) == pytest.approx(4.7765e-4, rel=1e-2)
     sextupole_beat = max(abs(a.beta_x / b.beta_x - 1.0) for a, b in zip(flat, off, strict=True))
-    assert max(beat) < 0.05 * sextupole_beat
+    assert max(beat) / sextupole_beat == pytest.approx(0.0808, rel=2e-2)
 
 
 def test_orbit0_and_delta_are_not_both_free(ref: ReferenceParticle) -> None:

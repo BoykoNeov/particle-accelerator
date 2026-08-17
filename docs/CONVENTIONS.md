@@ -238,6 +238,14 @@ one:
   converges onto the *paraxial* thick multipole rather than onto the exact one. That is
   the same model boundary L2 records for the quadrupole, reached by a different route.
 
+**Updated again 2026-08-17 (L3)** — for one element the inconsistency is now *gone*
+rather than narrowed. The exact sector-bend map has **no division by the curvature left
+in it**, so `Dipole(L, 0).track` is not a special case but the `h → 0` limit of the same
+formula, and it agrees with `Drift(L).track` to `6.5e-19` (a few ulp — one map by two
+arithmetic routes). A zero-angle dipole is a drift in `matrix` *and* in `track`. This is
+the exception that shows the rule: it happened because a closed form existed, not because
+the inconsistency was fixed, and `Quadrupole`, `Sextupole` and `Octupole` are unchanged.
+
 Gates: `tests/analytic/test_drift.py` (13), `tests/analytic/test_exact_drift_dispersion.py`
 (5), `tests/analytic/test_symplectic_canonical.py` (14),
 `tests/reference/test_drift_xtrack.py` (5 — including the bend-free steered ring, so the
@@ -330,6 +338,13 @@ Two controls make that attributable rather than merely observed:
   and nothing else. On the suite's bendy test arc the tracked route now reports
   `−0.1665` against `−0.2893` (58%, up from 45%).
 
+  > **Superseded by L3 (2026-08-17).** Both arms of that control now read 100%: the
+  > exact bend map has no division by the curvature left in it, so a zero-angle `Dipole`
+  > *is* a `Drift`. The controlled experiment moved to `Dipole(L, 0, k1)` against
+  > `Quadrupole(L, k1)` — **56% against 100%** — which isolates the only map still
+  > missing, the curved quadrupole's. The bendy arc now reads `−0.28934` against
+  > `−0.28934`. See *The dipole's exact map* below.
+
 ### The `ζ` cancellation trap, avoided again
 
 MAD-X and xtrack both evaluate `Δζ = L − path/rvv`: two numbers of size `L` differenced
@@ -372,10 +387,11 @@ Two consequences worth carrying:
   have made the same magnet behave two ways depending on how it was spelled.
 - **`Dipole(L, 0, k1)` and `Quadrupole(L, k1)` are the same magnet and now track
   differently** — identical matrices, and the bend's `track` is still its matrix. This
-  is a *new* divergence created by L2, it is deliberate (L3 closes it), and it is
-  **load-bearing**: `test_the_bend_is_the_only_thing_tracking_is_still_blind_to` uses
-  exactly that pair as a controlled experiment, since swapping one for the other changes
-  the tracked chromaticity and nothing else.
+  is a *new* divergence created by L2, it is deliberate, and it is **load-bearing**:
+  `test_the_gradient_bend_is_the_only_thing_tracking_is_still_blind_to` uses exactly that
+  pair as a controlled experiment, since swapping one for the other changes the tracked
+  chromaticity and nothing else. L3 did *not* close it — a curved quadrupole has no
+  closed-form flow either — so this pair is now the sharpest statement of what is left.
 - **`is_symplectic_map` now *accepts* a correct exact map at small amplitude.** The
   `(ζ, δ)` residual is second order in the amplitude *and* suppressed by `1/γ₀²`; on a
   `γ₀ = 20` ring at amplitude `1e-3` it is `8.4e-10`, under the default `atol` of
@@ -385,6 +401,163 @@ Two consequences worth carrying:
 
 Gates: `tests/analytic/test_exact_quadrupole.py` (16),
 `tests/reference/test_quadrupole_xtrack.py` (4).
+
+## The dipole's exact map (L3 — implemented 2026-08-17)
+
+**A uniform field has a closed-form flow, and it is a circle.** A particle of momentum
+`1+δ` moves, in projection onto the bend plane, on a circle of radius
+`r = p⊥/h` with `p⊥ = √((1+δ)² − p_y²)`, and the map is that circle meeting the exit
+face. So unlike L2's quadrupole, the **pure sector** bend's map is exact in the *angles
+as well as in* `δ`, and unlike L1's drift it is exact in both at once.
+
+Verified against `xt.Bend(model="bend-kick-bend")` to **1.9e-16**, and against an
+independent plane-geometry construction (circle-meets-plane, sharing no arithmetic with
+the implementation) to **1e-15** at bend angles up to `1.5 rad` and `δ` up to `0.3`. The
+exact Hamiltonian `H = −(1+hx)√((1+δ)²−p_x²−p_y²) + h(x + hx²/2)` is `s`-independent and
+is conserved by the map to `4.4e-16` — a check needing no reference implementation.
+
+### The split at `k1` is *forced*, not chosen — and this is not L2's refused discontinuity
+
+L2 declined to short-circuit `k1 == 0` because that would have made a map discontinuous
+in `k1` for no reason but convenience. This looks like the same thing and is not:
+
+- with `k1 = 0`, `p_y` is conserved, so `y' = p_y(1+hx)/p_z` is a **quadrature** over a
+  known `x(s)` — which is *why* a closed form exists;
+- with `k1 ≠ 0`, `p_y' = −k1 y` turns that into a second-order ODE with an `s`-dependent
+  coefficient. **The geometric term and vertical focusing are mutually exclusive in
+  closed form.**
+
+So the sub-case has a strictly better map that the general family provably cannot
+express. The remaining option for a curved quadrupole is MAD-X's expanded map (xtrack's
+`mat-kick-mat`, `track_thick_cfd.h`), which is paraxial in the angles and therefore
+**drops the very term L3 exists to add**. A combined-function bend is left on the affine
+map, which keeps `matrix()` the exact origin Jacobian — the invariant that bounds the
+whole axis and rules out every slicing family.
+
+Measured separation between the two model families, so the boundary is a number:
+`1.4e-5` on the reference states, against `1.9e-16` for the right one.
+
+### The `+h⟨D_x⟩` half of K2's account, and the half K2's formula did not have
+
+Per bend, to first order in the orbit, the Jacobian gains
+
+```
+M[y, δ] = M[ζ, p_y] = −p_y·ρ·sin θ                     ← K2's specified source
+M[y, x] = +p_y·sin θ       M[y, p_x] = +p_y·ρ(1−cos θ)  ← plane coupling
+M[x, δ] = −p_x·ρ·sin θ·cos θ      M[ζ, p_x] = −p_x·ρ·sin θ
+```
+
+with the partners `M[p_x, p_y] = −M[y, x]` and `M[x, p_y] = −M[y, p_x]`. Two facts here
+are not guessable:
+
+- **the coupling pair is `p_y` times the bend's own dispersion entries `R26` and
+  `R16`.** An upright sector bend on a vertical orbit is therefore a **coupling source** —
+  new in this package, which previously needed a skew quadrupole (G1), a rolled magnet
+  (K2) or a misaligned multipole. It also transports horizontal dispersion into the
+  vertical, and on a real arc **that path is the larger one**: K2's
+  `Δd_y = p_y L (h⟨D_x⟩ − 1)` is the `δ` column alone and misses it, giving `3.3e-4`
+  where the answer is `8.6e-5` on the L3 test ring. K2's 0.2 % agreement on its own
+  rings stands; what is corrected is the formula's *scope*.
+- **the horizontal response is not the plane swap of the vertical one.** `p_x` is not
+  conserved, so the response feeds back through the bend's own focusing:
+  `ξ'' + h²ξ = (3h/2)·sin 2hs`, `ξ(0)=0`, `ξ'(0)=−1`, giving `ξ(L) = −ρ sin θ cos θ`.
+  Symmetrising the planes is 8 % wrong at `θ = 0.39` and no design-optics gate would
+  notice.
+
+Consequence: `closed_twiss_on_orbit` **raises** `CoupledLatticeError` on a bendy ring
+with a vertical orbit, where the design `closed_twiss` does not. Use
+`coupled_twiss_on_orbit`. The two are describing different maps and both are right.
+
+### What it closes — K2's specification, from 0.2 % to 1.7e-8
+
+`test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` was written by K2 as a
+*specification*: it could only put the dropped terms back by hand and note that doing it
+for real meant exact maps for `Drift`, `Quadrupole` and `Dipole`. L1–L3 are those maps.
+
+```
+                       accsim design   accsim on-orbit   xtrack
+rolled ring   D_y      −3.05e-5        −3.34250898e-4    −3.34250903e-4   (1.7e-8)
+steered ring  D_y       0.0             2.12984605e-4     2.12984604e-4   (3.5e-9)
+```
+
+The design optics still reports the old answers and is still **right** to: the terms are
+bilinear in `(p, δ)` and no 6×6 can hold them.
+
+### Chromaticity: 58% → 100%, with bends
+
+On a ring of thin quadrupoles and thick sector bends — *no drifts*, so the bend is the
+only element with length — the tracked `dQ/dδ` equals `natural_chromaticity` including
+F2's full dipole terms. Before L3 that ring's tracked chromaticity was **zero**: a thin
+kick is momentum-independent and the linear bend was chromatically ideal. The control
+runs that statement rather than remembering it (a `Dipole` subclass whose `track` is its
+`matrix`). On the suite's bendy arc: `−0.28934` against `−0.28934`, up from `−0.1665`.
+
+On a *steered* ring a residual appears that is **linear in the steerer** (`2.05e-5` at
+`4e-4`, exactly zero without it): the analytic integral is taken over the design optics
+while tracking sees the machine the beam is in. Its order is pinned, which is what
+separates it from a missing share of the map.
+
+### Numerics: the trap L1 predicted, and it was the biggest one yet
+
+Transcribed as xtrack writes it, `x = (pz_out·h − dpx/ds − k)/(h·k)` builds an answer of
+size `x` out of a numerator of size `h`. The origin Jacobian then comes out at `3.2e-9`
+against `matrix()` and **degrades as the finite-difference step shrinks** — the signature
+of cancellation, not truncation — which would have broken every design-optics gate.
+
+Rearranged so nothing of size one is ever subtracted:
+
+```
+u = pz − 1 = (δ(2+δ) − p_x² − p_y²)/(pz + 1)          C = u − h x
+px_out = px cos θ + C sin θ
+Q      = (px − px_out)/h = px·h·½L²sinc²(θ/2) − C·L·sinc θ
+x_out  = x cos θ + px·L·sinc θ + Q(px+px_out)/(pz_out+pz) + u·h·½L²sinc²(θ/2)
+D/h    = arcsinc(w)·S·Q/p⊥,   w = (a−b)S,  S = Σ/2 + (a+b)²/(2Σ),  Σ = √(1−a²)+√(1−b²)
+ζ     → ζ + L(1 − 1/rvv) − (δL/(1+δ) + D/h)·E/E₀
+```
+
+`4.9e-15`, improving with the step. Three points worth carrying:
+
+- **`asin(a) − asin(b)` is folded into a single `asin`** via
+  `a√(1−b²) − b√(1−a²) = (a−b)[Σ/2 + (a+b)²/(2Σ)]`, which is the standard identity
+  rearranged so its *own* inner subtraction cancels too. `Σ → 2`, never zero.
+- **There is no division by `h` left anywhere**, so the straight limit needs no branch:
+  `Dipole(L, 0)` *is* `Drift(L)`, agreeing to `6.5e-19` (a few ulp, two arithmetic routes
+  for one map). A weak bend degrades gracefully — `2.6e-13` at `h = 1e-4`, where the
+  transcribed form is `1.4e-5`.
+- `Δζ = L − Λ·E/E₀` is split as `L(1 − 1/rvv) − (path − L)/rvv` **and** the path excess is
+  kept as `δL/(1+δ) + D/h`, never as `(1+δ)Λ − L`: the latter differences two `O(δ)`
+  numbers whose leading parts cancel.
+
+### Blast radius, and one cost that is not L3's body
+
+Nine analytic tests across six files, and two reference tests — against L1's 29 and L2's
+five. Each was restated with its new content rather than renumbered:
+
+- **L2's 48%→100% control lost its teeth** and was moved, not widened: its two arms
+  (a zero-angle `Dipole` and a `Drift`) are now the same map. The surviving controlled
+  experiment is `Dipole(L, 0, k1)` against `Quadrupole(L, k1)` — byte-identical matrices,
+  **56% against 100%** — which is exactly what the curved-quadrupole map will close.
+- **A rolled bend is now symplectic only to first order in the roll** (`4.7e-8` at
+  `φ = 0.02`, halving with `φ`). This is **not** the body: the aligned bend is symplectic
+  to `3.7e-13`, both frame-change matrices are symplectic to `3.3e-16`, and a rolled
+  *straight* dipole — plain rotation instead of the curved rigid motion — is symplectic
+  to `2e-13`. The cause is that `frame_change()` returns the **affine linearisation** of
+  the true frame change, which its own docstring notes "is exact for accsim's linear
+  elements". It was; the body is no longer linear. `matrix()` and `kick()` are unaffected,
+  so every K2 number stands. Making the frame change nonlinear inside `track` would close
+  it and is a separate milestone.
+- **A particle can now leave the model in a bend.** `test_moving_bucket`'s
+  outside-the-bucket particle reaches `δ = 0.7` and `x = 1.4 m` and the exact map returns
+  `NaN` rather than inventing a trajectory (L1's rule). It has already escaped by 1900
+  bucket widths by then, so the escape is asserted on the turns before the loss.
+- **The multipole-free share of "linear vs nonlinear tracking" has doubled once per exact
+  map**: `0.9%` → `1.3%` → `2.6%` of the sextupole signal, and the chromatic beta-beat
+  separation is now a factor of 12 rather than 100. Both are stated as measured ratios,
+  because the honest reading is that each exact map narrows them again.
+
+Gates: `tests/analytic/test_exact_dipole.py` (14),
+`tests/reference/test_dipole_xtrack.py` (3 new), and the converted
+`tests/reference/test_roll_xtrack.py`.
 
 ## Quadrupole strength sign (Stage 1 — implemented)
 

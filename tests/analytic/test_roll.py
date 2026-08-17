@@ -77,11 +77,13 @@ from accsim import (
     coupled_twiss,
     is_symplectic_map,
     is_symplectic_map_canonical,
+    jacobian,
     linearised_lattice,
     normal_mode_tunes,
 )
 from accsim.coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from accsim.elements.alignment import arc_motion, frame_change, roll_motion, s_rotation
+from accsim.symplectic import J6, from_canonical, to_canonical
 
 # The bend the whole file measures on: big enough that sin(theta) and theta differ
 # in the third digit, which is what separates the right kick formula from the wrong one.
@@ -486,15 +488,21 @@ def test_the_rolled_map_is_still_symplectic(ref: ReferenceParticle) -> None:
     which no amount of dispersion agreement would reveal.
 
     The elements whose ``track`` is still linear in ``delta`` are checked in accsim's
-    ``(zeta, delta)``; the thick :class:`Quadrupole`, whose map is exact in ``delta``
-    since L2, needs the **canonical** check. It is not a formality: in ``(zeta, delta)``
-    the rolled quadrupole's residual is ``1.7e-9``, which clears the ``1e-8`` used here
-    by a factor of six — so it would go on passing, for a reason unconnected to
-    symplecticity, until an unlucky choice of ``STATE`` made it fail. A margin like that
-    is not a result. See ``accsim/symplectic.py``'s module docstring.
+    ``(zeta, delta)``; those whose map is exact in ``delta`` need the **canonical**
+    check. Which is which has moved twice: L2 put the thick :class:`Quadrupole` in the
+    second group, and L3 put the **pure sector** :class:`Dipole` there too. A
+    *combined-function* bend stays in the first, because the exact flow of a curved
+    quadrupole has no closed form and its ``track`` is still its matrix.
+
+    The distinction is not a formality, and the two rolled elements below show the two
+    different ways it bites. In ``(zeta, delta)`` the rolled quadrupole's residual is
+    ``1.7e-9``, which clears the ``1e-8`` used here by a factor of six — so it would go
+    on *passing*, for a reason unconnected to symplecticity, until an unlucky ``STATE``
+    made it fail. The rolled exact bend's residual is ``1.9e-6``, so the same check
+    **rejects a correct map** outright. Neither verdict from it means anything on its
+    own. See ``accsim/symplectic.py``'s module docstring.
     """
     for elem in (
-        Dipole(L_BEND, ANGLE, roll=ROLL),
         Dipole(L_BEND, ANGLE, k1=0.6, e1=0.1, e2=0.1, roll=ROLL),
         ThinSextupole(7.0, roll=ROLL),
         ThinOctupole(40.0, roll=ROLL),
@@ -503,9 +511,68 @@ def test_the_rolled_map_is_still_symplectic(ref: ReferenceParticle) -> None:
 
     rolled_quad = Quadrupole(0.4, 1.7, roll=ROLL)
     assert is_symplectic_map_canonical(lambda s: rolled_quad.track(s, ref), STATE, ref)
-    # ...and the wrong check's near-miss, pinned, so the switch above is not folklore.
+    assert is_symplectic_map_canonical(lambda s: Dipole(L_BEND, ANGLE).track(s, ref), STATE, ref)
+
+    # ...and the wrong check's two failure modes, pinned, so the switch is not folklore.
     assert is_symplectic_map(lambda s: rolled_quad.track(s, ref), STATE, atol=1e-8)
     assert not is_symplectic_map(lambda s: rolled_quad.track(s, ref), STATE, atol=1e-10)
+    rolled_bend = Dipole(L_BEND, ANGLE, roll=ROLL)
+    assert not is_symplectic_map(lambda s: rolled_bend.track(s, ref), STATE, atol=1e-8)
+
+
+def test_a_rolled_bend_is_symplectic_only_to_first_order_in_the_roll(
+    ref: ReferenceParticle,
+) -> None:
+    r"""A cost of L3 that K2 could not have seen, measured rather than assumed.
+
+    :func:`~accsim.elements.alignment.frame_change` returns the **affine linearisation
+    about the origin** of the true frame change — its own docstring says so, and adds
+    that it "is exact for accsim's linear elements". It was, and now it is not: L3 made
+    the pure sector bend's body an *exact* map, and conjugating an exact map by a
+    linearised frame change is no longer exactly symplectic.
+
+    Every part of that sentence is checked below, because it would otherwise be a story:
+
+    - the **aligned** exact bend is symplectic to ``3.7e-13`` — the body is not the
+      problem;
+    - the two frame-change matrices are each symplectic in their own right to
+      ``3.3e-16`` — the linearisation is not *wrong*, it is only a linearisation;
+    - a rolled **straight** dipole, whose alignment is a plain rotation rather than the
+      curved rigid motion, is symplectic to ``2e-13`` — so it is the curved frame change
+      and nothing else;
+    - the rolled bending dipole's residual is ``4.7e-8`` and **first order in the roll**,
+      halving with it over four halvings. A second-order residual would point at the
+      body; first order points at the frame change, which is where the linearisation is.
+
+    ``matrix()`` and ``kick()`` are unaffected — they are linear by construction, so the
+    linearised frame change is exact *for them*, and every K2 number stands. What this
+    bounds is tracking a rolled bend for many turns, where a non-symplectic map at
+    ``5e-8`` per element is a slow leak rather than a wrong answer. Making the frame
+    change nonlinear in ``track`` would close it and is not this milestone.
+    """
+    aligned = Dipole(L_BEND, ANGLE)
+    assert is_symplectic_map_canonical(lambda s: aligned.track(s, ref), STATE, ref)
+
+    straight_rolled = Dipole(L_BEND, 0.0, roll=ROLL)
+    assert is_symplectic_map_canonical(lambda s: straight_rolled.track(s, ref), STATE, ref)
+
+    bend = Dipole(L_BEND, ANGLE, roll=ROLL)
+    for M, _k in (bend._alignment_entry(ref), bend._alignment_exit(ref)):
+        assert np.abs(M.T @ J6 @ M - J6).max() < 1e-14
+
+    def residual(roll: float) -> float:
+        elem = Dipole(L_BEND, ANGLE, roll=roll)
+
+        def canonical(c: np.ndarray) -> np.ndarray:
+            return to_canonical(elem.track(from_canonical(np.asarray(c), ref), ref), ref)
+
+        J = jacobian(canonical, to_canonical(STATE, ref))
+        return float(np.abs(J.T @ J6 @ J - J6).max())
+
+    residuals = [residual(ROLL / 2**k) for k in range(4)]
+    assert residuals[0] == pytest.approx(4.73e-8, rel=2e-2)
+    for big, small in zip(residuals[:-1], residuals[1:], strict=True):
+        assert big / small == pytest.approx(2.0, rel=1e-2)  # first order, not second
 
 
 def test_a_roll_broadcasts_over_a_bunch(ref: ReferenceParticle) -> None:

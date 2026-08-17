@@ -79,10 +79,13 @@ def ring_ref() -> ReferenceParticle:
 def _straight_ring(ref: ReferenceParticle, cells: int = 6, k1: float = K1) -> Lattice:
     """A FODO ring of **thick** quadrupoles and drifts, and no bend anywhere.
 
-    Bend-free on purpose. The :class:`~accsim.elements.dipole.Dipole` map is still
-    linear (L3), and a dipole is the one element that would put an untracked term
-    into the chromaticity comparison below. With ``h = 0`` every element in the ring
-    has its exact map, so the identity is exact rather than approximate.
+    Bend-free on purpose, and it stays that way after L3 gave the bend its exact map.
+    The reason has changed rather than expired: a bend would no longer put an
+    *untracked* term into the chromaticity comparison, but it would put a **curved**
+    one into the identity below, which says the ring at momentum ``delta`` is the
+    design ring with every ``k1`` rescaled. That substitution works because ``h = 0``
+    turns the exact drift's ``L/(1+delta)`` back into ``L``; a bend's geometry does not
+    rescale with it.
     """
     els: list = []
     for _ in range(cells):
@@ -506,44 +509,62 @@ def test_a_thin_quadrupole_ring_already_had_all_of_it(ring_ref: ReferenceParticl
     assert tracked[1] == pytest.approx(analytic[1], rel=1e-6)
 
 
-def test_the_bend_is_the_only_thing_tracking_is_still_blind_to(
+def test_the_gradient_bend_is_the_only_thing_tracking_is_still_blind_to(
     ring_ref: ReferenceParticle,
 ) -> None:
-    r"""What L2 leaves for L3, in a controlled experiment rather than an estimate.
+    r"""What is left, in a controlled experiment rather than an estimate.
 
-    A zero-angle :class:`~accsim.elements.dipole.Dipole` and a
-    :class:`~accsim.elements.drift.Drift` of the same length have the **same matrix**,
-    so a ring built with one has exactly the same design optics — and the same
-    analytic natural chromaticity — as the ring built with the other. They differ only
-    in ``track``: the drift's is exact, the dipole's is still its matrix.
+    **This test used to compare a zero-angle** :class:`~accsim.elements.dipole.Dipole`
+    **with a** :class:`~accsim.elements.drift.Drift` **and read 48% against 100%.** L3
+    gave the pure sector bend its exact map, and because that map has no division by the
+    curvature left in it, the straight limit is reached rather than special-cased — so a
+    zero-angle ``Dipole`` now *is* a ``Drift``, agreeing to a few ulp, and the old
+    control reads 100% against 100%. It had to be re-based, and the honest re-basing is
+    to move it onto the case that is still open rather than to keep a comparison whose
+    two arms have become the same thing.
 
-    Swapping one for the other therefore changes nothing except how much of the
-    chromaticity tracking can see, and it moves from **48% to 100%**. That is the
-    sharpest available statement of what remains: the residual blindness is the
-    dipole's map and nothing else, and it is L3's to close.
+    That case is the **combined-function** bend. A straight ``Dipole`` with a gradient
+    and a :class:`Quadrupole` of the same ``k1`` have byte-identical matrices — the
+    difference below is exactly ``0.0`` — hence the same design optics and the same
+    analytic natural chromaticity. They differ only in ``track``: the quadrupole's is
+    L2's momentum-dependent map, the gradient bend's is still its matrix, because the
+    exact flow of a *curved* quadrupole has no closed form and L3 deliberately stopped
+    at the pure bend (``tests/analytic/test_exact_dipole.py``).
+
+    So the experiment survives with its teeth intact: same machine both ways, and the
+    tracked chromaticity moves from **56% to 100%**.
     """
 
-    def ring(bend) -> Lattice:
+    def ring(middle) -> Lattice:
         els: list = []
         for _ in range(4):
-            els += [Quadrupole(0.3, K1), bend(), Quadrupole(0.3, -K1), Drift(0.5)]
+            els += [Quadrupole(0.3, K1), middle(), Quadrupole(0.3, -K1), Drift(0.5)]
         return Lattice(els, ring_ref)
 
     from accsim import Dipole
 
-    straight_bend, real_drift = ring(lambda: Dipole(1.0, 0.0)), ring(lambda: Drift(1.0))
-
-    # Identical design optics — that is what makes this a controlled experiment.
-    np.testing.assert_allclose(
-        straight_bend.one_turn_matrix(), real_drift.one_turn_matrix(), atol=1e-14
+    k1_mid = 0.05  # weak: the same element at 0.1 makes the ring unstable
+    gradient_bend, real_quad = (
+        ring(lambda: Dipole(1.0, 0.0, k1=k1_mid)),
+        ring(lambda: Quadrupole(1.0, k1_mid)),
     )
-    blind = natural_chromaticity(straight_bend, slices=1024)
-    seeing = natural_chromaticity(real_drift, slices=1024)
-    assert blind[0] == pytest.approx(seeing[0], rel=1e-9)
 
-    assert _tracked_chromaticity(real_drift)[0] == pytest.approx(seeing[0], rel=1e-5)
-    share = _tracked_chromaticity(straight_bend)[0] / blind[0]
-    assert 0.3 < share < 0.7, "the dipole's map carries none of it — L3's business"
+    # Identical design optics — that is what makes this a controlled experiment, and
+    # here it is identical to the last bit rather than to a tolerance.
+    assert np.abs(gradient_bend.one_turn_matrix() - real_quad.one_turn_matrix()).max() == 0.0
+    blind = natural_chromaticity(gradient_bend, slices=1024)
+    seeing = natural_chromaticity(real_quad, slices=1024)
+    assert blind[0] == pytest.approx(seeing[0], rel=1e-12)
+
+    assert _tracked_chromaticity(real_quad)[0] == pytest.approx(seeing[0], rel=1e-5)
+    share = _tracked_chromaticity(gradient_bend)[0] / blind[0]
+    assert 0.4 < share < 0.7, "the curved quadrupole's map carries none of it"
+
+    # And the old arms really have converged, which is why the test had to move.
+    straight_bend, real_drift = ring(lambda: Dipole(1.0, 0.0)), ring(lambda: Drift(1.0))
+    was_blind = natural_chromaticity(straight_bend, slices=1024)
+    assert _tracked_chromaticity(straight_bend)[0] / was_blind[0] == pytest.approx(1.0, rel=1e-5)
+    assert _tracked_chromaticity(real_drift)[0] / was_blind[0] == pytest.approx(1.0, rel=1e-5)
 
 
 # --------------------------------------------------------------------------

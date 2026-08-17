@@ -243,14 +243,16 @@ def test_tracked_feeddown_chromaticity_matches_analytic(ref: ReferenceParticle) 
     **The tracked route needs a baseline subtracted, and what it removes is worth
     naming.** Two milestones put real chromaticity into the tracked maps of a
     sextupole-free ring: L1's exact :class:`~accsim.elements.drift.Drift`, whose
-    effective length is ``L/pz ~ L (1 - delta)``, and L2's
+    effective length is ``L/pz ~ L (1 - delta)``, L2's
     :class:`~accsim.elements.quadrupole.Quadrupole`, which focuses an off-momentum
-    particle by ``k1/(1 + delta)``. Together they are worth ``-0.167`` on this ring —
-    a **first-order** ``dQ/ddelta`` with no sextupole involved at all, and 58% of its
-    natural chromaticity.
+    particle by ``k1/(1 + delta)``, and L3's exact
+    :class:`~accsim.elements.dipole.Dipole`, which traces a circle of radius
+    ``rho (1 + delta)``. Together they are worth ``-0.289`` on this ring — a
+    **first-order** ``dQ/ddelta`` with no sextupole involved at all.
 
-    That is not feed-down, and it is not the derived ``natural_chromaticity`` either,
-    because the ring's dipoles still carry no ``delta`` dependence in their maps (L3).
+    That is not feed-down. It *is* now the derived ``natural_chromaticity``, which it
+    was not while the ring's dipoles carried no ``delta`` dependence — asserted below,
+    so the baseline has a closed form rather than only a measured value.
     Measuring the sextupole-free ring and subtracting isolates the feed-down exactly,
     which makes this gate *sharper* than it was: it rejects a wrong kick coefficient
     without also having to be right about the chromaticity the rest of the ring
@@ -270,10 +272,15 @@ def test_tracked_feeddown_chromaticity_matches_analytic(ref: ReferenceParticle) 
     assert tx - bx == pytest.approx(fx, rel=1e-5)
     assert ty - by == pytest.approx(fy, rel=1e-5)
 
-    # The baseline is the drifts' and quadrupoles' own chromaticity, and it is not small
-    # — asserted so that subtracting it reads as removing a known effect, not as fitting
-    # the answer. It was -0.128889 with the drift's share alone (L1).
-    assert bx == pytest.approx(-0.166568, rel=1e-4)
+    # The baseline is the ring's own natural chromaticity, and it is not small —
+    # asserted so that subtracting it reads as removing a known effect, not as fitting
+    # the answer. It was -0.128889 with the drift's share alone (L1) and -0.166568 once
+    # the quadrupole had its map (L2); with L3's exact bend it is -0.289340, which is
+    # the *whole* analytic natural chromaticity of this ring rather than a share of it.
+    # So the baseline is no longer an empirical number: it now has a closed form, and
+    # that is asserted here as well as its value.
+    assert bx == pytest.approx(-0.289340, rel=1e-4)
+    assert bx == pytest.approx(natural_chromaticity(baseline)[0], rel=1e-4)
     assert abs(bx) > 0.02 * abs(fx)
 
 
@@ -623,13 +630,14 @@ def test_linear_tracking_silently_ignores_the_kick(ref: ReferenceParticle) -> No
     assert abs(nonlinear.px - linear.px) > 1e-6
 
     # ...and with k2l = 0 the two paths no longer agree to 1e-15. `nonlinear=False` uses
-    # each element's `matrix`, and both the Drift and the thick Quadrupole now have an
-    # exact `track` that differs from it by O(px^2) with no multipole anywhere — 1.13e-6
-    # here, against 8.7e-7 when only the drift had one. So the difference above is not
-    # *only* the kick, and the honest statement is the separation: the multipole-free
-    # share is 1.3% of the sextupole's, distinguishable but not by orders. The comparison
-    # is made against that ratio rather than against a floor which held only while every
-    # element's two code paths were the same arithmetic.
+    # each element's `matrix`, and the Drift, the thick Quadrupole and now the Dipole all
+    # have an exact `track` that differs from it by O(px^2) with no multipole anywhere —
+    # 2.30e-6 here, against 1.13e-6 before the bend had its map and 8.7e-7 when only the
+    # drift did. So the difference above is not *only* the kick, and the honest statement
+    # is the separation: the multipole-free share is 2.6% of the sextupole's,
+    # distinguishable but not by orders, and it has doubled once per exact map. The
+    # comparison is made against that ratio rather than against a floor which held only
+    # while every element's two code paths were the same arithmetic.
     #
     # The particle here is on momentum, so this whole residual sits in `zeta`: it is the
     # extra path an off-axis particle travels, which no 6x6 in these coordinates carries.
@@ -637,6 +645,8 @@ def test_linear_tracking_silently_ignores_the_kick(ref: ReferenceParticle) -> No
     a = Tracker(flat).track(p, nonlinear=False)
     b = Tracker(flat).track(p, nonlinear=True)
     drift_only = float(np.max(np.abs(a.state - b.state)))
-    assert drift_only == pytest.approx(1.13164e-6, rel=1e-3)
+    assert drift_only == pytest.approx(2.30077e-6, rel=1e-3)
     assert abs(a.zeta - b.zeta) == pytest.approx(drift_only, rel=1e-12)  # it is all zeta
-    assert drift_only < 0.02 * abs(nonlinear.px - linear.px)
+    # The separation, as the measured ratio rather than as a bound that has now been
+    # crossed once per milestone (0.9%, then 1.3%, now 2.6%).
+    assert drift_only / abs(nonlinear.px - linear.px) == pytest.approx(0.0263, rel=5e-2)

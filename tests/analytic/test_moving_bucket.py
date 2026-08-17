@@ -346,7 +346,21 @@ def test_bounded_inside_unbounded_outside_moving_bucket(label, make_ref, make_ar
     assert np.max(np.abs(inside[:, DELTA])) < 1.05 * dmax, label
 
     outside = Tracker(lat).track_turns(Particle(zeta=0.0, delta=1.2 * dmax), 10_000, nonlinear=True)
-    assert np.max(np.abs(outside[:, ZETA])) > 20.0 * width, label  # rotates, runs away
+    # A particle outside the bucket rotates and runs away — and on the branches whose
+    # arc contains a bend it eventually runs away *out of the model*, which since L3 is
+    # a reported condition rather than an invented trajectory. The exact sector bend
+    # returns NaN for a trajectory that cannot reach the exit face, and by the time that
+    # happens this particle is 1.4 m off axis at delta = 0.7: not a beam particle. The
+    # escape is therefore asserted on the turns before the loss, where it is already two
+    # orders past the threshold, and the loss itself is asserted to be the real thing
+    # rather than an early numerical failure.
+    finite = np.isfinite(outside).all(axis=1)
+    lost = int(np.argmin(finite)) if not finite.all() else len(outside)
+    assert lost > 1_000, f"{label}: left the model after only {lost} turns"
+    survived = outside[:lost]
+    assert np.max(np.abs(survived[:, ZETA])) > 20.0 * width, label  # rotates, runs away
+    if lost < len(outside):
+        assert np.max(np.abs(survived[:, DELTA])) > 0.5, label  # far outside any bucket
 
 
 @pytest.mark.slow

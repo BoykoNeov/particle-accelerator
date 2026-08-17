@@ -468,10 +468,12 @@ rather than about where a magnet sits. **L1 (the drift) shipped 2026-08-17**, cl
 vertical-dispersion-from-an-orbit-angle gap for the drift's share and re-baselining 29
 analytic tests in the process; **L2 (the quadrupole) shipped 2026-08-17** too, taking
 tracked natural chromaticity from 45% of the analytic value to **all of it on a
-bend-free ring**. **L3 (the dipole) is outstanding**, and is what accsim needs before
-tracking sees the bends' share of natural chromaticity (58% on a bendy arc today) or
-before K2's `test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` can be
-written at all.
+bend-free ring**. **L3 (the dipole) shipped 2026-08-17** as well, taking that to all of
+it on a *bendy* ring and converting K2's
+`test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` from a hand reconstruction
+into a cross-check of the package's own dispersion against xtrack, at `1.7e-8`. What the
+axis leaves open is the **curved quadrupole** — a combined-function bend, whose exact
+flow has no closed form and whose `track` is still its `matrix` (L4 below).
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -2013,14 +2015,58 @@ move.
   - **The `ζ` cancellation L1 warned about was real**, and is avoided the same way:
     `L(1 − 1/rvv)` rationalised through `(1+δ) + E/E₀`, split from the path integral,
     which is itself written division-free so there is no `K = 0` branch.
-- **L3 — the dipole's exact map, and the close of K2's account.** The `+h⟨D_x⟩` half of
-  `Δd_y = p_y·L·(h⟨D_x⟩ − 1)` — the extra arc a dispersed particle travels on the
-  outside of a bend. Only with this does
-  `test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` become writable, on
-  K2's own rolled and steered rings, which is where that specification always belonged.
-  Expect a curvature term with no drift or quadrupole analogue, and the F2 lesson
-  applies: a combined-function bend needed a Maxwell curvature-sextupole term that was
-  a *bug* rather than a model choice. Effort **M–L**.
+- **L3 — the dipole's exact map, and the close of K2's account.** ✅ **SHIPPED
+  (2026-08-17)** — a uniform field's flow is a **circle**, so the pure sector bend gets
+  a map exact in the *angles as well as* `δ`. Full write-up at CONVENTIONS.md → *The
+  dipole's exact map*. Gates: `tests/analytic/test_exact_dipole.py` (14),
+  `tests/reference/test_dipole_xtrack.py` (3 new), and the converted
+  `tests/reference/test_roll_xtrack.py`. K2's specification test now asserts the
+  *package's* answer against xtrack: `1.7e-8` on the rolled ring and `3.5e-9` on the
+  steered one, where the hand reconstruction it replaced managed `2e-3`.
+  - **The gate shape is a third one again, and it is an identity.** L1 discriminated at
+    large angles, L2 at large `δ`; a bend is exact in both, so the gate is both at once —
+    the map re-derived from plane geometry (circle meets exit face, sharing no arithmetic
+    with the implementation) agreeing to `1e-15` out to `1.5 rad` and `δ = 0.3`, where the
+    linear matrix is wrong by `2.3e-2`. Plus the exact Hamiltonian as an invariant
+    (`4.4e-16`), which needs no reference implementation at all. Against xtrack's
+    `bend-kick-bend`: `1.9e-16`.
+  - **The `k1` split is *forced*, and that is the difference from L2's refused
+    discontinuity.** With `k1 = 0` the vertical equation is a quadrature because `p_y` is
+    conserved — that is *why* a closed form exists; with `k1 ≠ 0` it becomes an ODE with
+    an `s`-dependent coefficient. The geometric term and vertical focusing are mutually
+    exclusive in closed form, so the combined-function bend keeps the affine map rather
+    than taking MAD-X's expanded one, which drops the very term this milestone adds.
+  - **The ROADMAP entry above was incomplete, and only an exact bend could show it.**
+    K2's `Δd_y = p_y·L·(h⟨D_x⟩ − 1)` is the `δ` column alone. The exact bend *also*
+    couples the planes — `M[y,x] = p_y sin θ`, `M[y,p_x] = p_y ρ(1−cos θ)`, which are
+    `p_y` times the bend's own dispersion entries — and that path transports horizontal
+    dispersion into the vertical. On a real arc it is the larger of the two. So an
+    upright sector bend on a vertical orbit is a **coupling source**, new to the package,
+    and `closed_twiss_on_orbit` now raises on such a ring where the design route does not.
+  - **The planes are not mirror images.** `M[y,δ] = −p_y ρ sin θ` but
+    `M[x,δ] = −p_x ρ sin θ cos θ`: `p_x` is not conserved, so its response feeds back
+    through the bend's own focusing (`ξ'' + h²ξ = (3h/2)sin 2hs`). Symmetrising is 8%
+    wrong and invisible to every design-optics gate.
+  - **The numerical trap L1 predicted was the biggest yet.** xtrack's own form builds an
+    answer of size `x` from a numerator of size `h`; its origin Jacobian is `3.2e-9` and
+    *degrades* as the step shrinks. Rearranged it is `4.9e-15` — and with no division by
+    `h` left, so `Dipole(L, 0)` *is* `Drift(L)` with no branch, closing an inconsistency
+    L1 recorded and re-baselining L2's control in the process.
+  - **One cost that is not the body's:** a *rolled* bend is now symplectic only to first
+    order in the roll (`4.7e-8`), because `frame_change()` is the affine linearisation of
+    the true frame change — "exact for accsim's linear elements", which the body no longer
+    is. `matrix()`/`kick()` are untouched, so every K2 number stands.
+  - Blast radius **nine analytic tests and two reference**, against L1's 29 and L2's 5.
+
+- **L4 (candidate) — the curved quadrupole's expanded map.** The only element left whose
+  `track` is its `matrix`. MAD-X's `track_thick_cfd` — exact in `δ`, paraxial in the
+  angles, exactly L2's model boundary reached by a different route — plus F2's Maxwell
+  curvature-sextupole term `ψ₃ = −(hk1/3)x³ + (hk1/2)xy²` as a thin kick, which xtrack's
+  own `mat-kick-mat` also applies and which is invariant-safe (a cubic potential's kick
+  has zero Jacobian at the origin). Two gates are already in place waiting for it: the
+  `Dipole(L,0,k1)`-vs-`Quadrupole(L,k1)` control at 56%, and
+  `test_a_combined_function_bend_is_deliberately_left_on_the_linear_map`, which should
+  fail loudly when this lands. Effort **M**.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

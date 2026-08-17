@@ -44,6 +44,125 @@ def _dispersion_integrals(K: float, L: float) -> tuple[float, float, float]:
     return c1, s1, c2
 
 
+def _sinc(z: np.ndarray) -> np.ndarray:
+    """``sin(z)/z``, continued to ``1`` at ``z = 0``.
+
+    The exact bend's map is written entirely in terms of this and its half-angle
+    square, which is what makes it **free of any division by the curvature** and so
+    continuous into the straight limit — see :func:`exact_sector_bend_map`.
+    """
+    z = np.asarray(z, dtype=float)
+    safe = np.where(z == 0.0, 1.0, z)
+    return np.where(z == 0.0, 1.0, np.sin(safe) / safe)
+
+
+def exact_sector_bend_map(
+    state: np.ndarray, length: float, h: float, ref: ReferenceParticle
+) -> np.ndarray:
+    r"""The **exact** map of a pure sector bend (L3), as a free function.
+
+    A particle of momentum ``1 + delta`` in the uniform field ``B0 = P0 h / q`` moves,
+    in projection onto the bend plane, on a *circle* of radius
+
+        r = p_perp / h,      p_perp = sqrt((1 + delta)^2 - py^2),
+
+    and the whole map is that circle meeting the exit face. So unlike the quadrupole's
+    (L2), this map is exact in the angles as well as in ``delta`` — there is a closed
+    form here because a uniform field has one, and it is the same closed form xtrack
+    tracks with (``model="bend-kick-bend"``). See :class:`Dipole` for what that buys
+    and where it stops.
+
+    Writing it in terms of the swept angle ``phi``, with ``pz = sqrt((1+delta)^2 -
+    px^2 - py^2)``, ``u = pz - 1``, ``C = u - h x`` and ``theta = h L``:
+
+        px  -> px cos(theta) + C sin(theta)
+        x   -> x cos(theta) + px L sinc(theta) + [(v - u) + u (1 - cos theta)] / h
+        y   -> y + py (L + D/h)                          [ phi = theta + D ]
+        zeta-> zeta + L(1 - 1/rvv) - (delta L/(1+delta) + D/h) E/E0
+        D   = asin(px/p_perp) - asin(px_out/p_perp)      [ the *extra* angle swept ]
+
+    ``state`` is a ``(6,)`` vector or a ``(6, n)`` bunch.
+
+    **Nothing of size one is subtracted from anything else**, which is the whole of the
+    numerical work and is what L1 warned would be needed here. Transcribed as xtrack
+    writes it — ``x = (pz_out h - dpx/ds - k)/(h k)``, a numerator of size ``h`` giving
+    an answer of size ``x`` — the origin Jacobian comes out at ``3.2e-9`` against
+    ``matrix()`` and *degrades* as the finite-difference step shrinks, which would have
+    broken every design-optics gate in the package. Rearranged as above it is
+    ``4.9e-15`` and improves with the step, as a truncation error should.
+
+    **There is no division by ``h`` left**, so the straight limit needs no branch: at
+    ``h = 0`` every curvature term vanishes analytically and what remains *is*
+    :class:`~accsim.elements.drift.Drift`'s exact map, agreeing with it to ``6.5e-19``
+    (a few ulp — the same map by two arithmetic routes, not a special case). A weak
+    bend degrades gracefully rather than falling off a cliff: at ``h = 1e-4`` the
+    Jacobian is still ``2.6e-13`` where the transcribed form is ``1.4e-5``.
+
+    A particle with no forward momentum gives ``NaN``, exactly as the drift does, and
+    for the same reason: losses belong to
+    :class:`~accsim.elements.aperture.Aperture`, and a bend declining to invent a
+    trajectory is the honest answer.
+    """
+    st = np.asarray(state, dtype=float)
+    L = length
+    if L == 0.0:
+        return st.copy()
+
+    x, px, py, delta = st[X], st[PX], st[PY], st[DELTA]
+    theta = h * L
+    cos_t = math.cos(theta)
+    sinc_t = float(_sinc(theta))
+    # (1 - cos theta) / h == h * half_chord, with no cancellation and no 1/h.
+    half_chord = 0.5 * L * L * float(_sinc(0.5 * theta)) ** 2
+
+    one_plus = 1.0 + delta
+    angle_sq = px * px + py * py
+    # NaN for a particle with no forward momentum is a *documented* return value; the
+    # sqrt's warning is noise, the value itself still propagates. See Drift.
+    with np.errstate(invalid="ignore"):
+        pz = np.sqrt(one_plus * one_plus - angle_sq)
+        # u = pz - 1, rationalised: two numbers of size 1 would otherwise be differenced.
+        u = (delta * (2.0 + delta) - angle_sq) / (pz + 1.0)
+        C = u - h * x
+        px_out = px * cos_t + C * h * L * sinc_t  # C sin(theta)
+        pz_out = np.sqrt(one_plus * one_plus - px_out * px_out - py * py)
+
+        # Q = (px - px_out)/h, regular at h = 0 and the only place the geometry enters.
+        Q = px * h * half_chord - C * L * sinc_t
+        x_out = (
+            x * cos_t
+            + px * L * sinc_t
+            + Q * (px + px_out) / (pz_out + pz)  # (pz_out - pz)/h
+            + u * h * half_chord
+        )
+
+        # D/h, with D = asin(a) - asin(b) the *extra* angle swept beyond the design
+        # bend. Written as asin of a product so that neither the difference of two
+        # arcsines nor the difference inside the arcsine identity is ever formed:
+        #   a sqrt(1-b^2) - b sqrt(1-a^2) = (a - b) [ Sigma/2 + (a+b)^2 / (2 Sigma) ].
+        inv_p_perp = 1.0 / np.sqrt(one_plus * one_plus - py * py)
+        a, b = px * inv_p_perp, px_out * inv_p_perp
+        sigma = np.sqrt(1.0 - a * a) + np.sqrt(1.0 - b * b)
+        scale = 0.5 * sigma + 0.5 * (a + b) ** 2 / sigma
+        w = (a - b) * scale
+        w_safe = np.where(w == 0.0, 1.0, w)
+        arcsinc = np.where(w == 0.0, 1.0, np.arcsin(w_safe) / w_safe)
+        d_over_h = arcsinc * scale * inv_p_perp * Q
+
+    # zeta: the speed term and the path term, kept apart so neither is formed by
+    # subtracting two numbers of size L (the trap L1 recorded, and L2 met again).
+    E_over_E0 = np.hypot(ref.momentum_eV * one_plus, ref.mass_eV) / ref.total_energy_eV
+    slip = L * delta * (2.0 + delta) / ref.gamma0**2 / (one_plus * (one_plus + E_over_E0))
+    path = delta * L / one_plus + d_over_h
+
+    out = st.copy()
+    out[X] = x_out
+    out[PX] = px_out
+    out[Y] = st[Y] + py * (L + d_over_h)
+    out[ZETA] = st[ZETA] + slip - path * E_over_E0
+    return out
+
+
 def _edge_matrix(h: float, e: float) -> np.ndarray:
     r"""Thin hard-edge pole-face focusing kick for edge angle ``e`` [rad].
 
@@ -128,6 +247,61 @@ class Dipole(Element):
     As ``theta -> 0`` every curvature term vanishes (and the edges too, since
     ``h -> 0``) and the map reduces exactly to a :class:`Drift` of length ``L``
     (``R56 -> L/gamma0^2``).
+
+    The exact map (L3)
+    ------------------
+    Like the :class:`~accsim.elements.drift.Drift` and the
+    :class:`~accsim.elements.quadrupole.Quadrupole`, a **pure sector** bend has two
+    maps: :meth:`_matrix_body` above, which every optics function is built on, and
+    :meth:`_track_body`, which is what a tracked particle actually follows. The first is
+    the Jacobian of the second at the origin, and only there.
+
+    A uniform field has a closed-form flow and it is a **circle**: a particle of momentum
+    ``1 + delta`` moves, in projection onto the bend plane, on a circle of radius
+    ``r = p_perp/h``, ``p_perp = sqrt((1+delta)^2 - py^2)``, and the map is that circle
+    meeting the exit face (:func:`exact_sector_bend_map`). So — unlike the quadrupole's
+    — this map is exact in the **angles as well as in** ``delta``. It reproduces
+    ``xt.Bend(model="bend-kick-bend")`` to ``1.9e-16``, and an independent
+    plane-geometry construction to ``1e-15`` at bend angles up to ``1.5 rad``.
+
+    ⚠️ **A combined-function bend keeps the affine map, and the split is forced rather
+    than chosen.** With ``k1 = 0`` the vertical equation ``y' = py (1 + h x)/pz`` is a
+    *quadrature* over a known ``x(s)``, because ``py`` is conserved — which is exactly
+    why a closed form exists. With ``k1 != 0`` the same equation becomes a second-order
+    ODE with an ``s``-dependent coefficient, and the geometric term and vertical
+    focusing become mutually exclusive in closed form. A closed form is not a
+    convenience here: it is what keeps :meth:`_matrix_body` the *exact* origin Jacobian
+    of :meth:`_track_body`, which is the invariant that bounds this whole axis. The
+    remaining option for the curved quadrupole is MAD-X's expanded map (xtrack's
+    ``mat-kick-mat``), which is paraxial in the angles and so **drops the very term this
+    milestone exists to add**; it is a later step, and until then a combined-function
+    bend is chromatically ideal in ``track``.
+
+    **What the exact map buys, per element and to first order in the orbit.** Writing
+    ``t`` for the bend angle, the Jacobian at an orbit with angles ``px``, ``py`` gains
+
+        M[y, delta] = M[zeta, py] = -py rho sin t          (the source K2 specified)
+        M[y, x]  = +py sin t,      M[y, px] = +py rho (1 - cos t)     (plane coupling)
+        M[x, delta] = -px rho sin t cos t
+
+    The middle line is the surprise and it is **not** in K2's formula: those two entries
+    are ``py`` times the bend's *own* dispersion entries, so an upright sector bend on a
+    vertical orbit **couples the planes** and transports horizontal dispersion into the
+    vertical. On a real arc that path is the larger one. The last line is the other
+    trap: the horizontal response is not the plane swap of the vertical one — ``px`` is
+    not conserved, so the response feeds back through the bend's own focusing and picks
+    up an extra ``cos t``. Both are derived in ``tests/analytic/test_exact_dipole.py``
+    from the equations of motion, not recalled.
+
+    **Edges stay linear.** :meth:`_track_body` composes ``Edge(e2) . body . Edge(e1)``
+    with the same hard-edge kicks :meth:`_matrix_body` uses. Each edge is *exactly*
+    linear, so it is not an approximation inside the composition and the Jacobian
+    identity survives it. The real pole-face map is nonlinear (xtrack's wedge and
+    fringe); that is out of scope here, as :func:`_edge_matrix` already records.
+
+    **On the design orbit nothing changes.** Every new entry is proportional to an orbit
+    angle, and at the origin the exact map's Jacobian *is* the linear matrix — measured
+    at ``4.9e-15`` with a ``1e-7`` finite difference, improving as the step shrinks.
 
     **A bending dipole refuses to be displaced** (K1), and the refusal is measured
     rather than cautious. K1's misalignment is the translation ``d + body(state - d)``
@@ -332,8 +506,30 @@ class Dipole(Element):
         return super().kick(ref)
 
     def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+        """The exact sector map (L3), with the edges as the thin linear kicks they are.
+
+        Only the ``k1 == 0`` body is exact; a **combined-function** bend keeps the
+        affine map, because the exact flow of a curved quadrupole has no closed form —
+        see the class docstring. The edges are applied as ``Edge(e2) . body . Edge(e1)``,
+        the same composition :meth:`_matrix_body` uses and in the same order, so the
+        Jacobian identity survives them: each edge is *exactly* linear, so a linear
+        factor in the composition is not an approximation to anything.
+
+        Vectorised over a trailing particle axis, so a ``(6,)`` state and a ``(6, n)``
+        bunch take the same path.
+        """
         self._refuse_misalignment()
-        return super()._track_body(state, ref)
+        if self.k1 != 0.0:
+            return super()._track_body(state, ref)
+
+        st = np.asarray(state, dtype=float)
+        h = self.curvature
+        if self.e1 != 0.0:
+            st = _edge_matrix(h, self.e1) @ st
+        st = exact_sector_bend_map(st, self.length, h, ref)
+        if self.e2 != 0.0:
+            st = _edge_matrix(h, self.e2) @ st
+        return st
 
     def __repr__(self) -> str:
         grad = f", k1={self.k1}" if self.k1 else ""
