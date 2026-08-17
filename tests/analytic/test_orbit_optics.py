@@ -338,19 +338,38 @@ def test_the_finite_difference_floor_is_measured_not_assumed(ref: ReferenceParti
     ``1.9e-13`` on individual element maps, ``2.4e-12`` on the one-turn map, and
     ``<1e-12`` relative on ``beta`` — far below the ``~1e-2`` beat the gates above
     measure, which is the point.
+
+    **"Nothing nonlinear to feed down" is no longer the same as "nothing nonlinear".**
+    A :class:`~accsim.elements.drift.Drift`'s exact map departs from its matrix at a
+    closed-orbit angle by ``L p_co`` — ``1.9e-4`` on this ring, nine orders above the
+    floor. So the floor is measured here on the elements that still have one, and the
+    drift is checked against its *derived* departure instead. The unsteered case, where
+    every element does return its matrix to the floor, is the test below.
     """
     lat = _flat(ref, k2l=0.0, kick_x=KICK)  # steered, but nothing nonlinear to feed down
-    for m, elem in zip(linearised_element_maps(lat), lat.elements, strict=True):
-        assert np.abs(m - elem.matrix(ref)).max() < 1e-11
-    assert np.abs(linearised_one_turn_map(lat) - lat.one_turn_matrix()).max() < 1e-10
+    orbit = propagate_orbit_nonlinear(lat)[:-1]
+    drifts = 0
+    for m, elem, o in zip(linearised_element_maps(lat), lat.elements, orbit, strict=True):
+        gap = float(np.abs(m - elem.matrix(ref)).max())
+        if isinstance(elem, Drift) and max(abs(o[PX]), abs(o[PY])) > 1e-9:
+            assert gap == pytest.approx(elem.length * max(abs(o[PX]), abs(o[PY])), rel=1e-3)
+            drifts += 1
+        else:
+            assert gap < 1e-11
+    assert drifts > 0  # the derived branch was actually exercised
 
+    # beta, the phases and the tunes still land on the design optics to a floor, because
+    # the drift's new entries are the `delta` column and the `zeta` row — neither of
+    # which a 2x2 Courant-Snyder reduction of the transverse blocks reads. The
+    # transverse block itself moves only at O(angle^2), hence the 1e-7 here against the
+    # 1e-11 of an unsteered ring.
     design = propagate_twiss(lat, closed_twiss(lat))
     for a, b in zip(propagate_twiss_on_orbit(lat), design, strict=True):
-        assert a.beta_x == pytest.approx(b.beta_x, rel=1e-11)
-        assert a.beta_y == pytest.approx(b.beta_y, rel=1e-11)
-        assert a.mu_x == pytest.approx(b.mu_x, abs=1e-11)
-        assert a.mu_y == pytest.approx(b.mu_y, abs=1e-11)
-    assert tunes_on_orbit(lat) == pytest.approx(tunes(lat), abs=1e-11)
+        assert a.beta_x == pytest.approx(b.beta_x, rel=1e-6)
+        assert a.beta_y == pytest.approx(b.beta_y, rel=1e-6)
+        assert a.mu_x == pytest.approx(b.mu_x, abs=1e-6)
+        assert a.mu_y == pytest.approx(b.mu_y, abs=1e-6)
+    assert tunes_on_orbit(lat) == pytest.approx(tunes(lat), abs=1e-6)
 
 
 def test_an_unsteered_machine_reports_the_design_optics(ref: ReferenceParticle) -> None:
@@ -384,10 +403,22 @@ def test_the_derived_split_and_the_jacobian_agree(ref: ReferenceParticle) -> Non
     The dipole part of the feed-down is deliberately absent from both: a Jacobian
     carries the linear part only, and that kick has already done its work in
     placing the orbit these maps are taken about.
+
+    Each drift's differentiated map is replaced by its own ``matrix`` before the product
+    is formed. The exact drift map departs from that matrix wherever the orbit has an
+    angle, and :func:`linearised_lattice` — built from accsim elements — has nothing to
+    represent the departure with, so leaving it in would compare the sextupole split
+    against the sum of two unrelated effects. The drift's own terms are gated in
+    ``test_exact_drift_dispersion.py``; this test is about the split.
     """
     lat = _flat(ref, k2l=K2L, kick_x=KICK, kick_y=KICK)
     equivalent = linearised_lattice(lat)
-    assert np.abs(equivalent.one_turn_matrix() - linearised_one_turn_map(lat)).max() < 1e-10
+    co = closed_orbit_nonlinear(lat)
+
+    product = np.eye(DIM)
+    for elem, m in zip(lat.elements, linearised_element_maps(lat, co), strict=True):
+        product = (elem.matrix(ref) if isinstance(elem, Drift) else m) @ product
+    assert np.abs(equivalent.one_turn_matrix() - product).max() < 1e-10
 
 
 def test_a_thick_sextupole_is_refused_rather_than_approximated(ref: ReferenceParticle) -> None:
@@ -475,35 +506,74 @@ def test_tracked_feeddown_matches_the_on_orbit_split(ref: ReferenceParticle) -> 
     Measured 2026-08-10 across four steerer sizes: agreement to ``2.2e-8``
     absolute on values of order 2, i.e. relative ``1e-8`` — the ``delta``-step and
     Jacobian floor, flat in the orbit offset rather than growing with it.
+
+    The tracked side has a sextupole-free baseline subtracted at each steerer size. The
+    exact :class:`~accsim.elements.drift.Drift` map makes a drift a first-order chromatic
+    element — see the blind-spot test below — and that contribution is in the tracked
+    number but not in ``chromaticity_on_orbit - natural_chromaticity_on_orbit``, which is
+    the sextupole term alone. It is the same ring in both arms, so differencing removes it
+    exactly.
     """
     for kick in (8e-4, 4e-4, 2e-4, 1e-4):
         lat = _dispersive(ref, CHROMA_K2L, kick)
+        baseline = _dispersive(ref, 0.0, kick)
         total = chromaticity_on_orbit(lat)
         natural = natural_chromaticity_on_orbit(lat)
         tracked = _tracked_feeddown_chromaticity(lat)
-        assert total[0] - natural[0] == pytest.approx(tracked[0], abs=1e-6)
-        assert total[1] - natural[1] == pytest.approx(tracked[1], abs=1e-6)
+        drift_only = _tracked_feeddown_chromaticity(baseline)
+        # The 1e-3 bound, against values of order 2, is the cross term the subtraction
+        # cannot remove: the sextupole's fed-down dipole moves the orbit, which changes
+        # the drift's own chromatic contribution slightly, so the two arms' drift terms
+        # are not identical. It is 3e-4 relative and does not grow with the steerer.
+        assert total[0] - natural[0] == pytest.approx(tracked[0] - drift_only[0], abs=1e-3)
+        assert total[1] - natural[1] == pytest.approx(tracked[1] - drift_only[1], abs=1e-3)
+        # Non-vacuous: the feed-down term itself is three orders above that bound.
+        assert abs(total[0] - natural[0]) > 0.1
 
 
-def test_the_tracked_route_is_blind_to_the_natural_chromaticity(ref: ReferenceParticle) -> None:
-    """Why the gate above is a *difference*, asserted rather than left implicit.
+def test_the_tracked_route_sees_only_the_drifts_share_of_the_natural_chromaticity(
+    ref: ReferenceParticle,
+) -> None:
+    r"""Why the gate above is a *difference* — and how far that blind spot now goes.
 
-    accsim's linear maps are chromatically ideal: ``track()`` through a quadrupole
-    is its ``matrix()`` at every ``delta``. So the tracked tunes of a sextupole-free
-    machine do not move with momentum **at all** — exactly zero — while the machine
-    obviously has natural chromaticity, which accsim supplies analytically. Anyone
-    tempted to implement ``chromaticity_on_orbit`` by tracking alone would silently
-    drop that entire term; this pins the reason.
+    It used to be total. accsim's **quadrupole** is still chromatically ideal —
+    ``track()`` through it is its ``matrix()`` at every ``delta`` — so the tracked tunes
+    of a sextupole-free machine did not move with momentum at all, exactly zero, while
+    the machine plainly had natural chromaticity that accsim supplied analytically.
+
+    **The exact** :class:`~accsim.elements.drift.Drift` **map has made the blindness
+    partial.** It moves ``x`` by ``L px / pz`` with ``pz ~ 1 + delta``, so a drift's
+    effective length is ``L (1 - delta)`` — a first-order chromatic element, with no
+    magnet involved. Measured on this ring: the tracked route now reports ``-0.1289``
+    against an analytic natural chromaticity of ``-0.2893``, i.e. **45%** of it, where it
+    used to report ``3.7e-8``.
+
+    So tracking sees the drifts' share and not the quadrupoles'. That is an intermediate
+    state and the honest one for a milestone that gives the exact map to the drift alone;
+    the quadrupole's exact map is what closes it, and until then
+    ``chromaticity_on_orbit`` must still be built as a difference and cannot be
+    implemented by tracking. The fraction is asserted to be neither 0 nor 1, because both
+    would be wrong for different reasons and a bound on the size alone would not say so.
+
+    What is *not* claimed here is that ``-0.1289`` is exactly the drift term of the
+    analytic chromaticity integral. Separating that integral by element type is the
+    quadrupole milestone's business, not this test's.
     """
     lat = _dispersive(ref, k2l=0.0, kick_x=4e-4)
     tracked = _tracked_feeddown_chromaticity(lat)
     natural = natural_chromaticity(lat)
     assert natural[0] < -0.2 and natural[1] < -0.3  # the machine plainly has one...
-    # ...and the tracked route reports 3.7e-8 / 0.0 for it: the finite-difference
-    # floor of a quantity that is identically zero, seven orders below the truth.
-    assert abs(tracked[0]) < 1e-6
-    assert abs(tracked[1]) < 1e-6
-    assert abs(tracked[0] / natural[0]) < 1e-6
+
+    # ...and the tracked route now recovers a real part of it, but only a part.
+    assert tracked[0] == pytest.approx(-0.128870, rel=1e-4)
+    for plane in (0, 1):
+        share = tracked[plane] / natural[plane]
+        assert 0.2 < share < 0.8, "neither blind nor complete — the drifts' share alone"
+
+    # And the same sign as the natural chromaticity, so it adds to it rather than
+    # fighting it: a drift is focusing-neutral but not momentum-neutral.
+    assert tracked[0] * natural[0] > 0.0
+    assert tracked[1] * natural[1] > 0.0
 
 
 def test_the_natural_half_is_the_beta_weighted_sum_over_the_real_optics(
@@ -551,9 +621,14 @@ def test_the_natural_half_is_the_beta_weighted_sum_over_the_real_optics(
         sum_x += -inv_4pi * table[i].beta_x * k1l
         sum_y += +inv_4pi * table[i].beta_y * k1l
 
+    # The 1e-7 bound is the on-orbit beta itself, which the exact Drift map moves at
+    # O(orbit angle^2): both sides read `table`, but `natural_chromaticity_on_orbit`
+    # rebuilds the optics internally, so the two beta tables differ by that much.
+    # Measured 2.6e-8 absolute on a sum of 0.66 — four orders below the 1e-3 beat the
+    # test below attributes to feed-down.
     natural = natural_chromaticity_on_orbit(lat)
-    assert natural[0] == pytest.approx(sum_x, abs=1e-11)
-    assert natural[1] == pytest.approx(sum_y, abs=1e-11)
+    assert natural[0] == pytest.approx(sum_x, abs=1e-7)
+    assert natural[1] == pytest.approx(sum_y, abs=1e-7)
 
     # On a dispersion-free ring the sextupole term is the whole of the difference,
     # so the two entry points coincide exactly rather than nearly.
@@ -619,10 +694,18 @@ def test_the_off_momentum_orbit_is_the_dispersion_orbit(ref: ReferenceParticle) 
     plus = closed_orbit(lat, delta=+h)
     assert (plus[X] - base[X]) / h == pytest.approx(disp, rel=1e-12)
 
+    # The nonlinear solve no longer lands on the linear orbit exactly, because the
+    # drift's exact map is itself nonlinear: at delta != 0 the dispersion orbit carries a
+    # real angle, and `x += L px / pz` differs from `x += L px` there. The gap is 3.1e-9
+    # on an orbit of 3e-4 — a relative 1e-5, second order in the dispersion angle — and
+    # the point of the test, that the seed already includes the dispersive column, is
+    # untouched: without it the two would differ by a whole dispersion orbit, 1e-4.
     for d in (0.0, +h, -h):
-        assert closed_orbit_nonlinear(lat, delta=d) == pytest.approx(
-            closed_orbit(lat, delta=d), abs=1e-14
-        )
+        gap = np.abs(closed_orbit_nonlinear(lat, delta=d) - closed_orbit(lat, delta=d)).max()
+        assert gap < 1e-7
+    assert (
+        np.abs(closed_orbit_nonlinear(lat, delta=+h) - closed_orbit(lat, delta=0.0)).max() > 1e-5
+    )  # ...and the delta really does move the orbit, so the bound above is not vacuous
 
     # With the sextupole live the two part company, by the feed-down scale.
     live = _dispersive(ref, CHROMA_K2L, kick_x=2e-4)
@@ -674,9 +757,13 @@ def test_the_vertical_feeddown_reaches_the_skew_gradient(ref: ReferenceParticle)
     lat = _flat(ref, k2l=K2L, kick_x=KICK, kick_y=KICK)
     y_co = propagate_orbit_nonlinear(lat)[SX_INDEX][Y]
     assert abs(y_co) > 1e-5  # the vertical orbit is genuinely there
+    # 1e-5 rather than 1e-6: the exact Drift map's transverse block picks up an
+    # O(orbit angle^2) correction the derived equivalent machine cannot carry, worth a
+    # relative 1e-6 in the coupling angle here. The coefficient being pinned is the skew
+    # gradient, which is first order in the vertical orbit and four orders larger.
     equivalent = linearised_lattice(lat)
     assert coupled_twiss_on_orbit(lat).coupling_angle == pytest.approx(
-        coupled_twiss(equivalent).coupling_angle, rel=1e-6
+        coupled_twiss(equivalent).coupling_angle, rel=1e-5
     )
 
 
@@ -756,17 +843,29 @@ def test_delta_is_carried_into_the_linearised_maps(ref: ReferenceParticle) -> No
     flat = propagate_twiss_on_orbit(lat, delta=0.0)
     off = propagate_twiss_on_orbit(lat, delta=1e-3)
     assert any(abs(a.beta_x / b.beta_x - 1.0) > 1e-6 for a, b in zip(flat, off, strict=True))
-    # ...and a lattice with nothing nonlinear in it is unmoved by delta, because
-    # accsim's linear maps carry no delta dependence of their own. Not bit-for-bit:
-    # the Jacobians are differenced at a dispersion-shifted state, so their round-off
-    # differs. Measured 1.2e-10 relative, against the 1e-2 signal above.
+    # ...and a multipole-free lattice is *almost* unmoved by delta. "Unmoved" was the
+    # claim while accsim's maps carried no delta dependence at all; the exact Drift map
+    # does carry one — its effective length is L/pz ~ L(1 - delta) — so an off-momentum
+    # particle on a dispersion orbit sees slightly different focusing and beta really
+    # moves. That is chromatic beta-beat, which a real machine has and this package
+    # previously could not produce at all.
+    #
+    # Measured 1.8e-4 relative, two orders below the 1e-2 sextupole signal above, so the
+    # discrimination this test rests on survives. The bound is stated as that ratio
+    # rather than as a tolerance, and the sextupole-free beat is asserted to be nonzero
+    # so the new effect is documented rather than hidden inside a widened number.
     linear = _dispersive(ref, k2l=0.0, kick_x=2e-4)
-    for a, b in zip(
-        propagate_twiss_on_orbit(linear, delta=0.0),
-        propagate_twiss_on_orbit(linear, delta=1e-3),
-        strict=True,
-    ):
-        assert a.beta_x == pytest.approx(b.beta_x, rel=1e-8)
+    beat = [
+        abs(a.beta_x / b.beta_x - 1.0)
+        for a, b in zip(
+            propagate_twiss_on_orbit(linear, delta=0.0),
+            propagate_twiss_on_orbit(linear, delta=1e-3),
+            strict=True,
+        )
+    ]
+    assert max(beat) == pytest.approx(1.8157e-4, rel=1e-2)
+    sextupole_beat = max(abs(a.beta_x / b.beta_x - 1.0) for a, b in zip(flat, off, strict=True))
+    assert max(beat) < 0.05 * sextupole_beat
 
 
 def test_orbit0_and_delta_are_not_both_free(ref: ReferenceParticle) -> None:

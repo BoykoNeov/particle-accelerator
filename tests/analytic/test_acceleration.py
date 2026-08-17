@@ -179,8 +179,28 @@ def test_transverse_adiabatic_damping_is_p0_ratio(ref: ReferenceParticle) -> Non
     ratio = res.momentum_eV[0] / res.momentum_eV
     assert np.allclose(res.states[:, PX], px0 * ratio, rtol=1e-12, atol=0)
     assert np.allclose(res.states[:, PY], py0 * ratio, rtol=1e-12, atol=0)
-    # delta was never kicked (zeta stayed 0) and is not spuriously excited.
-    assert np.max(np.abs(res.states[:, DELTA])) == 0.0
+
+    # ``delta`` *is* excited now, and by real physics rather than a leak. A particle
+    # with a transverse angle travels the drift along a longer path than the reference
+    # one, so ``zeta`` slips even at ``delta = 0`` — the exact map's
+    # ``-L (px^2 + py^2) / (pz (pz + E/E0))`` term, which the linear ``R56 delta``
+    # cannot express. Once ``zeta != 0`` the cavity is no longer sampled at the
+    # synchronous phase and it kicks ``delta``.
+    #
+    # The path lengthening is quadratic in the angle, so the excitation is too: the
+    # ratios below are 4.000 to four digits. Asserted as that order, since the effect's
+    # *size* depends on the ring and the turn count while its order does not.
+    def excitation(scale: float) -> float:
+        r = accelerate(lat, Particle(px=px0 * scale, py=py0 * scale), 200)
+        return float(np.max(np.abs(r.states[:, DELTA])))
+
+    exc = [excitation(1.0), excitation(0.5), excitation(0.25)]
+    assert exc[0] > 0.0  # not zero any more, which is the point
+    for big, small in zip(exc[:-1], exc[1:], strict=True):
+        assert big / small == pytest.approx(4.0, rel=1e-2)
+    # ...and still small: the synchronous particle is barely perturbed, so the damping
+    # closed form above is unaffected by it.
+    assert exc[0] < 1e-4
     # Damping is real: |px| strictly decreases as the energy rises.
     assert np.all(np.diff(np.abs(res.states[:, PX])) < 0.0)
 

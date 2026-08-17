@@ -42,6 +42,7 @@ from accsim import (
     ThinQuadrupole,
     Tracker,
     closed_orbit,
+    closed_orbit_nonlinear,
     closed_twiss,
     propagate_orbit,
     propagate_twiss,
@@ -120,12 +121,32 @@ def test_two_corrector_composition_matches_element_by_element_tracking(
     for elem in lat.elements:
         tracked = elem.track(tracked, ref)
 
-    assert np.allclose(M @ x0 + k, tracked, rtol=0, atol=1e-15)
-    # ... and the constant part alone is what a zero input maps to.
+    # The affine map is the *linear* composition; tracking is now exact, because a
+    # Drift's `track` carries the `1/pz` no 6x6 can. So the two agree to the size of
+    # that term rather than to round-off: 2.9e-6 on a state whose largest component is
+    # 1e-2, a relative 3e-4. It is not a defect in `transfer_map` — the affine map is
+    # exactly what it claims, the composition of the element matrices and kicks.
+    assert np.max(np.abs(M @ x0 + k - tracked)) < 1e-3 * np.max(np.abs(tracked))
+
+    # The agreement is *exact* where the exact map has nothing to add: a purely
+    # longitudinal input through a corrector-free ring never acquires a transverse
+    # angle, so every drift's new terms vanish and the two routes coincide bit for bit.
+    # That is the control which says the gap above is the drift term and not a bug.
+    plain = Lattice(_ring(), ref)
+    Mp, kp = plain.transfer_map()
+    long_only = np.array([0.0, 0.0, 0.0, 0.0, 1e-2, 0.0])
+    tracked_long = long_only.copy()
+    for elem in plain.elements:
+        tracked_long = elem.track(tracked_long, ref)
+    np.testing.assert_array_equal(Mp @ long_only + kp, tracked_long)
+
+    # ... and the constant part alone is what a zero input maps to — to the same order,
+    # since the correctors give the zero-input trajectory an angle for the drifts to
+    # act on. 3.1e-7 against a constant part of 7.7e-4.
     zero_in = np.zeros(6)
     for elem in lat.elements:
         zero_in = elem.track(zero_in, ref)
-    assert np.allclose(k, zero_in, rtol=0, atol=1e-18)
+    assert np.max(np.abs(k - zero_in)) < 1e-3 * np.max(np.abs(k))
 
 
 def test_composition_order_is_detectable_by_the_two_corrector_test(
@@ -162,10 +183,18 @@ def test_linear_and_nonlinear_tracking_agree_with_a_corrector(ref: ReferencePart
 
     lin = tracker.track(p, nonlinear=False).state
     nonlin = tracker.track(p, nonlinear=True).state
-    assert np.allclose(lin, nonlin, rtol=0, atol=1e-15)
+    # The two paths agree to the drift's exact-map term (1.6e-6 here) rather than to
+    # round-off: `nonlinear=False` composes element matrices, `nonlinear=True` calls
+    # each element's `track`, and for a Drift those are no longer the same map. The
+    # corrector — the thing this test is about — is carried identically by both, which
+    # is the assertion below.
+    assert np.max(np.abs(lin - nonlin)) < 1e-3 * np.max(np.abs(nonlin))
     # And the kick actually did something, so the agreement is not trivial.
     no_corr = Tracker(Lattice(_ring(), ref)).track(p, nonlinear=False).state
     assert abs(lin[1] - no_corr[1]) > 1e-5
+    # The corrector's effect is three orders above the two paths' disagreement, so the
+    # kick really is carried by both and not merely lost in the difference.
+    assert abs(lin[1] - no_corr[1]) > 100.0 * np.max(np.abs(lin - nonlin))
 
 
 def test_corrector_matrix_is_the_identity(ref: ReferenceParticle) -> None:
@@ -373,17 +402,35 @@ def test_orbit_everywhere_matches_the_textbook_single_kick_form(
 
 
 def test_closed_orbit_actually_closes(ref: ReferenceParticle) -> None:
-    """Track the closed orbit one turn and land back on it — the defining property.
+    r"""Track the closed orbit one turn and land back on it — the defining property.
 
     An independent code path: element-by-element :meth:`Element.track`, not the
     accumulated map the solve uses.
+
+    **Which orbit closes exactly has changed, and the new answer is the better one.**
+    :func:`closed_orbit` solves the *linear* map, and tracking is now exact, so the
+    linear orbit only closes to the drift's own nonlinearity — ``5.8e-11`` on an orbit of
+    ``3.4e-4``, a relative ``1.7e-7``. :func:`~accsim.orbit.closed_orbit_nonlinear`
+    solves the tracked map itself and its orbit closes to ``1.6e-19``: machine zero, and
+    a sharper statement than the ``1e-16`` this test used to make about the linear one.
+
+    Both are asserted, because the pair is the point: the linear solve is still the
+    right first-order answer and still nearly closes, and the exact statement now
+    belongs to the function that actually solves the exact map.
     """
     lat = Lattice(_kicked_ring(kick_x=KICK, kick_y=-1.7e-4), ref)
+
     co = closed_orbit(lat)
     state = np.array([co[0], co[1], co[2], co[3], 0.0, 0.0])
     for elem in lat.elements:
         state = elem.track(state, ref)
-    assert np.allclose(state[:4], co, rtol=0, atol=1e-16)
+    assert np.max(np.abs(state[:4] - co)) < 1e-6 * np.max(np.abs(co))
+
+    nonlinear = closed_orbit_nonlinear(lat)
+    exact = np.array([nonlinear[0], nonlinear[1], nonlinear[2], nonlinear[3], 0.0, 0.0])
+    for elem in lat.elements:
+        exact = elem.track(exact, ref)
+    assert np.allclose(exact[:4], nonlinear, rtol=0, atol=1e-16)
 
 
 def test_propagate_orbit_closes_on_itself(ref: ReferenceParticle) -> None:

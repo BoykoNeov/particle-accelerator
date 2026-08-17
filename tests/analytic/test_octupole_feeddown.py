@@ -368,10 +368,24 @@ def test_the_equivalent_lattice_matches_the_differentiated_map(ref: ReferencePar
     M_equiv, _ = linearised_lattice(lat).one_turn_map()
     assert np.max(np.abs(M_equiv)) > 1.0  # non-vacuous: a real map, not near-identity
 
+    # Each Drift's differentiated map is replaced by its own `matrix` before the
+    # product is taken. The exact Drift map differs from that matrix in three places at
+    # a closed-orbit angle — the `delta` column, the conjugate `zeta` row, and the
+    # transverse block at O(angle^2) — and the derived route, built from accsim
+    # elements, can represent none of them. Left in, they contribute a *fixed* 3.7e-3
+    # that neither vanishes with `step` nor belongs to the octupole, destroying exactly
+    # the step^2 signal this test reads. Substituting the matrices isolates the
+    # octupole's feed-down, which is the subject; the drift's own terms are gated in
+    # `test_exact_drift_dispersion.py`.
+    def octupole_gap(step: float) -> float:
+        product = np.eye(DIM)
+        maps = linearised_element_maps(lat, co, step=step)
+        for elem, m in zip(lat.elements, maps, strict=True):
+            product = (elem.matrix(ref) if isinstance(elem, Drift) else m) @ product
+        return float(np.max(np.abs(product - M_equiv)))
+
     steps = [2.7e-6, 9e-7, 3e-7, 1e-7]
-    gaps = [
-        float(np.max(np.abs(linearised_one_turn_map(lat, co, step=s) - M_equiv))) for s in steps
-    ]
+    gaps = [octupole_gap(s) for s in steps]
     assert gaps[-1] < 1e-8
     for r in _ratios(gaps):
         assert r == pytest.approx(9.0, rel=0.05)  # step^2, at steps a factor 3 apart
@@ -497,24 +511,55 @@ def test_the_tracked_route_reaches_the_same_chromaticity(ref: ReferenceParticle)
     the resulting tunes — the J1/I3 route, which knows nothing about the split. They
     must agree, and the way they disagree is the content:
 
-    the gap falls by exactly **4 per halving of h** (measured 4.09e-3, 1.02e-3,
-    2.56e-4, 6.40e-5 at h = 4e-5 ... 5e-6), i.e. it is the central difference's own
-    ``O(h^2)`` truncation and extrapolates to zero. A wrong ``k2l_eff`` would leave a
-    gap that *did not move* with ``h``, which no tolerance-based comparison could
-    distinguish from a small floor.
+    The tracked value converges as **4 per halving of h** — the central difference's own
+    ``O(h^2)`` truncation — and its limit is the integral. A wrong ``k2l_eff`` would
+    shift that limit while leaving the convergence untouched, so the two halves are
+    checked separately and neither alone would do.
+
+    **Two corrections are needed before the tracked side means what it used to.** The
+    exact :class:`~accsim.elements.drift.Drift` map's effective length is
+    ``L / pz ~ L (1 - delta)``, so a drift is a first-order chromatic element in its own
+    right — ``-0.1289`` on this ring, with no octupole involved:
+
+    - subtracting the same ring at ``k3l = 0`` removes it. That baseline is independent
+      of ``h`` to eight digits, so it is a clean constant and not a second signal;
+    - a residual ``9.2e-4`` (a relative ``6.4e-5``) survives the subtraction, because the
+      octupole's own fed-down dipole moves the orbit and so changes the drift's
+      chromatic contribution a little. It is a cross term between the two effects, it
+      does **not** fall with ``h``, and it is bounded rather than subtracted.
+
+    The convergence is therefore asserted on **successive tracked values** rather than
+    on the gap to the integral: differences of ``3.05e-3, 7.64e-4, 1.91e-4`` give ratios
+    of ``4.00`` exactly, where a gap measured against the integral would be
+    contaminated by that constant residual and scale like nothing at all.
     """
     lat = _dispersive(ref, K3L_CHROMA, 2e-4)
+    baseline = _dispersive(ref, 0.0, 2e-4)
     integral = _chromaticity_feeddown(lat)[0]
     assert abs(integral) > 1.0
 
-    gaps = []
-    for h in (4e-5, 2e-5, 1e-5, 5e-6):
-        qx_p, _ = tunes_on_orbit(lat, delta=+h)
-        qx_m, _ = tunes_on_orbit(lat, delta=-h)
-        gaps.append(abs((qx_p - qx_m) / (2.0 * h) - integral))
-    for r in _ratios(gaps):
-        assert r == pytest.approx(4.0, rel=0.1)  # O(h^2): the differencing, not a bias
-    assert gaps[-1] / abs(integral) < 1e-5
+    def tracked(machine, h: float) -> float:
+        return (tunes_on_orbit(machine, delta=+h)[0] - tunes_on_orbit(machine, delta=-h)[0]) / (
+            2.0 * h
+        )
+
+    hs = (4e-5, 2e-5, 1e-5, 5e-6)
+    base = tracked(baseline, hs[0])
+    # The drift's own chromaticity is a constant of the ring, not a function of h.
+    for h in hs:
+        assert tracked(baseline, h) == pytest.approx(base, rel=1e-6)
+    assert abs(base) > 0.005 * abs(integral)  # and not negligible
+
+    values = [tracked(lat, h) - base for h in hs]
+    steps = [abs(a - b) for a, b in zip(values[:-1], values[1:], strict=True)]
+    for r in _ratios(steps):
+        assert r == pytest.approx(4.0, rel=0.05)  # O(h^2): the differencing, converging
+
+    # Richardson-extrapolated limit, against the derived integral. The 6.4e-5 residual
+    # is the octupole-orbit/drift-chromaticity cross term named above, bounded here.
+    limit = values[-1] + (values[-1] - values[-2]) / 3.0
+    assert limit == pytest.approx(integral, rel=1e-4)
+    assert abs(limit - integral) / abs(integral) > 1e-6  # the residual is real, not zero
 
 
 def test_the_tunes_move_at_second_order_in_the_orbit(ref: ReferenceParticle) -> None:
@@ -529,13 +574,24 @@ def test_the_tunes_move_at_second_order_in_the_orbit(ref: ReferenceParticle) -> 
     The vertical shift is the horizontal one with the opposite sign, which is what
     makes this a gradient rather than a general perturbation: a thin quadrupole
     focuses one plane exactly as much as it defocuses the other.
+
+    The reference tune is taken from the **equally steered, octupole-free** ring rather
+    than from the unkicked lattice. The exact :class:`~accsim.elements.drift.Drift` map
+    is weakly amplitude-dependent in its focusing, so steering alone shifts the tracked
+    tune at second order in the orbit — the same order as the octupole's gradient pair,
+    so the two cannot be separated by an order and the baseline has to be removed
+    instead. Left in, it drove the fourth-order residual ratio below to 14.9 against the
+    predicted 16.
     """
-    base = _fractional_tunes(_flat(ref).one_turn_map()[0])
     shifts, residual = [], []
     for kick in (4e-4, 2e-4, 1e-4, 5e-5):
         lat = _flat(ref, k3l=K3L_TUNE, kick_x=kick)
         co = closed_orbit_nonlinear(lat)
         qx, qy = _fractional_tunes(linearised_one_turn_map(lat, co))
+
+        # Same steering, no octupole: isolates the octupole's own gradient shift.
+        ref_lat = _flat(ref, k3l=0.0, kick_x=kick)
+        base = _fractional_tunes(linearised_one_turn_map(ref_lat, closed_orbit_nonlinear(ref_lat)))
 
         lin = _flat(ref, kick_x=kick)
         tw = propagate_twiss(lin, closed_twiss(lin))[1]
@@ -705,11 +761,26 @@ def test_a_mis_scaled_octupole_is_caught_as_a_factor_of_six(ref: ReferencePartic
         ],
         ref,
     )
+    #
+    # The drift's own chromaticity is removed as a baseline before the ratio is taken.
+    # The exact Drift map is a first-order chromatic element (L/pz ~ L(1-delta)), and
+    # that bias is identical in both arms, so leaving it in pulls the ratio to 5.41 —
+    # which would read as the gate losing its teeth when it is only measuring an offset.
     h = 1e-5
-    tracked_bad = (tunes_on_orbit(lat_bad, delta=+h)[0] - tunes_on_orbit(lat_bad, delta=-h)[0]) / (
-        2.0 * h
-    )
-    assert tracked_bad / good == pytest.approx(6.0, rel=0.01)
+    baseline = _dispersive(ref, 0.0, kick_c)
+
+    def tracked(machine) -> float:
+        return (tunes_on_orbit(machine, delta=+h)[0] - tunes_on_orbit(machine, delta=-h)[0]) / (
+            2.0 * h
+        )
+
+    measured = tracked(lat_bad) - tracked(baseline)
+    assert measured / good == pytest.approx(6.0, rel=0.01)
+
+    # The gate still discriminates after the subtraction: the honest octupole lands on
+    # 1, so the factor of six is the coefficient and not an artefact of the baseline.
+    honest = _dispersive(ref, weak, kick_c)
+    assert (tracked(honest) - tracked(baseline)) / good == pytest.approx(1.0, rel=0.01)
 
 
 # --------------------------------------------------------------------------

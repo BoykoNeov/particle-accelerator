@@ -165,20 +165,27 @@ def test_the_state_transforms_touch_only_the_last_coordinate(
     [Drift(1.7), Quadrupole(0.3, 1.2), Quadrupole(0.3, -1.2), Sextupole(0.4, 0.0)],
     ids=["drift", "quad_f", "quad_d", "thick_sext_k2_zero"],
 )
-def test_a_linear_element_passes_in_both_coordinate_systems(
+def test_a_linear_matrix_passes_in_both_coordinate_systems(
     element, proton_gamma5: ReferenceParticle
 ) -> None:
-    """Every linear element is symplectic in ``(zeta, delta)`` *and* in ``(zeta, p_zeta)``.
+    """A linear matrix is symplectic in ``(zeta, delta)`` *and* in ``(zeta, p_zeta)``.
 
     The existing gates all live in the first, and this says adding the second breaks
     none of them: a shear in ``(zeta, delta)`` is still a shear after the variable
     change, only with a different coefficient.
+
+    The map under test is each element's ``matrix``, applied as a map — deliberately
+    not its ``track``. A :class:`~accsim.elements.drift.Drift`'s ``track`` is the
+    **exact** map, which is symplectic but fails the ``(zeta, delta)`` check; that is
+    the subject of the next section, and conflating the two here would turn this test
+    into a statement about which elements happen to be linear today.
     """
     ref = proton_gamma5
-    assert is_symplectic(element.matrix(ref))
+    M = element.matrix(ref)
+    assert is_symplectic(M)
     st = _state(1.0e-3)
-    assert is_symplectic_map(lambda s: element.track(s, ref), st)
-    assert is_symplectic_map_canonical(lambda s: element.track(s, ref), st, ref)
+    assert is_symplectic_map(lambda s: M @ s, st)
+    assert is_symplectic_map_canonical(lambda s: M @ s, st, ref)
 
 
 def test_the_canonical_check_is_not_vacuously_true(proton_gamma5: ReferenceParticle) -> None:

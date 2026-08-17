@@ -228,16 +228,25 @@ class Element(abc.ABC):
     def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
         """Map a 6D ``state`` through the element **in its own frame**.
 
-        The default is the affine map ``_matrix_body(ref) @ state + _kick_body(ref)`` —
-        exact for every linear element, so element-by-element tracking of a purely
-        linear lattice equals a single
-        :meth:`~accsim.lattice.Lattice.transfer_map` product. Nonlinear elements
-        override this: the :class:`~accsim.elements.rfcavity.RFCavity`, whose ``sin``
-        kick gives the RF bucket its separatrix, and the
+        The default is the affine map ``_matrix_body(ref) @ state + _kick_body(ref)``.
+        Elements whose real map is nonlinear override this: the
+        :class:`~accsim.elements.rfcavity.RFCavity`, whose ``sin`` kick gives the RF
+        bucket its separatrix; the
         :class:`~accsim.elements.sextupole.ThinSextupole` /
         :class:`~accsim.elements.sextupole.Sextupole`, whose ``x^2 - y^2`` kick is
         invisible to ``matrix`` (it has no linear part at the origin) and acts only
-        here. This is the seam the long-term tracker plugs into.
+        here; and :class:`~accsim.elements.drift.Drift`, whose exact geometric map
+        carries the ``1/pz`` a matrix cannot. This is the seam the long-term tracker
+        plugs into.
+
+        **Element-by-element tracking of a lattice is therefore not the same thing as
+        one** :meth:`~accsim.lattice.Lattice.transfer_map` **product, even when every
+        element is "linear".** It was, until the drift's exact map landed; the two now
+        agree only for a particle on the design orbit at ``px = py = 0``, where the
+        exact map's Jacobian is the linear matrix entry for entry. Off that orbit the
+        difference is physical — it is the dispersion a transverse angle produces —
+        and any code that swaps one for the other as a fast path is choosing the
+        linear answer, not an equivalent one.
 
         **Override this, not** :meth:`track` — the misalignment lives there, and an
         override of ``track`` would either apply the shift and roll twice or drop

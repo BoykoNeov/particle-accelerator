@@ -1289,8 +1289,16 @@ def closed_twiss_on_orbit(lattice: Lattice, *, delta: float = 0.0, step: float =
 
     :func:`closed_twiss` with the one-turn map replaced by
     :func:`~accsim.orbit.linearised_one_turn_map`. Identical to it whenever the
-    orbit is on axis or nothing in the lattice is nonlinear; different by the
-    feed-down beta-beat wherever an off-axis sextupole is live.
+    orbit is **on axis**; different by the feed-down beta-beat wherever an off-axis
+    sextupole is live.
+
+    "Nothing in the lattice is nonlinear" is no longer the other way for the two to
+    coincide, and a :class:`~accsim.elements.drift.Drift` is why: its exact map is
+    nonlinear, so on a steered orbit this reports a ``disp_y`` the design optics puts
+    at exactly zero — the dispersion a transverse orbit *angle* makes. That is the
+    point of the exact map, not a discrepancy to reconcile. A vertical steerer in an
+    otherwise perfect ring is the clean case: design optics ``0``, this ``0.2590571``,
+    xtrack ``0.2590571``.
 
     Raises :class:`CoupledLatticeError` if the *on-orbit* map is x-y coupled — a
     normal sextupole at ``y_co != 0`` is a skew quadrupole, so this happens on a

@@ -49,6 +49,7 @@ from accsim import (
     match_periodic,
     propagate_orbit_nonlinear,
 )
+from accsim.coords import DELTA, X
 
 pytestmark = pytest.mark.reference
 
@@ -99,12 +100,38 @@ def _accsim_cell() -> list:
     return [Quadrupole(LQ, K1), Drift(LD), Quadrupole(LQ, -K1), Drift(LD)]
 
 
+def _linearised_with_matrix_drifts(lat: Lattice, co: np.ndarray) -> np.ndarray:
+    """``linearised_one_turn_map``, but each drift contributes its ``matrix`` instead.
+
+    Isolates the *sextupole's* feed-down from the drift's own exact-map content (L1). A
+    drift at a closed-orbit angle departs from its matrix in three places — the ``delta``
+    column, the conjugate ``zeta`` row, and the transverse block at ``O(angle^2)`` — and
+    a composed *matrix* product carries none of them. Comparing the two directly would
+    be comparing two different maps, at 7.9e-8 on this ring.
+    """
+    from accsim.orbit import linearised_element_maps
+
+    product = np.eye(6)
+    for elem, m in zip(lat.elements, linearised_element_maps(lat, co), strict=True):
+        product = (elem.matrix(lat.ref) if isinstance(elem, Drift) else m) @ product
+    return product
+
+
 def _xtrack_cell() -> list:
+    """The accsim cell, in xtrack. ``model="exact"`` on the drifts is load-bearing.
+
+    ``xt.Drift()`` defaults to ``"adaptive"``, which resolves to the **expanded** model
+    ``x += L px / (1 + delta)``. accsim's :class:`~accsim.elements.drift.Drift` tracks the
+    exact ``x += L px / pz`` (L1), so a default drift here disagrees at ``O(angle^3)`` —
+    which on the steered rings in this file is a real, orbit-dependent discrepancy and
+    looks exactly like a feed-down coefficient error. It is not one. See
+    ``test_drift_xtrack.py::test_xtracks_default_drift_is_the_expanded_model_not_the_exact_one``.
+    """
     return [
         xt.Quadrupole(length=LQ, k1=K1),
-        xt.Drift(length=LD),
+        xt.Drift(length=LD, model="exact"),
         xt.Quadrupole(length=LQ, k1=-K1),
-        xt.Drift(length=LD),
+        xt.Drift(length=LD, model="exact"),
     ]
 
 
@@ -176,9 +203,15 @@ def test_the_linear_closed_orbit_is_decisively_wrong() -> None:
     assert linear_err > 1e-8
     assert linear_err > 1e4 * nonlinear_err
 
+    # The k2l = 0 control. The *nonlinear* solve is what matches xtrack now: both codes
+    # run exact drifts (L1), and an exact drift is itself a nonlinear map, so accsim's
+    # linear solve is no longer the exact answer even with no sextupole. It misses by
+    # 2.7e-11 — third order in the orbit angle, four orders below the 1e-8 feed-down
+    # error above, so the contrast this test draws is untouched.
     flat = _accsim_lattice(0.0, kick_x=KICK, kick_y=0.6 * KICK)
     _, tw0 = _xtrack_line(0.0, kick_x=KICK, kick_y=0.6 * KICK)
-    assert abs(closed_orbit(flat)[0] - tw0.x[0]) < ORBIT_ATOL
+    assert abs(closed_orbit_nonlinear(flat)[0] - tw0.x[0]) < ORBIT_ATOL
+    assert abs(closed_orbit(flat)[0] - tw0.x[0]) < 1e-9
 
 
 def test_linearised_one_turn_map_matches_xtrack() -> None:
@@ -197,7 +230,14 @@ def test_linearised_one_turn_map_matches_xtrack() -> None:
     flat = _accsim_lattice(0.0, kick_x=KICK, kick_y=0.6 * KICK)
     co0 = closed_orbit_nonlinear(flat)
     exact, _ = flat.one_turn_map()
-    assert np.allclose(linearised_one_turn_map(flat, co0), exact, rtol=0, atol=ACCSIM_FD_ATOL)
+    # Drifts contribute their matrices here, so this is still accsim's own differencing
+    # floor and not the exact drift map's content — see `_linearised_with_matrix_drifts`.
+    assert np.allclose(
+        _linearised_with_matrix_drifts(flat, co0), exact, rtol=0, atol=ACCSIM_FD_ATOL
+    )
+    # ...and the content that was excluded really is there, so this is not vacuous: the
+    # full differenced map carries the drift's conjugate pair at 7e-4.
+    assert abs(linearised_one_turn_map(flat, co0)[X, DELTA]) > 1e-4
 
     lat = _accsim_lattice(K2L, kick_x=KICK, kick_y=0.6 * KICK)
     co = closed_orbit_nonlinear(lat)

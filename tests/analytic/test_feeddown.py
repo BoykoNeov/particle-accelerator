@@ -74,7 +74,7 @@ from accsim import (
     propagate_orbit_nonlinear,
     propagate_twiss,
 )
-from accsim.coords import DIM, PX, PY, X, Y
+from accsim.coords import DELTA, DIM, PX, PY, ZETA, X, Y
 
 # Thin FODO cell, as in the I1 suite. The cell is a *palindrome*
 # (halfF | drift | D | drift | halfF), so alpha = 0 at every cell boundary — the
@@ -221,15 +221,34 @@ def test_linearised_sextupole_is_a_thin_normal_plus_skew_quadrupole(
 def test_without_a_sextupole_the_nonlinear_orbit_is_the_linear_one(
     ref: ReferenceParticle,
 ) -> None:
-    """Newton reproduces I1's solve to round-off when nothing is nonlinear.
+    r"""Newton reproduces I1's solve when the only nonlinearity is the drift's own.
 
     The free consistency gate that comes from seeding Newton at
-    :func:`closed_orbit`: if the residual is already zero the iteration returns
-    immediately, so this asserts the *tracked* map and the *affine* map agree —
-    two independent code paths for the same lattice.
+    :func:`closed_orbit`: with the residual nearly zero the iteration barely moves, so
+    this asserts the *tracked* map and the *affine* map agree — two independent code
+    paths for the same lattice.
+
+    **"Nothing is nonlinear" is no longer available on a steered machine**, and the
+    drift is why: its exact map moves ``x`` by ``L px / pz``, not ``L px``, so a
+    particle at a closed-orbit *angle* is displaced by an extra ``L px^3 / 2``. The two
+    orbits therefore differ, by **third** order in the steerer — measured ``2.2e-11``
+    here, falling by exactly ``8`` per halving. Asserted as that order rather than
+    under a widened tolerance: a mis-scaled drift term would sit at a different power
+    and be caught, where ``atol=1e-7`` would accept almost anything.
+
+    With no steerer at all the orbit is exactly zero and the exact map's extra terms —
+    every one of them proportional to the orbit angle — vanish identically, which is
+    the second assertion and still holds at exact equality.
     """
-    lat = _lattice(ref, k2l=0.0, kick_x=KICK, kick_y=-0.7 * KICK)
-    assert np.allclose(closed_orbit_nonlinear(lat), closed_orbit(lat), atol=1e-16, rtol=0.0)
+
+    def orbit_gap(scale: float) -> float:
+        lat = _lattice(ref, k2l=0.0, kick_x=KICK * scale, kick_y=-0.7 * KICK * scale)
+        return float(np.abs(closed_orbit_nonlinear(lat) - closed_orbit(lat)).max())
+
+    gaps = [orbit_gap(1.0), orbit_gap(0.5), orbit_gap(0.25)]
+    assert gaps[0] == pytest.approx(2.1956e-11, rel=1e-3)
+    for big, small in zip(gaps[:-1], gaps[1:], strict=True):
+        assert big / small == pytest.approx(8.0, rel=1e-2)  # third order in the angle
 
     perfect = _lattice(ref, k2l=K2L)  # sextupole present, but no kick -> on axis
     assert np.array_equal(closed_orbit_nonlinear(perfect), np.zeros(4))
@@ -289,34 +308,68 @@ def test_feeddown_is_self_limiting_and_a_far_guess_finds_another_orbit(
 ) -> None:
     """Two honest limits on what :func:`closed_orbit_nonlinear` promises.
 
-    **Feed-down does not run away.** Raising ``k2l`` by five orders of magnitude
+    **Feed-down does not run away.** Raising ``k2l`` over three orders of magnitude
     *shrinks* the orbit rather than destroying it: the same gradient the sextupole
     feeds down also stiffens the ``(I - M4)`` it is inverted against, so the fixed
     point is self-limiting. Convergence is therefore not evidence of a healthy
     machine — the linearised lattice here is wildly unstable and an orbit still
     closes through it, because closure needs ``(I - M4)`` invertible, not stable.
 
-    **And the fixed point is not unique.** Started 50 m out, Newton converges onto
-    a completely different orbit — one of the outer fixed points of the nonlinear
-    map, the unstable ones outside the dynamic aperture. The docstring makes no
-    claim about which one a far guess lands on; this is that non-claim, asserted.
+    The sweep used to run to ``k2l = 1e6``. It now stops at ``1e4``, and the reason is
+    Newton's path rather than its answer: seeded at the *linear* closed orbit, which
+    the strong sextupole has not yet shrunk, an intermediate iterate sits near
+    ``x = -7e-3`` where ``k2l x^2 / 2`` is tens of radians — unphysical, and the exact
+    drift now says so instead of propagating it. So the exact map narrows Newton's
+    basin of attraction, which is a real cost of the change and is recorded here rather
+    than worked around. The self-limiting claim itself is unaffected and is in fact
+    asserted more strongly than before, as monotone shrinkage across the sweep instead
+    of one endpoint ratio.
+
+    **And a far guess now fails instead of landing on an outer fixed point.** It used
+    to converge, 50 m out, onto one of the unstable orbits outside the dynamic
+    aperture — but those were an artefact of the *linear* drift, which propagates any
+    state at all because ``x -> x + L px`` has no notion of forward momentum. At 50 m a
+    sextupole kick of ``k2l x^2 / 2`` gives ``|px| ~ 2.5e4``: a particle with tens of
+    thousands of times more transverse momentum than total. The exact drift returns
+    ``NaN`` there, correctly, because no such trajectory exists — so the outer fixed
+    point is not merely hard to reach, it was never physical.
+
+    :func:`closed_orbit_nonlinear` reports that as its own
+    :class:`OrbitConvergenceError` naming the iterate, rather than letting the ``NaN``
+    reach :func:`numpy.linalg.cond` and emerge as ``LinAlgError: SVD did not
+    converge``, which would say nothing about the physics. Asserted here so the
+    behaviour is a decision on record and not an accident of numpy internals.
     """
-    weak = closed_orbit_nonlinear(_lattice(ref, k2l=K2L, kick_x=5e-3))
-    strong = closed_orbit_nonlinear(_lattice(ref, k2l=1e6, kick_x=5e-3))
-    assert abs(strong[X]) < 0.1 * abs(weak[X])
+    orbits = [
+        abs(closed_orbit_nonlinear(_lattice(ref, k2l=k, kick_x=5e-3))[X])
+        for k in (K2L, 1e2, 1e3, 1e4)
+    ]
+    for bigger, smaller in zip(orbits[:-1], orbits[1:], strict=True):
+        assert smaller < bigger  # monotone: more sextupole, less orbit, every step
+    assert orbits[-1] < 0.2 * orbits[0]  # and by a factor of five over the sweep
+
+    # Past that, Newton's *seed* — the un-shrunk linear orbit — is itself in a region
+    # the exact map refuses, so the failure is about the path and says so.
+    with pytest.raises(OrbitConvergenceError, match="physical region"):
+        closed_orbit_nonlinear(_lattice(ref, k2l=1e6, kick_x=5e-3))
 
     lat = _lattice(ref, k2l=K2L, kick_x=KICK)
     near = closed_orbit_nonlinear(lat)
-    far = closed_orbit_nonlinear(lat, guess=np.array([50.0, 0.0, 0.0, 0.0]))
-    assert abs(far[X]) > 100.0 * abs(near[X])
-    # Both really are fixed points — the map has more than one, and this is not a
-    # convergence failure dressed up as an answer.
-    for co in (near, far):
-        state = np.zeros(DIM)
-        state[:4] = co
-        for elem in lat.elements:
-            state = elem.track(state, lat.ref)
-        assert np.allclose(state[:4], co, atol=1e-13, rtol=0.0)
+    with pytest.raises(OrbitConvergenceError, match="physical region"):
+        closed_orbit_nonlinear(lat, guess=np.array([50.0, 0.0, 0.0, 0.0]))
+
+    # The near orbit really is a fixed point of the *tracked* map, drifts included —
+    # which is the half of the original claim that the exact map does not disturb.
+    state = np.zeros(DIM)
+    state[:4] = near
+    for elem in lat.elements:
+        state = elem.track(state, lat.ref)
+    assert np.allclose(state[:4], near, atol=1e-13, rtol=0.0)
+
+    # A guess far enough to be unphysical fails; a merely *poor* one still converges,
+    # so the new failure is about leaving the physical region and not about strictness.
+    modest = closed_orbit_nonlinear(lat, guess=np.array([1.0e-2, 0.0, 0.0, 0.0]))
+    assert np.allclose(modest, near, atol=1e-12, rtol=0.0)
 
 
 def test_bad_arguments_are_rejected(ref: ReferenceParticle) -> None:
@@ -508,15 +561,32 @@ def test_the_equivalent_linear_lattice_reproduces_orbit_and_optics(
     linear solve lands on the *nonlinear* orbit, and the linear one-turn matrix
     equals the tracked map's Jacobian. Both planes are steered so the skew term is
     live, which a horizontal-only test could not see.
+
+    **The equivalent lattice cannot reproduce the drift's exact map, and does not try.**
+    A drift at a closed-orbit angle contributes ``M[x,delta] = M[zeta,px] = -L px`` — a
+    conjugate pair no accsim element carries without also bending — so the two one-turn
+    maps part company by ``1.8e-3`` in the ``delta`` column and the ``zeta`` row.
+    Everywhere else they still agree to ``4.8e-7``, which is the assertion below: the
+    *gradient* content of the decomposition, which is what this test is about, is
+    untouched. The orbit is unaffected either way, because a constant kick and a
+    gradient are all that place it.
     """
     lat = _lattice(ref, k2l=K2L, kick_x=KICK, kick_y=0.6 * KICK)
     co = closed_orbit_nonlinear(lat)
 
     equiv = _equivalent_lattice(ref, K2L, co, KICK, 0.6 * KICK)
-    assert np.allclose(closed_orbit(equiv), co, atol=1e-15, rtol=0.0)
+    assert np.allclose(closed_orbit(equiv), co, atol=1e-10, rtol=0.0)
 
     M_lin, _ = equiv.one_turn_map()
-    assert np.allclose(linearised_one_turn_map(lat, co), M_lin, atol=1e-9, rtol=0.0)
+    D = linearised_one_turn_map(lat, co) - M_lin
+    outside = D.copy()
+    outside[:, DELTA] = 0.0
+    outside[ZETA, :] = 0.0
+    assert np.abs(outside).max() < 1.0e-6
+
+    # Non-vacuous the other way: the pair really is there, and really is that big, so
+    # this test is not quietly asserting that the drift term is negligible.
+    assert np.abs(D).max() == pytest.approx(1.8105e-3, rel=1e-3)
 
 
 def test_element_maps_multiply_to_the_one_turn_jacobian(ref: ReferenceParticle) -> None:
@@ -546,14 +616,27 @@ def test_element_maps_multiply_to_the_one_turn_jacobian(ref: ReferenceParticle) 
 
     assert np.allclose(product, jacobian(turn, state, step=1e-7), atol=1e-8, rtol=0.0)
 
-    # Every linear element is returned as its own matrix, so the feed-down is the
-    # *only* place the linearisation differs from the on-axis optics.
+    # Which elements the linearisation departs from their on-axis matrix, and by how
+    # much. The sextupole's feed-down is no longer the only one: a Drift at a closed
+    # orbit *angle* departs by its exact map's conjugate pair, exactly `L * p_co`.
+    #
+    # The condition below is on the orbit, not on the element type. A drift at zero
+    # angle *does* equal its matrix, and excluding drifts wholesale would throw that
+    # invariance away — it is the statement that bounds this whole milestone.
     maps = linearised_element_maps(lat, co)
-    for elem, m in zip(lat.elements, maps, strict=True):
+    orbit = propagate_orbit_nonlinear(lat, co)[:-1]  # entrance of each element
+    seen_drift = 0
+    for elem, m, o in zip(lat.elements, maps, orbit, strict=True):
+        gap = float(np.abs(m - elem.matrix(ref)).max())
         if isinstance(elem, ThinSextupole):
-            assert not np.allclose(m, elem.matrix(ref), atol=1e-9)
+            assert gap > 1e-9  # feed-down, as before
+        elif isinstance(elem, Drift) and max(abs(o[PX]), abs(o[PY])) > 1e-9:
+            # The exact drift's largest new entry is L*|p_co| — derived, not fitted.
+            assert gap == pytest.approx(elem.length * max(abs(o[PX]), abs(o[PY])), rel=1e-3)
+            seen_drift += 1
         else:
             assert np.allclose(m, elem.matrix(ref), atol=1e-9, rtol=0.0)
+    assert seen_drift == 2 * N_CELLS  # every drift accounted for, none skipped
 
 
 # ---------------------------------------------------------------------------
@@ -566,25 +649,44 @@ def test_correctors_do_move_the_optics_once_a_sextupole_is_off_axis(
 ) -> None:
     """I1's headline claim, and the exact condition under which it fails.
 
-    With the sextupole on axis (or absent) steering leaves beta and the tunes
-    untouched to machine precision — I1 is right. Turn on ``k2l`` *and* the
-    steerer together and both move. Either alone is not enough, which is what makes
-    the qualification "linear-order, on-axis-sextupole" precise rather than
-    defensive.
+    With the sextupole on axis steering leaves beta and the tunes untouched to machine
+    precision — I1 is right. Turn on ``k2l`` *and* the steerer together and both move.
+    Either alone is not enough, which is what makes the qualification "linear-order,
+    on-axis-sextupole" precise rather than defensive.
+
+    **Steering with no sextupole is no longer *exactly* free**, and the drift's exact
+    map is the reason: at a closed-orbit angle its focusing picks up an
+    ``O(p_co^2)`` correction (``d(L px/pz)/d(px) = L(1 + 3 px^2/2)`` at ``py = 0``), so
+    the tune moves by ``2.2e-8`` — **second** order in the steerer, falling by exactly
+    ``4`` per halving. That is 400 times smaller than the ``1e-5`` feed-down shift the
+    last block measures, so I1's claim survives in substance; but it is a real effect
+    with a derivable order, not machine noise, and it is asserted as such.
     """
     on_axis = _lattice(ref, k2l=K2L)
-    steered_no_sext = _lattice(ref, k2l=0.0, kick_x=KICK)
     base = _fractional_tunes(_lattice(ref).one_turn_map()[0])
 
-    for lat in (on_axis, steered_no_sext):
-        co = closed_orbit_nonlinear(lat)
-        q = _fractional_tunes(linearised_one_turn_map(lat, co))
-        assert q == pytest.approx(base, abs=1e-12)
+    # On axis the orbit is exactly zero, so every exact-map term vanishes identically.
+    co = closed_orbit_nonlinear(on_axis)
+    assert np.abs(co).max() == 0.0
+    assert _fractional_tunes(linearised_one_turn_map(on_axis, co)) == pytest.approx(base, abs=1e-12)
+
+    # Steered with no sextupole: second order in the steerer, from the drift alone.
+    def tune_gap(scale: float) -> float:
+        lat = _lattice(ref, k2l=0.0, kick_x=KICK * scale)
+        q = _fractional_tunes(linearised_one_turn_map(lat, closed_orbit_nonlinear(lat)))
+        return max(abs(q[0] - base[0]), abs(q[1] - base[1]))
+
+    gaps = [tune_gap(1.0), tune_gap(0.5), tune_gap(0.25)]
+    assert gaps[0] == pytest.approx(2.1985e-8, rel=1e-3)
+    for big, small in zip(gaps[:-1], gaps[1:], strict=True):
+        assert big / small == pytest.approx(4.0, rel=1e-2)
 
     both = _lattice(ref, k2l=K2L, kick_x=KICK)
     q = _fractional_tunes(linearised_one_turn_map(both, closed_orbit_nonlinear(both)))
     assert abs(q[0] - base[0]) > 1e-6
     assert abs(q[1] - base[1]) > 1e-6
+    # ...and the feed-down shift dwarfs the drift's own, so the two do not compete.
+    assert abs(q[0] - base[0]) > 100.0 * gaps[0]
 
 
 def test_tune_shift_matches_the_beta_weighted_feeddown_sum(ref: ReferenceParticle) -> None:
@@ -721,7 +823,31 @@ def test_beta_at_the_source_matches_the_exact_gradient_error_form(
         return beta_k * math.sqrt(float(r))
 
     assert got != pytest.approx(tw0.beta_x, rel=1e-6)  # non-vacuous: beta really moved
-    assert got == pytest.approx(predicted(tw0.beta_x), rel=1e-9)
+    assert got == pytest.approx(predicted(tw0.beta_x), rel=1e-7)
+
+    # The prediction is the *sextupole's* feed-down gradient alone, so it is no longer
+    # exact to 1e-9: the exact drift adds a beta shift of its own at a closed-orbit
+    # angle, worth a relative 7.4e-8 here. That is second order in the steerer — the
+    # ratios below approach 4 — where the feed-down term above is first order, so the
+    # two are cleanly separated rather than competing. Asserting the order is what keeps
+    # this a check on the derived gradient rather than a tolerance widened to fit.
+    def prediction_gap(scale: float) -> float:
+        f = _lattice(ref, k2l=0.0, kick_x=KICK * scale)
+        t0 = closed_twiss(f)
+        mu = 2.0 * math.pi * _fractional_tunes(f.one_turn_map()[0])[0]
+        lt = _lattice(ref, k2l=K2L, kick_x=KICK * scale)
+        c = closed_orbit_nonlinear(lt)
+        g = match_periodic(linearised_one_turn_map(lt, c)).beta_x
+        r = ratio_sq.subs(
+            {beta_s: t0.beta_x, c_s: math.cos(mu), s_s: math.sin(mu), k1l_s: K2L * c[X]}
+        )
+        p = t0.beta_x * math.sqrt(float(r))
+        return abs(g - p) / p
+
+    gaps = [prediction_gap(1.0), prediction_gap(0.5), prediction_gap(0.25)]
+    assert gaps[0] == pytest.approx(7.4302e-8, rel=1e-3)
+    for big, small in zip(gaps[:-1], gaps[1:], strict=True):
+        assert big / small == pytest.approx(4.0, rel=0.05)
 
     # Localisation: the *other* plane's beta is the wrong beta_k, and is rejected.
     assert got != pytest.approx(predicted(tw0.beta_y), rel=1e-3)
@@ -888,7 +1014,12 @@ def test_orbit_correction_stops_being_one_solve_and_starts_iterating(
     flat, corr = steered(0.0)
     out = correct_orbit(flat, corr, monitors, "x", nonlinear=True)
     assert out.rms_before > 1e-5
-    assert out.rms_after < 1e-18  # no sextupole: still exactly one solve
+    # No sextupole, so the correction is still one solve for all practical purposes —
+    # but not *exactly*, because the drift's own exact map is nonlinear too. The
+    # residual is 8.6e-12 against an uncorrected 1e-5, six orders below the feed-down
+    # residual measured next, so it does not blur the distinction this test draws.
+    assert out.rms_after < 1e-10
+    assert out.rms_after > 1e-16  # a real residual, not machine zero — say which
 
     lat, corr = steered(K2L)
     passes = [correct_orbit(lat, corr, monitors, "x", nonlinear=True) for _ in range(4)]
@@ -896,10 +1027,19 @@ def test_orbit_correction_stops_being_one_solve_and_starts_iterating(
     assert passes[0].rms_after > 1e-9  # NOT machine zero any more — this is feed-down
     assert passes[-1].rms_after < 1e-16  # ...but it is a loop, and a fast one
 
+    # Constant contraction factor => linear convergence, not quadratic. Measured
+    # 4.9433e-4, 4.9500e-4, 4.9844e-4 — constant to 1%, where before the drift's exact
+    # map landed it was constant to 1e-3. Two things loosened it, and neither touches
+    # the claim: the correction now works against a second nonlinearity, and the later
+    # passes measure an orbit of 3.7e-14 m where round-off is itself a percent of the
+    # residual. The discrimination is unaffected, which is the point of the assertion
+    # after the loop: quadratic convergence would drive the factor down by
+    # ~contraction[0] each pass — a factor of 2000 — against the 1% wobble seen here.
     contraction = [p.rms_after / p.rms_before for p in passes[1:]]
     for f in contraction:
-        assert f == pytest.approx(contraction[0], rel=1e-3)  # constant => linear, not quadratic
+        assert f == pytest.approx(contraction[0], rel=1e-2)
     assert contraction[0] < 1e-3
+    assert min(contraction) > 0.5 * contraction[0]  # nowhere near a geometric collapse
 
     # The first-pass residual is second order in the orbit that had to be removed.
     resid = []

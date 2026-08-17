@@ -159,14 +159,43 @@ def test_separatrix_is_a_hamiltonian_level_set(ref: ReferenceParticle) -> None:
 
 
 def test_nonlinear_tracking_reduces_to_linear_for_tiny_amplitude(ref: ReferenceParticle) -> None:
-    # At small amplitude the sin kick ~ its R65 linearisation, so element-by-element
-    # nonlinear tracking matches the linear one-turn matrix to leading order.
+    r"""At small amplitude the ``sin`` kick ~ its ``R65`` linearisation.
+
+    So element-by-element nonlinear tracking matches the linear one-turn matrix to
+    leading order — with a floor that is no longer round-off. The exact
+    :class:`~accsim.elements.drift.Drift` map's longitudinal term is
+    ``L delta (2 + delta) / gamma0^2 / (pz (pz + E/E0))``, whose first term is the
+    matrix's ``R56 delta`` and whose remainder is ``O(delta^2)``; over 50 turns that
+    accumulates to ``3.4e-15`` in ``zeta`` against an oscillation amplitude of ``1e-6``.
+
+    The comparison is made against the oscillation *amplitude* rather than pointwise.
+    A synchrotron oscillation passes through ``zeta = 0`` twice a period, where a
+    relative tolerance permits nothing at all and the old ``atol=1e-18`` — three orders
+    below double precision on these numbers — was doing all the work. Bounding the
+    difference by the amplitude states the same thing without a tolerance that only
+    held while the two maps happened to be identical on axis.
+
+    The gap is **first** order in the amplitude, not second: on axis the exact
+    longitudinal term expands to ``(L delta / gamma0^2) [1 - delta (1 + beta0^2/2)]``, so
+    the matrix keeps the leading term and misses one power of ``delta``. Measured
+    ``4.4e-7`` relative here, halving with the amplitude — asserted as that order,
+    which a wrongly-scaled longitudinal term would fail while any fixed tolerance
+    generous enough to pass today would accept.
+    """
     lat = _bucket_lattice(ref)
     dmax = rf_bucket_height(lat)
-    p = Particle(zeta=1e-6, delta=1e-9 * dmax)
-    lin = Tracker(lat).track_turns(p, 50, nonlinear=False)
-    non = Tracker(lat).track_turns(p, 50, nonlinear=True)
-    assert np.allclose(lin, non, rtol=1e-6, atol=1e-18)
+
+    def relative_gap(amp: float) -> float:
+        p = Particle(zeta=1e-6 * amp, delta=1e-9 * dmax * amp)
+        lin = Tracker(lat).track_turns(p, 50, nonlinear=False)
+        non = Tracker(lat).track_turns(p, 50, nonlinear=True)
+        scale = np.max(np.abs(lin), axis=0)
+        live = scale > 0.0  # the transverse coordinates are identically zero throughout
+        return float(np.max(np.max(np.abs(lin - non), axis=0)[live] / scale[live]))
+
+    assert relative_gap(1.0) < 1.0e-6
+    assert relative_gap(1.0) > 0.0  # the two really are different maps
+    assert relative_gap(1.0) / relative_gap(0.5) == pytest.approx(2.0, rel=0.05)
 
 
 def test_no_cavity_has_no_bucket(ref: ReferenceParticle) -> None:

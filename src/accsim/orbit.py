@@ -289,6 +289,16 @@ def closed_orbit_nonlinear(
     aperture, and this function makes **no claim** about which one you land on if
     you start far from the linear orbit).
 
+    **A far guess now fails rather than landing somewhere, and that is the exact
+    drift's doing.** A sextupole kick grows as the square of the excursion, so a
+    metre-scale start gives ``|px| >> 1`` — a particle with far more transverse than
+    total momentum. The linear drift propagated such a state happily, having no notion
+    of forward momentum, so Newton could converge onto "outer fixed points" that were
+    artefacts of that permissiveness. The exact map returns ``NaN`` there instead,
+    because there is no trajectory, and this function reports it as
+    :class:`OrbitConvergenceError` with the offending iterate rather than letting the
+    ``NaN`` surface as a ``LinAlgError`` out of :func:`numpy.linalg.cond`.
+
     ``delta`` closes the orbit at a fixed momentum instead of on the reference one,
     which is what makes an *off-momentum* linearisation possible: a sextupole then
     sits at ``x_co + D_x delta`` and feeds down a gradient that varies with
@@ -329,11 +339,35 @@ def closed_orbit_nonlinear(
             raise ValueError(f"guess must be a length-4 (x, px, y, py) vector, got {x.shape}")
         x = x.copy()
 
+    def _require_finite(values: np.ndarray, iterate: np.ndarray) -> None:
+        """Turn an unphysical iterate into this function's own error, not numpy's.
+
+        A drift's exact map returns ``NaN`` for a particle with no forward momentum
+        (``px^2 + py^2 >= (1 + delta)^2``), which Newton can reach from a far guess —
+        a sextupole kick grows as the square of the excursion, so a metre-scale start
+        gives ``|px| >> 1``. Without this the ``NaN`` reaches
+        :func:`numpy.linalg.cond` and surfaces as ``LinAlgError: SVD did not
+        converge``, which says nothing about the physics. There is no trajectory to
+        find here, not merely a hard one.
+        """
+        if np.all(np.isfinite(values)):
+            return
+        raise OrbitConvergenceError(
+            "the nonlinear closed orbit left the physical region: at the iterate "
+            f"(x, px, y, py) = {np.array2string(iterate, precision=4)} the tracked map "
+            "returns a non-finite state, because a transverse momentum of "
+            "|p| >= 1 + delta leaves no forward momentum for the particle to cross a "
+            "drift with. Newton cannot recover from this — start closer to the linear "
+            "closed orbit, or lower the strength driving the excursion"
+        )
+
     residual = _tracked_turn(lattice, x, delta) - x
     for _ in range(max_iter):
+        _require_finite(residual, x)
         if np.max(np.abs(residual)) < tol:
             return x
         A = _turn_jacobian(lattice, x, step, delta) - np.eye(4)
+        _require_finite(A, x)
         cond = float(np.linalg.cond(A))
         if not np.isfinite(cond) or cond > _COND_LIMIT:
             raise ClosedOrbitError(
@@ -388,12 +422,23 @@ def linearised_element_maps(
 ) -> list[np.ndarray]:
     r"""Each element's ``6x6`` map **linearised about the orbit at its entrance**.
 
-    The optics a particle near the closed orbit actually sees. For every linear
-    element this returns :meth:`~accsim.elements.element.Element.matrix` to
-    round-off; for a sextupole at orbit offset ``(x_co, y_co)`` it returns the
-    matrix of a drift *plus* the feed-down gradients ``k1l_eff = k2l x_co``
-    (normal) and ``k1sl_eff = k2l y_co`` (skew) — which is why steering a machine
-    with sextupoles moves beta, the tunes and the coupling.
+    The optics a particle near the closed orbit actually sees. For a sextupole at
+    orbit offset ``(x_co, y_co)`` it returns the matrix of a drift *plus* the
+    feed-down gradients ``k1l_eff = k2l x_co`` (normal) and ``k1sl_eff = k2l y_co``
+    (skew) — which is why steering a machine with sextupoles moves beta, the tunes
+    and the coupling.
+
+    **A** :class:`~accsim.elements.drift.Drift` **no longer returns its own**
+    :meth:`~accsim.elements.element.Element.matrix` **either, and that is not a
+    defect.** Its exact map is nonlinear, so at a nonzero orbit *angle* the Jacobian
+    picks up a ``delta`` column, ``M[x, delta] = -L px_co`` and
+    ``M[y, delta] = -L py_co``, together with the conjugate ``M[zeta, px]`` and
+    ``M[zeta, py]``. Those four entries are the vertical dispersion an orbit angle
+    makes — the physics the exact map exists for — and this function is the only route
+    that sees them, because it differentiates ``track()`` rather than reading element
+    types. On the design orbit (``px = py = 0``) every element still returns its
+    ``matrix`` to round-off, which is what keeps an unsteered machine's on-orbit optics
+    bit-for-bit equal to its design optics.
 
     This is the primitive the feed-down optics are read from, rather than a single
     one-turn Jacobian, because Twiss propagation needs a matrix *per element*:
@@ -473,12 +518,30 @@ def linearised_lattice(
     matrix-based optics function anyway (a
     :class:`~accsim.elements.corrector.Corrector`'s ``matrix()`` is the identity).
 
-    This is the same machine :func:`linearised_element_maps` describes, reached
-    from I2's *derived* coefficients instead of by differentiating ``track()``; the
-    analytic suite gates the two against each other. It exists because the
-    chromaticity integrals (:func:`~accsim.twiss.natural_chromaticity` and the
-    sextupole feed-down term) walk element *types*, not maps, so they need a
-    lattice rather than a list of matrices.
+    This is the same machine :func:`linearised_element_maps` describes **as far as
+    gradients go**, reached from I2's *derived* coefficients instead of by
+    differentiating ``track()``; the analytic suite gates the two against each other
+    on that content. It exists because the chromaticity integrals
+    (:func:`~accsim.twiss.natural_chromaticity` and the sextupole feed-down term) walk
+    element *types*, not maps, so they need a lattice rather than a list of matrices.
+
+    **What it cannot represent, and why it returns an answer anyway.** A
+    :class:`~accsim.elements.drift.Drift` at a nonzero orbit angle has a ``delta``
+    column and a conjugate ``zeta`` row in its exact Jacobian (see
+    :func:`linearised_element_maps`). No accsim element carries a transverse
+    ``delta`` column without also bending, so there is nothing here to build those
+    entries out of, and they are simply absent — on a steered FODO ring the two routes
+    differ by ``5.4e-3`` in the one-turn map because of it.
+
+    That is an omission rather than a wrong number, and the distinction is what
+    decides the behaviour. The dropped terms carry **no gradient**, so no chromaticity
+    integral reads them and everything this function exists to feed is unaffected.
+    Refusing would break the feed-down machinery over a term it never looks at — which
+    is why the rolled-multipole branch above *does* refuse (it would emit a wrong
+    split) and this does not. But anything that wants **dispersion** from a linearised
+    machine must go through :func:`linearised_one_turn_map`: hand the lattice this
+    function returns to :func:`~accsim.twiss.match_periodic` and you get the old
+    orbit-blind ``D_y = 0`` back, silently.
 
     Raises :class:`NotImplementedError` for a **thick** sextupole of non-zero
     strength: its offset varies across the body, so collapsing it onto a single

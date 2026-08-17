@@ -70,6 +70,164 @@ straight section produces no longitudinal slip.
 > often-quoted `L/(β₀²γ₀²)` is correct for the *energy* variable `ptau`. They
 > agree only as `β₀ → 1`. Using the wrong one is a silent low-energy bug.
 
+## The drift's exact map (L1 — implemented 2026-08-17)
+
+**The drift now has two maps, and the difference between them is physics.**
+`matrix()` is the linear map above, which every optics function is built on;
+`track()` is the exact map, which is what the linear one was always the origin-slope
+*of*. The exact form is the one already written above and in the sympy derivation
+that pins `matrix()` — this milestone made the code use it.
+
+`zeta` is evaluated in a **rationalised** form rather than as `1 − E/(E₀·pz)`:
+
+```
+pz    = √((1+δ)² − px² − py²)
+x    → x + L·px/pz
+y    → y + L·py/pz
+zeta → zeta + L·(δ(2+δ)/γ₀² − px² − py²) / (pz·(pz + E/E₀))
+```
+
+The two are algebraically identical (multiply through by `pz + E/E₀`, using
+`(E/E₀)² = 1 + β₀²δ(2+δ)`), but `1 − E/(E₀·pz)` subtracts two numbers of size 1 to
+get a small answer. That is invisible in the value and **not** in its derivative: the
+finite-difference Jacobian `linearised_element_maps()` takes carried `~2e-9` per
+drift, showing up as `3.6e-8` on a 16-drift ring where the design-optics gates ask
+for `1e-10`. Rationalised it is `2.7e-13`. The form is also the clearer physics — a
+momentum term that speeds the particle up against an angle term that lengthens its
+path, with the `1/γ₀²` showing directly why the effect dies ultrarelativistically.
+
+Verified against `xt.Drift(model="exact")` to **4.4e-16** on every coordinate.
+
+### The two candidate "exact" drifts, and which one this is
+
+xtrack carries both, and its **default is not the exact one**
+(`beam_elements/elements_src/drift.h`: `model = adaptive → expanded`):
+
+| model | transverse | matches |
+|---|---|---|
+| `expanded` (xtrack default) | `x += L·px/(1+δ)` | MAD-X, paraxial in the angles |
+| `exact` (`model="exact"`) | `x += L·px/pz` | the Hamiltonian flow |
+
+accsim implements the **exact** one. The choice was not free: `test_drift.py`'s
+existing symbolic derivation already committed to `1/pz` as the physical truth, and
+`1/pz` is what makes the map the flow of a Hamiltonian. The two differ by
+`(px²+py²)/2` relatively — measured `1.5e-6` at `px = 1e-2` and `1.7e-4` at
+`px = 5e-2`, against `4.4e-16` for the right choice, so the analytic gate at large
+angles discriminates them and cannot be satisfied by the wrong one.
+
+> **Reference cross-checks must say `model="exact"` explicitly.** Comparing accsim's
+> exact drift against a default `xt.Drift()` produces an `O(angle³)` discrepancy that
+> looks like a sign or convention bug and is not one.
+
+### The dropped term has a conjugate partner — you cannot take one without the other
+
+Expanding `L·px/pz` gives `L·px − L·px·δ + …`. The linear matrix keeps the first and
+drops the second, which is **bilinear** (a product of two small quantities) and so
+cannot live in any 6×6 at all — a structural loss, not a truncation to tighten.
+
+**It does not come alone.** Per element, at a closed-orbit angle,
+
+```
+M[x, δ] = M[zeta, px] = −L·px          M[y, δ] = M[zeta, py] = −L·py
+```
+
+— equal magnitude, and they are canonical partners: the transverse position's
+dependence on momentum and the path length's dependence on angle. A map carrying one
+without the other is **not symplectic**, and wrong at *first* order in the amplitude
+where the correct map is exactly right. That is why the transverse and longitudinal
+halves had to land in the same change, and it is a fact K2's write-up did not have
+(its "two dropped terms" were the `1/pz` and the bend's extra arc — both about
+transverse motion; this is a third thing).
+
+Measured on a steered FODO ring: the `δ` column and `ζ` row account for `5.4e-3` of
+the one-turn map, everything else for `3.3e-6` — second order in the orbit angle,
+falling by exactly `4.000` per halving.
+
+### Symplecticity: `(zeta, δ)` rejects this correct map — use the canonical check
+
+See *Symplecticity* below and `accsim/symplectic.py`'s module docstring. In short:
+`(zeta, δ)` is not a canonically conjugate pair, the linear drift passes anyway
+because three independent shears always do, and the exact drift **fails** —
+residual in the two `(p, δ)` entries, second order in amplitude
+(`7.7e-8` at `1e-3`, `7.7e-6` at `1e-2`). The same map in `(zeta, p_zeta)` gives
+**exactly zero**. So `is_symplectic_map` cannot judge an exact map;
+`is_symplectic_map_canonical` is the gate, and it catches the tempting half-fix
+(transverse exact, `zeta` left linear) at *first* order — `2.0e-4` against `0`.
+
+### What this bought: vertical dispersion from an orbit *angle*
+
+The gap K2 measured and could not represent. On a ring of **drifts and thin
+quadrupoles with a vertical steerer and no bend at all** — so `D_x ≡ 0` and the
+drift's term is the whole effect:
+
+```
+design optics   D_y = 0 exactly     (built on matrix(); correctly blind)
+on-orbit optics D_y = 0.2590571     (closed_twiss_on_orbit)
+xtrack exact    dy  = 0.2590571     (seven figures)
+```
+
+The first-order closed form `−L·p_co` per drift gives `0.2591583`; the residual is
+`3.9e-4` relative and **second order in the orbit angle** (ratios `4.000` over four
+halvings), being the `(1+δ)/pz³` the closed form drops.
+
+K2's own test arc has *no drifts*, so this milestone moves none of its numbers.
+
+### On the design orbit nothing changes — which bounds the whole milestone
+
+At `px = py = 0` the exact map's Jacobian **is** the linear matrix, entry for entry
+(`∂(L·px/pz)/∂δ = 0` when `px = 0`, and likewise the conjugate). So everything
+computed from `matrix()` is **bit-for-bit** unchanged and every design-optics
+cross-check is untouched. `linearised_element_maps()` moves only by its
+finite-difference floor, `2.7e-13`.
+
+### What it cost — five consequences worth knowing
+
+1. **Element-by-element tracking is no longer one `transfer_map` product**, even for
+   a lattice of "linear" elements. They agree only on the design orbit.
+2. **The exact drift is a first-order chromatic element.** Its effective length is
+   `L/pz ≈ L(1−δ)`, so tracked chromaticity is no longer zero on a sextupole-free
+   machine: `−0.1289` against an analytic natural chromaticity of `−0.2893`, i.e.
+   **45%** of it. I3's "tracking is blind to natural chromaticity" is now only
+   *partly* true — tracking sees the drifts' share and not the quadrupoles', because
+   accsim's quadrupole map is still momentum-independent. The exact quadrupole closes
+   it; until then `chromaticity_on_orbit` must still be built as a difference, and
+   every tracked-vs-derived feed-down gate needs a sextupole-free **baseline
+   subtracted**. It also produces real chromatic beta-beat (`1.8e-4`) where the
+   package could previously produce none.
+3. **A drift is weakly amplitude-dependent in its focusing**
+   (`∂(L·px/pz)/∂px = L(1+3px²/2)` at `py=0`), so a drift-and-quad ring has genuine
+   amplitude detuning with no nonlinear magnet in it — `3.8e-8`, four orders below
+   J2's octupole detuning, and *quadratic in amplitude* like it, so the two separate
+   only by size.
+4. **Newton's basin of attraction shrank.** A particle with `px²+py² ≥ (1+δ)²` has no
+   forward momentum, the map returns `NaN`, and `closed_orbit_nonlinear` reports
+   `OrbitConvergenceError` naming the iterate rather than letting the `NaN` surface as
+   `LinAlgError: SVD did not converge` out of `numpy.linalg.cond`. The old "outer
+   fixed points" a far guess converged onto were artefacts of a linear map that
+   propagates any state at all; they were never physical.
+5. **`linearised_lattice()` cannot represent the new pair and returns anyway.** No
+   accsim element carries a transverse `δ` column without also bending, so the entries
+   are simply absent — the two "equivalent machine" routes differ by `5.4e-3`. That is
+   an omission, not a wrong number: the dropped terms carry **no gradient**, so no
+   chromaticity integral reads them, and refusing would break the I2/I3/J2/J3
+   feed-down machinery over a term it never looks at (unlike K2's rolled-multipole
+   branch, which would emit a wrong *split* and so does refuse). The real hazard is
+   asking it for dispersion, which silently returns the old orbit-blind `D_y = 0`.
+
+### Known inconsistency, deliberately left
+
+A zero-strength thick `Sextupole`/`Octupole`/`Quadrupole` is documented as "identical
+to a `Drift` of length `L`". That is still true of its **matrix** and no longer of its
+`track`: those elements keep the affine default while `Drift` is exact. Physically a
+zero-strength magnet *is* a drift, so this is a real inconsistency and the price of
+doing one element at a time. The rest of the L axis removes it.
+
+Gates: `tests/analytic/test_drift.py` (13), `tests/analytic/test_exact_drift_dispersion.py`
+(5), `tests/analytic/test_symplectic_canonical.py` (14),
+`tests/reference/test_drift_xtrack.py`. 29 pre-existing analytic tests across 9 files
+were re-baselined; each is a claim restated with its measured order, not a loosened
+tolerance.
+
 ## Quadrupole strength sign (Stage 1 — implemented)
 
 `k1 = (1/Bρ)(∂B_y/∂x)` [m⁻²], the MAD-X / Xsuite normalised gradient. The
@@ -2229,6 +2387,23 @@ nonlinear maps for `Drift`/`Quadrupole`/`Dipole`, which would re-baseline every 
 the suite: a future milestone, specified by
 `test_the_model_gap_is_fully_accounted_for_and_not_a_mystery`.
 
+> **Update (L1, 2026-08-17) — the drift's half is done, and there was a third dropped
+> term.** `Drift.track()` is now the exact map, so a ring whose drifts sit at a vertical
+> orbit angle reports `D_y` (see *The drift's exact map*). Two additions to the account
+> above:
+>
+> - **The two terms named here are not the whole list.** `Δd_y = p_y·L·(h⟨D_x⟩ − 1)` is
+>   entirely about transverse motion's `δ`-dependence. The `−1` has a **canonical
+>   partner** in the `ζ` row, `M[zeta, py] = −L·p_y`, of the same size; a map carrying
+>   one without the other is not symplectic, and wrong at first order. That is a third
+>   thing, not a restatement of either.
+> - **K2's own test arc has no drifts** (thin quadrupoles and thick dipoles), so L1
+>   moves none of its numbers. The `+h⟨D_x⟩` half still needs the exact `Dipole`, and
+>   `test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` remains unwritten —
+>   it belongs to the end of the L axis, not to its first step. The clean gate L1 could
+>   build instead is a **bend-free** ring, where `h = 0` removes that half by
+>   construction.
+
 Gates: `tests/analytic/test_roll.py` (30),
 `tests/reference/test_roll_xtrack.py` (10, two `xt.Line` builds — every map-level probe
 lives in one line and is tracked through by index).
@@ -3550,8 +3725,41 @@ symplecticity must be flagged — it silently damps or blows up long-term tracki
 
 Caveat: `(zeta, delta)` is canonically conjugate only in the constant-velocity
 approximation used by the linear maps; the strictly-canonical longitudinal pair
-is `(zeta, ptau)`. For the linear drift this does not break the `Mᵀ J M = J`
+is `(zeta, p_zeta)`. For the linear drift this does not break the `Mᵀ J M = J`
 check, but it is flagged for the longitudinal stages (Stage 3+).
+
+**That caveat acquired teeth in L1 (2026-08-17), and the consequence is a trap.** The
+moment a map is *exact* in `delta`, `(zeta, delta)` starts rejecting maps that are
+genuinely symplectic:
+
+- every **linear** element passes, because `matrix()` is three independent shear blocks
+  and a shear is symplectic in whatever pair it acts on;
+- the **exact drift** — the flow of a Hamiltonian, so symplectic by construction —
+  **fails**, with the residual confined to the two `(px, delta)` / `(py, delta)` entries
+  and second order in amplitude (`8.0e-14` at `1e-6`, `7.7e-8` at `1e-3`, `7.7e-6` at
+  `1e-2`, a clean square). The same map in `(zeta, p_zeta)` gives **exactly zero**.
+
+So in `(zeta, delta)` the more faithful map fails the check the cruder one passes, and
+`is_symplectic_map` **cannot be used to judge an exact map**. Use
+`is_symplectic_map_canonical(map_fn, state, ref)`, which conjugates by the coordinate
+change first. Its real job is catching the tempting half-fix — transverse motion exact,
+`zeta` left linear — which is wrong at **first** order in the amplitude (`2.0e-4` where
+the correct map is `0`) and which the `(zeta, delta)` check misses because it rejects
+both. The danger is "repairing" an exact map until the old check goes green: that lands
+on the half-fix.
+
+The coordinate change is `p_zeta = (E − E₀)/(β₀²E₀)` (xtrack's `pzeta`, its
+`ptau/β₀`), with `pzeta_from_delta` / `delta_from_pzeta`. Two things the gates caught
+rather than assumed:
+
+- `delta_from_pzeta` must carry `dE = β₀²E₀·p_zeta` **directly** and never form `E`
+  itself; writing `E = E₀(1 + β₀²p_zeta)` and subtracting `E₀` again rounds the small
+  part away, losing `delta` to a relative `1e-4` by `p_zeta ~ 1e-12`.
+- `p_zeta = delta` to **first** order at *every* energy, not only ultrarelativistically
+  (`dE/E = β²·dp/p` makes the leading coefficient exactly 1). The real relation is
+  `p_zeta = delta + delta²/(2γ₀²)` — second order *and* suppressed by `1/γ₀²`, which is
+  why the distinction hides so well. A first draft of the test asserted the two differ
+  at `γ₀ = 5` and was simply wrong.
 
 ## MAD-X reference frame (D3 — implemented)
 

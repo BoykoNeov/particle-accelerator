@@ -207,18 +207,52 @@ def test_displaced_element_map_is_exactly_affine_for_a_linear_element(
     kick — the reason the linear ``closed_orbit`` sees misalignments at all without a
     single new line in the solve. Round-off floor again (the conjugation subtracts and
     re-adds ``d``, which is not bit-reversible); the *analytic* remainder is zero.
+
+    A :class:`~accsim.elements.drift.Drift` has left this list, because its ``track`` is
+    now the **exact** map and so is not affine in the first place — nothing to do with
+    misalignment. K1's content for a drift is checked below instead, and in a stronger
+    form than membership here ever gave.
     """
     for elem in (
         ThinQuadrupole(0.5, dx=1.3e-4, dy=-2.7e-4),
         Quadrupole(0.4, 1.7, dx=-8e-5, dy=5e-5),
         ThinSkewQuadrupole(0.3, dx=2e-4, dy=1e-4),
-        Drift(1.0, dx=3e-4, dy=-1e-4),
     ):
         M, k = elem.matrix(ref), elem.kick(ref)
         for state in _AMPLITUDES:
             want = M @ state + k
             got = elem.track(state, ref)
             assert np.allclose(got, want, rtol=1e-14, atol=1e-15 * float(np.abs(want).max()))
+
+
+def test_displacing_a_drift_does_nothing_to_its_exact_map_either(
+    ref: ReferenceParticle,
+) -> None:
+    """K1's translation invariance, restated for the exact map — and now exactly.
+
+    The original claim was that a displaced drift's linear map is unchanged because
+    ``(I - M) d`` vanishes. The exact map makes the same statement for a stronger
+    reason: it moves ``x`` by ``L px / pz``, a function of the **momenta alone**, so a
+    translation cannot reach the map at all — where the linear argument had to compute
+    ``(I - M) d`` and find it zero.
+
+    The *kick* is therefore exactly zero, and asserted at exact zero. The tracked states
+    agree only to a round-off floor, for the same reason the affine route has one: the
+    conjugation evaluates ``d + body(state - d)``, and subtracting then re-adding ``d``
+    is not bit-reversible in ``x`` and ``y``. That floor is arithmetic, not physics, and
+    it scales with ``d`` rather than with the map — which is why the tolerance below is
+    written against ``|d|``.
+    """
+    plain = Drift(1.0)
+    for dx, dy in ((3e-4, -1e-4), (0.0, 5e-3), (-2e-2, 0.0)):
+        shifted = Drift(1.0, dx=dx, dy=dy)
+        assert np.array_equal(shifted.kick(ref), np.zeros(DIM))  # exactly zero, as K1
+        assert np.array_equal(shifted.matrix(ref), plain.matrix(ref))  # and the matrix
+        floor = 1e-15 * max(abs(dx), abs(dy))
+        for state in _AMPLITUDES:
+            np.testing.assert_allclose(
+                shifted.track(state, ref), plain.track(state, ref), rtol=1e-14, atol=floor
+            )
 
 
 def test_thick_quadrupole_displacement_kick_limits_to_the_thin_one(

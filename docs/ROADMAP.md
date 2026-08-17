@@ -439,7 +439,7 @@ Directions the project could grow next, each written as a *candidate milestone*:
 defined, as always, by its **analytic gate** (a direction without a closed-form
 check is not worth building here — see the working agreement).
 
-**As of 2026-08-10 the delivered candidates are** A1–A3, B1, C1, C2, D1–D5, E1, E2,
+**As of 2026-08-17 the delivered candidates are** A1–A3, B1, C1, C2, D1–D5, E1, E2,
 **F1**, **F2**, **G1 in full** (betatron-coupling optics — skew quad, coupled
 normal-mode tunes, closest-tune-approach `ΔQ_min` — *and* its ε_y vertical-emittance
 half, the eigen-mode sharing, whose pre-committed coefficient was corrected by xtrack),
@@ -452,17 +452,24 @@ I1 named, which J1 was sequenced ahead of so that its gate would not be circular
 octupole and amplitude-dependent detuning — the first tune that belongs to the
 particle rather than to the machine) and **J3** (octupole feed-down on a distorted
 orbit, which needed a new `ThinSkewSextupole` element to be written without dropping
-a term).
+a term), **K1** and **K2** (misalignments — transverse offsets and the rolled bend) and
+**L1** (the drift's exact nonlinear map: the first element whose `track` is no longer its
+`matrix`).
 Each is marked inline with what it delivered and what it deliberately did not.
 J3 (octupole feed-down on a distorted orbit, the deferral J2 named) closed the last
 follow-up on axes A–J the same day it was opened, leaving nothing outstanding there.
 Axis K (misalignments: elements gain a position and an orientation of their own) was
 opened 2026-08-17 as a *new* axis rather than an extension, since offsets belong to
-the closed-orbit axis and rolls to the coupling axis; **K1 and K2 both shipped the
-same day, so there is again nothing outstanding.** K2 left one candidate behind that
-is worth a milestone of its own: **exact (nonlinear) maps for `Drift`, `Quadrupole`
-and `Dipole`**, without which accsim cannot see the vertical dispersion a vertical
-orbit *angle* makes — measured, and quantitatively accounted for, in K2's entry below.
+the closed-orbit axis and rolls to the coupling axis; K1 and K2 both shipped the
+same day. The candidate K2 left behind — **exact (nonlinear) maps for `Drift`,
+`Quadrupole` and `Dipole`** — became **axis L**, opened 2026-08-17 as a new axis rather
+than an extension, since the gap predates axis K entirely and is about core map fidelity
+rather than about where a magnet sits. **L1 (the drift) shipped 2026-08-17**, closing the
+vertical-dispersion-from-an-orbit-angle gap for the drift's share and re-baselining 29
+analytic tests in the process; **L2 (the quadrupole) and L3 (the dipole) are
+outstanding**, and are what accsim needs before tracking sees the quadrupoles' share of
+natural chromaticity or before K2's
+`test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` can be written at all.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -1896,6 +1903,83 @@ makes sense together.
     rule is J3's, above), chromatic coupling (still the named blind spot at
     CONVENTIONS.md → *The skew sextupole*), and misalignment **correction** —
     K measures what misalignment does; steering it out is I1's existing job.
+
+### L. Exact (nonlinear) element maps — the map a particle really follows (core)
+
+Opened 2026-08-17 as a **new axis**, not an extension of K: the gap it closes
+*predates* axis K entirely (K2 is only where it became consequential), and it is about
+core map fidelity rather than about where a magnet sits. Every element's `matrix()` is
+the Jacobian of some exact map at the origin; this axis makes the exact maps real, one
+element at a time, and `track()` use them. `matrix()` is untouched throughout, so
+design optics stays bit-for-bit and only the *tracked* — and hence on-orbit — quantities
+move.
+
+- **L1 — the drift's exact map, and dispersion from an orbit angle.** ✅ **SHIPPED
+  (2026-08-17)** — `x += L·px/pz` in place of `x += L·px`, with its conjugate
+  longitudinal partner. Full write-up at CONVENTIONS.md → *The drift's exact map*.
+  Gates: `tests/analytic/test_drift.py` (13),
+  `tests/analytic/test_exact_drift_dispersion.py` (5),
+  `tests/analytic/test_symplectic_canonical.py` (14).
+  - **Two candidate maps, and xtrack's default is the wrong one.** `xt.Drift()` is the
+    *expanded* `px/(1+δ)`; the exact `px/pz` needs `model="exact"`. accsim implements
+    the exact one — `test_drift.py`'s existing symbolic derivation had already committed
+    to it — and matches xtrack to `4.4e-16`. The two differ by `1.5e-6` to `1.7e-4` at
+    large angles, so the analytic gate discriminates them; every reference cross-check
+    must set the model explicitly or chase a phantom `O(angle³)` bug.
+  - **The dropped term has a canonical partner, discovered by measurement.** Per drift,
+    `M[x,δ] = M[zeta,px] = −L·px`, equal in size. A map with one and not the other is
+    **not symplectic** and wrong at *first* order — which is why the transverse and
+    longitudinal halves cannot be split across two milestones. K2's write-up did not
+    have this; its "two dropped terms" were both about transverse motion.
+  - **`(zeta, δ)` is not canonical, so accsim's own symplecticity check rejects the
+    correct map** (residual second order in amplitude) while passing the cruder linear
+    one (three independent shears always pass). Needed a prior commit adding
+    `is_symplectic_map_canonical`, which is exactly zero for the right map and catches
+    the transverse-only half-fix at first order. **The more faithful map failing the
+    existing gate is the trap of this milestone**, and asserting the rejection matters
+    as much as asserting the acceptance.
+  - **The clean gate is a bend-free ring**, which K2's write-up did not anticipate.
+    Setting `h = 0` kills the `+h⟨D_x⟩` half of K2's formula *and* makes `D_x ≡ 0`, so
+    the drift's term is the whole effect: `D_y` goes from exactly `0` to `0.2590571`,
+    which is xtrack's own answer to seven figures, on a ring with no bend and no
+    coupling element. K2's own arc has **no drifts**, so L1 moves none of its numbers.
+  - **The blast radius was 29 analytic tests across 9 files** — the re-baseline the
+    axis-K entry predicted. Every one is a claim restated with its measured *order*
+    (ratios of 4, 8, 16, and derived coefficients like `1.5·L·py²`), not a loosened
+    tolerance. Three were discriminating gates whose teeth were re-verified after
+    restating.
+  - **Five costs, recorded rather than worked around:** element-by-element tracking is
+    no longer one `transfer_map` product; the drift is a **first-order chromatic
+    element** (tracked chromaticity is now 45% of the analytic natural chromaticity, so
+    I3's "tracking is blind to chromaticity" is only partly true and every
+    tracked-vs-derived gate needs a baseline subtracted); a drift has real amplitude
+    detuning; Newton's basin shrank, because the exact map returns `NaN` for a particle
+    with no forward momentum instead of inventing a trajectory; and `linearised_lattice`
+    cannot represent the new pair, so it omits it — legitimate, since the terms carry no
+    gradient, but it means dispersion from that route is silently the old zero.
+  - A **numerical** point worth carrying forward: evaluating the longitudinal term as
+    `1 − E/(E₀·pz)` cancels two numbers of size 1 and would have broken the
+    design-optics gates at `3.6e-8`. The rationalised form is `2.7e-13`. Expect the same
+    trap in the quadrupole and dipole.
+
+- **L2 — the quadrupole's exact map.** The natural next step, and the one that closes
+  what L1 half-opened: accsim's quadrupole is *chromatically ideal* (`track()` is its
+  `matrix()` at every `δ`), so tracking sees the drifts' share of natural chromaticity
+  and not the quadrupoles'. Until it lands, `chromaticity_on_orbit` cannot be
+  implemented by tracking and the tracked-vs-derived gates keep their baseline
+  subtraction. Also removes L1's known inconsistency, that a zero-strength thick magnet
+  is documented as "identical to a `Drift`" and no longer tracks like one. The gate is
+  the same shape as L1's: an analytic map check at large angles that discriminates the
+  exact form from the expanded one, canonical symplecticity, and the design-orbit
+  invariance that bounds the change. Effort **M**.
+- **L3 — the dipole's exact map, and the close of K2's account.** The `+h⟨D_x⟩` half of
+  `Δd_y = p_y·L·(h⟨D_x⟩ − 1)` — the extra arc a dispersed particle travels on the
+  outside of a bend. Only with this does
+  `test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` become writable, on
+  K2's own rolled and steered rings, which is where that specification always belonged.
+  Expect a curvature term with no drift or quadrupole analogue, and the F2 lesson
+  applies: a combined-function bend needed a Maxwell curvature-sextupole term that was
+  a *bug* rather than a model choice. Effort **M–L**.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

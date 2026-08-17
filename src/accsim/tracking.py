@@ -159,14 +159,20 @@ class Tracker:
         maps act exactly: the RF cavity's ``sin`` kick and the sextupole's
         ``x^2 - y^2`` kick.
 
-        **A lattice containing a sextupole is not a purely linear lattice.** The
-        two paths agree to round-off only when every element's map *is* its
-        matrix; with a sextupole (or an RF cavity) present, ``nonlinear=False``
-        silently drops the nonlinear part — for a sextupole that means tracking
-        its drift map and nothing else. That default is deliberate (every optics
-        quantity in the package is built on the linear map, and the sextupole's
-        linear map really is a drift), but it is a choice the caller has to make
-        knowingly.
+        **The two paths agree to round-off only when every element's map *is* its
+        matrix, and no lattice off the design orbit qualifies.** With a sextupole
+        (or an RF cavity) present, ``nonlinear=False`` silently drops the nonlinear
+        part — for a sextupole that means tracking its drift map and nothing else.
+
+        A plain :class:`~accsim.elements.drift.Drift` is now in the same position, and
+        much less obviously: its exact map is ``x += L px / pz``, so the two paths part
+        company for *any* particle with a transverse angle, by ``O(px^2)``. On a
+        sextupole ring that is 1% of the sextupole's own difference — small, but not
+        round-off, and not zero. They still agree exactly for a particle with
+        ``px = py = 0``.
+
+        That default is deliberate (every optics quantity in the package is built on the
+        linear map), but it is a choice the caller has to make knowingly.
         """
         if not nonlinear:
             M, k = self.lattice.transfer_map()
@@ -262,11 +268,13 @@ class Tracker:
         Returns an ``(n_turns + 1, 6)`` array of states including the initial one
         — the trajectory used by the long-term symplecticity smoke test.
 
-        ``nonlinear=False`` (default) applies the one-turn matrix each turn (fast,
-        exact for linear lattices). ``nonlinear=True`` pushes element-by-element so
-        the RF cavity's ``sin`` kick and the sextupole's ``x^2 - y^2`` kick act
-        exactly — the path for RF-bucket / separatrix long-term tracking, and the
-        only path on which a sextupole does anything at all (see :meth:`track`).
+        ``nonlinear=False`` (default) applies the one-turn matrix each turn — fast, and
+        exact only for a particle on the design orbit, since a
+        :class:`~accsim.elements.drift.Drift`'s real map carries a ``1/pz`` no matrix can
+        (see :meth:`track`). ``nonlinear=True`` pushes element-by-element so the RF
+        cavity's ``sin`` kick and the sextupole's ``x^2 - y^2`` kick act exactly — the
+        path for RF-bucket / separatrix long-term tracking, and the only path on which a
+        sextupole does anything at all.
         """
         if n_turns < 0:
             raise ValueError(f"n_turns must be >= 0, got {n_turns}")

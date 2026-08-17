@@ -265,13 +265,39 @@ def test_detuning_is_quadratic_in_beta(ref: ReferenceParticle) -> None:
 
 
 def test_zero_strength_detunes_by_exactly_nothing(ref: ReferenceParticle) -> None:
-    """No octupole, no first-order detuning — and the tracked tunes agree."""
+    r"""No octupole, no first-order detuning — but the *tracked* tunes now do move.
+
+    The derived coefficient is exactly zero with no octupole, and stays so: it is built
+    from ``k3l`` and nothing else.
+
+    The tracked tunes are a different matter, and the exact
+    :class:`~accsim.elements.drift.Drift` is why. Its focusing depends on amplitude —
+    ``d(L px / pz)/d(px) = L (1 + 3 px^2 / 2)`` at ``py = 0`` — so **a ring of drifts and
+    quadrupoles has genuine amplitude-dependent detuning with no nonlinear magnet in
+    it at all.** A larger-amplitude particle spends its transit at a larger angle, is
+    focused slightly more strongly, and comes back with a different tune. That is real
+    physics the linear map could not represent, not a numerical artefact.
+
+    It is quadratic in the amplitude, like the octupole's own detuning, so the two
+    cannot be separated by an order — only by strength. Here it is ``3.8e-8`` between
+    ``1e-4`` and ``8e-4``, some four orders below the octupole detuning the rest of this
+    file measures, which is why those gates are unaffected. The assertion is on the
+    order rather than a tolerance: an amplitude-independent tune would give a ratio of
+    1 and a wrongly-scaled drift term some other power.
+    """
     assert np.array_equal(amplitude_detuning(_octupole_ring(ref, 0.0)), np.zeros((2, 2)))
+
     lat = _ring(ref)
-    small = tracked_tunes(lat, N_TURNS, x0=1e-4, y0=1e-4, nonlinear=True)
-    large = tracked_tunes(lat, N_TURNS, x0=8e-4, y0=8e-4, nonlinear=True)
-    assert small[0] == pytest.approx(large[0], abs=1e-12)
-    assert small[1] == pytest.approx(large[1], abs=1e-12)
+
+    def spread(amp: float) -> float:
+        small = tracked_tunes(lat, N_TURNS, x0=0.125 * amp, y0=0.125 * amp, nonlinear=True)
+        large = tracked_tunes(lat, N_TURNS, x0=amp, y0=amp, nonlinear=True)
+        return max(abs(small[0] - large[0]), abs(small[1] - large[1]))
+
+    assert spread(8e-4) > 1e-9  # the drift's own detuning is there and measurable
+    assert spread(8e-4) / spread(4e-4) == pytest.approx(4.0, rel=0.1)  # quadratic
+    # ...and four orders below the octupole detuning this file exists to measure.
+    assert spread(8e-4) < 1e-6
 
 
 # --------------------------------------------------------------------------

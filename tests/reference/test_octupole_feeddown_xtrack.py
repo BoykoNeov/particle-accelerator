@@ -58,10 +58,9 @@ from accsim import (
     chromaticity_on_orbit,
     closed_orbit,
     closed_orbit_nonlinear,
-    linearised_one_turn_map,
     propagate_orbit_nonlinear,
 )
-from accsim.orbit import linearised_lattice
+from accsim.orbit import linearised_element_maps, linearised_lattice
 
 pytestmark = pytest.mark.reference
 
@@ -114,11 +113,15 @@ def _xtrack_twiss(k3l: float, kick_x: float = 0.0, kick_y: float = 0.0, steps: d
     key = ("straight", k3l, kick_x, kick_y, None if steps is None else tuple(sorted(steps.items())))
     if key in _LINES:
         return _LINES[key]
+    # model="exact" is load-bearing: xt.Drift() defaults to the *expanded* model
+    # (x += L px/(1+delta)), where accsim's Drift tracks the exact x += L px/pz (L1).
+    # On a steered ring the two disagree at O(angle^3), which reads as a feed-down
+    # coefficient error and is nothing of the kind. See test_drift_xtrack.py.
     cell = [
         xt.Quadrupole(length=LQ, k1=K1),
-        xt.Drift(length=LD),
+        xt.Drift(length=LD, model="exact"),
         xt.Quadrupole(length=LQ, k1=-K1),
-        xt.Drift(length=LD),
+        xt.Drift(length=LD, model="exact"),
     ]
     line = xt.Line(
         elements=[
@@ -230,9 +233,15 @@ def test_the_linear_closed_orbit_is_decisively_wrong() -> None:
     assert linear_err > 1e-9
     assert linear_err > 1e3 * nonlinear_err
 
+    # The k3l = 0 control. The *nonlinear* solve is what matches xtrack now: both codes
+    # run exact drifts (L1), and an exact drift is a nonlinear map, so accsim's linear
+    # solve is no longer exact even with no octupole. It misses by 2.7e-11 — third order
+    # in the orbit angle, and two orders below the 1e-9 the octupole's own feed-down
+    # produces above, so the contrast this test draws is untouched.
     flat = _accsim_lattice(0.0, kick_x=KICK, kick_y=0.6 * KICK)
     tw0 = _xtrack_twiss(0.0, kick_x=KICK, kick_y=0.6 * KICK)
-    assert abs(closed_orbit(flat)[0] - tw0.x[0]) < ORBIT_ATOL
+    assert abs(closed_orbit_nonlinear(flat)[0] - tw0.x[0]) < ORBIT_ATOL
+    assert abs(closed_orbit(flat)[0] - tw0.x[0]) < 1e-9
 
 
 # --------------------------------------------------------------------------
@@ -270,26 +279,34 @@ def test_the_derived_equivalent_lattice_matches_xtracks_r_matrix() -> None:
     assert np.abs(got).max() > 1.0  # non-vacuous: a real map
     assert np.abs(got[:2, 2:]).max() > 1e-6  # the skew blocks are populated
 
-    gaps = []
-    for dx in (9e-7, 3e-7, 1e-7):
-        tw = _xtrack_twiss(
-            K3L,
-            kick_x=KICK,
-            kick_y=0.6 * KICK,
-            steps={"dx": dx, "dpx": dx / 10, "dy": dx, "dpy": dx / 10},
-        )
-        gaps.append(float(np.abs(got - np.array(tw.R_matrix)[:4, :4]).max()))
-    assert gaps[-1] < MATRIX_ATOL
-    for a, b in zip(gaps[:-1], gaps[1:], strict=True):
-        assert a / b == pytest.approx(9.0, rel=0.1)  # step^2: the floor is xtrack's
-
-    # The control: with no octupole there is nothing to feed down and the same
-    # comparison is nine orders tighter, so the residual above is the octupole's
-    # third derivative and not the ring description.
+    # Both sides are measured as a *difference* from the octupole-free ring. With L1's
+    # exact drift map, xtrack's R-matrix carries the drift's own O(orbit angle^2)
+    # contribution to the transverse block and `linearised_lattice` — built from accsim
+    # elements, none of which can represent it — does not. That omission is 7.9e-8 here
+    # and is present at k3l = 0 too, so it is not the octupole and differencing it away
+    # is what leaves the octupole's split under test. It is also *larger* than
+    # MATRIX_ATOL, so leaving it in would have compared two different maps.
     flat = _accsim_lattice(0.0, kick_x=KICK, kick_y=0.6 * KICK)
     flat_derived, _ = linearised_lattice(flat).one_turn_map()
-    tw0 = _xtrack_twiss(0.0, kick_x=KICK, kick_y=0.6 * KICK)
-    assert np.abs(flat_derived[:4, :4] - np.array(tw0.R_matrix)[:4, :4]).max() < 1e-11
+    base_acc = flat_derived[:4, :4]
+
+    gaps = []
+    for dx in (9e-7, 3e-7, 1e-7):
+        steps = {"dx": dx, "dpx": dx / 10, "dy": dx, "dpy": dx / 10}
+        tw = _xtrack_twiss(K3L, kick_x=KICK, kick_y=0.6 * KICK, steps=steps)
+        tw0 = _xtrack_twiss(0.0, kick_x=KICK, kick_y=0.6 * KICK, steps=steps)
+        octupole_acc = got - base_acc
+        octupole_xt = np.array(tw.R_matrix)[:4, :4] - np.array(tw0.R_matrix)[:4, :4]
+        gaps.append(float(np.abs(octupole_acc - octupole_xt).max()))
+    assert gaps[-1] < 2e-8
+    # ...against an octupole signal of 0.30, i.e. a relative 4e-8.
+    assert np.abs(got - base_acc).max() > 0.1
+
+    # The size of what the derived route omits, asserted rather than differenced away
+    # silently: it is the drift's exact-map content, and it is there with no octupole.
+    tw_flat = _xtrack_twiss(0.0, kick_x=KICK, kick_y=0.6 * KICK)
+    drift_omission = float(np.abs(base_acc - np.array(tw_flat.R_matrix)[:4, :4]).max())
+    assert drift_omission == pytest.approx(7.9e-8, rel=0.1)
 
     # The design-orbit map has *no* feed-down in it at all (an octupole's matrix() is
     # a drift), and misses xtrack by orders of magnitude more.
@@ -298,10 +315,15 @@ def test_the_derived_equivalent_lattice_matches_xtracks_r_matrix() -> None:
     assert np.abs(design[:4, :4] - reference).max() > 1e3 * MATRIX_ATOL
 
     # And the derived route agrees with accsim's own differencing route, which is the
-    # analytic suite's gate — restated here so the two comparisons are on one page.
-    assert np.allclose(
-        derived, linearised_one_turn_map(lat, closed_orbit_nonlinear(lat)), rtol=0, atol=1e-8
-    )
+    # analytic suite's gate — restated here so the two comparisons are on one page. The
+    # drifts contribute their matrices, for the reason given above: `linearised_lattice`
+    # cannot represent the exact drift map's content, so the differenced route has to be
+    # asked for the same thing before the two can be compared at all.
+    co_lat = closed_orbit_nonlinear(lat)
+    product = np.eye(6)
+    for elem, m in zip(lat.elements, linearised_element_maps(lat, co_lat), strict=True):
+        product = (elem.matrix(lat.ref) if isinstance(elem, Drift) else m) @ product
+    assert np.allclose(derived, product, rtol=0, atol=1e-8)
 
 
 # --------------------------------------------------------------------------
