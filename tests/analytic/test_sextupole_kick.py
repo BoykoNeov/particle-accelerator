@@ -240,22 +240,22 @@ def test_tracked_feeddown_chromaticity_matches_analytic(ref: ReferenceParticle) 
     kick coefficient. The two agreeing pins the coefficient, and the opposite signs
     in the two planes pin the ``x^2 - y^2`` structure.
 
-    **The tracked route now needs a baseline subtracted, and what it removes is worth
-    naming.** The exact :class:`~accsim.elements.drift.Drift` map moves ``x`` by
-    ``L px / pz``, and ``pz ~ 1 + delta``, so an off-momentum particle sees a drift whose
-    effective length is ``L (1 - delta)``. That is a **first-order** chromatic effect
-    with no sextupole involved at all, worth ``+0.160`` on this ring — 55% of its natural
-    chromaticity, and identical at three values of ``delta``, so it is genuinely
-    ``dQ/ddelta`` and not a higher-order artefact.
+    **The tracked route needs a baseline subtracted, and what it removes is worth
+    naming.** Two milestones put real chromaticity into the tracked maps of a
+    sextupole-free ring: L1's exact :class:`~accsim.elements.drift.Drift`, whose
+    effective length is ``L/pz ~ L (1 - delta)``, and L2's
+    :class:`~accsim.elements.quadrupole.Quadrupole`, which focuses an off-momentum
+    particle by ``k1/(1 + delta)``. Together they are worth ``-0.167`` on this ring —
+    a **first-order** ``dQ/ddelta`` with no sextupole involved at all, and 58% of its
+    natural chromaticity.
 
-    It is neither feed-down nor the derived ``natural_chromaticity``: accsim's
-    quadrupoles still carry no ``delta`` dependence in their maps, so tracking sees the
-    *drift's* share of the natural chromaticity and not the quadrupole's. That is an
-    intermediate state, and the honest one for a milestone that does the drift alone —
-    see ``docs/CONVENTIONS.md``. Measuring the sextupole-free ring and subtracting
-    isolates the feed-down exactly, which makes this gate *sharper* than it was: it now
-    rejects a wrong kick coefficient without also having to be right about chromaticity
-    the drift contributes.
+    That is not feed-down, and it is not the derived ``natural_chromaticity`` either,
+    because the ring's dipoles still carry no ``delta`` dependence in their maps (L3).
+    Measuring the sextupole-free ring and subtracting isolates the feed-down exactly,
+    which makes this gate *sharper* than it was: it rejects a wrong kick coefficient
+    without also having to be right about the chromaticity the rest of the ring
+    contributes. The size of the baseline has moved twice now and the gate has not,
+    which is the point of writing it as a difference.
     """
     k2l = 2.0
     lat = _dispersive_lattice(ref, lambda: ThinSextupole(k2l))
@@ -270,9 +270,10 @@ def test_tracked_feeddown_chromaticity_matches_analytic(ref: ReferenceParticle) 
     assert tx - bx == pytest.approx(fx, rel=1e-5)
     assert ty - by == pytest.approx(fy, rel=1e-5)
 
-    # The baseline is the drift's own chromaticity, and it is not small — asserted so
-    # that subtracting it reads as removing a known effect, not as fitting the answer.
-    assert bx == pytest.approx(-0.128889, rel=1e-4)
+    # The baseline is the drifts' and quadrupoles' own chromaticity, and it is not small
+    # — asserted so that subtracting it reads as removing a known effect, not as fitting
+    # the answer. It was -0.128889 with the drift's share alone (L1).
+    assert bx == pytest.approx(-0.166568, rel=1e-4)
     assert abs(bx) > 0.02 * abs(fx)
 
 
@@ -622,15 +623,20 @@ def test_linear_tracking_silently_ignores_the_kick(ref: ReferenceParticle) -> No
     assert abs(nonlinear.px - linear.px) > 1e-6
 
     # ...and with k2l = 0 the two paths no longer agree to 1e-15. `nonlinear=False` uses
-    # each element's `matrix`, and a Drift's exact `track` differs from its matrix by
-    # O(px^2) with no multipole anywhere — 8.7e-7 here. So the difference above is not
-    # *only* the kick, and the honest statement is the separation: the drift's share is
-    # 1.0% of the sextupole's, distinguishable but not by orders. The comparison is made
-    # against that ratio rather than against a floor which held only while every
+    # each element's `matrix`, and both the Drift and the thick Quadrupole now have an
+    # exact `track` that differs from it by O(px^2) with no multipole anywhere — 1.13e-6
+    # here, against 8.7e-7 when only the drift had one. So the difference above is not
+    # *only* the kick, and the honest statement is the separation: the multipole-free
+    # share is 1.3% of the sextupole's, distinguishable but not by orders. The comparison
+    # is made against that ratio rather than against a floor which held only while every
     # element's two code paths were the same arithmetic.
+    #
+    # The particle here is on momentum, so this whole residual sits in `zeta`: it is the
+    # extra path an off-axis particle travels, which no 6x6 in these coordinates carries.
     flat = _dispersive_lattice(ref, lambda: ThinSextupole(0.0))
     a = Tracker(flat).track(p, nonlinear=False)
     b = Tracker(flat).track(p, nonlinear=True)
     drift_only = float(np.max(np.abs(a.state - b.state)))
-    assert drift_only == pytest.approx(8.7006e-7, rel=1e-3)
+    assert drift_only == pytest.approx(1.13164e-6, rel=1e-3)
+    assert abs(a.zeta - b.zeta) == pytest.approx(drift_only, rel=1e-12)  # it is all zeta
     assert drift_only < 0.02 * abs(nonlinear.px - linear.px)

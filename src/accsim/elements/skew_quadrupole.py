@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from ..coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from ..reference import ReferenceParticle
+from .alignment import s_rotation
 from .element import Element
-from .quadrupole import _focusing_block
+from .quadrupole import _focusing_block, thick_quadrupole_map
+
+_SKEW_ROLL = math.pi / 4.0
 
 
 class SkewQuadrupole(Element):
@@ -71,6 +76,27 @@ class SkewQuadrupole(Element):
         M[np.ix_([Y, PY], [X, PX])] = B
         M[ZETA, DELTA] = L / ref.gamma0**2
         return M
+
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+        r"""The normal quadrupole's L2 map, conjugated by the 45 degree roll.
+
+        ``R(+45) . Q(k1s) . R(-45)`` — the identity the class docstring and
+        :meth:`_matrix_body` are already built on, now applied to the *exact* map
+        rather than to the matrix. A skew quadrupole **is** a normal quadrupole that
+        has been turned, so it must be exactly as momentum-dependent as one: leaving
+        it linear while ``Quadrupole(..., roll=-pi/4)`` became chromatic would have
+        made the same magnet behave two different ways depending on how it was
+        spelled. (``Element.track`` already builds the rolled quadrupole's map by
+        this same conjugation, so the two agree by construction, and the analytic
+        suite asserts it rather than trusting the arithmetic.)
+
+        :class:`ThinSkewQuadrupole` needs no such treatment, for the reason
+        :class:`~accsim.elements.quadrupole.ThinQuadrupole` does not: a thin kick is
+        already exact in ``delta``.
+        """
+        st = np.asarray(state, dtype=float)
+        into = s_rotation(-_SKEW_ROLL) @ st
+        return s_rotation(+_SKEW_ROLL) @ thick_quadrupole_map(into, self.length, self.k1s, ref)
 
     def __repr__(self) -> str:
         return f"SkewQuadrupole(length={self.length}, k1s={self.k1s}{self._repr_tail()})"

@@ -101,7 +101,7 @@ from accsim import (
     propagate_twiss,
     tunes,
 )
-from accsim.coords import DIM, PX, PY, X, Y
+from accsim.coords import DELTA, DIM, PX, PY, ZETA, X, Y
 
 # The thin FODO of the I1 orbit suite, so the closed forms carry over unchanged.
 VF = 1.0 / 1.5  # full-quad inverse focal length, F family [m^-1]
@@ -212,10 +212,15 @@ def test_displaced_element_map_is_exactly_affine_for_a_linear_element(
     now the **exact** map and so is not affine in the first place — nothing to do with
     misalignment. K1's content for a drift is checked below instead, and in a stronger
     form than membership here ever gave.
+
+    The thick :class:`~accsim.elements.quadrupole.Quadrupole` has left it too, and for
+    a *different* reason worth separating: it is still affine at every amplitude, but
+    only at ``delta = 0``, because its focusing is ``k1/(1 + delta)``. That is the
+    version checked below — and it is the sharper of the two, since it says where the
+    affine description stops holding rather than only that it does.
     """
     for elem in (
         ThinQuadrupole(0.5, dx=1.3e-4, dy=-2.7e-4),
-        Quadrupole(0.4, 1.7, dx=-8e-5, dy=5e-5),
         ThinSkewQuadrupole(0.3, dx=2e-4, dy=1e-4),
     ):
         M, k = elem.matrix(ref), elem.kick(ref)
@@ -223,6 +228,88 @@ def test_displaced_element_map_is_exactly_affine_for_a_linear_element(
             want = M @ state + k
             got = elem.track(state, ref)
             assert np.allclose(got, want, rtol=1e-14, atol=1e-15 * float(np.abs(want).max()))
+
+
+def test_a_displaced_thick_quadrupole_is_affine_on_momentum_and_only_there(
+    ref: ReferenceParticle,
+) -> None:
+    r"""K1's statement for the thick quad, with the momentum it is now conditional on.
+
+    A displaced thick quadrupole used to satisfy ``track == matrix @ state + kick``
+    at every state, and the whole of K1's linear-orbit machinery rests on that. L2
+    keeps it exactly where it was true for a reason — on momentum, where the map *is*
+    the matrix — and breaks it off momentum, where a stiffer particle is focused less
+    and no 6x6 evaluated at the reference momentum can say so.
+
+    Three halves, really, because the affine description fails in two *different*
+    ways and lumping them together would hide the smaller one:
+
+    - **Transverse, on momentum:** affine, exactly as K1 — this is the property the
+      linear ``closed_orbit`` solve rests on, and it is intact.
+    - **Transverse, off momentum:** a real remainder, **first order in** ``delta``
+      (halving the momentum halves it), which is what identifies it as the chromatic
+      term rather than as a slip in the misalignment conjugation.
+    - **``zeta``, at any momentum:** never affine, because a quadrupole lengthens an
+      off-axis particle's path and that is quadratic in the amplitude, with no
+      ``delta`` needed. Asserted as that order, so it reads as the path integral it
+      is rather than as leakage from the chromatic term.
+
+    The conjugation itself is untouched throughout: the displaced map is still exactly
+    ``d + body(state - d)``, checked here at ``delta != 0`` too.
+    """
+    elem = Quadrupole(0.4, 1.7, dx=-8e-5, dy=5e-5)
+    M, k = elem.matrix(ref), elem.kick(ref)
+    transverse = [X, PX, Y, PY]
+
+    # On momentum: affine transversally, to the round-off floor of the conjugation.
+    for state in _AMPLITUDES:
+        on_momentum = state.copy()
+        on_momentum[DELTA] = 0.0
+        want = M @ on_momentum + k
+        got = elem.track(on_momentum, ref)
+        assert np.allclose(
+            got[transverse],
+            want[transverse],
+            rtol=1e-13,
+            atol=1e-15 * float(np.abs(want).max()),
+        )
+
+    # Off momentum: a real transverse remainder, first order in delta.
+    base = np.array([1.0e-3, 2.0e-4, -5.0e-4, 3.0e-4, 1.0e-3, 0.0])
+
+    def remainder(delta: float) -> float:
+        st = base.copy()
+        st[DELTA] = delta
+        D = elem.track(st, ref) - (M @ st + k)
+        return float(np.max(np.abs(D[transverse])))
+
+    assert remainder(1.0e-3) > 1.0e-9  # non-vacuous: the term is really there
+    assert remainder(1.0e-3) / remainder(5.0e-4) == pytest.approx(2.0, rel=0.02)
+
+    # zeta is never affine — the path lengthening, quadratic in the amplitude. The
+    # amplitude that counts is the one *in the magnet's own frame*, so the scan is taken
+    # about the offset rather than about the lattice axis; scaling the lattice
+    # coordinate instead gives 3.75 rather than 4, because the fixed d is an 8%
+    # perturbation on it. That is the conjugation showing through, and it is the reason
+    # the scan is written this way.
+    d = elem.offset()
+
+    def zeta_remainder(amp: float) -> float:
+        st = d + amp * (base - d)
+        st[DELTA] = 0.0
+        return abs(float(elem.track(st, ref)[ZETA] - (M @ st + k)[ZETA]))
+
+    assert zeta_remainder(1.0) > 1.0e-9
+    assert zeta_remainder(2.0) / zeta_remainder(1.0) == pytest.approx(4.0, rel=1e-6)
+
+    # ...and the displacement is still a pure conjugation, off momentum included.
+    body = Quadrupole(0.4, 1.7)
+    for delta in (0.0, 1.0e-3, -2.0e-2):
+        st = base.copy()
+        st[DELTA] = delta
+        np.testing.assert_allclose(
+            elem.track(st, ref), body.track(st - d, ref) + d, rtol=1e-13, atol=1e-19
+        )
 
 
 def test_displacing_a_drift_does_nothing_to_its_exact_map_either(

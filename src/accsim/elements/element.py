@@ -235,18 +235,22 @@ class Element(abc.ABC):
         :class:`~accsim.elements.sextupole.ThinSextupole` /
         :class:`~accsim.elements.sextupole.Sextupole`, whose ``x^2 - y^2`` kick is
         invisible to ``matrix`` (it has no linear part at the origin) and acts only
-        here; and :class:`~accsim.elements.drift.Drift`, whose exact geometric map
-        carries the ``1/pz`` a matrix cannot. This is the seam the long-term tracker
-        plugs into.
+        here; :class:`~accsim.elements.drift.Drift`, whose exact geometric map
+        carries the ``1/pz`` a matrix cannot; and
+        :class:`~accsim.elements.quadrupole.Quadrupole` (with
+        :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole`, the same magnet
+        rolled), whose focusing is ``k1/(1 + delta)`` and so is a different matrix for
+        every momentum. This is the seam the long-term tracker plugs into.
 
         **Element-by-element tracking of a lattice is therefore not the same thing as
         one** :meth:`~accsim.lattice.Lattice.transfer_map` **product, even when every
         element is "linear".** It was, until the drift's exact map landed; the two now
-        agree only for a particle on the design orbit at ``px = py = 0``, where the
-        exact map's Jacobian is the linear matrix entry for entry. Off that orbit the
-        difference is physical — it is the dispersion a transverse angle produces —
-        and any code that swaps one for the other as a fast path is choosing the
-        linear answer, not an equivalent one.
+        agree only for a particle on the design orbit at ``px = py = delta = 0``,
+        where the exact maps' Jacobians are the linear matrices entry for entry. Off
+        that orbit the difference is physical — the dispersion a transverse angle
+        produces, and the chromaticity a momentum spread does — and any code that
+        swaps one for the other as a fast path is choosing the linear answer, not an
+        equivalent one.
 
         **Override this, not** :meth:`track` — the misalignment lives there, and an
         override of ``track`` would either apply the shift and roll twice or drop

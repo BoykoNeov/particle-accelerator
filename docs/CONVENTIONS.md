@@ -222,6 +222,9 @@ to a `Drift` of length `L`". That is still true of its **matrix** and no longer 
 zero-strength magnet *is* a drift, so this is a real inconsistency and the price of
 doing one element at a time. The rest of the L axis removes it.
 
+> **L2 update (2026-08-17): it does not remove it for the quadrupole — it narrows it
+> from first order to third.** See *The quadrupole's momentum-dependent map* below.
+
 Gates: `tests/analytic/test_drift.py` (13), `tests/analytic/test_exact_drift_dispersion.py`
 (5), `tests/analytic/test_symplectic_canonical.py` (14),
 `tests/reference/test_drift_xtrack.py` (5 — including the bend-free steered ring, so the
@@ -233,6 +236,136 @@ coefficients like `1.5·L·py²` — rather than a loosened tolerance. The two t
 bounded rather than order-pinned by their primary assertion (the beta-weighted
 chromaticity sum, and the coupling angle) carry a *second* assertion on the order, for
 the same reason.
+
+## The quadrupole's momentum-dependent map (L2 — implemented 2026-08-17)
+
+**`k1` is normalised to the *reference* rigidity, so a particle of momentum `1+δ` is
+focused by `k1/(1+δ)`.** accsim's thick quadrupole did not know that: its `track()` was
+its `matrix()` at every momentum — a chromatically ideal magnet, which is not what a
+magnet is. L1 left tracking seeing 45% of the natural chromaticity (the drifts'
+share); this closes the quadrupoles' share, and only the dipole's is left (L3).
+
+With `K = k1/(1+δ)`, `C = cos(√K L)`, `S = sin(√K L)/√K` (continued to `cosh`/`sinh`
+for `K < 0`, and to `(1, L)` at `K = 0`), and the geometric angles `x' = px/(1+δ)`:
+
+```
+x    → x C  + x' S              px → (−K x S  + x' C ) (1+δ)
+y    → y Ch + y' Sh             py → (+K y Sh + y' Ch) (1+δ)      [K_y = −K]
+ζ    → ζ + L(1 − 1/rvv) − I/rvv                                   [rvv = β/β₀]
+I    = ½ Σ_u [ K_u u² T − K_u u u' S_u² + u'² (L − T) ],  T = (L − C_u S_u)/2
+```
+
+Verified against `xt.Quadrupole(model="mat-kick-mat")` — xtrack's own default — to
+**1.1e-16** on all six coordinates.
+
+### What it is exact in, and what it is not
+
+It is the flow of the **paraxial** Hamiltonian
+
+```
+H = p_ζ − (1+δ) + (px² + py²)/(2(1+δ)) + (k1/2)(x² − y²),
+```
+
+the expansion in the angles of the exact `H = p_ζ − √((1+δ)² − px² − py²) + …`, whose
+flow has **no closed form at all**: the square root and the quadratic potential do not
+commute. Every code picks one of two families — expand the root and solve exactly
+(MAD-X, xtrack's `mat-kick-mat`, this), or split the exact one and integrate
+numerically (xtrack's `drift-kick-drift-*`, PTC's `exact`). They differ by `8e-5` to
+`1.5e-4` on the reference states, so the choice is a real one and is pinned as such.
+
+So the map is **exact in `δ` to all orders** and **paraxial in the angles**, dropping
+`O(angle³)` relative. It is nonetheless *exactly* symplectic — the exact flow of an
+approximate Hamiltonian, not an approximate flow of the exact one — which is the
+property worth having: a truncated-but-symplectic map is safe to iterate for a million
+turns, a more accurate non-symplectic one is not.
+
+**Why not the splitting family.** `matrix()` must remain the exact Jacobian of
+`track()` at the origin, or design optics and the tracked machine describe different
+rings. A sliced map's origin Jacobian is the *sliced approximation* to the cos/sin
+block, not the block — so every "tracking agrees with the matrix on the design orbit"
+gate in the package would have moved. That invariant is what bounded L1 and bounds this.
+
+### The discriminating gate is large `δ`, not large angles — and it is an identity
+
+L1's gate shape does **not** transfer: large angles are exactly where this map is
+deliberately wrong. Substituting `px = (1+δ)p̃` turns the exact drift's `L/(1+δ)` back
+into `L` and the quadrupole's block into a design quadrupole of strength `k1/(1+δ)`, so
+
+> the machine a particle of momentum `δ` traverses **is** the design machine with every
+> gradient rescaled by `1/(1+δ)`
+
+on any bend-free ring — exactly, not to first order. Tracked tunes off momentum equal
+the *design* tunes of the rescaled lattice to `1e-15` out to `δ = 0.05`. That pins every
+order in `δ` at once: `1/(1+δ)²`, or the factor in the trigonometric argument only, or
+applied in one plane only, all agree at `δ = 0` and all fail here at `O(δ)`.
+
+### Chromaticity: 45% → 100%, and what is left
+
+On a bend-free drift + thick-quad ring the tracked `dQ/dδ` now equals
+`natural_chromaticity`'s `−(1/4π)∮β k1 ds`. The residual is **the trapezoid error of
+`slices`**, not the map's: it falls by 4 per doubling (`9.8e-6` at 64 slices,
+`2.4e-9` at 4096), and is asserted as that order rather than to a tolerance.
+
+Two controls make that attributable rather than merely observed:
+
+- a **thin**-quad + exact-drift ring already had 100% after L1 — a thin kick
+  `Δpx = −k1l x` is momentum-independent, and the drift is what turns momentum into
+  angle. It shares the integral with the thick-quad gate and none of the new code.
+- swapping a **zero-angle `Dipole`** for a `Drift` of the same length — identical
+  matrices, identical design optics, identical analytic chromaticity — moves the
+  tracked answer from **48% to 100%**. So the remaining blindness is the dipole's map
+  and nothing else. On the suite's bendy test arc the tracked route now reports
+  `−0.1665` against `−0.2893` (58%, up from 45%).
+
+### The `ζ` cancellation trap, avoided again
+
+MAD-X and xtrack both evaluate `Δζ = L − path/rvv`: two numbers of size `L` differenced
+to get a small one — invisible in the value, not in its derivative, which is what
+`linearised_element_maps` takes. Splitting it as `L(1 − 1/rvv) − I/rvv` and
+rationalising the first term through `(1+δ) + E/E₀` (using
+`(E/E₀)² = 1 + β₀²δ(2+δ)`, the drift's own identity) removes the cancellation, leaving
+two small quantities that are *added*. The first term is the drift's `ζ` map at zero
+angle — a free cross-check on the algebra. The path integral `I` is likewise written
+**division-free**: substituting `A = −K u` and `B = u'` into the textbook form cancels
+every `1/K`, so it is *entire* in `K` and the drift limit needs no branch.
+
+Measured floor on `linearised_element_maps`: `5.4e-14`, in the `(ζ, δ)` entry, and it
+is the central difference's own `O(step²)` truncation (a hundredfold per decade of
+step), three orders below the `1e-10` the design-optics gates ask for.
+
+### The ROADMAP's prediction was wrong: `Quadrupole(L, 0)` is still not a `Drift`
+
+L2 was written up as removing the inconsistency above. It does not. At `k1 = 0` this
+map is the **expanded** drift `x += L px/(1+δ)`; `Drift` is the **exact**
+`x += L px/pz`. What L2 does is take the gap from **first** order to **third**: the old
+linear map differed at `O(px·δ)`, this one at `O(px³)` — the same gap that separates
+xtrack's own two drift models, and the price of a closed form. Asserted in the shape
+that identifies it: cubic in the angle (×125 for ×5 in `px`) and *independent of `k1`*
+as `k1 → 0`. Short-circuiting `k1 == 0` to the exact drift would close it only by making
+the map **discontinuous in `k1`**, so the residual is documented instead.
+
+### Blast radius
+
+Far smaller than L1's, and for a structural reason: **at `δ = 0` the transverse map is
+the linear matrix** (to one unit in the last place — the two arithmetics associate the
+multiplications differently), so an on-momentum particle of any amplitude tracks exactly
+as before. Only `ζ` moves, plus everything genuinely off momentum. Five analytic tests
+re-baselined and two reference ones, against L1's 29 and 5.
+
+Two consequences worth carrying:
+
+- **`SkewQuadrupole` got the same map**, through the 45° roll conjugation it is already
+  defined by. Leaving it linear while `Quadrupole(roll=−45°)` became chromatic would
+  have made the same magnet behave two ways depending on how it was spelled.
+- **`is_symplectic_map` now *accepts* a correct exact map at small amplitude.** The
+  `(ζ, δ)` residual is second order in the amplitude *and* suppressed by `1/γ₀²`; on a
+  `γ₀ = 20` ring at amplitude `1e-3` it is `8.4e-10`, under the default `atol` of
+  `1e-9`. So the wrong check does not merely reject correct maps — it can pass one for
+  no reason connected to symplecticity. `test_roll.py`'s rolled quadrupole was clearing
+  its `1e-8` by a factor of six and now uses `is_symplectic_map_canonical`.
+
+Gates: `tests/analytic/test_exact_quadrupole.py` (16),
+`tests/reference/test_quadrupole_xtrack.py` (4).
 
 ## Quadrupole strength sign (Stage 1 — implemented)
 

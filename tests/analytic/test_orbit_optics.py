@@ -531,44 +531,45 @@ def test_tracked_feeddown_matches_the_on_orbit_split(ref: ReferenceParticle) -> 
         assert abs(total[0] - natural[0]) > 0.1
 
 
-def test_the_tracked_route_sees_only_the_drifts_share_of_the_natural_chromaticity(
+def test_the_tracked_route_is_now_blind_only_to_the_bends_share_of_the_chromaticity(
     ref: ReferenceParticle,
 ) -> None:
-    r"""Why the gate above is a *difference* — and how far that blind spot now goes.
+    r"""Why the gate above is a *difference* — and how much of that blind spot is left.
 
-    It used to be total. accsim's **quadrupole** is still chromatically ideal —
-    ``track()`` through it is its ``matrix()`` at every ``delta`` — so the tracked tunes
-    of a sextupole-free machine did not move with momentum at all, exactly zero, while
-    the machine plainly had natural chromaticity that accsim supplied analytically.
+    It used to be total. Every accsim element map carried no ``delta`` dependence at
+    all, so the tracked tunes of a sextupole-free machine did not move with momentum —
+    exactly zero — while the machine plainly had a natural chromaticity that accsim
+    supplied analytically. Two milestones have eaten into it:
 
-    **The exact** :class:`~accsim.elements.drift.Drift` **map has made the blindness
-    partial.** It moves ``x`` by ``L px / pz`` with ``pz ~ 1 + delta``, so a drift's
-    effective length is ``L (1 - delta)`` — a first-order chromatic element, with no
-    magnet involved. Measured on this ring: the tracked route now reports ``-0.1289``
-    against an analytic natural chromaticity of ``-0.2893``, i.e. **45%** of it, where it
-    used to report ``3.7e-8``.
+    - **L1**, the exact :class:`~accsim.elements.drift.Drift`: ``x`` moves by
+      ``L px / pz`` with ``pz ~ 1 + delta``, so a drift's effective length is
+      ``L (1 - delta)`` — a first-order chromatic element with no magnet involved.
+      That took this ring from ``3.7e-8`` to ``-0.1289``, 45% of its ``-0.2893``.
+    - **L2**, the momentum-dependent :class:`~accsim.elements.quadrupole.Quadrupole`:
+      a stiffer particle is focused by ``k1/(1+delta)``. That takes it to ``-0.1665``,
+      **58%**.
 
-    So tracking sees the drifts' share and not the quadrupoles'. That is an intermediate
-    state and the honest one for a milestone that gives the exact map to the drift alone;
-    the quadrupole's exact map is what closes it, and until then
-    ``chromaticity_on_orbit`` must still be built as a difference and cannot be
-    implemented by tracking. The fraction is asserted to be neither 0 nor 1, because both
-    would be wrong for different reasons and a bound on the size alone would not say so.
+    What is left is the **dipole**, whose map is still linear until L3 — its ``h^2``,
+    dispersion and edge terms have no tracked counterpart at all. On a ring with *no*
+    bend the tracked route now recovers the natural chromaticity in full, which is
+    asserted in ``tests/analytic/test_exact_quadrupole.py`` against this same integral
+    and is what makes the shortfall here attributable rather than merely observed.
 
-    What is *not* claimed here is that ``-0.1289`` is exactly the drift term of the
-    analytic chromaticity integral. Separating that integral by element type is the
-    quadrupole milestone's business, not this test's.
+    So ``chromaticity_on_orbit`` must still be built as a difference on a bendy
+    machine. The fraction is asserted to be neither 0 nor 1, because both would be
+    wrong for different reasons and a bound on the size alone would not say so.
     """
     lat = _dispersive(ref, k2l=0.0, kick_x=4e-4)
     tracked = _tracked_feeddown_chromaticity(lat)
     natural = natural_chromaticity(lat)
     assert natural[0] < -0.2 and natural[1] < -0.3  # the machine plainly has one...
 
-    # ...and the tracked route now recovers a real part of it, but only a part.
-    assert tracked[0] == pytest.approx(-0.128870, rel=1e-4)
+    # ...and the tracked route now recovers most of it, but not the bends' part.
+    assert tracked[0] == pytest.approx(-0.166549, rel=1e-4)
+    assert tracked[1] == pytest.approx(-0.168901, rel=1e-4)
     for plane in (0, 1):
         share = tracked[plane] / natural[plane]
-        assert 0.2 < share < 0.8, "neither blind nor complete — the drifts' share alone"
+        assert 0.4 < share < 0.8, "neither blind nor complete — the bends' share is missing"
 
     # And the same sign as the natural chromaticity, so it adds to it rather than
     # fighting it: a drift is focusing-neutral but not momentum-neutral.
@@ -876,13 +877,14 @@ def test_delta_is_carried_into_the_linearised_maps(ref: ReferenceParticle) -> No
     off = propagate_twiss_on_orbit(lat, delta=1e-3)
     assert any(abs(a.beta_x / b.beta_x - 1.0) > 1e-6 for a, b in zip(flat, off, strict=True))
     # ...and a multipole-free lattice is *almost* unmoved by delta. "Unmoved" was the
-    # claim while accsim's maps carried no delta dependence at all; the exact Drift map
-    # does carry one — its effective length is L/pz ~ L(1 - delta) — so an off-momentum
-    # particle on a dispersion orbit sees slightly different focusing and beta really
+    # claim while accsim's maps carried no delta dependence at all; both L1 and L2 have
+    # since put one in — a drift's effective length is L/pz ~ L(1 - delta), and a thick
+    # quadrupole focuses an off-momentum particle by k1/(1 + delta) — so beta really
     # moves. That is chromatic beta-beat, which a real machine has and this package
     # previously could not produce at all.
     #
-    # Measured 1.8e-4 relative, two orders below the 1e-2 sextupole signal above, so the
+    # Measured 2.4e-4 relative (1.8e-4 with the drift's share alone, before the quadrupole
+    # gained its own), still two orders below the 1e-2 sextupole signal above, so the
     # discrimination this test rests on survives. The bound is stated as that ratio
     # rather than as a tolerance, and the sextupole-free beat is asserted to be nonzero
     # so the new effect is documented rather than hidden inside a widened number.
@@ -895,7 +897,7 @@ def test_delta_is_carried_into_the_linearised_maps(ref: ReferenceParticle) -> No
             strict=True,
         )
     ]
-    assert max(beat) == pytest.approx(1.8157e-4, rel=1e-2)
+    assert max(beat) == pytest.approx(2.4135e-4, rel=1e-2)
     sextupole_beat = max(abs(a.beta_x / b.beta_x - 1.0) for a, b in zip(flat, off, strict=True))
     assert max(beat) < 0.05 * sextupole_beat
 

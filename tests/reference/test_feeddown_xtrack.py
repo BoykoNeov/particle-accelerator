@@ -51,6 +51,10 @@ from accsim import (
 )
 from accsim.coords import DELTA, X
 
+# Elements whose ``track`` is a genuine (nonlinear or momentum-dependent) map rather
+# than their ``matrix``: the drift since L1, the quadrupole since L2.
+_EXACT_MAP = (Drift, Quadrupole)
+
 pytestmark = pytest.mark.reference
 
 xt = pytest.importorskip("xtrack")
@@ -101,19 +105,22 @@ def _accsim_cell() -> list:
 
 
 def _linearised_with_matrix_drifts(lat: Lattice, co: np.ndarray) -> np.ndarray:
-    """``linearised_one_turn_map``, but each drift contributes its ``matrix`` instead.
+    """``linearised_one_turn_map``, but the exact-map elements contribute ``matrix``.
 
-    Isolates the *sextupole's* feed-down from the drift's own exact-map content (L1). A
-    drift at a closed-orbit angle departs from its matrix in three places — the ``delta``
+    Isolates the *sextupole's* feed-down from the exact maps' own content. A drift at a
+    closed-orbit angle departs from its matrix in three places (L1) — the ``delta``
     column, the conjugate ``zeta`` row, and the transverse block at ``O(angle^2)`` — and
-    a composed *matrix* product carries none of them. Comparing the two directly would
-    be comparing two different maps, at 7.9e-8 on this ring.
+    a thick quadrupole at a closed-orbit *offset* departs from its own in the ``delta``
+    column too (L2), because its focusing is ``k1/(1 + delta)`` and an off-centre
+    trajectory therefore bends differently with momentum. A composed *matrix* product
+    carries none of that. Comparing the two directly would be comparing two different
+    maps, at 7.9e-8 on this ring with the drifts alone.
     """
     from accsim.orbit import linearised_element_maps
 
     product = np.eye(6)
     for elem, m in zip(lat.elements, linearised_element_maps(lat, co), strict=True):
-        product = (elem.matrix(lat.ref) if isinstance(elem, Drift) else m) @ product
+        product = (elem.matrix(lat.ref) if isinstance(elem, _EXACT_MAP) else m) @ product
     return product
 
 

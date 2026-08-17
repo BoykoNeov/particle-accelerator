@@ -1403,14 +1403,27 @@ def chromaticity_on_orbit(lattice: Lattice, slices: int = 64) -> tuple[float, fl
     contributes its own gradient chromaticity, and the sextupole feed-down term
     because it is an integral over the beaten ``beta`` and ``D_x``.
 
-    **Why this is not computed by tracking.** accsim's linear element maps carry no
-    ``delta`` dependence — ``track()`` through a quadrupole is its ``matrix()`` at
-    every momentum — so linearising the tracked map about the off-momentum orbit
-    measures the sextupole feed-down term and is exactly blind to the natural
-    chromaticity, which accsim supplies analytically (F2). Implementing this by
-    tracking alone would silently drop that entire term. Instead the existing,
-    validated integrals are run on :func:`~accsim.orbit.linearised_lattice`, and
-    the tracked route is kept as the independent gate on the half it can see.
+    **Why this is not computed by tracking — a claim L1 and L2 have both eroded.**
+    It was once absolute: accsim's element maps carried no ``delta`` dependence at
+    all, so linearising the tracked map about the off-momentum orbit measured the
+    sextupole feed-down term and was *exactly* blind to the natural chromaticity,
+    which accsim supplies analytically (F2). Two milestones have changed that. The
+    exact :class:`~accsim.elements.drift.Drift` (L1) made a drift a first-order
+    chromatic element, and the momentum-dependent
+    :class:`~accsim.elements.quadrupole.Quadrupole` (L2) gave the thick quadrupole
+    its own ``k1/(1+delta)``. On a **bend-free** machine the tracked route now
+    recovers the natural chromaticity in full — measured against this function's own
+    integral to the trapezoid error of ``slices``, and not to a tolerance.
+
+    What is still missing is the **dipole**, whose map remains linear until L3: its
+    ``h^2``, dispersion and edge terms have no tracked counterpart, and a
+    zero-angle dipole does not even reproduce a drift's chromatic share. On a bendy
+    ring the tracked route therefore recovers roughly half the natural chromaticity
+    (measured 58% on the analytic suite's test arc), which is neither zero nor all
+    of it. So this function stays built on the validated integrals over
+    :func:`~accsim.orbit.linearised_lattice`, and the tracked route is kept as the
+    independent gate — on the whole of it for a straight machine, on the feed-down
+    difference for a bendy one.
 
     Raises :class:`CoupledLatticeError` on a vertically steered machine (the
     equivalent lattice then carries a skew quadrupole, and the 2x2 Courant-Snyder

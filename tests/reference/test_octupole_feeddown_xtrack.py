@@ -62,6 +62,10 @@ from accsim import (
 )
 from accsim.orbit import linearised_element_maps, linearised_lattice
 
+# Elements whose ``track`` is a genuine (nonlinear or momentum-dependent) map rather
+# than their ``matrix``: the drift since L1, the quadrupole since L2.
+_EXACT_MAP = (Drift, Quadrupole)
+
 pytestmark = pytest.mark.reference
 
 xt = pytest.importorskip("xtrack")
@@ -316,13 +320,15 @@ def test_the_derived_equivalent_lattice_matches_xtracks_r_matrix() -> None:
 
     # And the derived route agrees with accsim's own differencing route, which is the
     # analytic suite's gate — restated here so the two comparisons are on one page. The
-    # drifts contribute their matrices, for the reason given above: `linearised_lattice`
-    # cannot represent the exact drift map's content, so the differenced route has to be
-    # asked for the same thing before the two can be compared at all.
+    # drifts and the thick quadrupoles contribute their matrices, for the reason given
+    # above: `linearised_lattice` cannot represent either exact map's content — the
+    # drift's conjugate delta/zeta pair (L1) or the quadrupole's chromatic delta column
+    # at an orbit offset (L2) — so the differenced route has to be asked for the same
+    # thing before the two can be compared at all.
     co_lat = closed_orbit_nonlinear(lat)
     product = np.eye(6)
     for elem, m in zip(lat.elements, linearised_element_maps(lat, co_lat), strict=True):
-        product = (elem.matrix(lat.ref) if isinstance(elem, Drift) else m) @ product
+        product = (elem.matrix(lat.ref) if isinstance(elem, _EXACT_MAP) else m) @ product
     assert np.allclose(derived, product, rtol=0, atol=1e-8)
 
 

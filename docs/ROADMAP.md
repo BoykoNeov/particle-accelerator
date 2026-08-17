@@ -466,10 +466,12 @@ same day. The candidate K2 left behind — **exact (nonlinear) maps for `Drift`,
 than an extension, since the gap predates axis K entirely and is about core map fidelity
 rather than about where a magnet sits. **L1 (the drift) shipped 2026-08-17**, closing the
 vertical-dispersion-from-an-orbit-angle gap for the drift's share and re-baselining 29
-analytic tests in the process; **L2 (the quadrupole) and L3 (the dipole) are
-outstanding**, and are what accsim needs before tracking sees the quadrupoles' share of
-natural chromaticity or before K2's
-`test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` can be written at all.
+analytic tests in the process; **L2 (the quadrupole) shipped 2026-08-17** too, taking
+tracked natural chromaticity from 45% of the analytic value to **all of it on a
+bend-free ring**. **L3 (the dipole) is outstanding**, and is what accsim needs before
+tracking sees the bends' share of natural chromaticity (58% on a bendy arc today) or
+before K2's `test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` can be
+written at all.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -1953,7 +1955,9 @@ move.
     no longer one `transfer_map` product; the drift is a **first-order chromatic
     element** (tracked chromaticity is now 45% of the analytic natural chromaticity, so
     I3's "tracking is blind to chromaticity" is only partly true and every
-    tracked-vs-derived gate needs a baseline subtracted); a drift has real amplitude
+    tracked-vs-derived gate needs a baseline subtracted — *L2 raised that to 58% on the
+    same arc and to 100% on a bend-free ring; the baseline subtraction stays, because
+    the dipole is still linear*); a drift has real amplitude
     detuning; Newton's basin shrank, because the exact map returns `NaN` for a particle
     with no forward momentum instead of inventing a trajectory; and `linearised_lattice`
     cannot represent the new pair, so it omits it — legitimate, since the terms carry no
@@ -1963,16 +1967,52 @@ move.
     design-optics gates at `3.6e-8`. The rationalised form is `2.7e-13`. Expect the same
     trap in the quadrupole and dipole.
 
-- **L2 — the quadrupole's exact map.** The natural next step, and the one that closes
-  what L1 half-opened: accsim's quadrupole is *chromatically ideal* (`track()` is its
-  `matrix()` at every `δ`), so tracking sees the drifts' share of natural chromaticity
-  and not the quadrupoles'. Until it lands, `chromaticity_on_orbit` cannot be
-  implemented by tracking and the tracked-vs-derived gates keep their baseline
-  subtraction. Also removes L1's known inconsistency, that a zero-strength thick magnet
-  is documented as "identical to a `Drift`" and no longer tracks like one. The gate is
-  the same shape as L1's: an analytic map check at large angles that discriminates the
-  exact form from the expanded one, canonical symplecticity, and the design-orbit
-  invariance that bounds the change. Effort **M**.
+- **L2 — the quadrupole's momentum-dependent map.** ✅ **SHIPPED (2026-08-17)** —
+  `k1 → k1/(1+δ)` and `x' = px/(1+δ)`, with the conjugate path-length term. Full
+  write-up at CONVENTIONS.md → *The quadrupole's momentum-dependent map*. Gates:
+  `tests/analytic/test_exact_quadrupole.py` (16),
+  `tests/reference/test_quadrupole_xtrack.py` (4). It closes what L1 half-opened:
+  tracking sees the drifts' *and* the quadrupoles' share of natural chromaticity, and
+  only the dipole's is left.
+  - **The milestone's own prescribed gate shape does not transfer, and the entry above
+    was wrong to assume it would.** L1 discriminated at *large angles*; large angles are
+    exactly where this map is deliberately wrong. There is **no closed form** for the
+    exact quadrupole Hamiltonian — the square root and the quadratic potential do not
+    commute — so a code either expands the root and solves exactly (MAD-X, xtrack's
+    `mat-kick-mat`, this) or splits the exact one and integrates. accsim takes the
+    closed form *because* `matrix()` must stay the exact origin-Jacobian of `track()`,
+    which is what bounded L1 and bounds this; a sliced map's origin Jacobian is the
+    sliced approximation to the cos/sin block, and every design-optics gate would move.
+  - **The discriminating axis is large `δ`, and there is an exact identity along it.**
+    Substituting `px = (1+δ)p̃` makes the ring at momentum `δ` *literally* the design
+    ring with every `k1` rescaled by `1/(1+δ)`. Tracked tunes off momentum equal the
+    design tunes of the rescaled lattice to `1e-15` out to `δ = 0.05`, which pins every
+    order in `δ` at once — a wrong power, or the factor in one plane only, fails at
+    `O(δ)` where the first-order chromaticity number alone would not separate them.
+  - **The chromaticity residual has a named owner, not a tolerance.** Tracked `dQ/dδ`
+    matches `natural_chromaticity` on a bend-free ring, and what is left is the
+    *trapezoid error of `slices`* — falling by 4 per doubling, asserted as that order.
+    Two controls attribute the rest: a **thin**-quad ring already had 100% after L1
+    (a thin kick is momentum-independent), and swapping a zero-angle `Dipole` for an
+    identical-matrix `Drift` moves the tracked answer from **48% to 100%**, so the
+    remaining blindness is provably the dipole's map — L3's.
+  - **The "removes L1's inconsistency" prediction was wrong.** `Quadrupole(L, 0).track`
+    is the *expanded* drift, not the exact one: the gap goes from **first** order
+    (`O(px·δ)`) to **third** (`O(px³)`), narrowed rather than closed. Short-circuiting
+    `k1 == 0` would close it only by making the map discontinuous in `k1`, so the
+    residual is asserted — cubic in the angle and independent of `k1` — instead.
+  - **Blast radius five analytic tests and two reference, against L1's 29 and 5**,
+    because at `δ = 0` the transverse map *is* the linear matrix (to 1 ulp) and only
+    `ζ` moves. Two consequences carried forward: `SkewQuadrupole` took the same map
+    through its 45° roll conjugation (the same magnet must not behave two ways
+    depending on how it is spelled), and `is_symplectic_map` was found to **accept** a
+    correct exact map at small amplitude — the `(ζ,δ)` residual is second order *and*
+    `1/γ₀²`-suppressed, `8.4e-10` on a `γ₀=20` ring, under its own default `atol`.
+    The wrong check does not only reject correct maps; it can pass one for no reason
+    connected to symplecticity.
+  - **The `ζ` cancellation L1 warned about was real**, and is avoided the same way:
+    `L(1 − 1/rvv)` rationalised through `(1+δ) + E/E₀`, split from the path integral,
+    which is itself written division-free so there is no `K = 0` branch.
 - **L3 — the dipole's exact map, and the close of K2's account.** The `+h⟨D_x⟩` half of
   `Δd_y = p_y·L·(h⟨D_x⟩ − 1)` — the extra arc a dispersed particle travels on the
   outside of a bend. Only with this does

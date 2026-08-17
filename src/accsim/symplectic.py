@@ -23,6 +23,15 @@ amplitude (measured on ``Drift(2.0)`` at ``gamma0 = 5``: ``8.0e-14`` at
 amplitude ``1e-6``, ``7.7e-8`` at ``1e-3``, ``7.7e-6`` at ``1e-2`` — a clean
 square). The *same map* rewritten in ``(zeta, p_zeta)`` gives **exactly zero**.
 
+The same is true of every later exact map, and the thick
+:class:`~accsim.elements.quadrupole.Quadrupole` (L2) is a sharper case than the
+drift: its ``(zeta, delta)`` residual is driven by ``x`` and ``y`` rather than by
+the angles, so a *small-angle* state — the kind a test naturally picks — can sit
+just inside a loose ``atol`` and pass for the wrong reason. Measured on
+``Quadrupole(0.4, 1.7, roll=0.02)`` at a generic ``2e-3`` state: ``1.7e-9``, which
+clears an ``atol`` of ``1e-8`` by a factor of six while the canonical check returns
+a clean pass. A margin like that is not a result.
+
 So in ``(zeta, delta)`` the more faithful map fails the check the cruder one
 passes, and :func:`is_symplectic_map` cannot be used to judge an exact map. Use
 :func:`is_symplectic_map_canonical`, which changes to ``p_zeta`` first. It is

@@ -76,6 +76,7 @@ from accsim import (
     closest_tune_approach,
     coupled_twiss,
     is_symplectic_map,
+    is_symplectic_map_canonical,
     linearised_lattice,
     normal_mode_tunes,
 )
@@ -482,15 +483,29 @@ def test_the_rolled_map_is_still_symplectic(ref: ReferenceParticle) -> None:
     """A rotation is a symplectomorphism and so is a rigid frame change, so this
     passes by construction — which is exactly why it is worth running: it is the
     check that would catch the entry and exit halves being applied inconsistently,
-    which no amount of dispersion agreement would reveal."""
+    which no amount of dispersion agreement would reveal.
+
+    The elements whose ``track`` is still linear in ``delta`` are checked in accsim's
+    ``(zeta, delta)``; the thick :class:`Quadrupole`, whose map is exact in ``delta``
+    since L2, needs the **canonical** check. It is not a formality: in ``(zeta, delta)``
+    the rolled quadrupole's residual is ``1.7e-9``, which clears the ``1e-8`` used here
+    by a factor of six — so it would go on passing, for a reason unconnected to
+    symplecticity, until an unlucky choice of ``STATE`` made it fail. A margin like that
+    is not a result. See ``accsim/symplectic.py``'s module docstring.
+    """
     for elem in (
         Dipole(L_BEND, ANGLE, roll=ROLL),
         Dipole(L_BEND, ANGLE, k1=0.6, e1=0.1, e2=0.1, roll=ROLL),
-        Quadrupole(0.4, 1.7, roll=ROLL),
         ThinSextupole(7.0, roll=ROLL),
         ThinOctupole(40.0, roll=ROLL),
     ):
         assert is_symplectic_map(lambda s, e=elem: e.track(s, ref), STATE, atol=1e-8)
+
+    rolled_quad = Quadrupole(0.4, 1.7, roll=ROLL)
+    assert is_symplectic_map_canonical(lambda s: rolled_quad.track(s, ref), STATE, ref)
+    # ...and the wrong check's near-miss, pinned, so the switch above is not folklore.
+    assert is_symplectic_map(lambda s: rolled_quad.track(s, ref), STATE, atol=1e-8)
+    assert not is_symplectic_map(lambda s: rolled_quad.track(s, ref), STATE, atol=1e-10)
 
 
 def test_a_roll_broadcasts_over_a_bunch(ref: ReferenceParticle) -> None:
