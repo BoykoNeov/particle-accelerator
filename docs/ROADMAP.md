@@ -1771,35 +1771,89 @@ makes sense together.
   - **So K2's claim is about the *source vector*, not about `D_y` being new — and
     that is the sharper statement and the better gate.** A skew quad only *rotates*
     dispersion that horizontal bends already made; it adds nothing to the source
-    vector `d`. A rolled dipole adds a **new term to `d`** itself. The two are told
-    apart by a control the suite must run: **kill the horizontal dispersion** and the
-    skew-quad route dies while the rolled-dipole route survives. Measured on the
-    control ring (bends removed, skew kept), `D_x` and `D_y` are both **exactly
-    zero** — so the discriminator is real and is asserted at exact zero, not to
-    tolerance.
+    vector `d`. A rolled dipole adds a **new term to `d`** itself.
+    ⚠️ **The control as first written does not separate them** (caught 2026-08-17,
+    before implementing): *"kill the horizontal dispersion by removing the bends"*
+    removes the **rolled bend** too, so it kills both routes and proves nothing. The
+    statement that does discriminate is the other way round — a rolled bend in a ring
+    with **no coupling element anywhere** gives `D_y ≠ 0`, where every previously
+    known route to `D_y` needs one.
   - `beam_sigma` (uncoupled) and **`coupled_beam_sigma`** (`twiss.py:622`, the G2
     counterpart, whose docstring carries the `sigma_y = sqrt(Sigma_yy +
     (D_y sigma_delta)^2)` and `tilt` forms) both already read `D_y`, so a new source
     propagates into beam size with no new plumbing.
-  - **A small roll is a pure vertical bend** (sympy, 2026-08-17):
-    `(theta_x, theta_y) = (theta*cos(phi), theta*sin(phi))`, so the vertical kick is
-    **first** order in the roll while the horizontal loss is only **second** —
-    `theta_y = theta*phi` to `O(phi)`. And the kick is momentum-dependent
-    (`theta_eff = theta/(1+delta)`, so `d(theta_eff)/d(delta) = -theta`), which is
-    exactly the source term of the dispersion equation. That is why a rolled dipole
-    produces vertical **dispersion** and not merely a vertical **orbit** — the
-    distinction K2 has to demonstrate, since a vertical steerer produces the second
-    without the first.
-  - **The gate borrows a verdict K cannot influence.** `D_y` feeds the vertical
-    emittance whose coefficient **G1 pre-committed wrong and xtrack corrected**
-    (`|C⁻|²/(4Δ²)`). So a roll angle and a vertical steerer tuned to the same `D_y`
-    must give the same `ε_y` contribution, checking K2 against machinery that was
-    validated before K existed and cannot be quietly bent to agree.
-  - **The roll's sign is a probe, as every sign in this package has had to be.**
-    `xt.Quadrupole`/`xt.Bend` carry `rot_s_rad` (xtrack 0.106.4, verified
-    2026-08-17), so accsim's roll sense is pinned directly against xtrack rather
-    than argued from accsim's own algebra — the rule J1, J2, J3 and
-    `ThinSkewSextupole` each ended up needing.
+  - **A rolled dipole is *not* a simple rotation of the aligned one, and that is the
+    whole milestone** (measured against xtrack 2026-08-17, before any code was
+    written — the check the K1 entry's refusal said would be needed). There are two
+    *different* things called a roll, and xtrack carries both as separate attributes:
+    - `rot_s_rad` — a **design tilt**: the reference frame is rolled with the magnet.
+      This one *is* the simple conjugation `R(−φ) · M · R(+φ)`, verified **bit-for-bit**
+      against a hand-built `SRotation · Bend · SRotation` sandwich (`2.2e-18`). It has
+      **exactly zero kick**: the reference particle still comes out on the design
+      orbit, because the design orbit was rolled along with it. That is a lattice
+      *design* feature (a genuinely vertical bend), not a misalignment, and is out of
+      scope for axis K.
+    - `rot_s_rad_no_frame` — the **misalignment roll** (MAD-X `EALIGN`'s `DPSI`): the
+      magnet turns and the machine does not. This is K2's subject, and it is *not* a
+      conjugation. The magnet's exit face is now somewhere else, so what comes back
+      out is a **rigid motion** — a displacement, a pitch, a yaw and a *residual*
+      roll — exactly the curved-body geometry K1 declined for offsets.
+  - **The kick formula in the first draft of this entry was wrong, in two ways**
+    (both falsified by the measurement above, on `Dipole(L=1, θ=0.3)` at `φ=0.02`):
+    - it said the vertical kick is `θ·sin φ = 5.99960e-3`. The measured value is
+      `5.910010e-3`, which is **`φ·sin θ = 5.910404e-3`** — the roll multiplies the
+      *chord* of the bend, not its angle. The two agree only to first order in `θ`
+      as well as in `φ`, and at `θ = 0.8` they differ by 10%.
+    - it said a small roll is a **pure vertical bend**. It is not: there is also a
+      vertical **offset**, `−φ·ρ(1−cos θ)`, measured `2.977421e-3` against the
+      predicted `2.977567e-3` — the sagitta of the arc, tipped out of the plane. In
+      accsim's own dispersion solve that offset term is the **dominant** contributor
+      (`∂y/∂δ = +2.844e-3` against `∂p_y/∂δ = −2.64e-4`), so an implementation that
+      kept only the angle would be wrong by an order of magnitude *and* still produce
+      vertical dispersion.
+
+    What survives from the first draft is the part that matters: the vertical effect
+    is **first** order in the roll while the horizontal loss is only **second**
+    (measured `k_x = 2.84e-5`, `k_px = 5.65e-5` at `φ = 0.02`), and the effect is
+    momentum-dependent, which is why a rolled dipole produces vertical **dispersion**
+    and not merely a vertical **orbit**.
+  - **There is also real x–y coupling, which the first draft did not mention.** The
+    entry rotation `+φ` and the exit rotation do **not** cancel: the exit roll comes
+    back as `φ·cos θ`, leaving a net `φ(1−cos θ)` (measured `8.933e-4` at `φ = 0.02`,
+    `θ = 0.3`) plus off-diagonal matrix entries (`M[x,p_y] = +5.94e-4`). So G1's
+    `|C⁻|` machinery will see a rolled bend whether K2 wants it to or not, and that
+    is asserted rather than discovered.
+  - **The gate the first draft named cannot be built, and the reason is worth
+    recording.** It wanted "a roll and a vertical steerer tuned to the same `D_y`,
+    giving the same `ε_y`". Both halves fail:
+    - a vertical steerer produces **exactly zero** `D_y` — `Corrector.matrix()` is the
+      identity and its kick carries no `1/(1+δ)`, so it contributes nothing at all to
+      the source vector. It cannot be *tuned* to any `D_y`. (This is the same fact as
+      the entry's own "a vertical steerer produces the orbit without the dispersion",
+      so the two bullets contradicted each other; the steerer is a **control**, not a
+      calibration, and as a control asserted at exact zero it is a good one.)
+    - nothing in accsim turns `D_y` into `ε_y`. `equilibrium_emittances_coupled` is
+      driven by `|C⁻|`, and `radiation_integrals`' `I5` is horizontal-only —
+      `equilibrium_emittance`'s docstring says so in as many words. Vertical
+      dispersion → vertical emittance is an unimplemented route, not a check.
+
+    The borrowed verdict K2 uses instead is **xtrack's own `twiss()` `dy`** on a ring
+    carrying a rolled bend: an independent implementation of the dispersion solve,
+    validated long before K existed, that cannot be bent to agree.
+  - **The roll's sign is a probe, as every sign in this package has had to be** — and
+    the first draft named the **wrong attribute**. Pinning against `rot_s_rad` would
+    pass on a straight element (where design tilt and misalignment roll coincide) and
+    say nothing about the bend, which is the only place they differ. The probe is
+    against **`rot_s_rad_no_frame`** (xtrack 0.106.4, verified 2026-08-17).
+  - **The wrong model is measured, not argued.** The conjugation model misses xtrack
+    by `5.9e-3` in the kick and `6.2e-3` in the matrix at `φ = 0.02, θ = 0.3` (and by
+    `0.11` / `0.22` at `φ = 0.1, θ = 0.8`), where the *aligned* accsim map agrees with
+    xtrack to `1.0e-9`. Six to eight orders — the K1-refusal shape, so the model
+    choice cannot hide inside a tolerance.
+  - **`matrix()` does change, unlike K1.** A translation leaves the homogeneous matrix
+    alone; a roll does not — it rotates the transverse blocks *and* the `δ` column. So
+    K1's "β and the tunes are bit-for-bit unchanged" does **not** carry over, and any
+    test that assumes it must say so.
   - Effort **M**. Out of scope for K2: rolled quadrupoles as a *coupling* source
     beyond what G1's skew quad already covers, rolled higher multipoles (the angle
     rule is J3's, above), chromatic coupling (still the named blind spot at
