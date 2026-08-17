@@ -1674,27 +1674,48 @@ makes sense together.
     K2 cleanly.
   - **The new content is the statistical gate, and it has J3's two-halves shape**
     (derived in sympy 2026-08-17). For `N` uncorrelated zero-mean displacements,
-    superposing I1's single-kick closed form and averaging gives
+    superposing I1's single-kick closed form and averaging over the displacements
+    gives, **exactly**,
+
+        <x_co^2>(s) = beta(s) * theta_rms^2 / (4 sin^2(pi Q))
+                      * sum_i beta_i cos^2(psi_i - pi Q)          [EXACT]
+
+    and only *then*, on the further assumption that the sources' betatron phases are
+    spread, the textbook form
 
         <x_co^2>(s) = beta(s) * theta_rms^2 * sum_i beta_i / (8 sin^2(pi Q))
         x_rms(s)    = sqrt(beta(s) * d_rms^2 * k1l^2 * sum_i beta_i) / (2*sqrt(2)*|sin(pi Q)|)
 
-    and it splits into two checks **neither of which can fake the other**:
-    - the **pole** — `x_rms ~ 1/|sin πQ|`, tested by scanning `Q` toward an integer
-      and fitting the exponent. Blind to the prefactor entirely: any constant
-      scales out of a power-law fit.
-    - the **magnitude** — the `1/8` and the `β`-weighting of the sources, at one
-      working point. Blind to the pole: a single `Q` says nothing about scaling.
+    **The gate is built on the exact form, not the textbook one.** The cross terms
+    die because the displacements are uncorrelated — that is a genuine ensemble
+    average. The step `cos²(ψ_i − πQ) → ½` is **not** an ensemble average at all:
+    the phases `ψ_i` are deterministic properties of the lattice, so averaging over
+    displacement samples never touches them. The suite therefore computes the exact
+    sum from the ring's own phases and **measures** the departure from `Σβ_i/8`
+    rather than inheriting it. Two checks, **neither able to fake the other**:
+    - the **pole** — the `1/|sin πQ|` divergence, by scanning `Q` toward an integer.
+      Blind to the prefactor: any constant scales out of a power-law fit.
+      ⚠️ **The scan is contaminated as naively stated**: `Q` can only be moved by
+      retuning quadrupoles, which moves `β(s)` and `Σβ_i` at the same time, so
+      `x_rms` does *not* scale as a pure `1/|sin πQ|`. The gate must divide out the
+      **measured** `√(β(s)·Σβ_i cos²(ψ_i − πQ))` at each working point and fit the
+      residual. The scan also runs into `closed_orbit`'s own singular-`(I − M4)`
+      guard (`orbit.py:146`) — the *same* physics as the pole, so it is a
+      consistency point, but the test must stop short of it.
+    - the **magnitude** — the prefactor and the `β`-weighting, at one working point.
+      Blind to the pole: a single `Q` says nothing about the scaling.
 
     A uniformly mis-scaled kick (`c·θ`) moves the magnitude by `c²` and leaves the
     pole **exactly** untouched — the J1/J2/J3 failure mode, closed the J3 way, by
     requiring both halves rather than one tolerance.
-  - **The declared approximation.** The cross terms die because the displacements
-    are uncorrelated — that is exact. The step from `cos²(ψ_i − πQ)` to `½` is
-    **not**: it assumes the sources' betatron phases are spread, and it is the one
-    assumption in the formula. It is stated here because a lattice with few,
-    phase-aligned sources will violate it, and the suite must measure the departure
-    rather than inherit it silently.
+  - **The sign of the offset has no analytic gate, and must be probed.** `x_rms`
+    goes as `d²`, so the statistical gate cannot tell whether `dx` means *the magnet
+    moved right* or *the beam sits right of the magnet centre* — precisely the
+    relative sign that flips silently. The I2/J3 correspondence does constrain it
+    (feeding `dx = −x_co` must reproduce their numbers), but the convention is fixed
+    **by probe** against `xt.Quadrupole(...).shift_x` / `.shift_y` (present in
+    xtrack 0.106.4, verified 2026-08-17), the J1/J2/J3 rule that already had to be
+    applied to `ThinSkewSextupole`.
   - The `1/sin πQ` pole is not a new claim — `orbit.py:29` already carries the
     single-kick form and CONVENTIONS.md:1434 records that it is a *consequence*
     there, never the definition. K1's novelty is the **ensemble**, not the pole.
@@ -1702,14 +1723,30 @@ makes sense together.
     (`ds`), misalignment of a *thick* element's body as distinct from its ends, and
     correction strategies beyond I1's existing SVD steering.
 
-- **K2 — the rolled dipole, and the first vertical dispersion in the package.**
+- **K2 — the rolled dipole, and the first vertical dispersion *source*.**
   🚧 **OPEN (opened 2026-08-17)** — the half of axis K that is genuinely new
   physics rather than a refactor with a good gate.
-  - **Nothing in accsim bends vertically.** Every `Dipole` bends in `x`, so
-    `D_y = 0` identically everywhere — while `twiss._matched_dispersion` already
-    transports a **4D** dispersion and `beam_sizes` already reads
-    `sigma_y = sqrt(Sigma_yy + (D_y sigma_delta)^2)` (twiss.py:642). The plumbing
-    exists and has never been fed. A rolled dipole is the first thing that feeds it.
+  - **Nothing in accsim bends vertically**, but that does **not** mean `D_y` is zero
+    today — measured 2026-08-17, and the naive claim that it is was written into this
+    entry and caught the same day. `_matched_dispersion` solves `D = (I − M4)⁻¹ d`
+    over the **full 4D** map, so **G1's skew quadrupole at nonzero `D_x` already
+    produces vertical dispersion** by rotating horizontal dispersion into `y`
+    through the off-diagonal blocks of `(I − M4)⁻¹`: on an 8-cell FODO arc with one
+    `ThinSkewQuadrupole(k1sl=0.05)`, `D_y = −0.912 m` against `D_x = +2.385 m`, and
+    `coupled_twiss` (G2) reports it on `CoupledTwiss.disp_y`.
+  - **So K2's claim is about the *source vector*, not about `D_y` being new — and
+    that is the sharper statement and the better gate.** A skew quad only *rotates*
+    dispersion that horizontal bends already made; it adds nothing to the source
+    vector `d`. A rolled dipole adds a **new term to `d`** itself. The two are told
+    apart by a control the suite must run: **kill the horizontal dispersion** and the
+    skew-quad route dies while the rolled-dipole route survives. Measured on the
+    control ring (bends removed, skew kept), `D_x` and `D_y` are both **exactly
+    zero** — so the discriminator is real and is asserted at exact zero, not to
+    tolerance.
+  - `beam_sigma` (uncoupled) and **`coupled_beam_sigma`** (`twiss.py:622`, the G2
+    counterpart, whose docstring carries the `sigma_y = sqrt(Sigma_yy +
+    (D_y sigma_delta)^2)` and `tilt` forms) both already read `D_y`, so a new source
+    propagates into beam size with no new plumbing.
   - **A small roll is a pure vertical bend** (sympy, 2026-08-17):
     `(theta_x, theta_y) = (theta*cos(phi), theta*sin(phi))`, so the vertical kick is
     **first** order in the roll while the horizontal loss is only **second** —
@@ -1724,6 +1761,11 @@ makes sense together.
     (`|C⁻|²/(4Δ²)`). So a roll angle and a vertical steerer tuned to the same `D_y`
     must give the same `ε_y` contribution, checking K2 against machinery that was
     validated before K existed and cannot be quietly bent to agree.
+  - **The roll's sign is a probe, as every sign in this package has had to be.**
+    `xt.Quadrupole`/`xt.Bend` carry `rot_s_rad` (xtrack 0.106.4, verified
+    2026-08-17), so accsim's roll sense is pinned directly against xtrack rather
+    than argued from accsim's own algebra — the rule J1, J2, J3 and
+    `ThinSkewSextupole` each ended up needing.
   - Effort **M**. Out of scope for K2: rolled quadrupoles as a *coupling* source
     beyond what G1's skew quad already covers, rolled higher multipoles (the angle
     rule is J3's, above), chromatic coupling (still the named blind spot at
