@@ -158,10 +158,18 @@ class Dipole(Element):
     an angle **and** an offset — the arc's sagitta tipped out of the plane. The
     horizontal loss is only second order (``1 - cos phi``), and there is a residual
     frame roll ``phi (1 - cos angle)`` that makes a rolled bend a genuine **coupling**
-    source as well. Because the kick is momentum-dependent through the body, a rolled
-    bend is the package's first **source** of vertical dispersion: everything else
-    that produces ``D_y`` (G1's skew quadrupole) only rotates dispersion the
-    horizontal bends already made. See :meth:`_alignment_exit`.
+    source as well.
+
+    A rolled bend is the first element in this package whose ``matrix`` carries a
+    vertical ``delta`` column — G1's skew quadrupole only *rotates* dispersion the
+    horizontal bends already made, and a
+    :class:`~accsim.elements.corrector.Corrector`'s matrix is the identity — so it
+    produces ``D_y`` in a ring with no coupling element at all. ⚠️ That is **not** the
+    same as being the only way a machine gets vertical dispersion: in the exact maps a
+    vertical orbit *angle* makes ``D_y`` too, and accsim's linear elements are blind
+    to that route (``docs/CONVENTIONS.md`` -> *Orbit-driven vertical dispersion*). On
+    a realistic arc that route is the **larger** of the two. See
+    :meth:`_alignment_exit`.
     """
 
     def __init__(

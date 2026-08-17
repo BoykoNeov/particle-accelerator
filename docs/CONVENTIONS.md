@@ -2077,10 +2077,166 @@ would reveal.
 Gates: `tests/analytic/test_misalignment.py` (34, ~43 s),
 `tests/reference/test_misalignment_xtrack.py` (6, six `xt.Line` builds, ~57 s).
 
-**Out of scope for K1:** rolls (`rot_s_rad`; K2), longitudinal displacement (`ds`),
+**Out of scope for K1:** rolls (K2, below), longitudinal displacement (`ds`),
 misalignment of a thick element's *body* as distinct from its ends, displaced bending
 dipoles (refused, above), misalignment **correction** beyond I1's existing SVD
 steering, and statistics of anything but the closed orbit.
+
+## Misalignments — the roll (K2 — implemented)
+
+`roll` [rad] turns an element about the beam axis `s` **while the machine stays where
+it is**: MAD-X `EALIGN`'s `DPSI`, xtrack's `rot_s_rad_no_frame`. Every element carries
+it, defaulting to `0`.
+
+### There are two things called a roll, and accsim implements the error
+
+xtrack carries both as *separate attributes*, and the distinction is the whole
+milestone (measured 2026-08-17, before any code was written):
+
+| | frame | accsim | map | kick |
+|---|---|---|---|---|
+| **design tilt** — MAD-X `TILT`, xtrack `rot_s_rad` | rolls **with** the magnet | not offered | conjugation `R(−φ)·M·R(+φ)` | **exactly zero** |
+| **roll error** — MAD-X `DPSI`, xtrack `rot_s_rad_no_frame` | stays put | `roll` | rigid motion (below) | first order in `φ` |
+
+The design tilt is a lattice *design* choice (it is how you build a vertical bend),
+not a misalignment, and it is out of scope for axis K. It really is the plain
+conjugation: xtrack's `rot_s_rad` reproduces a hand-built `Rotation · Bend · Rotation`
+sandwich to a few ulp, with **no kick at all** — the reference particle still comes out
+on the design orbit, because the design orbit was rolled along with it. Assuming "a
+simple rotation will do" for a *misalignment* would therefore have shipped a model that
+predicts **no vertical closed orbit whatever**.
+
+### Straight elements: a conjugation, and already-known physics
+
+For every element that does not bend, the two rolls coincide and the map is
+
+    track(state) = R(−roll) · body( R(+roll) · state ),
+
+with `R` the passive frame rotation (`alignment.s_rotation`, byte-identical to
+xtrack's `SRotation`/`Rotation(rot_s_rad=…)`). Two consequences are asserted against
+machinery that predates axis K rather than being taken on trust — J3's angle rule
+`π/(2(n+1))`, with the **sign** as the content:
+
+    ThinQuadrupole(k1l, roll=−π/4)  ==  ThinSkewQuadrupole(k1l)     (G1)
+    ThinSextupole(k2l, roll=−π/6)   ==  ThinSkewSextupole(k2l)      (J3)
+
+both to machine precision. A *positive* roll of `π/4` therefore gives the
+**negative**-strength skew quadrupole. A `Drift` is exactly roll-invariant; a
+`Corrector`'s kick simply rotates.
+
+### A bending dipole is the exception, and it is the curved geometry K1 declined
+
+A bend carries the reference frame around with it, so rolling the magnet by `φ` about
+its **entrance** puts the exit face somewhere the lattice does not expect. The exit
+transformation is not `R(−φ)` but the rigid motion
+
+    T = A⁻¹ · R_s(φ) · A,        A = the design arc's own rigid motion
+
+(`alignment.arc_motion`), and conjugating by `A` turns the rotation axis through the
+bend angle, so `T` comes out as a **displacement, a pitch, a yaw and only part of the
+roll**. `alignment.frame_change` converts a rigid motion into accsim's affine `(M, k)`;
+`Dipole._alignment_exit` builds `T`. Derived in sympy, the exact kick is
+
+    k_py = −sin(φ)·sin(θ)                                            [EXACT]
+    k_y  = −ρ(1 − cos θ)·sin(φ) / (sin²θ·cos φ + cos²θ)
+    k_px = +(1 − cos φ)·sin(θ)·cos(θ)                                [EXACT]
+    k_x  = +ρ(1 − cos φ)(1 − cos θ)·cos θ / (sin²θ·cos φ + cos²θ)
+    k_ζ  = −ρ(1 − cos φ)(1 − cos θ)·sin θ / (sin²θ·cos φ + cos²θ)
+
+Three facts in there, each of which the milestone's opening plan got wrong:
+
+- **The vertical kick is `φ sin θ`, not `θ sin φ`.** The roll acts on the bend's
+  *chord*, not on its angle. At `θ = 0.3` the two differ by `sin θ/θ = 1.5 %`
+  (`5.910010e-3` measured against `5.99960e-3` claimed), and at `θ = 0.8` by 10 %.
+- **A small roll is not a pure vertical bend.** There is also a vertical **offset**
+  `−φ·ρ(1 − cos θ)` — the sagitta of the arc, tipped out of the plane. It is not a
+  refinement: deleting it from the ring's source vector gets `D_y` **wrong in sign**
+  (deleting the *angle* half instead costs 5 %).
+- **The vertical effect is first order in `φ` and the horizontal loss only second**
+  (`1 − cos φ`), which is what makes a roll a *vertical* error at leading order.
+
+**Unlike K1, a roll changes `matrix()`.** It mixes the transverse blocks and the `δ`
+column, so β, the tunes, the dispersion *and* the coupling all move. K1's
+"displacements leave the optics bit-for-bit alone" is a statement about translations
+only. Because of that, `matrix()` became a **template method** like `kick()` and
+`track()`, and subclasses now override **`_matrix_body`** — the third extension point
+to move in this axis. `Element._alignment_entry` / `_alignment_exit` return the affine
+maps either side of the body, and `Dipole` overrides the exit; that is what makes the
+straight and curved cases one code path.
+
+### The wrong model is measured, not argued
+
+The conjugation model misses xtrack by `5.9e-3` in the kick and `6.2e-3` in the matrix
+at `φ = 0.02, θ = 0.3` (`0.11` / `0.22` at `φ = 0.1, θ = 0.8`). The rigid-motion model
+matches xtrack to `3.3063e-9` — **the same number to five figures** as the *aligned*
+bend does, i.e. the residual is entirely the pre-existing linear-map-vs-exact-map
+difference and the roll adds nothing of its own. The sign is pinned against
+`rot_s_rad_no_frame`; pinning it against `rot_s_rad` would have passed on a straight
+element and said nothing about the bend, which is the only place they differ.
+
+### A rolled bend also couples, and two type-walking helpers had to start refusing
+
+Entry rolls by `φ`; the exit gives back only `arctan(cos θ · tan φ)`, leaving
+`φ(1 − cos θ)` of roll. The largest transverse off-block entry is `2φ(1 − cos θ)`
+(measured across two decades of bend angle), so the coupling is first order in the roll
+and **second in the bend angle** — which is why nobody notices it on a weak arc.
+
+- `closest_tune_approach` sums over skew-quadrupole *elements*, so it cannot see this
+  at all and would return `0.0` for a demonstrably coupled ring. It now raises
+  `CoupledLatticeError` — measured, not by type: any element whose own matrix has a
+  nonzero transverse off-block and is not a skew quadrupole. `normal_mode_tunes`
+  diagonalises the map and does see it.
+- `linearised_lattice` refuses a rolled `ThinSextupole`/`ThinOctupole` rather than
+  emitting the *unrolled* feed-down split. Rolled higher multipoles are out of scope.
+
+### Orbit-driven vertical dispersion — a blind spot K2 made consequential
+
+**The headline claim is narrower than "the first source of vertical dispersion", and
+the measurement that narrowed it was a surprise.** What is true: a rolled bend is the
+first element in this package whose **matrix** carries a vertical `δ` column, so it
+produces `D_y` in a ring with **no coupling element anywhere** — G1's skew quadrupole
+only *rotates* dispersion the horizontal bends already made (its own `δ` column is
+identically zero), and a `Corrector`'s matrix is the identity.
+
+What is **not** true is that this is the only route. accsim's linear elements drop the
+`1/(1+δ)` on angles — a drift is `y += L·py`, where the exact map is `y += L·py/pz` —
+so in the exact maps *any* vertical closed-orbit **angle** makes vertical dispersion,
+and accsim cannot see it. Isolated by a **vertical steerer in an otherwise perfect
+ring** (no roll, no coupling, nothing K2 touched):
+
+    accsim  D_y = 0 exactly        xtrack  dy = 2.1e-4        orbits agree to 8 digits
+
+and on K2's own rolled test arc that route is the **larger** of the two
+(`−3.34e-4` against accsim's `−3.05e-5`).
+
+**It is understood, not merely named.** Putting the two dropped terms back by hand
+reproduces xtrack's `dy` *and* `dpy` to **0.2 %** on both rings. Per element of length
+`L`, the exact vertical motion is `dy/ds = py(1 + h·x)/pz`, so at the closed orbit the
+missing source is
+
+    Δd_y = p_y·L·(h·⟨D_x⟩ − 1)          (and the same with p_x horizontally)
+
+— the `−1` from `1/pz`, the `+h⟨D_x⟩` from the extra arc a dispersed particle travels
+on the outside of a bend. On this arc those two nearly cancel (`h⟨D_x⟩ ≈ 0.39`), which
+is why a `−L·py·δ`-only account overshoots by 1.5×.
+
+This shares a root cause with J1's `−L·px·δ` note (*the thick sextupole is compared by
+difference*) but is **not** the same statement: that one is a per-element map residual
+worth `1e-8`, this is a ring-level physics consequence three orders larger. It predates
+axis K entirely — K2 is only where it becomes consequential — and it **cannot be fixed
+inside a 6×6**, because the terms are bilinear (`p_y·δ`). Representing them means exact
+nonlinear maps for `Drift`/`Quadrupole`/`Dipole`, which would re-baseline every gate in
+the suite: a future milestone, specified by
+`test_the_model_gap_is_fully_accounted_for_and_not_a_mystery`.
+
+Gates: `tests/analytic/test_roll.py` (30),
+`tests/reference/test_roll_xtrack.py` (10, two `xt.Line` builds — every map-level probe
+lives in one line and is tracked through by index).
+
+**Out of scope for K2:** the design tilt (`rot_s_rad`), rolled bends *and* offsets
+together (the offset of a curved body is still refused), rolled higher multipoles as a
+feed-down source (refused, above), pitch and yaw (`rot_x_rad`/`rot_y_rad`),
+longitudinal displacement (`ds`), statistics of rolls, and misalignment **correction**.
 
 ## Stability boundary (Stage 2 — validated)
 

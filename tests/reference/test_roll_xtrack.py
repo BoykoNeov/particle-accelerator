@@ -92,9 +92,9 @@ def _elements() -> list:
         _bend(rot_s_rad_no_frame=ROLL),
         _bend(rot_s_rad_no_frame=-ROLL),
         _bend(rot_s_rad=ROLL),
-        xt.SRotation(angle=math.degrees(ROLL)),
+        xt.Rotation(rot_s_rad=ROLL),
         _bend(),
-        xt.SRotation(angle=-math.degrees(ROLL)),
+        xt.Rotation(rot_s_rad=-ROLL),
         xt.Multipole(knl=[0.0, K1L], length=0.0, rot_s_rad_no_frame=ROLL),
     ]
 
@@ -173,8 +173,13 @@ def test_the_rolled_bend_agrees_with_xtrack_as_well_as_the_aligned_one(
 
     aligned_gap = max(np.max(np.abs(Ma - Mxa)), np.max(np.abs(ka - kxa)))
     rolled_gap = max(np.max(np.abs(Mr - Mxr)), np.max(np.abs(kr - kxr)))
-    assert aligned_gap < 1e-7  # the pre-existing linear-vs-exact residual
-    assert rolled_gap < 3.0 * aligned_gap  # ...and the roll does not grow it
+    # Measured 2026-08-17: both 3.3063e-9 — the *same* number to five figures, which
+    # is a far stronger statement than a bound would be. The residual is entirely the
+    # pre-existing linear-map-vs-exact-map difference of the aligned bend; the roll
+    # contributes nothing detectable to it. For contrast, the conjugation model misses
+    # by 5.9e-3, six orders larger.
+    assert aligned_gap < 1e-8
+    assert rolled_gap == pytest.approx(aligned_gap, rel=1e-3)
 
 
 def test_the_roll_sign_is_xtracks_and_flipping_it_is_visible(maps, ref: ReferenceParticle) -> None:
@@ -418,3 +423,78 @@ def test_a_steered_ring_isolates_the_linear_models_blind_spot(
     acc_dy = coupled_twiss(_accsim_ring(ref, RING_ROLL)).disp_y
     xt_dy = ring_twiss["rolled"].dy[0]
     assert abs(xt_dy) > 5.0 * abs(acc_dy)
+
+
+def _missing_source_dispersion(lat: Lattice, ref: ReferenceParticle) -> np.ndarray:
+    r"""``D`` re-solved with the two terms accsim's linear elements drop put back.
+
+    Per element of length ``L``, the exact vertical motion is ``dy/ds = py (1 + h x)/pz``
+    against accsim's ``dy/ds = py``. Differentiating in ``delta`` at the closed orbit:
+
+        extra source = py L (h <D_x> - 1)
+
+    — the ``-1`` from ``1/pz`` (the drift term already on record from J1), the
+    ``+h <D_x>`` from the extra arc a dispersed particle travels on the outside of a
+    bend. The horizontal plane gets the same with ``px``. Each element's extra source
+    is transported to the end of the ring and added to the ``delta`` column before the
+    usual ``D = (I - M4)^-1 d`` solve.
+    """
+    from accsim import propagate_orbit
+
+    idx = [X, PX, Y, PY]
+    orbit = propagate_orbit(lat)
+    tw = propagate_coupled_twiss(lat)
+    one_turn = lat.one_turn_matrix()
+    m4, source = one_turn[np.ix_(idx, idx)], one_turn[idx, DELTA].copy()
+
+    mats = [e.matrix(ref)[np.ix_(idx, idx)] for e in lat.elements]
+    after = [np.eye(4)]
+    for m in reversed(mats):
+        after.append(after[-1] @ m)
+    after = after[::-1]  # after[i] transports from element i's entrance to the end
+
+    for i, elem in enumerate(lat.elements):
+        if elem.length == 0.0:
+            continue
+        scale = getattr(elem, "curvature", 0.0) * 0.5 * (tw[i].disp_x + tw[i + 1].disp_x) - 1.0
+        extra = np.array(
+            [
+                elem.length * float(orbit[i][PX]) * scale,
+                0.0,
+                elem.length * float(orbit[i][PY]) * scale,
+                0.0,
+            ]
+        )
+        source = source + after[i + 1] @ extra
+    return np.linalg.solve(np.eye(4) - m4, source)
+
+
+def test_the_model_gap_is_fully_accounted_for_and_not_a_mystery(
+    ring_twiss, ref: ReferenceParticle
+) -> None:
+    r"""The gap is *understood*, to 0.2 % — which is what makes it a known limit.
+
+    A blind spot that is merely named is a hope; one whose size is predicted from its
+    own algebra is a fact. Putting the two dropped terms back by hand — ``py L (h <D_x>
+    - 1)`` at every element, on accsim's own closed orbit — reproduces xtrack's ``dy``
+    **and** ``dpy`` on both the rolled and the steered ring, from an accsim ``D_y`` that
+    is an order of magnitude out (and, on the steered ring, exactly zero).
+
+    This is deliberately **not** wired into the package: the terms are bilinear
+    (``py delta``), so they cannot live in a 6x6 at all. Representing them means exact
+    nonlinear maps for ``Drift`` / ``Quadrupole`` / ``Dipole``, which would re-baseline
+    every gate in the suite. It is a future milestone, and this test is its
+    specification.
+    """
+    for label, lat in (
+        ("rolled", _accsim_ring(ref, RING_ROLL)),
+        ("steered", None),
+    ):
+        if lat is None:
+            elems = list(_accsim_ring(ref, 0.0).elements)
+            elems.insert(1, Corrector(kick_y=STEER))
+            lat = Lattice(elems, ref)
+        got = _missing_source_dispersion(lat, ref)
+        tw = ring_twiss[label]
+        assert got[2] == pytest.approx(tw.dy[0], rel=3e-3), label
+        assert got[3] == pytest.approx(tw.dpy[0], rel=5e-3, abs=1e-12), label

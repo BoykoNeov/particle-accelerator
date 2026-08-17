@@ -32,12 +32,21 @@ roadmap entry claimed ``theta sin(phi)`` for the angle and no offset at all; bot
 falsified below, and the offset is not a refinement: dropping it gets the vertical
 dispersion **wrong in sign**.
 
-What is genuinely new is the **source vector**. Every previously known route to
-``D_y`` in this package (G1's skew quadrupole) only *rotates* dispersion the
-horizontal bends already made — it adds nothing to the ``delta`` column of the
-one-turn map. A rolled bend adds to that column itself, which is why it works in a
-ring with no coupling element anywhere, and why a vertical steerer — which produces
-an orbit but has an identity matrix — produces **exactly zero** dispersion.
+What is genuinely new is the **source vector**. A rolled bend is the first element in
+this package whose *matrix* carries a vertical ``delta`` column: G1's skew quadrupole
+only *rotates* dispersion the horizontal bends already made, and a
+:class:`Corrector`'s matrix is the identity. So a rolled bend produces ``D_y`` in a
+ring with no coupling element anywhere, which nothing before it could.
+
+⚠️ **That is a narrower claim than "the first source of vertical dispersion", and
+deliberately so.** In a real machine — and in xtrack — *any* vertical closed-orbit
+angle makes vertical dispersion, because the exact map is ``y += L py / pz`` where
+accsim's linear one is ``y += L py``. accsim is blind to that route: a vertically
+steered ring gives ``D_y = 0`` here and ``2.1e-4`` in xtrack, with the two closed
+orbits agreeing to eight digits. On the rolled test ring that route is the *larger*
+of the two. It predates axis K (it belongs to the drift), it is measured and fully
+accounted for in ``tests/reference/test_roll_xtrack.py``, and it is recorded at
+CONVENTIONS.md -> *Orbit-driven vertical dispersion*.
 
 The signs are pinned against xtrack in ``tests/reference/test_roll_xtrack.py``; this
 file owns the closed forms and the consequences.
@@ -575,17 +584,27 @@ def test_the_vertical_dispersion_is_first_order_in_the_roll(ref: ReferencePartic
     assert d4 / d1 == pytest.approx(4.0, rel=1e-5)
 
 
-def test_a_vertical_steerer_makes_the_orbit_without_the_dispersion(
+def test_in_accsims_linear_model_a_vertical_steerer_adds_nothing_to_the_source(
     ref: ReferenceParticle,
 ) -> None:
-    """The control, asserted at **exact** zero.
+    r"""A statement about **accsim's linear model**, not about the physics.
 
-    A :class:`Corrector`'s matrix is the identity and its kick carries no ``1/(1+delta)``,
-    so it contributes nothing whatever to the dispersion source: it bends the closed
-    orbit and leaves ``D_y`` at zero. That is what separates "vertical orbit" from
-    "vertical dispersion", and it is why the steerer cannot be *tuned* to match a
-    rolled bend's ``D_y`` — the gate the opening roadmap entry asked for and that
-    cannot exist.
+    A :class:`Corrector`'s matrix is the identity and its kick carries no
+    ``1/(1+delta)``, so it contributes *identically nothing* to the ``delta`` column:
+    accsim returns ``D_y = 0`` exactly for a vertically steered ring. That is what
+    makes it useless as the calibration the opening roadmap entry wanted — a steerer
+    cannot be tuned to any ``D_y`` at all.
+
+    ⚠️ **It is not a physical control.** Measured against xtrack the same ring gives
+    ``dy = 2.1e-4``: the exact map's ``y += L py / pz`` turns any vertical orbit
+    *angle* into vertical dispersion, and accsim's ``y += L py`` cannot. Both closed
+    orbits agree to eight digits, so the difference is entirely the momentum
+    dependence of the maps. That blind spot predates axis K (it is the drift's, and
+    K2 only makes it consequential); it is measured in
+    ``tests/reference/test_roll_xtrack.py`` and recorded at CONVENTIONS.md ->
+    *Orbit-driven vertical dispersion*, and it is why K2's claim is the narrow one:
+    a rolled bend is the first element whose **matrix** has a vertical ``delta``
+    column, not the only way a real machine gets ``D_y``.
     """
     steered = _arc(ref, steer=-2.2e-4)
     assert abs(closed_orbit(steered)[Y]) > 1e-6  # there *is* a vertical orbit
@@ -593,8 +612,40 @@ def test_a_vertical_steerer_makes_the_orbit_without_the_dispersion(
     assert coupled_twiss(steered).disp_y == 0.0
 
     rolled = _arc(ref, roll=SMALL_ROLL)
-    assert abs(closed_orbit(rolled)[Y]) > 1e-6  # a rolled bend gives both
+    assert abs(closed_orbit(rolled)[Y]) > 1e-6  # a rolled bend moves the source itself
     assert coupled_twiss(rolled).disp_y != 0.0
+
+
+def test_a_rolled_element_still_responds_to_a_displacement_as_one_minus_m_times_d(
+    ref: ReferenceParticle,
+) -> None:
+    r"""K1's response formula survives a roll, which is not obvious and is used.
+
+    With a roll the kick is ``M_out (M_body k_in + k_body) + k_out``, and substituting
+    ``k_in = -M_in d``, ``k_out = d`` collapses it back to ``(I - matrix) d`` — with
+    ``matrix`` the *rolled* one. :func:`accsim.orbit.misalignment_response` and
+    ``_default_sources`` both rely on that, since they read ``elem.matrix(ref)``
+    without knowing whether it is rolled. Checked against the orbit the package
+    actually solves for, not against the algebra that produced it.
+    """
+    d = 3.0e-4
+    lat = Lattice(
+        [ThinQuadrupole(0.4, roll=0.3, name="q"), Drift(1.0), ThinQuadrupole(-0.35), Drift(1.0)],
+        ref,
+    )
+    elems = list(lat.elements)
+    rolled = ThinQuadrupole(0.4, roll=0.3, dx=d, name="q")
+    displaced = Lattice([rolled] + elems[1:], ref)
+
+    want = (np.eye(DIM) - rolled.matrix(ref)) @ rolled.offset()
+    np.testing.assert_allclose(rolled.kick(ref), want, atol=1e-18)
+    # The response is genuinely there in both planes: a rolled quad couples, so a
+    # horizontal displacement moves the *vertical* orbit too — which an unrolled one
+    # cannot do (CONVENTIONS -> offsets cannot couple the planes).
+    co = closed_orbit(displaced)
+    assert abs(co[X]) > 1e-6
+    assert abs(co[Y]) > 1e-6
+    assert np.array_equal(closed_orbit(lat), np.zeros(4))
 
 
 def test_the_new_dispersion_reaches_the_beam_size(ref: ReferenceParticle) -> None:

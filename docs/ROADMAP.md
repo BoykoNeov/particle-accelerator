@@ -456,10 +456,13 @@ a term).
 Each is marked inline with what it delivered and what it deliberately did not.
 J3 (octupole feed-down on a distorted orbit, the deferral J2 named) closed the last
 follow-up on axes A–J the same day it was opened, leaving nothing outstanding there.
-**The open milestones are K1 and K2** (axis K — misalignments: elements gain a
-position and an orientation of their own), opened 2026-08-17 as a *new* axis rather
-than an extension, since offsets belong to the closed-orbit axis and rolls to the
-coupling axis.
+Axis K (misalignments: elements gain a position and an orientation of their own) was
+opened 2026-08-17 as a *new* axis rather than an extension, since offsets belong to
+the closed-orbit axis and rolls to the coupling axis; **K1 and K2 both shipped the
+same day, so there is again nothing outstanding.** K2 left one candidate behind that
+is worth a milestone of its own: **exact (nonlinear) maps for `Drift`, `Quadrupole`
+and `Dipole`**, without which accsim cannot see the vertical dispersion a vertical
+orbit *angle* makes — measured, and quantitatively accounted for, in K2's entry below.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -1758,8 +1761,42 @@ makes sense together.
     correction strategies beyond I1's existing SVD steering.
 
 - **K2 — the rolled dipole, and the first vertical dispersion *source*.**
-  🚧 **OPEN (opened 2026-08-17)** — the half of axis K that is genuinely new
-  physics rather than a refactor with a good gate.
+  ✅ **SHIPPED (2026-08-17)** — the half of axis K that is genuinely new physics
+  rather than a refactor with a good gate. `roll` on every element; the curved-body
+  geometry K1 declined, done for the roll; `src/accsim/elements/alignment.py`.
+  Full write-up at CONVENTIONS.md → *Misalignments — the roll*. Gates:
+  `tests/analytic/test_roll.py` (30), `tests/reference/test_roll_xtrack.py` (10).
+  Three things the plan below did not anticipate:
+  - **The rolled bend's map matches xtrack exactly as well as the *aligned* one does**
+    — `3.3063e-9` both, the same number to five figures, so the roll contributes
+    nothing detectable of its own. Where the conjugation model misses by `5.9e-3`.
+  - **The milestone's headline claim had to be narrowed, and the measurement that
+    narrowed it was a surprise.** A rolled bend is the first element whose *matrix*
+    carries a vertical `δ` column — that stands. But it is **not** the only way a
+    machine gets `D_y`: in the exact maps, *any* vertical closed-orbit **angle**
+    makes vertical dispersion, because `y += L p_y / p_z` where accsim's linear
+    element has `y += L p_y`. Isolated by a **vertical steerer in an otherwise
+    perfect ring**: accsim returns exactly `0`, xtrack returns `2.1e-4`, and the two
+    closed orbits agree to *eight digits*. On the K2 test arc that route is the
+    **larger** of the two (`−3.34e-4` against accsim's `−3.05e-5`).
+    - **It is understood, not merely named.** Putting the two dropped terms back by
+      hand — an extra source `p_y L (h ⟨D_x⟩ − 1)` at every element, on accsim's own
+      closed orbit, where the `−1` is the drift's `1/p_z` and the `+h⟨D_x⟩` is the
+      extra arc a dispersed particle travels on the outside of a bend — reproduces
+      xtrack's `dy` *and* `dpy` to **0.2 %** on both the rolled and the steered ring.
+    - It is **not** the same statement as J1's `−L·px·δ` note (a per-element `1e-8`
+      map residual); it shares a root cause and has a ring-level consequence three
+      orders larger. It predates axis K entirely — K2 is only where it becomes
+      consequential — and it cannot be fixed inside a 6×6, because the terms are
+      bilinear (`p_y·δ`). Representing them means **exact nonlinear maps for
+      `Drift` / `Quadrupole` / `Dipole`**, which would re-baseline every gate in the
+      suite: a future milestone, whose specification is
+      `test_the_model_gap_is_fully_accounted_for_and_not_a_mystery`.
+  - **Two type-walking helpers had to start refusing.** `closest_tune_approach` sums
+    over skew-quadrupole *elements*, so a rolled element — which couples without
+    being one — made it return `0.0` for a demonstrably coupled ring; it now raises
+    and points at `normal_mode_tunes`. `linearised_lattice` refuses a rolled thin
+    sextupole or octupole rather than emitting the unrolled feed-down split.
   - **Nothing in accsim bends vertically**, but that does **not** mean `D_y` is zero
     today — measured 2026-08-17, and the naive claim that it is was written into this
     entry and caught the same day. `_matched_dispersion` solves `D = (I − M4)⁻¹ d`
@@ -1826,12 +1863,12 @@ makes sense together.
   - **The gate the first draft named cannot be built, and the reason is worth
     recording.** It wanted "a roll and a vertical steerer tuned to the same `D_y`,
     giving the same `ε_y`". Both halves fail:
-    - a vertical steerer produces **exactly zero** `D_y` — `Corrector.matrix()` is the
-      identity and its kick carries no `1/(1+δ)`, so it contributes nothing at all to
-      the source vector. It cannot be *tuned* to any `D_y`. (This is the same fact as
-      the entry's own "a vertical steerer produces the orbit without the dispersion",
-      so the two bullets contradicted each other; the steerer is a **control**, not a
-      calibration, and as a control asserted at exact zero it is a good one.)
+    - a vertical steerer produces **exactly zero** `D_y` **in accsim** —
+      `Corrector.matrix()` is the identity and its kick carries no `1/(1+δ)`, so it
+      contributes nothing at all to the source vector. It cannot be *tuned* to any
+      `D_y`. ⚠️ And it is **not** a physical control either, which is the second
+      surprise of this milestone: measured against xtrack, the same steered ring has
+      `D_y = 2.1e-4` — see the blind-spot bullet in the shipped summary below.
     - nothing in accsim turns `D_y` into `ε_y`. `equilibrium_emittances_coupled` is
       driven by `|C⁻|`, and `radiation_integrals`' `I5` is horizontal-only —
       `equilibrium_emittance`'s docstring says so in as many words. Vertical
