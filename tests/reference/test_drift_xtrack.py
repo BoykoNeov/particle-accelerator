@@ -13,7 +13,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from accsim import DELTA, ZETA, Drift, ReferenceParticle  # noqa: F401
+from accsim import (
+    DELTA,
+    PY,
+    ZETA,
+    Corrector,
+    Drift,
+    Lattice,
+    ReferenceParticle,
+    ThinQuadrupole,
+    Y,
+    closed_orbit_nonlinear,
+    closed_twiss,
+)
+from accsim.twiss import closed_twiss_on_orbit
 
 pytestmark = pytest.mark.reference
 
@@ -158,3 +171,89 @@ def test_the_linear_matrix_is_the_exact_maps_slope_at_the_origin() -> None:
     linear = Drift(L_EXACT).matrix(ref) @ on_axis
     # Transverse: bit-for-bit, because every new term carries a factor of px or py.
     np.testing.assert_array_equal(exact[[0, 1, 2, 3, 5]], linear[[0, 1, 2, 3, 5]])
+
+
+# --------------------------------------------------------------------------
+# The milestone's headline, cross-checked: D_y from an orbit angle alone
+# --------------------------------------------------------------------------
+
+L_RING = 2.0  # drift length in the bend-free ring [m]
+F_FOCAL = 2.5  # thin-quad focal length [m]
+RING_CELLS = 8
+RING_STEER = 1.0e-3  # vertical steerer angle [rad]
+
+
+def test_vertical_dispersion_from_an_orbit_angle_matches_xtrack() -> None:
+    r"""**The gate L1 exists for**, against a code that did not write accsim's solve.
+
+    The analytic suite (``test_exact_drift_dispersion.py``) asserts that a ring of
+    drifts and thin quadrupoles with a vertical steerer and **no bend at all** has
+    ``D_y = 0.2590571``, where the design optics correctly reports exactly zero. That
+    number came from xtrack, so it belongs here: without this test the milestone's
+    headline claim would be pinned in one code and cross-checked only in a scratch
+    file.
+
+    Why this ring makes the statement clean. K2 wrote the missing source as
+    ``Delta d_y = p_y L (h <D_x> - 1)``. Setting ``h = 0`` everywhere kills the
+    ``+h <D_x>`` half — which belongs to the exact **dipole**, still to come — *and*
+    makes ``D_x`` identically zero, so there is no horizontal dispersion for a coupling
+    term to rotate into ``y``. Nothing here bends, nothing here is skew, and the
+    steerer's own ``matrix`` is the identity: every previously known route to vertical
+    dispersion in this package is switched off, and the drift's exact map is the only
+    thing left that can produce it.
+
+    ``model="exact"`` is essential. xtrack's default expanded drift gives ``0.2591936``
+    on this ring — a relative ``5.3e-4`` away, which is *four orders* above the
+    agreement asserted below, so this comparison also discriminates the two candidate
+    drift maps at the ring level rather than only element by element.
+    """
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+
+    els: list = []
+    xt_els: list = []
+    for _ in range(RING_CELLS):
+        els += [
+            ThinQuadrupole(0.5 / F_FOCAL),
+            Drift(L_RING),
+            ThinQuadrupole(-1.0 / F_FOCAL),
+            Drift(L_RING),
+            ThinQuadrupole(0.5 / F_FOCAL),
+        ]
+        xt_els += [
+            xt.Multipole(knl=[0.0, 0.5 / F_FOCAL], length=0.0),
+            xt.Drift(length=L_RING, model="exact"),
+            xt.Multipole(knl=[0.0, -1.0 / F_FOCAL], length=0.0),
+            xt.Drift(length=L_RING, model="exact"),
+            xt.Multipole(knl=[0.0, 0.5 / F_FOCAL], length=0.0),
+        ]
+    els.insert(1, Corrector(kick_y=RING_STEER))
+    xt_els.insert(1, xt.Multipole(ksl=[RING_STEER], length=0.0))
+
+    lat = Lattice(els, ref)
+
+    line = xt.Line(elements=xt_els)
+    line.particle_ref = xt.Particles(mass0=MASS0, q0=1, gamma0=GAMMA0)
+    try:
+        line.build_tracker()
+        tw = line.twiss(method="4d")
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        pytest.skip(f"xtrack JIT compilation unavailable: {type(exc).__name__}: {exc}")
+
+    # The two codes place the vertical orbit in the same place, which is what makes the
+    # dispersion comparison a comparison of the *maps* and not of two different orbits.
+    co = closed_orbit_nonlinear(lat)
+    assert co[Y] == pytest.approx(float(tw.y[0]), rel=1e-6)
+    assert co[PY] == pytest.approx(float(tw.py[0]), rel=1e-6)
+
+    # The design optics cannot carry the term at all, and says so at exact zero.
+    assert closed_twiss(lat).disp_y == 0.0
+
+    # ...and the on-orbit optics agrees with xtrack's own dispersion solve.
+    got = closed_twiss_on_orbit(lat).disp_y
+    assert got == pytest.approx(float(tw.dy[0]), rel=1e-5)
+    assert abs(got) > 0.2  # non-vacuous: a quarter-metre of dispersion, not a residual
+
+    # No bends, so horizontal dispersion is zero in both codes — the vertical signal is
+    # not leakage from a horizontal one.
+    assert closed_twiss_on_orbit(lat).disp_x == 0.0
+    assert abs(float(tw.dx[0])) < 1e-12

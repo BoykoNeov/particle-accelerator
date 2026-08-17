@@ -1919,7 +1919,8 @@ move.
   longitudinal partner. Full write-up at CONVENTIONS.md → *The drift's exact map*.
   Gates: `tests/analytic/test_drift.py` (13),
   `tests/analytic/test_exact_drift_dispersion.py` (5),
-  `tests/analytic/test_symplectic_canonical.py` (14).
+  `tests/analytic/test_symplectic_canonical.py` (14),
+  `tests/reference/test_drift_xtrack.py` (5, the bend-free steered ring among them).
   - **Two candidate maps, and xtrack's default is the wrong one.** `xt.Drift()` is the
     *expanded* `px/(1+δ)`; the exact `px/pz` needs `model="exact"`. accsim implements
     the exact one — `test_drift.py`'s existing symbolic derivation had already committed

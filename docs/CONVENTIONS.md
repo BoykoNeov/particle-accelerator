@@ -224,9 +224,15 @@ doing one element at a time. The rest of the L axis removes it.
 
 Gates: `tests/analytic/test_drift.py` (13), `tests/analytic/test_exact_drift_dispersion.py`
 (5), `tests/analytic/test_symplectic_canonical.py` (14),
-`tests/reference/test_drift_xtrack.py`. 29 pre-existing analytic tests across 9 files
-were re-baselined; each is a claim restated with its measured order, not a loosened
-tolerance.
+`tests/reference/test_drift_xtrack.py` (5 — including the bend-free steered ring, so the
+`0.2590571` above is cross-checked in the suite and not only in a scratch measurement).
+
+29 pre-existing analytic tests across 9 files and 5 reference tests were re-baselined;
+each is a claim restated with its measured *order* — ratios of 4, 8, 16, and derived
+coefficients like `1.5·L·py²` — rather than a loosened tolerance. The two that are
+bounded rather than order-pinned by their primary assertion (the beta-weighted
+chromaticity sum, and the coupling angle) carry a *second* assertion on the order, for
+the same reason.
 
 ## Quadrupole strength sign (Stage 1 — implemented)
 

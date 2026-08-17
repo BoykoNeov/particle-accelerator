@@ -621,14 +621,34 @@ def test_the_natural_half_is_the_beta_weighted_sum_over_the_real_optics(
         sum_x += -inv_4pi * table[i].beta_x * k1l
         sum_y += +inv_4pi * table[i].beta_y * k1l
 
-    # The 1e-7 bound is the on-orbit beta itself, which the exact Drift map moves at
-    # O(orbit angle^2): both sides read `table`, but `natural_chromaticity_on_orbit`
-    # rebuilds the optics internally, so the two beta tables differ by that much.
-    # Measured 2.6e-8 absolute on a sum of 0.66 — four orders below the 1e-3 beat the
-    # test below attributes to feed-down.
+    # The two sides now differ by 2.6e-8 on a sum of 0.66, where before L1 they agreed
+    # to 1e-11. The cause is the derived-vs-differentiated gap:
+    # `natural_chromaticity_on_orbit` reaches its optics through `linearised_lattice`,
+    # which is built from accsim elements and so cannot carry the exact Drift map's
+    # content, while `propagate_twiss_on_orbit` (the `table` above) differentiates
+    # `track()` and does. It is therefore **second order in the orbit angle**, and that
+    # is asserted rather than merely bounded — halving the steerer quarters it, where a
+    # genuine error in the beta weighting would not move at all.
     natural = natural_chromaticity_on_orbit(lat)
     assert natural[0] == pytest.approx(sum_x, abs=1e-7)
     assert natural[1] == pytest.approx(sum_y, abs=1e-7)
+
+    def route_gap(kick: float) -> float:
+        lt = _flat(ref, k2l=K2L, kick_x=kick)
+        tbl = propagate_twiss_on_orbit(lt)
+        orb = propagate_orbit_nonlinear(lt)
+        total = 0.0
+        for j, e in enumerate(lt.elements):
+            if isinstance(e, ThinQuadrupole):
+                g = e.k1l
+            elif isinstance(e, ThinSextupole):
+                g = e.k2l * float(orb[j][X])
+            else:
+                continue
+            total += -inv_4pi * tbl[j].beta_x * g
+        return abs(natural_chromaticity_on_orbit(lt)[0] - total)
+
+    assert route_gap(KICK) / route_gap(KICK / 2) == pytest.approx(4.0, rel=0.15)
 
     # On a dispersion-free ring the sextupole term is the whole of the difference,
     # so the two entry points coincide exactly rather than nearly.
@@ -765,6 +785,18 @@ def test_the_vertical_feeddown_reaches_the_skew_gradient(ref: ReferenceParticle)
     assert coupled_twiss_on_orbit(lat).coupling_angle == pytest.approx(
         coupled_twiss(equivalent).coupling_angle, rel=1e-5
     )
+
+    # ...and that residual is the drift's, not a wrong skew gradient: it is second order
+    # in the orbit while the coupling angle itself is first, so halving both steerers
+    # halves the angle and quarters the gap — a net factor of two in the *relative*
+    # discrepancy. A mis-derived k1sl_eff would hold its relative size instead.
+    def relative_gap(kick: float) -> float:
+        lt = _flat(ref, k2l=K2L, kick_x=kick, kick_y=kick)
+        a = coupled_twiss_on_orbit(lt).coupling_angle
+        b = coupled_twiss(linearised_lattice(lt)).coupling_angle
+        return abs(a - b) / abs(b)
+
+    assert relative_gap(KICK) / relative_gap(KICK / 2) == pytest.approx(2.0, rel=0.2)
 
 
 def test_chromaticity_on_orbit_refuses_a_coupled_machine(ref: ReferenceParticle) -> None:
