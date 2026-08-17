@@ -35,7 +35,9 @@ at a single amplitude would swallow exactly the coefficient error the gate exist
 catch. The gate is therefore an **order** gate: over four halvings of the amplitude
 the measured detuning falls by 4 (it is linear in the action, which falls by 4)
 while the residual against the closed form falls by 16 (it is quadratic). Measured
-2026-08-17: signal ratios 4.10, 4.02, 4.005; residual ratios 17.8, 16.4, 16.1.
+2026-08-17 at ``N_TURNS = 1024``: signal ratios 4.095, 4.021, 4.005; residual ratios
+17.83, 16.39, 16.09 — identical at 2048 turns, so they are physics rather than
+sampling noise.
 """
 
 from __future__ import annotations
@@ -207,21 +209,37 @@ def test_octupole_anharmonicity_follows_from_the_same_averaging(ref: ReferencePa
     assert np.allclose(A, exp, rtol=1e-12, atol=0.0)
 
 
-def test_matrix_is_symmetric_and_the_cross_term_is_minus_twice_the_mean(
+def test_matrix_is_symmetric_and_the_cross_term_ratio_is_minus_two(
     ref: ReferenceParticle,
 ) -> None:
     """Two properties that fall out of the derivation rather than being imposed.
 
     Symmetry (``dQ_x/dJ_y == dQ_y/dJ_x``) is the statement that both come from one
-    averaged Hamiltonian. And for a single octupole the cross term is exactly
-    ``-2 sqrt(dQx/dJx * dQy/dJy)`` — i.e. ``-2x`` the diagonal when
-    ``beta_x = beta_y`` — a pure number, carrying no ``k3l`` and no optics.
+    averaged Hamiltonian. And the *ratio* of the cross term to the diagonal is
+    ``-2 beta_y/beta_x``, carrying no ``k3l`` at all — hence exactly ``-2`` when
+    ``beta_x = beta_y``.
+
+    The ratio is the right form, not ``-2 sqrt(dQx/dJx . dQy/dJy)``: that square root
+    is negative for **either** sign of ``k3l`` (the product of the two diagonals is
+    positive both ways) while the true cross term flips with ``k3l``. A defocusing
+    octupole is entirely ordinary — Landau octupoles are run at both polarities — so
+    the negative strength is checked here rather than assumed away, and the squared
+    identity ``A01^2 == 4 A00 A11`` is the sign-free version of the same statement.
     """
-    lat = _octupole_ring(ref)
-    A = amplitude_detuning(lat)
-    assert A[0, 1] == A[1, 0]  # bit for bit
-    assert A[0, 1] == pytest.approx(-2.0 * math.sqrt(A[0, 0] * A[1, 1]), rel=1e-12)
-    assert A[0, 0] > 0.0 and A[1, 1] > 0.0 and A[0, 1] < 0.0  # k3l > 0
+    for k3l in (K3L, -K3L):
+        lat = _octupole_ring(ref, k3l)
+        tab = propagate_twiss(lat, closed_twiss(lat))
+        i = next(i for i, e in enumerate(lat.elements) if isinstance(e, ThinOctupole))
+        A = amplitude_detuning(lat)
+
+        assert A[0, 1] == A[1, 0]  # bit for bit
+        assert A[0, 1] / A[0, 0] == pytest.approx(-2.0 * tab[i].beta_y / tab[i].beta_x, rel=1e-12)
+        assert A[1, 0] / A[1, 1] == pytest.approx(-2.0 * tab[i].beta_x / tab[i].beta_y, rel=1e-12)
+        assert A[0, 1] ** 2 == pytest.approx(4.0 * A[0, 0] * A[1, 1], rel=1e-12)
+        # The diagonal takes the sign of k3l and the cross term takes the opposite one.
+        assert math.copysign(1.0, A[0, 0]) == math.copysign(1.0, k3l)
+        assert math.copysign(1.0, A[1, 1]) == math.copysign(1.0, k3l)
+        assert math.copysign(1.0, A[0, 1]) == math.copysign(1.0, -k3l)
 
 
 def test_detuning_is_quadratic_in_beta(ref: ReferenceParticle) -> None:

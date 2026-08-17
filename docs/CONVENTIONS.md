@@ -651,9 +651,15 @@ octupoles contribute at a point; a thick one integrates β² across its body (β
 transports as through a drift), and the gap to the thin element closes as **O(L²)**.
 
 Two properties fall out rather than being imposed, and both are gated: the matrix is
-**symmetric** (one averaged Hamiltonian), and for a single octupole the cross term is
-exactly `−2√(∂Qx/∂Jx · ∂Qy/∂Jy)` — i.e. `−2×` the diagonal at `βx = βy`, a pure
-number carrying no `k3l` and no optics.
+**symmetric** (one averaged Hamiltonian), and for a single octupole the *ratio* of
+cross term to diagonal is `−2βy/βx` — hence exactly `−2` at `βx = βy`, a pure number
+carrying no `k3l` at all.
+
+⚠️ The ratio is the right form; `−2√(∂Qx/∂Jx · ∂Qy/∂Jy)` is **not**. The product of
+the two diagonals is positive for *either* sign of `k3l`, so that square root is
+always negative, while the true cross term flips sign with `k3l`. A defocusing
+octupole is entirely ordinary — Landau octupoles are run at both polarities — so both
+signs are gated, along with the sign-free identity `A01² = 4·A00·A11`.
 
 **The averaging machinery is anchored, not assumed.** `ΔQ = (1/2π)∂⟨V⟩/∂J` is first
 run on `V = k1l x²/2`, where it must reproduce `β k1l/(4π)` — checked symbolically
@@ -665,7 +671,8 @@ closed form is first order in both `k3l` and the action, so one tolerance at one
 amplitude would swallow exactly the coefficient error the gate exists to catch. Over
 four halvings of the launch amplitude the measured detuning falls by **4** (linear in
 the action) while the residual falls by **16** (quadratic). Measured 2026-08-17:
-signal ratios 4.10 / 4.02 / 4.005, residual ratios 17.8 / 16.4 / 16.1. The mis-scaled
+signal ratios 4.095 / 4.021 / 4.005, residual ratios 17.83 / 16.39 / 16.09 (1024
+turns; identical at 2048 — these are physics, not sampling noise). The mis-scaled
 octupole is caught as a clean **factor of 6**.
 
 Details that are load-bearing rather than incidental:
@@ -699,6 +706,14 @@ Details that are load-bearing rather than incidental:
   would report a drift — i.e. claim the beam on a distorted orbit sees no gradient
   from it. `linearised_element_maps` handles octupoles correctly because it
   differentiates `track()`, and `closed_orbit_nonlinear` inherits that.
+- **So the I3 on-orbit family splits in half, and which half is not obvious.** The
+  entry points that differentiate `track()` — `closed_twiss_on_orbit`,
+  `propagate_twiss_on_orbit`, `tunes_on_orbit`, `coupled_twiss_on_orbit` — **work**
+  with a live octupole and see its feed-down gradient. The ones that walk element
+  *types* through `linearised_lattice` — `chromaticity_on_orbit`,
+  `natural_chromaticity_on_orbit` — **raise**. Gated through the user-facing calls,
+  not only by calling `linearised_lattice` directly, so an edit that stopped routing
+  through it could not drop the guard unnoticed.
 - `chromaticity()` ignoring octupoles is **right at first order**: expanding
   `x = x_β + D_x δ` gives an octupole a *sextupole* term linear in `δ` and a gradient
   only at `δ²`, so `Q′` is untouched and `Q″` is the honest blind spot (derived in
@@ -710,7 +725,7 @@ Details that are load-bearing rather than incidental:
   term, octupole feed-down on a distorted orbit, resonance driving terms, normal-form
   machinery, dynamic aperture, and octupoles as matching knobs.
 
-Gates: `tests/analytic/test_octupole_kick.py` (18),
+Gates: `tests/analytic/test_octupole_kick.py` (20),
 `tests/analytic/test_amplitude_detuning.py` (12),
 `tests/reference/test_octupole_xtrack.py` (7). The reference suite fits the
 anharmonicity matrix from **xtrack's own tracked particles** (actions built from

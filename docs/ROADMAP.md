@@ -1515,7 +1515,8 @@ sustained arc.
     amplitude would swallow exactly the coefficient error the gate exists to catch.
     Over four halvings the measured detuning falls by **4** and the residual by
     **16**; measured signal ratios 4.10/4.02/4.005 against residual ratios
-    17.8/16.4/16.1. The mis-scaled octupole is caught as a clean **factor of 6**.
+    17.83/16.39/16.09 (at 1024 turns, and unchanged at 2048). The mis-scaled octupole
+    is caught as a clean **factor of 6**.
   - **Three traps, each closed by an assertion rather than by care.** The launch has
     `px = py = 0`, so the action is `(1+α²)u₀²/(2β)` — the ring is a palindrome and
     `α = 0` is asserted, because a silent `1+α²` rescales every slope. The working
@@ -1530,7 +1531,7 @@ sustained arc.
     sympy gate derives that an octupole at dispersion has **no** first-order
     chromaticity — its `δ` term is a sextupole, not a gradient — so `chromaticity()`
     ignoring it is right and `Q″` is the honest blind spot.
-    Gates: `tests/analytic/test_octupole_kick.py` (18),
+    Gates: `tests/analytic/test_octupole_kick.py` (20),
     `tests/analytic/test_amplitude_detuning.py` (12),
     `tests/reference/test_octupole_xtrack.py` (7). The reference suite fits the
     anharmonicity matrix from **xtrack's own tracked particles** and agrees within

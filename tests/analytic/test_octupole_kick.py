@@ -32,6 +32,8 @@ route that goes through tracking rather than through the map's algebra.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 import sympy as sp
@@ -42,6 +44,8 @@ from accsim import (
     PX,
     PY,
     ZETA,
+    Bunch,
+    Corrector,
     Drift,
     Lattice,
     Octupole,
@@ -57,8 +61,14 @@ from accsim import (
     jacobian,
     tunes,
 )
-from accsim.orbit import linearised_element_maps, linearised_lattice
-from accsim.twiss import closed_twiss, propagate_twiss
+from accsim.orbit import closed_orbit_nonlinear, linearised_element_maps, linearised_lattice
+from accsim.twiss import (
+    chromaticity_on_orbit,
+    closed_twiss,
+    natural_chromaticity_on_orbit,
+    propagate_twiss,
+    tunes_on_orbit,
+)
 
 MASS0 = 938.27208816e6  # proton, eV
 GAMMA0 = 20.0
@@ -418,6 +428,62 @@ def test_linearised_element_maps_does_see_the_octupole(ref: ReferenceParticle) -
     maps = linearised_element_maps(lat, np.array([x_off, 0.0, 0.0, 0.0]))
     assert maps[0][PX, X] == pytest.approx(-k3l * x_off**2 / 2.0, rel=1e-5)
     assert maps[0][PY, Y] == pytest.approx(+k3l * x_off**2 / 2.0, rel=1e-5)
+
+
+def test_on_orbit_family_splits_in_half_around_a_live_octupole(ref: ReferenceParticle) -> None:
+    """On a steered ring, half the on-orbit optics works and half refuses — which half.
+
+    The distinction is *how each one gets its maps*, not what it computes.
+    :func:`~accsim.twiss.tunes_on_orbit` and its siblings differentiate the real
+    ``track()``, so they see the octupole's feed-down gradient and give an answer.
+    :func:`~accsim.twiss.chromaticity_on_orbit` walks element **types** through
+    :func:`~accsim.orbit.linearised_lattice`, where the octupole's split is not
+    derived — so it raises rather than silently reporting a drift.
+
+    Gated through the user-facing entry point, not only by calling
+    ``linearised_lattice`` directly: a future edit that stopped routing through it
+    would drop the guard with nothing to catch it. The Newton path of
+    ``closed_orbit_nonlinear`` is exercised here too, on a cubic kick.
+    """
+    cell = [Quadrupole(0.3, 1.6), Drift(1.0), Quadrupole(0.3, -1.6), Drift(1.0)]
+    steered = Lattice(
+        [Corrector(kick_x=2e-4), *cell, ThinOctupole(3e4, name="oct"), *(cell * 3)], ref
+    )
+    design = Lattice([*cell, ThinOctupole(3e4), *(cell * 3)], ref)
+
+    # The orbit really is displaced, and the Newton solve converges with the cubic kick.
+    orbit = closed_orbit_nonlinear(steered)
+    assert abs(orbit[X]) > 1e-5
+
+    # Works: the maps come from differentiating track().
+    q_steered = tunes_on_orbit(steered)
+    q_design = tunes_on_orbit(design)
+    assert all(math.isfinite(q) for q in q_steered)
+    assert abs(q_steered[0] - q_design[0]) > 1e-9  # the octupole really has fed down
+
+    # Refuses: the maps would come from a feed-down split that is not derived.
+    with pytest.raises(NotImplementedError, match="octupole"):
+        chromaticity_on_orbit(steered)
+    with pytest.raises(NotImplementedError, match="octupole"):
+        natural_chromaticity_on_orbit(steered)
+
+
+def test_nonlinear_bunch_tracking_applies_the_kick(ref: ReferenceParticle) -> None:
+    """The kick works on a ``(6, n)`` bunch, not only on a single state.
+
+    ``_apply_kick`` is written to broadcast; this is the assertion that makes the
+    claim honest, through the loss-aware bunch path that J1 had to fix for the
+    sextupole. Each particle must receive its *own* amplitude's kick.
+    """
+    lat = Lattice([Drift(0.5), ThinOctupole(5e4), Drift(0.5)], ref)
+    xs = np.array([1e-3, 2e-3, 3e-3])
+    states = np.zeros((DIM, xs.size))
+    states[X] = xs
+    result = Tracker(lat).track_bunch_losses(Bunch(states), nonlinear=True)
+    assert result.transmission == 1.0
+    for i, x0 in enumerate(xs):
+        expected = -5e4 * x0**3 / 6.0
+        assert result.states[PX, i] == pytest.approx(expected, rel=1e-12)
 
 
 def test_linear_tracking_silently_drops_the_kick(ref: ReferenceParticle) -> None:
