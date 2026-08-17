@@ -1649,8 +1649,8 @@ makes sense together.
   (2026-08-17)** — an `(dx, dy)` attribute on elements, plus the first
   quantity in the package that is **statistical** rather than deterministic. Full
   write-up at CONVENTIONS.md → *Misalignments — transverse offsets*. Gates:
-  `tests/analytic/test_misalignment.py` (33),
-  `tests/reference/test_misalignment_xtrack.py` (6). Four things the entry below did
+  `tests/analytic/test_misalignment.py` (34),
+  `tests/reference/test_misalignment_xtrack.py` (6). Five things the entry below did
   not anticipate, each recorded in CONVENTIONS:
   - **The whole linear effect is a constant kick, and `matrix()` needed no change at
     all.** A translation leaves the homogeneous matrix untouched, so the misalignment
@@ -1670,6 +1670,14 @@ makes sense together.
     loses *stability* before reaching the integer (a FODO with no focusing is a drift
     ring); the scan strengthens them toward `Q → 1` instead. With the measured β-sum
     divided out, `p·|sin πQ|` is constant to 10 digits while `p·sin²` moves by 153×.
+  - **The two halves are not independent, contrary to the plan below.** Because the
+    module *solves* rather than evaluating the closed form, the magnitude comparison
+    already pins the prefactor **and** the `sin` dependence, and the pole scan's divisor
+    is that same formula's numerator — so the scan cannot pass while the magnitude gate
+    fails, and "neither able to fake the other" is an overclaim. What survives is the
+    one-directional half that matters: a uniformly mis-scaled kick is invisible to the
+    scan, measured by building the broken machine and running it through the *same*
+    scan (clean first-order divergence, constant across `Q`, at `1.0` not `0.5`).
   - **The offset half is a refactor, and its gate says so.** A displaced element is
     precisely the feed-down expansion this package has already pinned twice: a
     displaced sextupole is **I2**, a displaced octupole is **J3**. So the gate is

@@ -45,13 +45,18 @@ The textbook ``sum_i beta_i / (8 sin^2 pi Q)`` needs one more step, ``cos^2 -> 1
 and **that step is not an ensemble average**: the phases are deterministic properties
 of the lattice, and averaging over displacement samples never touches them. So this
 suite builds its gate on the exact form and *measures* the departure from the
-textbook one (12% on the ring used here). Two checks that cannot fake each other:
+textbook one (12% on the ring used here).
 
-- the **magnitude** — the prefactor and the ``beta``-weighting at one working point;
-- the **pole** — the ``1/|sin pi Q|`` divergence, by scanning ``Q`` onto the integer.
-  Blind to any constant factor, which is exactly why the magnitude check is needed
-  too: :func:`test_a_uniformly_mis_scaled_kick_moves_the_magnitude_and_not_the_pole`
-  builds the J1/J2/J3 failure mode and shows the pole shrugs it off.
+The load-bearing check is the **magnitude** — the solve against that exact form,
+prefactor and ``beta``-weighting included. The ``Q`` **scan** is the same identity
+stressed to 0.2% from the integer, where ``1/|sin pi Q|`` has grown 150-fold and the
+fixed-point solve is near singular; it also pins the *exponent* of the divergence
+(``p |sin pi Q|`` constant to 10 digits, ``p sin^2`` moving by 153x). What it is **not**
+is an independent half — its divisor is the magnitude formula's own numerator, so it
+cannot pass while the magnitude identity fails. The one-directional statement runs the
+other way: a uniformly mis-scaled kick is *invisible* to the scan and caught only by the
+magnitude comparison, which is the J1/J2/J3 failure mode and is measured by building the
+broken machine and scanning it (constant preserved, value 0.5 -> 1.0).
 
 The pole scan is run **strengthening** the quadrupoles toward ``Q -> 1``, not
 weakening them toward ``Q -> 0``: a FODO with no focusing left is a drift ring, which
@@ -84,6 +89,7 @@ from accsim import (
     closed_orbit,
     closed_orbit_nonlinear,
     closed_twiss,
+    is_symplectic_map,
     jacobian,
     linearised_element_maps,
     linearised_lattice,
@@ -297,6 +303,26 @@ def test_no_displacement_moves_beta_or_the_tunes(ref: ReferenceParticle) -> None
         t1.alpha_x,
         t1.alpha_y,
     )
+
+
+def test_the_misaligned_map_is_still_symplectic(ref: ReferenceParticle) -> None:
+    """The house standard, applied to the new map composition (J1/J2/J3 each assert it).
+
+    A translation is a symplectomorphism, so conjugating any symplectic map by one
+    stays symplectic — this passes by construction, which is exactly why it is worth
+    asserting: it is the check that would catch ``d`` being applied *asymmetrically* in
+    the wrapper (subtracted from the state but added back to a different slot, or
+    dropped on one side), which no amount of orbit statistics would reveal.
+    """
+    state = np.array([4e-3, 1e-3, -3e-3, 5e-4, 1e-3, 1e-4])
+    for elem in (
+        ThinQuadrupole(0.5, dx=2e-4, dy=-3e-4),
+        Quadrupole(0.4, 1.7, dx=-1e-4, dy=5e-4),
+        ThinSkewQuadrupole(0.3, dx=2e-4, dy=1e-4),
+        ThinSextupole(K2L, dx=2e-4, dy=-3e-4),
+        ThinOctupole(K3L, dx=2e-4, dy=-3e-4),
+    ):
+        assert is_symplectic_map(lambda s, e=elem: e.track(s, ref), state)
 
 
 def test_misalignment_broadcasts_over_a_bunch(ref: ReferenceParticle) -> None:
@@ -516,11 +542,15 @@ def test_a_bending_dipole_refuses_to_be_displaced(ref: ReferenceParticle) -> Non
     assert Dipole(1.0, 0.0, k1=1.7, dx=3e-4).kick(ref)[PX] != 0.0
 
     arc = Lattice([*_ring(ref).elements, Dipole(1.0, 0.12, name="mb")], ref)
+    rng = np.random.default_rng(3)
     with pytest.raises(NotImplementedError, match="cannot displace the bending Dipole"):
         orbit_statistics(arc, dx_rms=D_RMS)
+    with pytest.raises(NotImplementedError, match="cannot displace the bending Dipole"):
+        misalign(arc, rng, dx_rms=D_RMS)  # raises here, not later inside a track loop
     # ...but the quadrupoles of the same arc can be misaligned on their own.
     quads = [i for i, e in enumerate(arc.elements) if isinstance(e, ThinQuadrupole)]
     assert orbit_statistics(arc, dx_rms=D_RMS, sources=quads).n_sources == len(quads)
+    assert misalign(arc, rng, dx_rms=D_RMS, sources=quads).elements[quads[0]].dx != 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -669,7 +699,7 @@ def test_the_textbook_one_eighth_is_measured_not_inherited(ref: ReferenceParticl
     assert np.max(np.abs(ratio - 1.0)) > 1e-9  # ...and far outside the gate's tolerance
 
 
-def _pole_scan(ref: ReferenceParticle) -> list[tuple[float, float]]:
+def _pole_scan(ref: ReferenceParticle, factory=None) -> list[tuple[float, float]]:
     """``(Q_total, x_rms / measured beta-sum)`` while strengthening toward ``Q -> 1``.
 
     The divisor is ``sqrt(beta(0) sum_i k1l_i^2 beta_i cos^2(dpsi_i - pi Q)) d_rms``,
@@ -677,10 +707,15 @@ def _pole_scan(ref: ReferenceParticle) -> list[tuple[float, float]]:
     is left is the pole and nothing else. This is the contamination the naive scan
     walks into: retuning the quads moves ``beta`` and the source strengths at the same
     time as ``Q``, and the raw rms is *not* a pure ``1/|sin pi Q|``.
+
+    ``factory(scale) -> Lattice`` builds the ring, so the *same* scan can be run on a
+    deliberately broken machine. Without that the "the pole cannot see a mis-scale"
+    claim would be a statement about Python arithmetic rather than about the code.
     """
+    build = factory if factory is not None else (lambda scale: _ring(ref, scale=scale))
     out = []
     for scale in (1.0, 1.1, 1.2, 1.3, 1.4, 1.43, 1.45, 1.46, 1.47, 1.48):
-        lat = _ring(ref, scale=scale)
+        lat = build(scale)
         table = propagate_twiss(lat, closed_twiss(lat))
         beta = np.array([t.beta_x for t in table])
         mu = np.array([t.mu_x for t in table])
@@ -700,12 +735,23 @@ def test_the_pole_is_one_over_sin_pi_q_and_not_some_other_power(
 ) -> None:
     """The divergence at the integer tune is exactly first order in ``1/|sin pi Q|``.
 
-    Blind to any constant factor by construction — which is why the magnitude gate is
-    needed as well — but decisive about the *exponent*: over a scan on which the raw
-    rms grows by a factor 17 and ``1/|sin pi Q|`` by a factor 150,
-    ``p |sin pi Q|`` is constant to 10 digits while ``p sin^2`` moves by two orders of
-    magnitude. The scan crosses ``Q = 1`` and stops short of the singular
-    ``(I - M4)``, which is the *same* physics as the pole and is gated separately.
+    Two things this is, and one it is not.
+
+    It **is** decisive about the *exponent*: over a scan on which the raw rms grows by
+    a factor 17 and ``1/|sin pi Q|`` by a factor 150, ``p |sin pi Q|`` is constant to
+    10 digits while ``p sin^2`` moves by two orders of magnitude. And it **is** the
+    magnitude identity stressed where it is most fragile — the last point sits 0.2%
+    from the integer, where ``beta`` is huge and the fixed-point solve is near
+    singular; the scan crosses ``Q = 1`` and stops short of the singular ``(I - M4)``,
+    which is the same physics as the pole and is gated separately.
+
+    It is **not** an independent half of the gate, and saying so would be an overclaim:
+    the divisor here is exactly :func:`_exact_ensemble_rms`'s numerator, so
+    ``p |sin pi Q| = 0.5`` follows algebraically from the magnitude identity holding at
+    these working points. The genuinely one-directional statement is the *converse* —
+    a constant mis-scale is invisible to this check and caught only by the magnitude
+    comparison — and that is measured in
+    :func:`test_a_uniformly_mis_scaled_kick_moves_the_magnitude_and_not_the_pole`.
     """
     scan = _pole_scan(ref)
     first_order = np.array([p * abs(math.sin(math.pi * q)) for q, p in scan])
@@ -735,12 +781,18 @@ def test_the_pole_and_the_no_closed_orbit_guard_are_the_same_physics(
 def test_a_uniformly_mis_scaled_kick_moves_the_magnitude_and_not_the_pole(
     ref: ReferenceParticle,
 ) -> None:
-    """The J1/J2/J3 failure mode, built and shown to slip past the pole check.
+    """The J1/J2/J3 failure mode, built and run through **both** checks.
 
     A misalignment kick wrong by a constant factor scales every orbit by that factor,
-    so the pole check — which fits a *power* — cannot see it at all, while the
-    magnitude check misses by exactly the factor. Requiring both halves is what closes
-    the gap, exactly as J3 had to.
+    so a check that fits a *power* cannot see it while the magnitude comparison misses
+    by exactly the factor. This is the one-directional statement that makes the
+    magnitude gate load-bearing, so the broken machine is actually built and actually
+    scanned — asserting that ``2 * p`` is constant given ``p`` is constant would be a
+    fact about arithmetic, not about the code.
+
+    The mis-scale touches only ``kick()``, so ``matrix()``, ``beta`` and ``Q`` are
+    untouched and the scan runs over the same working points as the good ring: the
+    divergence stays exactly first order, and only the constant moves, 0.5 -> 1.0.
     """
 
     class _MisScaled(ThinQuadrupole):
@@ -749,25 +801,28 @@ def test_a_uniformly_mis_scaled_kick_moves_the_magnitude_and_not_the_pole(
         def kick(self, r: ReferenceParticle) -> np.ndarray:
             return 2.0 * super().kick(r)
 
-    good = _ring(ref)
-    bad = Lattice(
-        [
-            _MisScaled(e.k1l, name=e.name) if isinstance(e, ThinQuadrupole) else e
-            for e in good.elements
-        ],
-        ref,
-    )
-    want = _exact_ensemble_rms(good, D_RMS, "x")
-    got = orbit_statistics(bad, dx_rms=D_RMS).x_rms
+    def break_ring(scale: float) -> Lattice:
+        return Lattice(
+            [
+                _MisScaled(e.k1l, name=e.name) if isinstance(e, ThinQuadrupole) else e
+                for e in _ring(ref, scale=scale).elements
+            ],
+            ref,
+        )
+
+    want = _exact_ensemble_rms(_ring(ref), D_RMS, "x")
+    got = orbit_statistics(break_ring(1.0), dx_rms=D_RMS).x_rms
     # The magnitude gate fails, by exactly the factor...
     assert np.allclose(got / want, 2.0, rtol=1e-12, atol=0.0)
-    # ...while the pole is untouched: the same constant, at every working point.
-    scan = [
-        (q, 2.0 * p)  # the mis-scale is a constant factor on p, whatever Q is
-        for q, p in _pole_scan(ref)
-    ]
+
+    # ...while the pole check, re-run on the broken machine, still sees a clean
+    # first-order divergence: constant in Q, at twice the value it should be.
+    scan = _pole_scan(ref, factory=break_ring)
+    good_scan = _pole_scan(ref)
+    assert [q for q, _ in scan] == [q for q, _ in good_scan]  # same working points
     first_order = np.array([p * abs(math.sin(math.pi * q)) for q, p in scan])
-    assert np.allclose(first_order, first_order[0], rtol=1e-10, atol=0.0)
+    assert np.allclose(first_order, 1.0, rtol=1e-10, atol=0.0)  # constant: pole is blind
+    assert not np.allclose(first_order, 0.5, rtol=1e-3)  # ...but at the wrong constant
 
 
 def test_monte_carlo_ensemble_converges_on_the_prediction(ref: ReferenceParticle) -> None:

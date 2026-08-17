@@ -2029,10 +2029,23 @@ instead of inheriting it. Distribution-free: a uniform distribution of the same 
 reproduces the same prediction, since only the second moment enters. A 400-machine
 Monte-Carlo agrees within its own `~4%` standard error (mean ratio within `3%`).
 
-Two halves, neither able to fake the other:
+**The load-bearing gate is the magnitude**, and the pole scan is *not* an independent
+half — the honest statement, arrived at by noticing the algebra:
 
-- **Magnitude** — the prefactor and the β-weighting at one working point (`1e-12`).
-- **Pole** — the `1/|sin pi Q|` divergence, blind to any constant factor.
+- **Magnitude** — the solve against the exact form above, prefactor and β-weighting
+  included, at every boundary in both planes (`1e-12`).
+- **The `Q` scan** — the same identity stressed to 0.2 % from the integer, where
+  `1/|sin πQ|` has grown 150-fold and the fixed-point solve is near singular, plus the
+  *exponent* of the divergence. Its divisor is the magnitude formula's own numerator,
+  so `p·|sin πQ| = 0.5` follows algebraically from the magnitude identity holding at
+  those working points: **the scan cannot pass while the magnitude gate fails**. Saying
+  "two halves, neither able to fake the other" would be an overclaim.
+
+The one-directional statement runs the other way, and it is what makes the magnitude
+comparison load-bearing: a uniformly mis-scaled kick (the J1/J2/J3 failure mode) is
+**invisible** to the scan. Built and measured rather than argued — the broken machine is
+constructed and run through the *same* scan, which still gives a clean first-order
+divergence, constant across `Q`, at `1.0` instead of `0.5`.
 
 The pole scan has two traps, both walked into and recorded:
 
@@ -2050,17 +2063,18 @@ The pole scan has two traps, both walked into and recorded:
    scan, while `p·sin²` moves by a factor **153**. The exponent is pinned; the constant
    is not (by construction).
 
-The J1/J2/J3 failure mode is built and shown to slip past the pole: a misalignment
-kick wrong by a constant factor scales every orbit by that factor, so `p·|sin|` stays
-perfectly constant (just at the wrong value) while the magnitude gate misses by exactly
-the factor. Requiring both halves is what closes the gap.
-
 `1/|sin pi Q| → ∞` and `(I − M4)` going singular are one statement, so the statistical
 entry point inherits I1's `ClosedOrbitError` at the integer rather than returning a
 huge but meaningless number — checked at `scale = 0.2`, I1's own exactly-on-resonance
 working point (`Q_y = 0`), so the two suites agree about where the resonance is.
 
-Gates: `tests/analytic/test_misalignment.py` (33, ~3.5 s),
+The new map is asserted **symplectic** as well, as J1/J2/J3 each are. It passes by
+construction (a translation is a symplectomorphism, so conjugating a symplectic map by
+one stays symplectic) and that is the reason to run it: it is the check that would catch
+`d` being applied *asymmetrically* in the wrapper, which no amount of orbit statistics
+would reveal.
+
+Gates: `tests/analytic/test_misalignment.py` (34, ~43 s),
 `tests/reference/test_misalignment_xtrack.py` (6, six `xt.Line` builds, ~57 s).
 
 **Out of scope for K1:** rolls (`rot_s_rad`; K2), longitudinal displacement (`ds`),

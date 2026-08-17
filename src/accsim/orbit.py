@@ -1025,6 +1025,15 @@ def orbit_statistics(
     every source — the usual way a tolerance is quoted. ``sources`` defaults to every
     element whose linear map responds to a displacement.
 
+    **A ring with bending dipoles needs an explicit ``sources``.** A bend does respond
+    to a displacement, so the default list includes it — and
+    :class:`~accsim.elements.dipole.Dipole` then refuses to be displaced at all
+    (``NotImplementedError``: its misalignment is a rigid-body motion of a curved body,
+    not the translation this package models). That refusal is deliberate and loud
+    rather than a silently wrong model averaged over hundreds of machines; pass the
+    quadrupole indices to get the statistics of the sources a real machine's orbit
+    comes from.
+
     **Scope: the linear response only.** A displaced sextupole or octupole is
     invisible here *and this says so*, by refusing such a source rather than
     returning zero: its kick is quadratic (or cubic) in the displacement and lives
@@ -1060,6 +1069,11 @@ def misalign(
     Gaussian is a choice, not a requirement: :func:`orbit_statistics` depends on the
     displacements only through their second moment, which the analytic suite checks by
     reproducing the same prediction from a uniform distribution.
+
+    Each displaced element's :meth:`~accsim.elements.element.Element.kick` is evaluated
+    once before returning, so an element that **refuses** to be displaced (a bending
+    :class:`~accsim.elements.dipole.Dipole`) raises here rather than handing back a
+    lattice that explodes later inside a tracking loop.
     """
     if dx_rms < 0.0 or dy_rms < 0.0:
         raise ValueError(f"rms displacements must be >= 0, got ({dx_rms}, {dy_rms})")
@@ -1070,4 +1084,5 @@ def misalign(
             out = _with_offset(out, i, "dx", float(rng.normal(0.0, dx_rms)))
         if dy_rms:
             out = _with_offset(out, i, "dy", float(rng.normal(0.0, dy_rms)))
+        out.elements[i].kick(lattice.ref)  # fail here, not three call frames deep
     return out
