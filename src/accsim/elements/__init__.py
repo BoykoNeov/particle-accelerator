@@ -8,6 +8,7 @@ from .corrector import Corrector
 from .dipole import Dipole
 from .drift import Drift
 from .element import Element
+from .octupole import Octupole, ThinOctupole
 from .quadrupole import Quadrupole, ThinQuadrupole
 from .rfcavity import RFCavity
 from .sextupole import Sextupole, ThinSextupole
@@ -22,6 +23,8 @@ __all__ = [
     "Corrector",
     "Sextupole",
     "ThinSextupole",
+    "Octupole",
+    "ThinOctupole",
     "SkewQuadrupole",
     "ThinSkewQuadrupole",
     "RFCavity",

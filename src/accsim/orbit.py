@@ -463,7 +463,17 @@ def linearised_lattice(
     error I2 avoided by using thin sextupoles throughout its own gates.
     :func:`~accsim.twiss.propagate_twiss_on_orbit` has no such restriction, because
     it differentiates the thick element's real ``track()``.
+
+    Raises :class:`NotImplementedError` for an **octupole** of non-zero strength,
+    thin or thick. Its cubic kick expands about an orbit offset into a sextupole,
+    a gradient, a skew and a dipole term, none of which is derived here — octupole
+    feed-down is out of scope (``docs/ROADMAP.md`` -> J2). Passing it through
+    unchanged would be worse than refusing: an octupole's ``matrix()`` is a drift,
+    so the returned lattice would quietly claim the beam sees no gradient from it.
+    :func:`linearised_element_maps` *does* handle octupoles, because it
+    differentiates ``track()`` rather than walking element types.
     """
+    from .elements.octupole import Octupole, ThinOctupole
     from .elements.quadrupole import ThinQuadrupole
     from .elements.sextupole import Sextupole, ThinSextupole
     from .elements.skew_quadrupole import ThinSkewQuadrupole
@@ -483,6 +493,15 @@ def linearised_lattice(
                 "offset varies across the body, so a single entrance-orbit gradient would "
                 "carry an O(L^2) error. Slice it into ThinSextupole kicks, or use "
                 "propagate_twiss_on_orbit(), which differentiates track() directly"
+            )
+        elif (isinstance(elem, ThinOctupole) and elem.k3l != 0.0) or (
+            isinstance(elem, Octupole) and elem.k3 != 0.0
+        ):
+            raise NotImplementedError(
+                f"cannot linearise the octupole {elem.name!r} about an orbit: its feed-down "
+                "split (sextupole + gradient + skew + dipole) is out of scope, and passing it "
+                "through would silently report a drift. Use linearised_element_maps() or "
+                "propagate_twiss_on_orbit(), which differentiate track() directly"
             )
         else:
             elements.append(elem)
