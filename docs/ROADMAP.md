@@ -454,9 +454,12 @@ particle rather than to the machine) and **J3** (octupole feed-down on a distort
 orbit, which needed a new `ThinSkewSextupole` element to be written without dropping
 a term).
 Each is marked inline with what it delivered and what it deliberately did not.
-**As of 2026-08-17 there is no open follow-up on any axis below** — J3 (octupole
-feed-down on a distorted orbit, the deferral J2 named) closed the last one the same
-day it was opened.
+J3 (octupole feed-down on a distorted orbit, the deferral J2 named) closed the last
+follow-up on axes A–J the same day it was opened, leaving nothing outstanding there.
+**The open milestones are K1 and K2** (axis K — misalignments: elements gain a
+position and an orientation of their own), opened 2026-08-17 as a *new* axis rather
+than an extension, since offsets belong to the closed-orbit axis and rolls to the
+coupling axis.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -1625,6 +1628,107 @@ The follow-up on J1's physics was **I2** (above, under axis I) — feed-down
 belongs to the closed-orbit axis, and J1 was sequenced ahead of it only so its gate
 would not be circular. That sequencing paid: I2's gates are built on J1's kick and
 none of them is a rerun of it. ✅ Done.
+
+### K. Misalignments — the magnet is not where the lattice says it is (core accelerator)
+
+Every element up to here sits exactly where the lattice puts it. Real magnets are
+displaced by tens of microns and rolled by fractions of a milliradian, and that —
+not the design optics — is what sets a real machine's orbit, its coupling and its
+vertical emittance. Axis K gives elements a **position and an orientation of their
+own**, and derives what each does. It is deliberately *not* filed as I4: offsets
+land on the closed-orbit axis, rolls land on the coupling axis, and the pair only
+makes sense together.
+
+**What this axis must not pretend is new.** The roll angle that converts a normal
+`2(n+1)`-pole into a pure skew one is **already derived and recorded** —
+`π/(2(n+1))`, solved in sympy during J3 and written up at CONVENTIONS.md →
+*The skew sextupole*, non-uniqueness included. Extending it to the octupole
+(`22.5°`) is a data point, not a gate, and K claims no credit for it.
+
+- **K1 — transverse offsets, and the orbit statistics they produce.** 🚧 **OPEN
+  (opened 2026-08-17)** — an `(dx, dy)` attribute on elements, plus the first
+  quantity in the package that is **statistical** rather than deterministic.
+  - **The offset half is a refactor, and its gate says so.** A displaced element is
+    precisely the feed-down expansion this package has already pinned twice: a
+    displaced sextupole is **I2**, a displaced octupole is **J3**. So the gate is
+    *reproduce those numbers*, not *derive new ones* — an offset attribute must
+    return what I2 and J3 already validated against xtrack, and no coefficient is at
+    risk. Written as a consistency requirement, not as physics.
+  - **The quadrupole case is exact, which the sextupole and octupole cases were
+    not** (derived in sympy 2026-08-17 — not recalled). A quad's gradient is
+    uniform, so a displaced quad is **exactly** a quad plus a dipole with **no
+    higher terms at all** (remainder identically `0`), where I2 and J3 each split
+    one element into a family. The kick is
+
+        theta_x = +k1l*dx        theta_y = -k1l*dy
+
+    — the **same** displacement sign giving **opposite** kick signs in the two
+    planes, because accsim's thin quad is `px -> px - k1l x` but
+    `py -> py + k1l y`. This asymmetry has bitten the package once already
+    (`Corrector` needs `knl=[−k]` for `kick_x=+k` but `ksl=[+k]` for `kick_y=+k`,
+    CONVENTIONS.md:564), so it is derived and asserted rather than trusted.
+  - **Offsets alone cannot couple the planes.** Both cross-derivatives of a
+    displaced quad's kick vanish identically (`∂Δpx/∂y = ∂Δpy/∂x = 0`), so no
+    displacement of any unrolled quadrupole produces a skew term — only a **roll**
+    can. Asserted at exact zero, not to tolerance, and it is what separates K1 from
+    K2 cleanly.
+  - **The new content is the statistical gate, and it has J3's two-halves shape**
+    (derived in sympy 2026-08-17). For `N` uncorrelated zero-mean displacements,
+    superposing I1's single-kick closed form and averaging gives
+
+        <x_co^2>(s) = beta(s) * theta_rms^2 * sum_i beta_i / (8 sin^2(pi Q))
+        x_rms(s)    = sqrt(beta(s) * d_rms^2 * k1l^2 * sum_i beta_i) / (2*sqrt(2)*|sin(pi Q)|)
+
+    and it splits into two checks **neither of which can fake the other**:
+    - the **pole** — `x_rms ~ 1/|sin πQ|`, tested by scanning `Q` toward an integer
+      and fitting the exponent. Blind to the prefactor entirely: any constant
+      scales out of a power-law fit.
+    - the **magnitude** — the `1/8` and the `β`-weighting of the sources, at one
+      working point. Blind to the pole: a single `Q` says nothing about scaling.
+
+    A uniformly mis-scaled kick (`c·θ`) moves the magnitude by `c²` and leaves the
+    pole **exactly** untouched — the J1/J2/J3 failure mode, closed the J3 way, by
+    requiring both halves rather than one tolerance.
+  - **The declared approximation.** The cross terms die because the displacements
+    are uncorrelated — that is exact. The step from `cos²(ψ_i − πQ)` to `½` is
+    **not**: it assumes the sources' betatron phases are spread, and it is the one
+    assumption in the formula. It is stated here because a lattice with few,
+    phase-aligned sources will violate it, and the suite must measure the departure
+    rather than inherit it silently.
+  - The `1/sin πQ` pole is not a new claim — `orbit.py:29` already carries the
+    single-kick form and CONVENTIONS.md:1434 records that it is a *consequence*
+    there, never the definition. K1's novelty is the **ensemble**, not the pole.
+  - Effort **M**. Out of scope for K1: rolls (K2), longitudinal displacement
+    (`ds`), misalignment of a *thick* element's body as distinct from its ends, and
+    correction strategies beyond I1's existing SVD steering.
+
+- **K2 — the rolled dipole, and the first vertical dispersion in the package.**
+  🚧 **OPEN (opened 2026-08-17)** — the half of axis K that is genuinely new
+  physics rather than a refactor with a good gate.
+  - **Nothing in accsim bends vertically.** Every `Dipole` bends in `x`, so
+    `D_y = 0` identically everywhere — while `twiss._matched_dispersion` already
+    transports a **4D** dispersion and `beam_sizes` already reads
+    `sigma_y = sqrt(Sigma_yy + (D_y sigma_delta)^2)` (twiss.py:642). The plumbing
+    exists and has never been fed. A rolled dipole is the first thing that feeds it.
+  - **A small roll is a pure vertical bend** (sympy, 2026-08-17):
+    `(theta_x, theta_y) = (theta*cos(phi), theta*sin(phi))`, so the vertical kick is
+    **first** order in the roll while the horizontal loss is only **second** —
+    `theta_y = theta*phi` to `O(phi)`. And the kick is momentum-dependent
+    (`theta_eff = theta/(1+delta)`, so `d(theta_eff)/d(delta) = -theta`), which is
+    exactly the source term of the dispersion equation. That is why a rolled dipole
+    produces vertical **dispersion** and not merely a vertical **orbit** — the
+    distinction K2 has to demonstrate, since a vertical steerer produces the second
+    without the first.
+  - **The gate borrows a verdict K cannot influence.** `D_y` feeds the vertical
+    emittance whose coefficient **G1 pre-committed wrong and xtrack corrected**
+    (`|C⁻|²/(4Δ²)`). So a roll angle and a vertical steerer tuned to the same `D_y`
+    must give the same `ε_y` contribution, checking K2 against machinery that was
+    validated before K existed and cannot be quietly bent to agree.
+  - Effort **M**. Out of scope for K2: rolled quadrupoles as a *coupling* source
+    beyond what G1's skew quad already covers, rolled higher multipoles (the angle
+    rule is J3's, above), chromatic coupling (still the named blind spot at
+    CONVENTIONS.md → *The skew sextupole*), and misalignment **correction** —
+    K measures what misalignment does; steering it out is I1's existing job.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
