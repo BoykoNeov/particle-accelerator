@@ -98,7 +98,15 @@ from .reference import (
     PROTON_MASS_EV,
     ReferenceParticle,
 )
-from .symplectic import J6, is_symplectic, is_symplectic_map, jacobian
+from .symplectic import (
+    J6,
+    delta_from_pzeta,
+    is_symplectic,
+    is_symplectic_map,
+    is_symplectic_map_canonical,
+    jacobian,
+    pzeta_from_delta,
+)
 from .tracking import Bunch, LossResult, Particle, Tracker
 from .tune import ellipse_from_trajectory, naff, tracked_tunes
 from .twiss import (
@@ -192,6 +200,9 @@ __all__ = [
     # symplectic helpers
     "is_symplectic",
     "is_symplectic_map",
+    "is_symplectic_map_canonical",
+    "pzeta_from_delta",
+    "delta_from_pzeta",
     "jacobian",
     "J6",
     # twiss / optics
