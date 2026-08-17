@@ -452,7 +452,8 @@ I1 named, which J1 was sequenced ahead of so that its gate would not be circular
 octupole and amplitude-dependent detuning — the first tune that belongs to the
 particle rather than to the machine).
 Each is marked inline with what it delivered and what it deliberately did not.
-**As of 2026-08-17 there is no open follow-up on any axis below.**
+**The one open milestone is J3** (octupole feed-down on a distorted orbit — the
+deferral J2 named), opened 2026-08-17; no other axis below has an open follow-up.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -1542,6 +1543,63 @@ sustained arc.
     second-order term, octupole feed-down on a distorted orbit, resonance driving
     terms and normal-form / Lie-map machinery, dynamic aperture and frequency maps,
     decapoles and above, and octupoles as matching knobs.
+
+- **J3 — octupole feed-down on a distorted orbit.** 🚧 **OPEN (opened 2026-08-17)** —
+  the deferral J2 named by name. J2's octupole is exact on axis and *refused* off it:
+  `orbit.linearised_lattice` raises rather than report a drift. J3 derives what it
+  refuses. Expanding the cubic kick about an orbit offset `(x_co, y_co)` splits **one
+  octupole into six elements** (derived in sympy, 2026-08-17 — not recalled):
+
+      dipole       theta_x = -1/6 k3l x_co (x_co^2 - 3 y_co^2)
+                   theta_y = +1/6 k3l y_co (3 x_co^2 - y_co^2)
+      normal quad  k1l_eff  = +1/2 k3l (x_co^2 - y_co^2)
+      skew quad    k1sl_eff = +k3l x_co y_co
+      normal sext  k2l_eff  = +k3l x_co
+      skew sext    k2sl_eff = +k3l y_co
+      octupole     unchanged
+
+  Five of the six are elements accsim already validates; the **skew sextupole is not
+  one of them**, so J3 is two commits — the element first, then the feed-down.
+  - **The gate is a three-power ladder, and no single tolerance can fake it.** The
+    three feed-down orders reach three quantities the package already computes by
+    independent routes, each with a *different* power of the orbit:
+    chromaticity moves as `x_co` (through `k2l_eff` at dispersion — first order in
+    `k3l`, where an on-axis octupole is exactly zero and `Q''` is J2's blind spot),
+    the tunes as `x_co^2` (through `k1l_eff`), and the closed orbit itself as
+    `x_co^3` (through the dipole). One coefficient set has to satisfy all three
+    ratios at once.
+  - **The ladder is blind on its own, and the magnitude gate is blind on its own.**
+    A uniformly mis-scaled octupole (`1` for `1/6`, which J2 already carries through
+    every structural check) leaves all three *powers* untouched and is caught only as
+    a factor **6** in magnitude; a single-quantity magnitude check is what J1 and J2
+    both showed a wrong coefficient can survive. Both halves are required, and the
+    test file says so.
+  - **The skew sextupole's sign is not accsim's to derive.** Nothing this package
+    computes reads a skew sextupole — `_sextupole_feeddown` takes `k2l` off *normal*
+    sextupoles and only at `D_x` — so no analytic gate can pin it and the 30-degree
+    roll identity pins the shape but not the sign. It is fixed **by probe** against
+    xtrack, the J1/J2 rule: measured 2026-08-17,
+    `ThinSkewSextupole(k2sl) == xt.Multipole(ksl=[0, 0, +k2sl])` with
+    `Delta px = +k2sl x y`, `Delta py = +1/2 k2sl (x^2 - y^2)`, and the roll that
+    reproduces it is **-30 deg** (+30 deg gives the opposite sign).
+  - **The exact six-way identity has to be made non-blind.** For a *thin* octupole
+    the expansion terminates, so "tracked octupole at an offset == the chain of six"
+    is an algebraic identity that passes at round-off — and would keep passing with
+    `k2sl_eff` sign-flipped if the vertical orbit happened to be zero. It is
+    therefore run with **both** planes steered (both asserted nonzero) and each of
+    the six coefficients is separately shown to break it (the H2 lesson: an exact
+    residual makes a convergence gate blind).
+  - **A sharp asymmetry against I2 that nothing else in the suite has.** For the
+    octupole `x = px = 0` is an *exact* invariant subspace as well as `y = py = 0`
+    (the kick is odd in both), where the sextupole's is only the latter — so a purely
+    vertical bump moves the horizontal orbit through a sextupole and **not** through
+    an octupole. Asserted at exact zero, not to tolerance.
+  - **Scope.** Thin octupoles carry the quantitative gates; a **thick** one still
+    raises in `linearised_lattice` for I2's `O(L^2)` reason (its offset varies across
+    the body), while `linearised_element_maps` handles it by differentiating
+    `track()`. Out of scope, unchanged from J2: the octupole's second-order detuning,
+    `Q''`, resonance driving terms and normal-form machinery, decapoles and above,
+    the 6D closed orbit, and misalignments as element attributes.
 
 The follow-up on J1's physics was **I2** (above, under axis I) — feed-down
 belongs to the closed-orbit axis, and J1 was sequenced ahead of it only so its gate
