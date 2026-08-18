@@ -656,13 +656,38 @@ def test_tracking_a_bending_gradient_magnet_lands_on_f2_minus_the_metric_group(
 
 
 def test_the_gradient_bend_is_no_longer_chromatically_ideal(ref: ReferenceParticle) -> None:
-    """The plain statement of what changed, against the map it replaced.
+    r"""The plain statement of what changed — **and the direction it changed in.**
 
     Before L4 a combined-function bend's ``track`` was its ``matrix``, so it was *exactly*
     momentum-independent — a magnet that focuses every particle identically, which is not
-    what a magnet is. The gate is that the tracked chromaticity **moves**, and moves by
-    something of the size of the gradient's own share; where it moves *to* is the previous
-    test's business.
+    what a magnet is. The first gate is that the tracked chromaticity **moves**, and moves
+    by something of the size of the gradient's own share; where it moves *to* is the
+    previous test's business.
+
+    ⚠️ **The second gate is the uncomfortable one, and it is asserted rather than left as
+    prose in three documents.** On a ring of *bending* gradient magnets the **converged**
+    tracked chromaticity is now **further** from :func:`~accsim.natural_chromaticity` than
+    the pre-L4 blind map was. That is not a bug and it is not a tolerance to widen: the
+    blind map contributed *nothing*, while this one contributes an uncancelled
+    ``-beta_x h^2`` whose cancelling partner — the curvilinear-metric group — the expanded
+    family does not have. It is the same shape as the reverted F1 "gradient-only" patch,
+    which ``docs/CONVENTIONS.md`` records as measurably worse than omitting bends.
+
+    **"Converged" is load-bearing and was found by running this, not by reasoning.** At one
+    kick per magnet the *splitting* error happens to push the answer back across the true
+    value, so an unsliced ring reads closer to the truth than the blind map does — by
+    luck, not by physics, and it reverses as soon as the magnet is sliced at all. Quoting
+    that number as "L4 improved the tracked chromaticity" would be exactly the wrong
+    lesson, so both are asserted: the unsliced coincidence *and* the converged truth.
+
+    Two things keep that from being a reason to revert L4. The **map** is strictly better
+    everywhere — it was ``delta``-blind and is now exact in ``delta`` to all orders, and it
+    reproduces xtrack's own ``mat-kick-mat`` to ``1e-16``. And
+    :func:`~accsim.natural_chromaticity` is the deliverable, is untouched by L4, and is
+    what xtrack's *exact* bend models agree with. What this assertion buys is that the
+    claim cannot quietly stop being true: if a later milestone (L5, the metric term)
+    closes the gap, this test fails and has to be rewritten, which is exactly when someone
+    should be made to look at it.
     """
     lat, blind = (
         _cf_ring(ref),
@@ -677,8 +702,18 @@ def test_the_gradient_bend_is_no_longer_chromatically_ideal(ref: ReferencePartic
     # Identical design optics: same matrices, so this is a controlled experiment.
     np.testing.assert_allclose(blind.one_turn_matrix(), lat.one_turn_matrix(), atol=1e-15)
 
-    moved = abs(_tracked_chromaticity(lat)[0] - _tracked_chromaticity(blind)[0])
-    assert moved > 0.02
+    tracked, was = _tracked_chromaticity(lat), _tracked_chromaticity(blind)
+    assert abs(tracked[0] - was[0]) > 0.02  # it moved
+
+    # A blind bend's map is its matrix, so slicing it changes nothing: the two arms of the
+    # comparison below differ only in L4's map, not in how finely the ring is cut.
+    truth = natural_chromaticity(lat, slices=1024)
+    converged = _tracked_chromaticity(_cf_ring(ref, n_slices=16))[0]
+    assert abs(converged - truth[0]) > abs(was[0] - truth[0]), "the model moved away"
+
+    # ...and the unsliced coincidence, pinned so it is never quoted as an improvement.
+    assert abs(tracked[0] - truth[0]) < abs(was[0] - truth[0])
+    assert abs(converged - truth[0]) > abs(tracked[0] - truth[0])
 
 
 # --------------------------------------------------------------------------

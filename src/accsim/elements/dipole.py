@@ -253,6 +253,16 @@ def expanded_cfd_map(
 
     ``state`` is a ``(6,)`` vector or a ``(6, n)`` bunch; ``K_x``, ``K_y`` and ``G`` are
     all per-particle, which is why this is not a matrix multiply.
+
+    ⚠️ **A lost particle is not detected here, unlike everywhere else in the package.**
+    :class:`~accsim.elements.drift.Drift` and :func:`exact_sector_bend_map` both return
+    ``NaN`` when a particle has no forward momentum, because their square root goes
+    negative and declining to invent a trajectory is the honest answer. This map has been
+    *expanded* about the axis, so it has no square root left to go negative and it returns
+    a finite, meaningless number instead. That is the expanded family's behaviour and
+    xtrack's ``track_thick_cfd`` shares it; it is recorded rather than patched, because
+    inventing a loss criterion here would be accsim's alone. Losses belong to
+    :class:`~accsim.elements.aperture.Aperture`, which is unaffected.
     """
     st = np.asarray(state, dtype=float)
     L = length

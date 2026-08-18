@@ -2095,9 +2095,12 @@ move.
     `mat-kick-mat`, accsim's sliced tracking, and F2-minus-the-metric-group all give
     `(−0.13973, −0.13206)`. Two families, two numbers, accsim's two routes one each.
   - ⚠️ **One diagnostic regressed, and it is named rather than buried.** On a bendy
-    combined-function ring the *tracked* chromaticity can now be further from the truth
-    than the pre-L4 blind map was, because that map contributed nothing where this one
-    contributes an uncancelled `−β_x h²`. That is the F1 failure mode. The **map** is
+    combined-function ring the **converged** tracked chromaticity is now further from the
+    truth than the pre-L4 blind map was, because that map contributed nothing where this
+    one contributes an uncancelled `−β_x h²`. That is the F1 failure mode. (At *one* kick
+    per magnet the splitting error happens to push the answer back across the true value,
+    so the unsliced ring reads closer — by luck, and it reverses on any slicing; both are
+    asserted so the unsliced number is never quoted as an improvement.) The **map** is
     strictly better everywhere (it was `δ`-blind, it is now exact in `δ`), and
     `natural_chromaticity` — the deliverable, and what the exact models agree with — is
     untouched.
@@ -2111,11 +2114,12 @@ move.
     square root, which for a bend enters `px' = h p_z − h` already at `O(p²)`, and the
     dropped metric factor, whose signature is a bilinear `h x px`. Both matched to their
     closed forms.
-  - **Three tests re-based**, against L1's 29, L2's five and L3's nine. A
-    combined-function bend also **moved symplecticity groups** (its `track` is no longer
-    linear in `δ`, so the non-canonical check now rejects it), and a *rolled* one inherits
-    L3's first-order-in-roll cost by the same mechanism: `6.2e-8` against the pure bend's
-    `4.7e-8`, with `matrix()`/`kick()` untouched.
+  - **Four tests re-based, across three files**, against L1's 29, L2's five and L3's
+    nine. Two of them are the same fact: a combined-function bend **moved symplecticity
+    groups** (its `track` is no longer linear in `δ`, so the non-canonical check now
+    rejects it), and a *rolled* one inherits L3's first-order-in-roll cost by the same
+    mechanism — `6.2e-8` against the pure bend's `4.7e-8`, with `matrix()`/`kick()`
+    untouched.
 
 - **L5 (candidate) — the curvilinear metric term for combined-function bends.** What L4
   found and deliberately did not build. The missing piece has a single generator,

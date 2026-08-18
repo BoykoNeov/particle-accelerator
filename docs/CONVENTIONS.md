@@ -715,12 +715,19 @@ named in closed form. `natural_chromaticity` is untouched by L4, is what the exa
 agree with, and remains the function to use.
 
 ⚠️ The blunt consequence, stated because it is a regression in one diagnostic: on a ring
-of *bending* gradient magnets the **tracked** chromaticity can now be further from the
-truth than the pre-L4 blind map was, because that map contributed nothing at all where
-this one contributes an uncancelled `-β_x h²`. That is the F1 failure mode (see *Dipole
-chromaticity*), and it is the price of the only family with a closed-form linear part.
-The **map** is nonetheless strictly better everywhere: it was `δ`-blind and is now exact
-in `δ`.
+of *bending* gradient magnets the **converged** tracked chromaticity is now further from
+the truth than the pre-L4 blind map was (`0.254` against `0.234` on the arc above),
+because that map contributed nothing at all where this one contributes an uncancelled
+`-β_x h²`. That is the F1 failure mode (see *Dipole chromaticity*), and it is the price of
+the only family with a closed-form linear part. The **map** is nonetheless strictly better
+everywhere: it was `δ`-blind and is now exact in `δ`.
+
+"Converged" is load-bearing, and was found by asserting it rather than by reasoning: at
+**one** kick per magnet the *splitting* error happens to push the answer back across the
+true value, so an unsliced ring reads closer than the blind map — by luck, and it reverses
+as soon as the magnet is sliced at all. Both are pinned in
+`test_the_gradient_bend_is_no_longer_chromatically_ideal`, so the unsliced number can
+never be quoted as an improvement.
 
 Recovering the metric term is a candidate milestone (**L5**), not this one: its
 Hamiltonian `H_m = h x (px² + py²)/(2q)` generates both missing pieces at once and has
@@ -759,8 +766,8 @@ Two residuals, one of them this milestone's own model boundary.
 
 ### Blast radius
 
-**Three** analytic tests, against L1's 29, L2's five and L3's nine — the axis is
-converging. Each was restated with its new content:
+**Four** analytic tests across three files, against L1's 29, L2's five and L3's nine —
+the axis is converging. Each was restated with its new content:
 
 - L3's `test_a_combined_function_bend_is_deliberately_left_on_the_linear_map` was written
   to **fail loudly** when this landed. It did, and is now
