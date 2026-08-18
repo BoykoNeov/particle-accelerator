@@ -595,8 +595,8 @@ sustained arc.
   energy loss on the particle's *own* trajectory, opt-in per tracking call and off by
   default, so damping is something the simulation exhibits. Full write-up at
   CONVENTIONS.md → *Radiation in tracking*. Gates:
-  `tests/analytic/test_radiation_tracking.py` (23) and
-  `tests/reference/test_radiation_tracking_xtrack.py` (5). The headline: a vertically
+  `tests/analytic/test_radiation_tracking.py` (24) and
+  `tests/reference/test_radiation_tracking_xtrack.py` (6). The headline: a vertically
   displaced particle tracked for 1500 turns damps at **`tau_y` to 3e-5 of
   `damping_times`** — a closed form computed by a completely separate route and gated
   against xtrack and MAD-X a year before any tracking radiation existed.
@@ -642,6 +642,15 @@ sustained arc.
     slicing does not close it (it makes it *larger*, while driving Robinson's measured
     `J_x + J_y + J_z` from 4.026 to 4.0004). The sharp partition gates therefore run on a
     normal arc and the departure itself is asserted as a monotone function of `I4/I2`.
+  - **A sign error found in xtrack on the way out.** Its `direction_of_motion` computes
+    `iis = sqrt(1 - iix*iix + iiy*iiy)`; the `+` on the vertical term is wrong, and accsim
+    uses the correct `1 - ix^2 - iy^2`. The two part company **quartically** in `py`
+    (`6.0e-7` at `py = 2e-2`, `2.3e-5` at `5e-2`), because the projections differ by
+    `2 B_par^2 iy^2` and `B_par` is itself linear in `py`. It is inert at the `py <= 1e-3`
+    every other cross-check on this axis uses, so it took a deliberate probe with a
+    twenty-times lever arm to see — and it is gated from both sides: the growth law *and* a
+    reconstruction of xtrack's sign that lands back on the usual `1.19e-8` residual at
+    every amplitude.
   - **Blast radius zero.** No existing test changed: `matrix()`/`kick()` are untouched and
     radiation defaults off, so the 908 analytic tests stayed green and 23 were added. The
     one API change is additive — `Tracker.track_once` is now public and `radiation=` reaches

@@ -428,16 +428,25 @@ def test_the_partition_split_departs_from_the_integral_method_as_I4_over_I2_grow
 # Gate 9 — the scalings.
 # ---------------------------------------------------------------------------
 def test_the_tracked_energy_loss_scales_as_E_to_the_fourth_with_its_own_correction() -> None:
-    r"""``U ∝ E^4``, corrected by the ``c U0/E`` of gate 3 — predicted, then measured."""
-    losses, corrections = [], []
+    r"""``U ∝ E^4``, corrected by the same ``c U0/E`` gate 3 measures.
+
+    ``c`` is measured here from these two energies rather than copied from gate 3: a
+    number pasted between tests is a number that survives a change to the test ring in
+    one place and not the other.
+    """
+    losses, ratios, coefficients = [], [], []
     for energy in (2.0e9, 4.0e9):
         lat = _ring(**{**FAST, "energy": energy}, rf=False)
+        u0 = energy_loss_per_turn(lat)
+        e0 = lat.ref.total_energy_eV
         out = Tracker(lat).track(Particle(0, 0, 0, 0, 0, 0), nonlinear=True, radiation="mean")
-        losses.append(-out.delta * lat.ref.total_energy_eV)
-        corrections.append(energy_loss_per_turn(lat) / lat.ref.total_energy_eV)
-    coefficient = 1.26  # gate 3's measured, ring-specific c
-    predicted = 16.0 * (1.0 - coefficient * (corrections[1] - corrections[0]))
+        losses.append(-out.delta * e0)
+        ratios.append(u0 / e0)
+        coefficients.append((1.0 - losses[-1] / u0) / (u0 / e0))
+    coefficient = sum(coefficients) / len(coefficients)
+    predicted = 16.0 * (1.0 - coefficient * (ratios[1] - ratios[0]))
     assert losses[1] / losses[0] == pytest.approx(predicted, rel=1e-4)
+    assert losses[1] / losses[0] == pytest.approx(16.0, rel=3e-3)  # ... and it IS E^4
 
 
 def test_the_closed_form_damping_time_scales_as_one_over_energy_cubed() -> None:
@@ -554,3 +563,37 @@ def test_radiation_without_the_nonlinear_path_raises_instead_of_being_ignored() 
         tracker.track_turns(particle, 1, radiation="mean")
     with pytest.raises(ValueError, match="must be one of"):
         tracker.track(particle, nonlinear=True, radiation="quantum")
+
+
+def test_track_bunch_and_track_bunch_losses_radiate_like_the_single_particle_path() -> None:
+    """The bunch entry points are not a separate implementation, and are gated as such.
+
+    ``track_bunch(nonlinear=True)`` and the aperture-aware ``track_bunch_losses`` each
+    walk the lattice by their own loop; a radiation flag that reached one and not the
+    other, or reached neither, is exactly the ungated composition L3 found the hard way.
+    """
+    from accsim import Bunch
+
+    lat = _ring(**FAST)
+    tracker = Tracker(lat)
+    states = np.array(
+        [
+            [1e-4, 0.0, -2e-4],
+            [0.0, 1e-5, 0.0],
+            [0.0, 1e-4, 1e-4],
+            [0.0, 0.0, 2e-5],
+            [0.0, 0.0, 0.0],
+            [0.0, 1e-4, -1e-4],
+        ]
+    )
+    one_turn = tracker.track_bunch(Bunch(states.copy()), nonlinear=True, radiation="mean")
+    expected = tracker.track_once(states.copy(), radiation="mean")
+    assert np.array_equal(one_turn.states, expected)
+    assert np.all(one_turn.states[5] < states[5])  # every particle really lost momentum
+
+    two_turns = tracker.track_bunch_losses(
+        Bunch(states.copy()), n_turns=2, nonlinear=True, radiation="mean"
+    )
+    twice = tracker.track_once(tracker.track_once(states.copy(), radiation="mean"), "mean")
+    assert np.allclose(two_turns.states, twice, rtol=0.0, atol=1e-16)
+    assert two_turns.n_survived == states.shape[1]  # no apertures in this ring

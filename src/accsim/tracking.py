@@ -154,7 +154,10 @@ def _check_radiation(nonlinear: bool, radiation: str) -> None:
     point: ``radiation`` without ``nonlinear=True`` is a caller error, not a default.
     """
     if radiation not in RADIATION_MODELS:
-        raise ValueError(f"radiation must be one of {RADIATION_MODELS}, got {radiation!r}")
+        # "mean_delta_only" is accepted but deliberately NOT advertised: it is the wrong
+        # map, kept only so the analytic suite can assert what it fails to do.
+        offered = tuple(m for m in RADIATION_MODELS if m != "mean_delta_only")
+        raise ValueError(f"radiation must be one of {offered}, got {radiation!r}")
     if radiation != "off" and not nonlinear:
         raise ValueError(
             f"radiation={radiation!r} needs nonlinear=True: the linear path is one "

@@ -3497,8 +3497,22 @@ What remains is **6.5e-9, with two named owners, both xtrack's**:
   across a factor 80 in energy — which is what makes it a named owner and not a fitted
   tolerance.
 
-Gates: `tests/analytic/test_radiation_tracking.py` (23),
-`tests/reference/test_radiation_tracking_xtrack.py` (5).
+### A sign error in xtrack's perpendicular projection (found by B2)
+
+`track_magnet_radiation.h::direction_of_motion` computes
+`iis = sqrt(1 - iix*iix + iiy*iiy)`. The `+` on the vertical term is wrong — the direction
+cosines of a unit vector need `1 - ix^2 - iy^2` — and accsim uses the correct form. The
+two therefore part company at large **vertical** angles, and the growth is **quartic** in
+`py`, not quadratic: the projections differ by `2 B_par^2 iy^2` and `B_par = bx ix + by iy`
+is itself linear in `py`. Measured on a combined-function bend at 20 GeV: `1.2e-8`
+(i.e. nothing, just the usual residual) at `py = 1e-3`, `6.0e-7` at `2e-2`, `2.3e-5` at
+`5e-2`. It is attributed from both sides — the quartic growth *and* the fact that
+substituting xtrack's sign into accsim's own kick reproduces xtrack to the same `1.19e-8`
+at every amplitude — so no tolerance is absorbing it. It is inert at the `py <= 1e-3` of
+every other cross-check here, which is why it went unnoticed until a deliberate probe.
+
+Gates: `tests/analytic/test_radiation_tracking.py` (24),
+`tests/reference/test_radiation_tracking_xtrack.py` (6).
 
 ## Luminosity (Stage 6 — implemented)
 

@@ -210,3 +210,55 @@ def test_xtracks_default_adaptive_integrator_is_eight_uniform_steps_here(
     assert default / one - 1.0 == pytest.approx((7 / 8) * one, rel=2e-3)
     pure_bend_line["b"].integrator = "uniform"
     pure_bend_line["b"].num_multipole_kicks = 1
+
+
+def test_xtracks_perpendicular_projection_has_a_sign_error_that_only_bites_at_large_py(
+    combined_line, monkeypatch
+) -> None:
+    r"""``xtrack/beam_elements/elements_src/track_magnet_radiation.h::direction_of_motion``
+    computes ``iis = sqrt(1 - iix*iix + iiy*iiy)``. The ``+`` on the vertical term is a
+    sign error: the direction cosines of a unit vector need ``1 - ix^2 - iy^2``. accsim
+    uses the correct form, so the two part company at ``O(py^2)``.
+
+    Gated from both sides, which is what makes it an attribution rather than an excuse:
+    the disagreement grows as ``py^4`` (invisible at ``1e-3``, ``6e-7`` at ``2e-2``,
+    ``2.3e-5`` at ``5e-2``) — quartic, not quadratic, because the two projections differ
+    by ``2 B_par^2 iy^2`` and ``B_par = bx ix + by iy`` is itself linear in ``py`` —
+    **and** substituting xtrack's sign into accsim's own kick
+    reproduces xtrack to the same ``1.19e-8`` residual it shows on axis, at every
+    amplitude. Nothing else in the kick is involved.
+    """
+    energy = 20.0e9
+    predicted = CONSTANTS_VINTAGE + 2.0 * (MASS0 / energy) ** 2
+    departures = []
+    for py in (1e-3, 5e-3, 2e-2, 5e-2):
+        state = np.array([1e-3, 5e-4, 1e-3, py, 0.0, 0.0])
+        theirs = _xtrack_state(combined_line, energy, state)
+        departures.append(_accsim_state(energy, state, 0.6)[5] / theirs[5] - 1.0)
+    # accsim's own answer drifts away from xtrack's, quadratically in py
+    assert departures[0] == pytest.approx(predicted, rel=0.05)
+    assert abs(departures[-1]) > 1e-5
+    growth = (departures[3] - predicted) / (departures[2] - predicted)
+    assert growth == pytest.approx((5e-2 / 2e-2) ** 4, rel=0.08)
+
+    # ... and with xtrack's sign put back, every amplitude lands on the same residual
+    from accsim import radiation_kick as rk
+
+    original = rk._perpendicular_field
+
+    def with_xtracks_sign(bx, by, px, py, delta):  # type: ignore[no-untyped-def]
+        ix = np.asarray(px) / (1.0 + np.asarray(delta))
+        iy = np.asarray(py) / (1.0 + np.asarray(delta))
+        iz = np.sqrt(np.maximum(1.0 - ix * ix + iy * iy, 0.0))  # xtrack's '+'
+        b_par = bx * ix + by * iy
+        ex, ey, ez = bx - b_par * ix, by - b_par * iy, -b_par * iz
+        return np.sqrt(ex * ex + ey * ey + ez * ez)
+
+    monkeypatch.setattr(rk, "_perpendicular_field", with_xtracks_sign)
+    assert rk._perpendicular_field is not original
+    for py in (1e-3, 5e-3, 2e-2, 5e-2):
+        state = np.array([1e-3, 5e-4, 1e-3, py, 0.0, 0.0])
+        theirs = _xtrack_state(combined_line, energy, state)
+        assert _accsim_state(energy, state, 0.6)[5] / theirs[5] - 1.0 == pytest.approx(
+            predicted, rel=0.05
+        )
