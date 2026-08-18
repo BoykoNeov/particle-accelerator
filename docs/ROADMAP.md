@@ -471,9 +471,12 @@ tracked natural chromaticity from 45% of the analytic value to **all of it on a
 bend-free ring**. **L3 (the dipole) shipped 2026-08-17** as well, taking that to all of
 it on a *bendy* ring and converting K2's
 `test_the_model_gap_is_fully_accounted_for_and_not_a_mystery` from a hand reconstruction
-into a cross-check of the package's own dispersion against xtrack, at `1.7e-8`. What the
-axis leaves open is the **curved quadrupole** — a combined-function bend, whose exact
-flow has no closed form and whose `track` is still its `matrix` (L4 below).
+into a cross-check of the package's own dispersion against xtrack, at `1.7e-8`.
+**L4 (the curved quadrupole) shipped 2026-08-18**, giving the last element whose `track`
+was its `matrix` the expanded (`mat-kick-mat`) map with F2's Maxwell term, matched to
+xtrack at `1.0e-16` — and finding, in the process, that the expanded family drops the
+curvilinear metric factor, which is a **new** and precisely-named gap (L5 below). Every
+element in the package now has a real map.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -2067,15 +2070,65 @@ move.
     `Edge · body · Edge` composition's order and its `h` argument had no gate.
   - Blast radius **nine analytic tests and three reference**, against L1's 29 and L2's 5.
 
-- **L4 (candidate) — the curved quadrupole's expanded map.** The only element left whose
-  `track` is its `matrix`. MAD-X's `track_thick_cfd` — exact in `δ`, paraxial in the
-  angles, exactly L2's model boundary reached by a different route — plus F2's Maxwell
-  curvature-sextupole term `ψ₃ = −(hk1/3)x³ + (hk1/2)xy²` as a thin kick, which xtrack's
-  own `mat-kick-mat` also applies and which is invariant-safe (a cubic potential's kick
-  has zero Jacobian at the origin). Two gates are already in place waiting for it: the
-  `Dipole(L,0,k1)`-vs-`Quadrupole(L,k1)` control at 56%, and
-  `test_a_combined_function_bend_is_deliberately_left_on_the_linear_map`, which should
-  fail loudly when this lands. Effort **M**.
+- **L4 — the curved quadrupole's expanded map, and a model boundary found on the way.**
+  ✅ **SHIPPED (2026-08-18)** — the last element whose `track` was its `matrix` now has
+  one: `mat(L/2) · kick(h k1 L) · mat(L/2)`, MAD-X's `track_thick_cfd` with F2's Maxwell
+  curvature-sextupole term, which is *exactly* `xt.Bend(model="mat-kick-mat")` with one
+  uniform kick — reproduced to **1.0e-16** on all six coordinates. Full write-up at
+  CONVENTIONS.md → *The curved quadrupole's expanded map*. Gates:
+  `tests/analytic/test_curved_quadrupole.py` (25) and
+  `tests/reference/test_dipole_combined_xtrack.py` (4 new). Both waiting gates behaved as
+  written: the 56% control closed to 100%, and
+  `test_a_combined_function_bend_is_deliberately_left_on_the_linear_map` failed loudly.
+  - **The headline is not "56% → 100%", and the entry above was wrong to assume it would
+    be.** The expanded family solves `x' = px/(1+δ)` where the exact curvilinear equation
+    is `x' = px(1+hx)/p_z`, keeping the `(1+hx)` metric factor **only in the path
+    length**. On the dispersed orbit that factor *is* F2's `h(γ_x D_x − 2α_x D_px)` /
+    `γ_y h D_x` group — the term that largely cancels the geometric `−β_x h²` focusing. So
+    a **bending** combined-function magnet's tracked chromaticity converges to *F2 minus
+    that group*, and slicing does not close it. A **straight** gradient magnet has `h = 0`,
+    both the metric group and the Maxwell kick vanish identically, and *that* is the case
+    the 56% control measures — 100% there is real and says nothing about the bending case.
+  - **The gap is measured from both sides, which is what makes it a boundary rather than
+    a defect.** On one AG arc: xtrack's two exact families and accsim's
+    `natural_chromaticity` all give `(+0.114815, −0.015121)`; xtrack's converged
+    `mat-kick-mat`, accsim's sliced tracking, and F2-minus-the-metric-group all give
+    `(−0.13973, −0.13206)`. Two families, two numbers, accsim's two routes one each.
+  - ⚠️ **One diagnostic regressed, and it is named rather than buried.** On a bendy
+    combined-function ring the *tracked* chromaticity can now be further from the truth
+    than the pre-L4 blind map was, because that map contributed nothing where this one
+    contributes an uncancelled `−β_x h²`. That is the F1 failure mode. The **map** is
+    strictly better everywhere (it was `δ`-blind, it is now exact in `δ`), and
+    `natural_chromaticity` — the deliverable, and what the exact models agree with — is
+    untouched.
+  - **The invariant survived, and not for free.** Two half-length Hill solutions compose
+    to the full one identically and a cubic potential's kick has zero Jacobian at the
+    origin, so `matrix()` is still the *exact* origin Jacobian of `track()` — `2.2e-16`,
+    improving with the step. That is what still rules out every slicing family.
+  - **A bend is now discontinuous in `k1` at zero** (`1.8e-5`, not shrinking with `k1`),
+    and the obvious guess about its order was wrong: it is **quadratic** in the
+    coordinates, not L2's `O(angle³)`, because it is two things at once — the expanded
+    square root, which for a bend enters `px' = h p_z − h` already at `O(p²)`, and the
+    dropped metric factor, whose signature is a bilinear `h x px`. Both matched to their
+    closed forms.
+  - **Three tests re-based**, against L1's 29, L2's five and L3's nine. A
+    combined-function bend also **moved symplecticity groups** (its `track` is no longer
+    linear in `δ`, so the non-canonical check now rejects it), and a *rolled* one inherits
+    L3's first-order-in-roll cost by the same mechanism: `6.2e-8` against the pure bend's
+    `4.7e-8`, with `matrix()`/`kick()` untouched.
+
+- **L5 (candidate) — the curvilinear metric term for combined-function bends.** What L4
+  found and deliberately did not build. The missing piece has a single generator,
+  `H_m = h x (px² + py²)/(2q)`, which produces *both* dropped terms at once (the `h x px`
+  in `x'` and the `−h p²/2q` in `px'`) and has **identity Jacobian at the origin**, so it
+  would slot into the existing splitting without touching the invariant that bounds the
+  axis. Its flow is a Riccati system with a closed form. The reason to defer rather than
+  do it: **neither MAD-X nor xtrack implements it**, so accsim would be inventing a model
+  and trading a bit-for-bit reference cross-check for self-consistency — which is the one
+  trade this project's validation strategy does not make. The gate already exists and is
+  precise: tracked chromaticity on a bendy combined-function ring must move from
+  `(−0.13973, −0.13206)` to `natural_chromaticity`'s `(+0.114815, −0.015121)`, with
+  `xt.Bend(model="bend-kick-bend")` as the arbiter. Effort **M**.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

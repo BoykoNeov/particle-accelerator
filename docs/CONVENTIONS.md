@@ -345,6 +345,13 @@ Two controls make that attributable rather than merely observed:
   > missing, the curved quadrupole's. The bendy arc now reads `−0.28934` against
   > `−0.28934`. See *The dipole's exact map* below.
 
+  > **Closed by L4 (2026-08-18).** The `Dipole(L, 0, k1)` control reads **100% against
+  > 100%**, and the two `track` outputs agree to `1e-17` by independently written
+  > arithmetic. Note the `angle = 0`: that magnet has no curvature, so it carries neither
+  > the Maxwell curvature-sextupole kick nor the curvilinear-metric group, and 100% there
+  > says nothing about a *bending* combined-function magnet — which does **not** reach
+  > 100%, for a reason named in closed form. See *The curved quadrupole's expanded map*.
+
 ### The `ζ` cancellation trap, avoided again
 
 MAD-X and xtrack both evaluate `Δζ = L − path/rvv`: two numbers of size `L` differenced
@@ -392,6 +399,13 @@ Two consequences worth carrying:
   pair as a controlled experiment, since swapping one for the other changes the tracked
   chromaticity and nothing else. L3 did *not* close it — a curved quadrupole has no
   closed-form flow either — so this pair is now the sharpest statement of what is left.
+
+  > **Closed by L4 (2026-08-18):** the gradient bend now takes the expanded
+  > (`mat-kick-mat`) map, which at `h = 0` *is* L2's quadrupole map, and the two agree to
+  > `1e-17` in `track` as they already did in `matrix`. The divergence L2 created lasted
+  > two milestones and is gone; what replaced it as "the sharpest statement of what is
+  > left" is the **bending** gradient magnet, where the expanded family drops the
+  > curvilinear metric factor.
 - **`is_symplectic_map` now *accepts* a correct exact map at small amplitude.** The
   `(ζ, δ)` residual is second order in the amplitude *and* suppressed by `1/γ₀²`; on a
   `γ₀ = 20` ring at amplitude `1e-3` it is `8.4e-10`, under the default `atol` of
@@ -436,6 +450,14 @@ whole axis and rules out every slicing family.
 
 Measured separation between the two model families, so the boundary is a number:
 `1.4e-5` on the reference states, against `1.9e-16` for the right one.
+
+> **Taken up by L4 (2026-08-18).** The combined-function bend now has that expanded map,
+> matched to `xt.Bend(model="mat-kick-mat")` at `1.0e-16`, and the invariant survived
+> after all: two half-length Hill solutions compose exactly and the Maxwell kick is
+> quadratic, so `matrix()` is still the *exact* origin Jacobian. What L3 called "paraxial
+> in the angles" turned out to understate the cost — the family also drops the
+> curvilinear metric factor `(1+hx)`, which is a first-order-in-`x` term and not a
+> third-order-in-angle one. See *The curved quadrupole's expanded map*.
 
 ### The `+h⟨D_x⟩` half of K2's account, and the half K2's formula did not have
 
@@ -591,6 +613,190 @@ swapped or dropped edge would destroy.
 Gates: `tests/analytic/test_exact_dipole.py` (15),
 `tests/reference/test_dipole_xtrack.py` (3 new), and the converted
 `tests/reference/test_roll_xtrack.py` and `tests/reference/test_orbit_optics_xtrack.py`.
+
+## The curved quadrupole's expanded map (L4 — implemented 2026-08-18)
+
+**The last element whose `track` was its `matrix`.** L3 proved the split at `k1`: a pure
+bend's flow is a circle and has a closed form, a *curved* quadrupole's does not. So the
+combined-function bend gets the **expanded** map — MAD-X's `track_thick_cfd`, xtrack's
+`mat-kick-mat` — plus F2's Maxwell curvature-sextupole term as one centred thin kick:
+
+```
+mat(L/2) . kick(h k1 L) . mat(L/2)
+```
+
+which is *exactly* `xt.Bend(model="mat-kick-mat")` with `num_multipole_kicks=1` and the
+`uniform` integrator, reproduced to **1.0e-16** on all six coordinates. `k1 = 0` still
+takes L3's exact circle; nothing about the pure bend changed.
+
+### The map, and where each piece comes from
+
+With `q = 1+δ`, `x' = px/q`, `y' = py/q`:
+
+```
+K_x = (h² + k1)/q     K_y = -k1/q      G = h - k0 = h δ/q
+A = -K_x x + G        B = x'           c1 = (1-C_x)/K_x
+
+x  → x C_x + x' S_x + G c1              px → (A S_x + B C_x) q
+y  → y C_y + y' S_y                     py → (-K_y y S_y + y' C_y) q
+ζ  → ζ + L(1 - 1/rvv) - (Λ - L)/rvv,    Λ - L = h ∫x ds + ∫(x'²+y'²)/2 ds
+∫x ds = x S_x + x' c1 - G c2            ∫u'²/2 ds = (A² t1 + A B S² + B²(L - K t1))/2
+```
+
+`h` is **not** divided by `q` — it is the geometry of the reference orbit, not a field
+strength — and that asymmetry is precisely what makes `G` nonzero. `G` *is* dispersion:
+the design particle feels no net drive, a stiffer one is under-bent and drifts outward.
+
+The Maxwell kick is `ψ₃ = -(h k1/3)x³ + (h k1/2)x y²` (F2, above), so
+`Δpx = h k1 L(-x² + y²/2)`, `Δpy = h k1 L x y`. It carries **no** `1/(1+δ)`, for the same
+reason a `ThinQuadrupole` does not: a field changes every particle's *momentum* equally.
+
+### `matrix()` is still the exact origin Jacobian — and that is not automatic here
+
+Two half-length Hill solutions compose to the full one **identically** (same
+inhomogeneous equation, and the path integrals add), and a cubic potential's kick has
+**zero** Jacobian at the origin. So the composition's origin Jacobian is
+`_combined_function_body` entry for entry — measured at `2.2e-16` with a `1e-8` step,
+*improving* as the step shrinks. This is the invariant that bounds the whole L axis and
+is what rules out every slicing family: a sliced bend's Jacobian is the product of the
+slices' matrices, which is not `exp(L A)`.
+
+### Numerics: three integrals with removable poles, and none of them branched badly
+
+`c1 = (1-C)/K` is evaluated as `2 S(K, L/2)²` — the half-angle identity
+`1 - cos u = 2 sin²(u/2)` — so the *transverse* map never divides by `K` at all, at any
+`K`, with no branch. `c2 = (S-L)/K` and `t1 = (L - CS)/(2K)` cannot be written that way and
+switch to their Taylor series at `|K L²| = 1e-2`:
+
+```
+c2 = -L³ Σ (-K L²)ᵐ/(2m+3)!            t1 = 2L³ Σ (-4 K L²)ᵐ/(2m+3)!
+```
+
+Five terms truncate at `1e-19` relative there, and the closed form has lost only `~1e-14`
+to cancellation — so **neither side of the switch is the inaccurate one**, which is not
+true of the scalar `_dispersion_integrals` (threshold `1e-9`, two terms) that `matrix()`
+uses. `K_x = 0` exactly (the `k1 = -h²` tune) is verified against an ODE integration at
+`4.4e-16`.
+
+`ζ` is split as `L(1 - 1/rvv) - (Λ-L)/rvv` and the first term rationalised through
+`(1+δ) + E/E₀`, exactly as L1, L2 and L3 had to: xtrack's own `length - length_/rvv`
+differences two numbers of size `L`.
+
+### ⚠️ What the expanded family drops — and it is **not** only `O(angle³)`
+
+It solves `x' = px/(1+δ)` where the exact curvilinear equation is `x' = px(1+hx)/p_z`,
+keeping the `(1+hx)` metric factor **only in the path length**. Evaluated on the dispersed
+orbit `x = D_x δ`, that factor *is* F2's group
+
+```
++ (1/4π) ∮ h (γ_x D_x - 2 α_x D_px) ds        + (1/4π) ∮ γ_y h D_x ds
+```
+
+and that group is what largely **cancels** the geometric `-β_x h²` focusing. So a
+*bending* combined-function magnet's **tracked** chromaticity converges to
+**F2 minus that group**, not to F2, and slicing does not close it.
+
+Measured on one AG arc of eight bending gradient magnets (`k1 = ±0.35`, `θ = 2π/16`):
+
+```
+                                        Q'_x        Q'_y
+accsim natural_chromaticity (F2)      +0.114815   -0.015121
+xtrack rot-kick-rot   (exact)         +0.114815   -0.015121
+xtrack bend-kick-bend (exact)         +0.114815   -0.015121
+--------------------------------------------------------------
+accsim tracked, 16 slices             -0.139529   -0.131975
+xtrack mat-kick-mat, converged        -0.139733   -0.132062
+F2 minus the metric group             -0.139733   -0.132062
+```
+
+Two families, two numbers, and accsim's two routes land on one each. **The gap is not
+accsim's**: it is the expanded family's, it is the same size in both codes, and it is
+named in closed form. `natural_chromaticity` is untouched by L4, is what the exact models
+agree with, and remains the function to use.
+
+⚠️ The blunt consequence, stated because it is a regression in one diagnostic: on a ring
+of *bending* gradient magnets the **tracked** chromaticity can now be further from the
+truth than the pre-L4 blind map was, because that map contributed nothing at all where
+this one contributes an uncancelled `-β_x h²`. That is the F1 failure mode (see *Dipole
+chromaticity*), and it is the price of the only family with a closed-form linear part.
+The **map** is nonetheless strictly better everywhere: it was `δ`-blind and is now exact
+in `δ`.
+
+Recovering the metric term is a candidate milestone (**L5**), not this one: its
+Hamiltonian `H_m = h x (px² + py²)/(2q)` generates both missing pieces at once and has
+identity Jacobian at the origin, so it would fit the splitting — but neither MAD-X nor
+xtrack implements it, so it would cost the bit-for-bit reference this milestone is
+validated by.
+
+### A *straight* gradient magnet has none of this
+
+`h = 0` kills the metric factor and the Maxwell kick identically, and a drift-and-quad
+ring has no dispersion for either to feed on. So L2's re-based control —
+`Dipole(L, 0, k1)` against `Quadrupole(L, k1)`, byte-identical matrices — goes
+**56% → 100%**, and their `track` outputs agree to `1e-17` by two independently written
+arithmetic routes. Reading that control as covering the *bending* case is the one mistake
+this milestone invites; both test files say so explicitly.
+
+### A bend is now discontinuous in `k1` at zero, and the jump is **quadratic**
+
+`Dipole(L, θ, 0)` takes the exact circle, `Dipole(L, θ, ε)` takes this map however small
+`ε` is. The jump converges to `1.8e-5` at millimetre amplitudes and does **not** shrink
+with `ε`. L2 refused exactly this kind of discontinuity; L3's argument is what justifies
+it here (with `k1 = 0`, `p_y` is conserved and the vertical equation is a quadrature, so
+the sub-case admits a strictly better map that the general family provably cannot express)
+— but the size still has to be measured, and the obvious guess about its **order is
+wrong**:
+
+- it is `O(2)` in the coordinates, not L2's `O(angle³)` — a factor of two in amplitude
+  gives a factor of four;
+- **the expanded square root**, which for a bend enters `px' = h p_z - h` already at
+  `O(p²)`: probed at `x = 0`, `Δpx = +h px² L/2` (`1.22e-5` against `1.26e-5`);
+- **the dropped metric factor**, whose signature is a *bilinear* `x px` term that neither
+  coordinate produces alone: the mixed second difference is `-h x px L`
+  (`-8.47e-6` against `-9.42e-6`).
+
+Two residuals, one of them this milestone's own model boundary.
+
+### Blast radius
+
+**Three** analytic tests, against L1's 29, L2's five and L3's nine — the axis is
+converging. Each was restated with its new content:
+
+- L3's `test_a_combined_function_bend_is_deliberately_left_on_the_linear_map` was written
+  to **fail loudly** when this landed. It did, and is now
+  `test_the_split_at_k1_is_still_two_maps_and_no_longer_one_of_them_linear`.
+- L2's 56% control closed to 100%, with the ⚠️ above written into it.
+- **A combined-function bend moved symplecticity groups.** Its `track` was its `matrix`,
+  so plain `is_symplectic_map` (in accsim's non-canonical `(ζ, δ)`) passed; the map is now
+  exact in `δ` and that check **rejects** it. It joins the quadrupole and the pure bend in
+  the canonical group.
+- A **rolled** combined-function bend inherits L3's cost by the same mechanism —
+  `frame_change()` is the affine linearisation of the true curved frame change, and the
+  body is no longer linear: `6.2e-8` at `φ = 0.02`, first order in `φ`, against the pure
+  bend's `4.7e-8`. Aligned it is symplectic to `1.6e-12`, and a rolled *straight* gradient
+  magnet to `3.1e-12`, so it is the curved frame change and nothing else. `matrix()` and
+  `kick()` are untouched, so every K1/K2 number stands.
+
+Gates: `tests/analytic/test_curved_quadrupole.py` (25) and
+`tests/reference/test_dipole_combined_xtrack.py` (4 new).
+
+### What gates the Maxwell coefficients — and the four checks that cannot
+
+J1's lesson again, and sharper. Blind to the `2:-1` split: **symplecticity** (any `(c₁,c₂)`
+is a gradient kick — run as a control with the coefficient doubled, and it still passes),
+**Maxwell** alone (`6c₁ + 2c₂ + hk1 = 0` is one equation for two unknowns), the
+**origin-Jacobian identity** (the kick is quadratic there), and the **56% control**
+(`h = 0`, so the kick is absent). What discriminates is **feed-down**: linearising `track`
+about an orbit must reproduce F2's derived generator,
+
+```
+a21 gains -2 h k1 x₀       a43 gains + h k1 x₀       a23, a41 gain + h k1 y₀
+```
+
+— four numbers from two coefficients, so a uniform mis-scale shows in the size and a wrong
+split in the ratio; the vertical-orbit pair needs a bend on a vertical orbit, which is the
+coupling source L3 found. That, plus the `1.0e-16` xtrack match, is the whole gate on the
+Maxwell half.
 
 ## Quadrupole strength sign (Stage 1 — implemented)
 

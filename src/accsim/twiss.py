@@ -1417,13 +1417,25 @@ def chromaticity_on_orbit(lattice: Lattice, slices: int = 64) -> tuple[float, fl
     chromaticity **in full on a bendy ring too** — measured to ``1.6e-8`` relative on
     the analytic suite's arc, where it read 45%, then 58%.
 
-    What is still missing is only the **combined-function** bend, whose exact flow has
-    no closed form (see :class:`~accsim.elements.dipole.Dipole`); on a ring built from
-    those, tracking is short by F2's curvature-sextupole feed-down. So this function
-    stays built on the validated integrals over
-    :func:`~accsim.orbit.linearised_lattice`, and the tracked route is kept as the
-    independent gate — now on the whole of it for any ring of pure bends, and on the
-    feed-down difference where a gradient bend is involved.
+    **The one place tracking still cannot follow is a *bending* combined-function
+    magnet, and L4 changed what is missing rather than closing it.** L4 gave the curved
+    quadrupole the expanded map (MAD-X's ``track_thick_cfd``, xtrack's
+    ``mat-kick-mat``) including F2's curvature-sextupole feed-down, so the feed-down is
+    now tracked; what that family drops instead is the curvilinear metric factor
+    ``(1 + h x)`` of ``x' = px(1+hx)/pz``, which on the dispersed orbit **is** the
+    ``h (gamma_x D_x - 2 alpha_x D_px)`` / ``gamma_y h D_x`` group of the integrand
+    above. So tracking such a ring converges to this integral *minus* that group, and
+    since that group is what largely cancels the geometric ``-beta_x h^2`` focusing, the
+    difference is not small. A *straight* gradient magnet has ``h = 0``, both the
+    curvature-sextupole and the metric group vanish identically, and tracking is
+    complete.
+
+    So this function stays built on the validated integrals over
+    :func:`~accsim.orbit.linearised_lattice` — it is the deliverable, and it is what
+    xtrack's exact bend models agree with. The tracked route is kept as the independent
+    gate: on the whole of it for any ring of pure bends, and against the
+    metric-group-removed integral where a *bending* gradient magnet is involved
+    (``tests/analytic/test_curved_quadrupole.py``).
 
     One caveat that L3 introduced: on a **steered** machine the two answers separate
     at first order in the orbit (``2.05e-5`` at a ``4e-4`` kick, exactly zero without

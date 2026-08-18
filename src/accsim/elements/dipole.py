@@ -10,7 +10,7 @@ from ..coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from ..reference import ReferenceParticle
 from .alignment import arc_motion, frame_change, roll_motion
 from .element import Element
-from .quadrupole import _focusing_block
+from .quadrupole import _focusing_block, _focusing_functions
 
 
 def _dispersion_integrals(K: float, L: float) -> tuple[float, float, float]:
@@ -163,6 +163,184 @@ def exact_sector_bend_map(
     return out
 
 
+def _cfd_path_integrals(
+    K: np.ndarray, L: float, C: np.ndarray, S: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""``(c2, t1)``: the two path integrals of the Hill equation that divide by ``K``.
+
+    With ``C = cos(sqrt(K) L)`` and ``S = sin(sqrt(K) L)/sqrt(K)`` (continued to
+    ``cosh``/``sinh`` for ``K < 0``, as :func:`_focusing_functions` does),
+
+        c2 = (S - L) / K                    -> ``-L^3/6``  as ``K -> 0``
+        t1 = (L - C S) / (2 K)              -> ``+L^3/3``  as ``K -> 0``
+
+    ``c2`` is what the dispersion drive contributes to ``int x ds`` and ``t1`` what it
+    contributes to ``int x'^2/2 ds``; see :func:`expanded_cfd_map`. Both are **entire**
+    in ``K`` -- the pole is removable -- but both are written as a quotient whose
+    numerator cancels to nothing at small ``K``, so the closed form is used only where it
+    is accurate and the (equally exact) Taylor series elsewhere:
+
+        c2 = -L^3 * sum_m (-K L^2)^m / (2m+3)!
+        t1 = 2 L^3 * sum_m (-4 K L^2)^m / (2m+3)!
+
+    The switch is at ``|K L^2| = 1e-2``, where five series terms truncate at ``1e-19``
+    relative and the closed form has lost only ``~1e-14`` to cancellation -- so there is
+    no window in which either side is the inaccurate one. ``K`` is a **per-particle**
+    array here (it carries the ``1/(1+delta)`` rigidity), which is why this is vectorised
+    rather than the scalar branch :func:`_dispersion_integrals` uses for ``matrix()``.
+    """
+    z = np.asarray(K, dtype=float) * L * L
+    small = np.abs(z) < 1.0e-2
+    # Series argument, clamped so the polynomial never sees a large z (it is discarded
+    # there anyway, but np.where evaluates both sides).
+    v = np.where(small, -z, 0.0)
+    c2_series = -(L**3) * (
+        1.0 / 6.0 + v * (1.0 / 120.0 + v * (1.0 / 5040.0 + v * (1.0 / 362880.0 + v / 39916800.0)))
+    )
+    w = 4.0 * v
+    t1_series = (2.0 * L**3) * (
+        1.0 / 6.0 + w * (1.0 / 120.0 + w * (1.0 / 5040.0 + w * (1.0 / 362880.0 + w / 39916800.0)))
+    )
+    K_safe = np.where(small, 1.0, K)
+    c2 = np.where(small, c2_series, (S - L) / K_safe)
+    t1 = np.where(small, t1_series, (L - C * S) / (2.0 * K_safe))
+    return c2, t1
+
+
+def expanded_cfd_map(
+    state: np.ndarray, length: float, h: float, k1: float, ref: ReferenceParticle
+) -> np.ndarray:
+    r"""The **curved quadrupole's** momentum-dependent map (L4), as a free function.
+
+    The linear (``mat``) half of :class:`Dipole`'s combined-function tracking: MAD-X's
+    ``track_thick_cfd``, which is xtrack's ``mat-kick-mat``. It is the exact flow of the
+    **paraxial** combined-function Hamiltonian, so -- exactly like L2's quadrupole and
+    unlike L3's pure bend -- it is exact in ``delta`` to all orders and drops
+    ``O(angle^3)`` relative. See :class:`Dipole` for why that trade is forced here.
+
+    Every strength is normalised to the *reference* rigidity, so a particle of momentum
+    ``1 + delta`` feels ``k0 = h/(1+delta)`` and ``k1/(1+delta)``, while the **curvature**
+    ``h`` is geometry and does not scale. Writing ``q = 1 + delta``, ``x' = px/q``,
+    ``y' = py/q``:
+
+        K_x = (h^2 + k1)/q      K_y = -k1/q      G = h - k0 = h delta/q
+
+    ``G`` is the whole of the dispersion: the design particle (``delta = 0``) sits on the
+    reference circle and feels no net drive, a stiffer one is under-bent and drifts
+    outward. The equations of motion are then ``x'' + K_x x = G`` and ``y'' + K_y y = 0``,
+    and with ``C``, ``S`` the Hill pair of :func:`_focusing_functions`,
+    ``c1 = (1-C_x)/K_x``, and ``A = -K_x x + G``, ``B = x'``:
+
+        x  -> x C_x + x' S_x + G c1           px -> (A S_x + B C_x) q
+        y  -> y C_y + y' S_y                  py -> (-K_y y S_y + y' C_y) q
+        zeta -> zeta + L(1 - 1/rvv) - (Lambda - L)/rvv
+
+    with the extra path length ``Lambda - L = h int x ds + int (x'^2 + y'^2)/2 ds``. The
+    first term is the bend's own geometry -- a particle on the outside of the arc travels
+    further -- and is the term a straight magnet does not have; the second is L2's
+    :func:`~accsim.elements.quadrupole._path_lengthening`, generalised to an
+    inhomogeneous ``A``:
+
+        int x ds        = x S_x + x' c1 - G c2
+        int u'^2/2 ds   = (A^2 t1 + A B S^2 + B^2 (L - K t1)) / 2
+
+    ``c1`` is evaluated as ``2 S(K, L/2)^2`` -- the half-angle identity
+    ``(1 - cos u) = 2 sin^2(u/2)`` -- so the one term of the *transverse* map that would
+    otherwise divide by ``K`` never does, at any ``K``, with no branch. ``c2`` and ``t1``
+    are :func:`_cfd_path_integrals`. And ``zeta`` is split the way L1, L2 and L3 all had
+    to split it: ``L(1 - 1/rvv)`` rationalised through ``(1+delta) + E/E0``, never
+    xtrack's cancelling ``length - Lambda/rvv``.
+
+    ``state`` is a ``(6,)`` vector or a ``(6, n)`` bunch; ``K_x``, ``K_y`` and ``G`` are
+    all per-particle, which is why this is not a matrix multiply.
+    """
+    st = np.asarray(state, dtype=float)
+    L = length
+    if L == 0.0:
+        return st.copy()
+
+    x, px, y, py, delta = st[X], st[PX], st[Y], st[PY], st[DELTA]
+    one_plus = 1.0 + delta
+
+    # The strengths a particle of momentum (1 + delta) actually feels. The curvature h
+    # is the *geometry* of the reference orbit and is not divided: that asymmetry is
+    # precisely what makes G nonzero, i.e. what dispersion is.
+    Kx = (h * h + k1) / one_plus
+    Ky = -k1 / one_plus
+    G = h * delta / one_plus  # = h - k0, the drive of x'' + Kx x = G
+
+    Cx, Sx = _focusing_functions(Kx, L)
+    Cy, Sy = _focusing_functions(Ky, L)
+    c1 = 2.0 * _focusing_functions(Kx, 0.5 * L)[1] ** 2  # (1 - Cx)/Kx, half-angle form
+    c2, t1x = _cfd_path_integrals(Kx, L, Cx, Sx)
+    t1y = _cfd_path_integrals(Ky, L, Cy, Sy)[1]
+
+    xp = px / one_plus  # the geometric angle dx/ds, paraxially
+    yp = py / one_plus
+    A, B = -Kx * x + G, xp
+    Cv, D = -Ky * y, yp
+
+    out = st.copy()
+    out[X] = x * Cx + xp * Sx + G * c1
+    out[PX] = (A * Sx + B * Cx) * one_plus
+    out[Y] = y * Cy + yp * Sy
+    out[PY] = (Cv * Sy + D * Cy) * one_plus
+
+    # zeta: the speed term and the path term, kept apart so neither is formed by
+    # subtracting two numbers of size L (L1's trap, met again by L2 and L3).
+    path = h * (x * Sx + xp * c1 - G * c2)  # h * int x ds: the curvature's own share
+    path += 0.5 * (A * A * t1x + A * B * Sx * Sx + B * B * (L - Kx * t1x))
+    path += 0.5 * (Cv * Cv * t1y + Cv * D * Sy * Sy + D * D * (L - Ky * t1y))
+
+    E_over_E0 = np.hypot(ref.momentum_eV * one_plus, ref.mass_eV) / ref.total_energy_eV
+    slip = L * delta * (2.0 + delta) / ref.gamma0**2 / (one_plus * (one_plus + E_over_E0))
+    out[ZETA] = st[ZETA] + slip - path * E_over_E0 / one_plus
+    return out
+
+
+def curvature_sextupole_kick(state: np.ndarray, hk1l: float) -> np.ndarray:
+    r"""The thin kick of F2's Maxwell curvature-sextupole term ``psi_3`` (L4).
+
+    A combined-function *sector* magnet cannot have exactly ``B_y = B0(h + k1 x)``,
+    ``B_x = B0 k1 y``: that field has ``div B = h k1 y != 0`` in the curved frame.
+    Maxwell forces a third-order correction to the potential, and F2 pinned its split
+    against xtrack and MAD-X (``docs/CONVENTIONS.md`` -> *Dipole chromaticity*):
+
+        psi_3 = -(h k1 / 3) x^3 + (h k1 / 2) x y^2
+
+    Since the Hamiltonian carries ``-psi``, ``H_3 = (h k1/3) x^3 - (h k1/2) x y^2`` and
+    the thin kick over an integrated ``h k1 L`` is ``Delta p = -L grad H_3``:
+
+        px -> px + h k1 L (-x^2 + y^2/2)
+        py -> py + h k1 L (x y)
+
+    the same expression xtrack applies as its ``k1_h_correction`` in ``mat-kick-mat``.
+    Three properties are worth naming, because they are what make it safe to insert
+    between two halves of :func:`expanded_cfd_map`:
+
+    - it is the gradient of a potential in ``(x, y)`` alone, so it is **exactly
+      symplectic** and leaves ``delta`` (and ``zeta``, since ``H_3`` has no ``delta``)
+      untouched;
+    - it carries **no** ``1/(1+delta)``, for the same reason a
+      :class:`~accsim.elements.quadrupole.ThinQuadrupole` does not: a field changes every
+      particle's *momentum* by the same amount, and it is the angle that responds to
+      rigidity;
+    - its Jacobian at the origin is **zero** (the kick is quadratic in the coordinates),
+      so a centred kick cannot disturb the identity that :meth:`Dipole._matrix_body` is
+      the origin Jacobian of :meth:`Dipole._track_body`.
+
+    The ``2:-1`` ratio is **not** an ordinary sextupole's symmetric one, because
+    ``psi_3`` is not a pure sextupole. That is the coefficient the feed-down gates in
+    ``tests/analytic/test_curved_quadrupole.py`` exist to pin.
+    """
+    st = np.asarray(state, dtype=float)
+    x, y = st[X], st[Y]
+    out = st.copy()
+    out[PX] = st[PX] + hk1l * (y * y * 0.5 - x * x)
+    out[PY] = st[PY] + hk1l * x * y
+    return out
+
+
 def _edge_matrix(h: float, e: float) -> np.ndarray:
     r"""Thin hard-edge pole-face focusing kick for edge angle ``e`` [rad].
 
@@ -248,34 +426,59 @@ class Dipole(Element):
     ``h -> 0``) and the map reduces exactly to a :class:`Drift` of length ``L``
     (``R56 -> L/gamma0^2``).
 
-    The exact map (L3)
-    ------------------
+    The exact map (L3) and the expanded one (L4)
+    -------------------------------------------
     Like the :class:`~accsim.elements.drift.Drift` and the
-    :class:`~accsim.elements.quadrupole.Quadrupole`, a **pure sector** bend has two
-    maps: :meth:`_matrix_body` above, which every optics function is built on, and
+    :class:`~accsim.elements.quadrupole.Quadrupole`, a bend has two maps:
+    :meth:`_matrix_body` above, which every optics function is built on, and
     :meth:`_track_body`, which is what a tracked particle actually follows. The first is
     the Jacobian of the second at the origin, and only there.
 
-    A uniform field has a closed-form flow and it is a **circle**: a particle of momentum
-    ``1 + delta`` moves, in projection onto the bend plane, on a circle of radius
-    ``r = p_perp/h``, ``p_perp = sqrt((1+delta)^2 - py^2)``, and the map is that circle
-    meeting the exit face (:func:`exact_sector_bend_map`). So — unlike the quadrupole's
-    — this map is exact in the **angles as well as in** ``delta``. It reproduces
+    **Which second map applies is decided by ``k1``, and the split is forced rather than
+    chosen.** With ``k1 = 0`` the vertical equation ``y' = py (1 + h x)/pz`` is a
+    *quadrature* over a known ``x(s)``, because ``py`` is conserved — which is exactly
+    why a closed form exists. With ``k1 != 0`` the same equation becomes a second-order
+    ODE with an ``s``-dependent coefficient, and the geometric term and vertical focusing
+    become mutually exclusive in closed form.
+
+    **``k1 = 0`` — the exact circle (L3).** A uniform field has a closed-form flow and it
+    is a **circle**: a particle of momentum ``1 + delta`` moves, in projection onto the
+    bend plane, on a circle of radius ``r = p_perp/h``,
+    ``p_perp = sqrt((1+delta)^2 - py^2)``, and the map is that circle meeting the exit
+    face (:func:`exact_sector_bend_map`). So — unlike the quadrupole's — this map is
+    exact in the **angles as well as in** ``delta``. It reproduces
     ``xt.Bend(model="bend-kick-bend")`` to ``1.9e-16``, and an independent
     plane-geometry construction to ``1e-15`` at bend angles up to ``1.5 rad``.
 
-    ⚠️ **A combined-function bend keeps the affine map, and the split is forced rather
-    than chosen.** With ``k1 = 0`` the vertical equation ``y' = py (1 + h x)/pz`` is a
-    *quadrature* over a known ``x(s)``, because ``py`` is conserved — which is exactly
-    why a closed form exists. With ``k1 != 0`` the same equation becomes a second-order
-    ODE with an ``s``-dependent coefficient, and the geometric term and vertical
-    focusing become mutually exclusive in closed form. A closed form is not a
-    convenience here: it is what keeps :meth:`_matrix_body` the *exact* origin Jacobian
-    of :meth:`_track_body`, which is the invariant that bounds this whole axis. The
-    remaining option for the curved quadrupole is MAD-X's expanded map (xtrack's
-    ``mat-kick-mat``), which is paraxial in the angles and so **drops the very term this
-    milestone exists to add**; it is a later step, and until then a combined-function
-    bend is chromatically ideal in ``track``.
+    **``k1 != 0`` — the expanded map (L4).** Two halves of :func:`expanded_cfd_map`
+    around one centred :func:`curvature_sextupole_kick`: MAD-X's ``track_thick_cfd`` with
+    F2's Maxwell term, which is exactly ``xt.Bend(model="mat-kick-mat")`` with one
+    uniform kick, reproduced to ``1.0e-16``. Exact in ``delta`` to all orders, paraxial
+    in the angles. The composition keeps :meth:`_matrix_body` the *exact* origin Jacobian
+    of :meth:`_track_body` — two half-length Hill solutions compose to the full one
+    identically, and a cubic potential's kick has zero Jacobian at the origin — which is
+    the invariant that bounds this whole axis and is what rules out slicing families.
+
+    ⚠️ **What the expanded family drops, and it is not only the third-order angle
+    terms.** It solves ``x' = px/(1+delta)`` where the exact curvilinear equation is
+    ``x' = px(1 + h x)/pz``, keeping the ``(1 + h x)`` metric factor only in the path
+    length. Evaluated on the dispersed orbit that factor **is** F2's
+    ``h(gamma_x D_x - 2 alpha_x D_px)`` / ``gamma_y h D_x`` chromaticity group, which is
+    the term that largely cancels the geometric ``-beta_x h^2`` focusing. So a *bending*
+    combined-function magnet's **tracked** chromaticity converges to F2 minus that group,
+    not to F2 — measured in closed form in ``tests/analytic/test_curved_quadrupole.py``
+    and confirmed from the other side by xtrack, whose own converged ``mat-kick-mat``
+    lands on the same value while its exact families land on F2. A *straight* gradient
+    magnet has ``h = 0``, the group vanishes identically, and tracking is complete.
+    :func:`~accsim.natural_chromaticity` is unaffected and remains the deliverable.
+
+    ⚠️ **A bending magnet is therefore discontinuous in ``k1`` at zero** — by ``1.8e-5``
+    at millimetre amplitudes, and *not* shrinking as ``k1 -> 0``. The jump is
+    **quadratic** in the coordinates, not L2's ``O(angle^3)``, because it is two things
+    at once: the expanded square root, which for a bend enters ``px' = h p_z - h``
+    already at ``O(p^2)``, and the dropped metric factor, whose signature is a bilinear
+    ``h x px``. Both are measured, and the discontinuity is the price of keeping the
+    strictly better map on the sub-case that provably admits one.
 
     **What the exact map buys, per element and to first order in the orbit.** Writing
     ``t`` for the bend angle, the Jacobian at an orbit with angles ``px``, ``py`` gains
@@ -506,27 +709,42 @@ class Dipole(Element):
         return super().kick(ref)
 
     def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
-        """The exact sector map (L3), with the edges as the thin linear kicks they are.
+        """The bend's real map, with the edges as the thin linear kicks they are.
 
-        Only the ``k1 == 0`` body is exact; a **combined-function** bend keeps the
-        affine map, because the exact flow of a curved quadrupole has no closed form —
-        see the class docstring. The edges are applied as ``Edge(e2) . body . Edge(e1)``,
-        the same composition :meth:`_matrix_body` uses and in the same order, so the
-        Jacobian identity survives them: each edge is *exactly* linear, so a linear
-        factor in the composition is not an approximation to anything.
+        Two bodies, and which one applies is decided by ``k1`` alone:
+
+        - ``k1 == 0`` — :func:`exact_sector_bend_map`, exact in the angles *and* in
+          ``delta`` (L3), because a uniform field's flow is a circle;
+        - ``k1 != 0`` — ``mat . kick . mat``: two halves of :func:`expanded_cfd_map`
+          around one centred :func:`curvature_sextupole_kick` (L4), exact in ``delta``
+          and paraxial in the angles, because a *curved* quadrupole has no closed form.
+
+        The two halves compose to the full linear map identically (a Hill solution over
+        ``L/2`` twice is the one over ``L``, and the path integrals add), and the kick's
+        Jacobian vanishes at the origin, so :meth:`_matrix_body` remains the **exact**
+        origin Jacobian of this method in both branches — the invariant that bounds the
+        whole exact-map axis.
+
+        The edges are applied as ``Edge(e2) . body . Edge(e1)``, the same composition
+        :meth:`_matrix_body` uses and in the same order, so the Jacobian identity
+        survives them too: each edge is *exactly* linear, so a linear factor in the
+        composition is not an approximation to anything.
 
         Vectorised over a trailing particle axis, so a ``(6,)`` state and a ``(6, n)``
         bunch take the same path.
         """
         self._refuse_misalignment()
-        if self.k1 != 0.0:
-            return super()._track_body(state, ref)
-
         st = np.asarray(state, dtype=float)
         h = self.curvature
         if self.e1 != 0.0:
             st = _edge_matrix(h, self.e1) @ st
-        st = exact_sector_bend_map(st, self.length, h, ref)
+        if self.k1 == 0.0:
+            st = exact_sector_bend_map(st, self.length, h, ref)
+        else:
+            half = 0.5 * self.length
+            st = expanded_cfd_map(st, half, h, self.k1, ref)
+            st = curvature_sextupole_kick(st, h * self.k1 * self.length)
+            st = expanded_cfd_map(st, half, h, self.k1, ref)
         if self.e2 != 0.0:
             st = _edge_matrix(h, self.e2) @ st
         return st

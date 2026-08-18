@@ -685,27 +685,39 @@ def test_an_unsteered_ring_reports_exactly_the_design_optics(ref: ReferenceParti
         assert np.abs(m - elem.matrix(ref)).max() < 1.0e-13
 
 
-def test_a_combined_function_bend_is_deliberately_left_on_the_linear_map(
+def test_the_split_at_k1_is_still_two_maps_and_no_longer_one_of_them_linear(
     ref: ReferenceParticle,
 ) -> None:
-    r"""The scope line, enforced rather than documented.
+    r"""The scope line, restated by the milestone that crossed it.
 
-    ``k1 != 0`` keeps the affine map, and the reason is that the split is **forced**, not
-    chosen: with ``k1 = 0`` the vertical equation ``y' = py (1 + h x)/pz`` is a quadrature
-    over a known ``x(s)`` because ``py`` is conserved, and with ``k1 != 0`` the same
-    equation becomes a second-order ODE with an ``s``-dependent coefficient. The
-    geometric term and vertical focusing are mutually exclusive in closed form, and a
-    closed form is what keeps ``matrix()`` the exact origin Jacobian.
+    **This test used to assert that a combined-function bend's ``track`` *is* its
+    ``matrix``.** That was L3's scope line, written to fail loudly when the expanded
+    curved-quadrupole map landed. L4 landed it, and it did.
 
-    So a combined-function bend is still chromatically ideal in ``track``, and this test
-    is the statement of that limit — it will change when the expanded curved-quadrupole
-    map lands, and it should fail loudly then rather than drift.
+    What survives is the statement the line was really about, and L3's argument for it is
+    unchanged: with ``k1 = 0`` the vertical equation ``y' = py(1 + h x)/pz`` is a
+    **quadrature** over a known ``x(s)``, because ``py`` is conserved — which is why a
+    closed form exists at all; with ``k1 != 0`` it becomes a second-order ODE with an
+    ``s``-dependent coefficient, and the geometric term and vertical focusing are mutually
+    exclusive in closed form. So the two branches are still two *different* maps, and the
+    better one is still confined to ``k1 = 0``:
+
+    - the pure bend keeps L3's exact circle, exact in the angles as well as in ``delta``;
+    - the gradient bend takes L4's expanded map, exact in ``delta`` and paraxial in the
+      angles, and it is now nonlinear too.
+
+    Both halves are asserted, because "``track`` is no longer ``matrix``" alone would pass
+    just as well if the *wrong* branch had been taken. What the gap between them is, and
+    why it does not shrink as ``k1 -> 0``, is measured in
+    ``tests/analytic/test_curved_quadrupole.py``.
     """
     cf = Dipole(L_B, ANGLE, k1=0.4)
-    got = cf.track(STATE, ref)
-    np.testing.assert_allclose(got, cf.matrix(ref) @ STATE, rtol=0, atol=1e-16)
+    assert np.abs(cf.track(STATE, ref) - cf.matrix(ref) @ STATE).max() > 1.0e-6
 
-    # The pure bend at the same angle is *not* its matrix, which is what says the
-    # difference above is the gradient's doing and not a dead code path.
     pure = Dipole(L_B, ANGLE)
     assert np.abs(pure.track(STATE, ref) - pure.matrix(ref) @ STATE).max() > 1.0e-6
+
+    # And the two branches really are different maps, not one code path reached twice:
+    # at k1 -> 0 the gradient bend does not converge on the exact bend.
+    nearly = Dipole(L_B, ANGLE, k1=1.0e-9)
+    assert np.abs(nearly.track(STATE, ref) - pure.track(STATE, ref)).max() > 1.0e-6

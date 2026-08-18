@@ -509,30 +509,34 @@ def test_a_thin_quadrupole_ring_already_had_all_of_it(ring_ref: ReferenceParticl
     assert tracked[1] == pytest.approx(analytic[1], rel=1e-6)
 
 
-def test_the_gradient_bend_is_the_only_thing_tracking_is_still_blind_to(
+def test_the_gradient_bend_was_the_last_thing_tracking_was_blind_to(
     ring_ref: ReferenceParticle,
 ) -> None:
-    r"""What is left, in a controlled experiment rather than an estimate.
+    r"""The control that has now closed, and the exact scope of what closing it means.
 
-    **This test used to compare a zero-angle** :class:`~accsim.elements.dipole.Dipole`
-    **with a** :class:`~accsim.elements.drift.Drift` **and read 48% against 100%.** L3
-    gave the pure sector bend its exact map, and because that map has no division by the
-    curvature left in it, the straight limit is reached rather than special-cased — so a
-    zero-angle ``Dipole`` now *is* a ``Drift``, agreeing to a few ulp, and the old
-    control reads 100% against 100%. It had to be re-based, and the honest re-basing is
-    to move it onto the case that is still open rather than to keep a comparison whose
-    two arms have become the same thing.
+    Its history is the exact-map axis in one place. It began as a zero-angle
+    :class:`~accsim.elements.dipole.Dipole` against a
+    :class:`~accsim.elements.drift.Drift`, reading **48% against 100%**; L3 gave the pure
+    sector bend a map with no division by the curvature left in it, so a zero-angle
+    ``Dipole`` *became* a ``Drift`` to a few ulp and both arms read 100%. It was re-based
+    onto the case still open — a straight gradient ``Dipole`` against a
+    :class:`Quadrupole` of the same ``k1``, **56% against 100%** — and L4 has now closed
+    that one too.
 
-    That case is the **combined-function** bend. A straight ``Dipole`` with a gradient
-    and a :class:`Quadrupole` of the same ``k1`` have byte-identical matrices — the
-    difference below is exactly ``0.0`` — hence the same design optics and the same
-    analytic natural chromaticity. They differ only in ``track``: the quadrupole's is
-    L2's momentum-dependent map, the gradient bend's is still its matrix, because the
-    exact flow of a *curved* quadrupole has no closed form and L3 deliberately stopped
-    at the pure bend (``tests/analytic/test_exact_dipole.py``).
+    The controlled-experiment structure is what makes it worth keeping: byte-identical
+    matrices (the difference below is exactly ``0.0``), hence the same design optics and
+    the same analytic natural chromaticity, differing *only* in ``track``. Both arms now
+    read 100%, so the gate is that they agree with the analytic answer **and with each
+    other**, which is a stronger statement than either alone.
 
-    So the experiment survives with its teeth intact: same machine both ways, and the
-    tracked chromaticity moves from **56% to 100%**.
+    ⚠️ **What this does not say.** This magnet has ``angle = 0``, so its curvature ``h``
+    is zero — which means it carries no Maxwell curvature-sextupole term (that kick is
+    ``h k1 L``) and F2's curvilinear-metric group ``h(gamma_x D_x - 2 alpha_x D_px)``
+    vanishes identically. So this control measures L4's ``mat`` half only. A *bending*
+    combined-function magnet does **not** reach 100%: the expanded family drops the
+    metric factor, and tracking converges to F2 minus that group, which
+    ``tests/analytic/test_curved_quadrupole.py`` measures in closed form. Reading "the
+    curved quadrupole is now fully seen" off this test would be reading past its ``h``.
     """
 
     def ring(middle) -> Lattice:
@@ -558,7 +562,14 @@ def test_the_gradient_bend_is_the_only_thing_tracking_is_still_blind_to(
 
     assert _tracked_chromaticity(real_quad)[0] == pytest.approx(seeing[0], rel=1e-5)
     share = _tracked_chromaticity(gradient_bend)[0] / blind[0]
-    assert 0.4 < share < 0.7, "the curved quadrupole's map carries none of it"
+    assert share == pytest.approx(1.0, rel=1e-5), "the curved quadrupole's map carries it now"
+
+    # The two arms agree with each other as well as with the integral, which is what says
+    # a straight gradient bend and a quadrupole are one magnet in ``track`` too. The two
+    # maps agree to 1e-17; ``1e-9`` here is the tune finite difference's own floor.
+    assert _tracked_chromaticity(gradient_bend)[0] == pytest.approx(
+        _tracked_chromaticity(real_quad)[0], rel=1e-9
+    )
 
     # And the old arms really have converged, which is why the test had to move.
     straight_bend, real_drift = ring(lambda: Dipole(1.0, 0.0)), ring(lambda: Drift(1.0))

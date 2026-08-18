@@ -489,10 +489,15 @@ def test_the_rolled_map_is_still_symplectic(ref: ReferenceParticle) -> None:
 
     The elements whose ``track`` is still linear in ``delta`` are checked in accsim's
     ``(zeta, delta)``; those whose map is exact in ``delta`` need the **canonical**
-    check. Which is which has moved twice: L2 put the thick :class:`Quadrupole` in the
-    second group, and L3 put the **pure sector** :class:`Dipole` there too. A
-    *combined-function* bend stays in the first, because the exact flow of a curved
-    quadrupole has no closed form and its ``track`` is still its matrix.
+    check. Which is which has now moved three times: L2 put the thick :class:`Quadrupole`
+    in the second group, L3 put the **pure sector** :class:`Dipole` there, and L4 has just
+    moved the **combined-function** bend across as well. That last one is a live change to
+    this test rather than a note — before L4 a gradient bend's ``track`` was its
+    ``matrix``, so it sat in the first group and passed there; its map is now L4's
+    expanded one, which is exact in ``delta``, and the plain check rejects it.
+
+    What is left in the first group are the genuinely ``delta``-linear maps: the thin
+    multipoles, whose kicks carry no rigidity factor at all.
 
     The distinction is not a formality, and the two rolled elements below show the two
     different ways it bites. In ``(zeta, delta)`` the rolled quadrupole's residual is
@@ -503,7 +508,6 @@ def test_the_rolled_map_is_still_symplectic(ref: ReferenceParticle) -> None:
     own. See ``accsim/symplectic.py``'s module docstring.
     """
     for elem in (
-        Dipole(L_BEND, ANGLE, k1=0.6, e1=0.1, e2=0.1, roll=ROLL),
         ThinSextupole(7.0, roll=ROLL),
         ThinOctupole(40.0, roll=ROLL),
     ):
@@ -512,6 +516,12 @@ def test_the_rolled_map_is_still_symplectic(ref: ReferenceParticle) -> None:
     rolled_quad = Quadrupole(0.4, 1.7, roll=ROLL)
     assert is_symplectic_map_canonical(lambda s: rolled_quad.track(s, ref), STATE, ref)
     assert is_symplectic_map_canonical(lambda s: Dipole(L_BEND, ANGLE).track(s, ref), STATE, ref)
+
+    # The combined-function bend, in its new group — and rejected by its old one, which
+    # is the assertion that says the move was necessary rather than tidy.
+    cf = Dipole(L_BEND, ANGLE, k1=0.6, e1=0.1, e2=0.1)
+    assert is_symplectic_map_canonical(lambda s: cf.track(s, ref), STATE, ref)
+    assert not is_symplectic_map(lambda s: cf.track(s, ref), STATE, atol=1e-8)
 
     # ...and the wrong check's two failure modes, pinned, so the switch is not folklore.
     assert is_symplectic_map(lambda s: rolled_quad.track(s, ref), STATE, atol=1e-8)
@@ -549,19 +559,31 @@ def test_a_rolled_bend_is_symplectic_only_to_first_order_in_the_roll(
     bounds is tracking a rolled bend for many turns, where a non-symplectic map at
     ``5e-8`` per element is a slow leak rather than a wrong answer. Making the frame
     change nonlinear in ``track`` would close it and is not this milestone.
+
+    **L4 extends the cost to the combined-function bend, and by the same mechanism.**
+    Before L4 a rolled gradient bend was exactly linear in ``track`` and so exactly
+    symplectic; its body is now L4's expanded map, and the curved frame change is still
+    the affine linearisation, so it degrades the same way. Every arm below is run for both
+    bodies, which is what says the cause is shared rather than assumed to be.
     """
     aligned = Dipole(L_BEND, ANGLE)
     assert is_symplectic_map_canonical(lambda s: aligned.track(s, ref), STATE, ref)
+    assert is_symplectic_map_canonical(
+        lambda s: Dipole(L_BEND, ANGLE, k1=0.6).track(s, ref), STATE, ref
+    )
 
     straight_rolled = Dipole(L_BEND, 0.0, roll=ROLL)
     assert is_symplectic_map_canonical(lambda s: straight_rolled.track(s, ref), STATE, ref)
+    assert is_symplectic_map_canonical(
+        lambda s: Dipole(L_BEND, 0.0, k1=0.6, roll=ROLL).track(s, ref), STATE, ref
+    )
 
     bend = Dipole(L_BEND, ANGLE, roll=ROLL)
     for M, _k in (bend._alignment_entry(ref), bend._alignment_exit(ref)):
         assert np.abs(M.T @ J6 @ M - J6).max() < 1e-14
 
-    def residual(roll: float) -> float:
-        elem = Dipole(L_BEND, ANGLE, roll=roll)
+    def residual(roll: float, k1: float = 0.0) -> float:
+        elem = Dipole(L_BEND, ANGLE, k1=k1, roll=roll)
 
         def canonical(c: np.ndarray) -> np.ndarray:
             return to_canonical(elem.track(from_canonical(np.asarray(c), ref), ref), ref)
@@ -573,6 +595,11 @@ def test_a_rolled_bend_is_symplectic_only_to_first_order_in_the_roll(
     assert residuals[0] == pytest.approx(4.73e-8, rel=2e-2)
     for big, small in zip(residuals[:-1], residuals[1:], strict=True):
         assert big / small == pytest.approx(2.0, rel=1e-2)  # first order, not second
+
+    combined = [residual(ROLL / 2**k, k1=0.6) for k in range(4)]
+    assert combined[0] == pytest.approx(6.22e-8, rel=2e-2)  # same size, same mechanism
+    for big, small in zip(combined[:-1], combined[1:], strict=True):
+        assert big / small == pytest.approx(2.0, rel=1e-2)
 
 
 def test_a_roll_broadcasts_over_a_bunch(ref: ReferenceParticle) -> None:
