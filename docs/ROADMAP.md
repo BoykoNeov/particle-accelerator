@@ -477,6 +477,15 @@ was its `matrix` the expanded (`mat-kick-mat`) map with F2's Maxwell term, match
 xtrack at `1.0e-16` — and finding, in the process, that the expanded family drops the
 curvilinear metric factor, which is a **new** and precisely-named gap (L5 below). Every
 element in the package now has a real map.
+With L4 shipped, **every written milestone on axes A-L was delivered and the only
+candidate left standing was L5, which is deliberately deferred** (it would be the first
+milestone on that axis with no reference for the *map*, only for a number it converges
+to). The next direction, chosen 2026-08-18, therefore **reopens axis B**: **B2** puts
+classical radiation into `track()` so the damping the design route computes is
+*observed*, and **B3** adds quantum excitation and the equilibrium it holds. It is the
+natural consumer of axis L - a faithful per-element map is what a per-element energy
+loss needs - and its reference arm was verified to arbitrate the map, not merely the
+observable, before the candidate was written.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -575,6 +584,87 @@ sustained arc.
   Robinson exact, isomagnetic/energy-loss closed forms, `ε_x ∝ γ²` / `σ_δ ∝ γ` scaling,
   and the xtrack radiation cross-check all met; it completes Stage 4's `quantum_lifetime`
   (now sources the amplitude damping time from the lattice).
+
+- **B2 (candidate) — classical ("mean") radiation *in tracking*: the damping observed
+  rather than computed.** Everything axis B delivered is a **design-route** quantity: the
+  radiation integrals ride the Twiss functions, and `damping_times` / `equilibrium_*` are
+  closed forms evaluated on them. A *tracked* particle, meanwhile, circulates forever and
+  never loses an eV — `Tracker` has no radiation at all. B2 makes each element take from
+  the particle the energy *it* radiates on *its own* trajectory, so damping becomes
+  something the simulation exhibits rather than asserts. Chosen 2026-08-18 as the axis-B
+  extension after axis L closed, and it is the natural consumer of L: a faithful
+  per-element `track()` is exactly what a per-element energy loss needs. Effort **M**.
+  - **The map.** In an element the particle sees a local curvature
+    `1/ρ_p = |h + k1·x + …|` — the dipole term plus the gradient sampled at the particle's
+    *own* `x, y`, plus the sextupole/octupole terms where present — and radiates
+    `U = (C_γ/2π)·E⁴·∮(1/ρ_p)² ds` over it. Applied as `δ → δ − U/(β₀²E₀)` **with `px, py`
+    scaled by the same momentum factor**, so the angles `x' = px/p_z`, `y'` are unchanged:
+    photons leave along the direction of motion. Off by default
+    (`radiation="off" | "mean"`), so nothing existing moves.
+  - **The gate is pre-committed and non-circular, which is the whole point.** Track a
+    particle with a betatron amplitude for many turns, fit the exponential decay of the
+    amplitude, and the measured `τ_x, τ_y` must equal `damping_times(lattice)` — computed
+    by a completely separate route (Twiss integrals), itself already validated against
+    xtrack and MAD-X, a year of tests before any tracking radiation existed. Robinson's
+    `J_x + J_y + J_z = 4` must then come out of the *measured* rates, not the formula.
+  - **The reference arm was verified before this entry was written, and it arbitrates the
+    map, not just the observable.** `xt.Line.configure_radiation(model="mean")` radiates
+    from a **thick** `xt.Bend` with no slicing: on a single `L=1 m`, `θ=2π/40` bend at
+    5 GeV, `δ = −4.342919e-05` unsliced against `−4.342933e-05` at five slices and
+    `−4.34227e-05` from the isomagnetic closed form. So B2 keeps the standard L1–L4 were
+    held to (a per-element, bit-comparable match) and does *not* fall back to an
+    observable-only check — the trade that deferred L5.
+  - **The discriminating detail is the `px, py` scaling, and it hides from the
+    longitudinal arm.** Drop `δ` alone and the longitudinal damping is unchanged and
+    correct while the transverse is wrong; the *shape* of that wrongness is not obvious
+    (locally the angle `px/p_z` is **anti**-damped, but the RF restores `p_z` and not `px`,
+    so the net per-turn transverse rate may be zero to first order rather than negative)
+    and it must be **derived symbolically before the test is written**, not assumed. Only
+    `τ_x, τ_y` separate the two maps, so the transverse arm is the one written first.
+  - **The test ring is squeezed from three sides, and that is the milestone's real
+    difficulty.** Damping takes `2E/U0` turns — **144,000** on axis B's own 1 GeV ring,
+    far past what a Python turn loop can run, and a test that stops early passes
+    vacuously (the failure mode already recorded for the synchrotron-period gates). Raising
+    the energy fixes it (`τ ∝ 1/E³` in turns: ~1150 turns at 5 GeV, ~144 at 10 GeV on the
+    same ring) but that ring loses 1–2% per turn, where the classical damping formula is
+    itself a linearisation in `U0/E`. And `τ_z` is measured from the *envelope* of a
+    synchrotron oscillation, so the ring must also satisfy
+    `T_synchrotron ≪ τ_z ≪ affordable turns` — a strong cavity (`Q_s ≳ 0.02`) makes this
+    satisfiable, but it must be **checked, not assumed**, and if it is not, `τ_z` comes
+    from the damped one-turn-map eigenvalues as a separate arm (xtrack's own method, per
+    Stage 7) rather than from one fit standing for all three. Whichever arm carries `τ_z`
+    also carries the Robinson sum, and the entry must say which.
+  - **The scaling arm is the one that survives a percent-level absolute residual.**
+    Stage 7 handled `I5`'s missing closed form by gating on `ε_x ∝ γ²`; the same shape is
+    available here — measured `τ ∝ 1/E³` across two or three energies is independent of
+    the `U0/E` linearisation error that the absolute comparison has to absorb. The
+    residual is attributed as an order in `U0/E`, never absorbed into a loose `rel=`.
+  - **Costs, named up front.** (1) Radiation is **not symplectic** — the first element
+    behaviour in the package that must *fail* `is_symplectic_map`, deliberately, and
+    asserting that rejection is part of the gate. (2) With radiation on, `matrix()` is no
+    longer the origin Jacobian of `track()` (the reference particle radiates too), so the
+    invariant that bounds axis L survives only by keeping radiation a tracking **mode**,
+    default off, with `matrix()` / `kick()` untouched. (3) Energy loss shifts the closed
+    orbit — the beam settles off-momentum unless the RF replaces exactly `U0` — so the test
+    ring needs a matched cavity (`V sin φ_s = U0`) and a re-found closed orbit. (4) The
+    option must reach **every** tracking entry point (`track`, `track_turns`,
+    `track_bunch`, `track_bunch_losses`); `track_turns` is where a damping measurement
+    actually runs, and a flag present on one and not the others is exactly the dark path
+    L3 found. (5) This is pure-numpy in-package physics, so it is a **physics option, not
+    an `accsim.features` switch** — that rule is about external tools and heavy deps.
+  - **Combined-function damping partition falls out, and Stage 7 put it out of scope.**
+    Sampling the gradient at the particle's own `x` is precisely what makes
+    `J_x = 1 − I4/I2` differ from 1, so running the gate on a combined-function ring turns
+    Stage 7's deferred item into a measured number.
+
+- **B3 (candidate) — quantum excitation, and the equilibrium the damping settles into.**
+  What B2 deliberately does not build: photons come in quanta, and the resulting random
+  walk is what stops the beam damping to a point. Adds `radiation="quantum"` — a stochastic
+  kick per element with the right mean and variance — and the gate is that a bunch tracked
+  for several damping times reaches `equilibrium_emittance` and
+  `equilibrium_energy_spread` (the design-route formulas, unchanged) from *any* starting
+  distribution, with a stated statistical error budget rather than a loosened tolerance.
+  Reference: `configure_radiation(model="quantum")`. Effort **S–M**, strictly after B2.
 
 ### C. Collider / beam-beam deepening (items explicitly deferred in Stage 6)
 
