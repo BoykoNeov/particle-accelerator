@@ -269,7 +269,11 @@ class Element(abc.ABC):
         return out + (k if out.ndim == 1 else k[:, None])
 
     def track(
-        self, state: np.ndarray, ref: ReferenceParticle, radiation: str = "off"
+        self,
+        state: np.ndarray,
+        ref: ReferenceParticle,
+        radiation: str = "off",
+        rng: np.random.Generator | None = None,
     ) -> np.ndarray:
         """Map a 6D ``state`` (or a ``(6, n)`` bunch) through the element, as placed.
 
@@ -286,24 +290,27 @@ class Element(abc.ABC):
         where it really is. It is dissipative, so with it on the map is deliberately
         **not** symplectic and ``matrix()`` is no longer its origin Jacobian; that is
         why it is a per-call mode and never the default.
+
+        ``rng`` is required by (and only by) the stochastic radiation models — see
+        :data:`accsim.radiation_kick.STOCHASTIC_MODELS`.
         """
         if not self.is_misaligned:
             out = self._track_body(state, ref)
-            return self._radiate(state, out, ref, radiation)
+            return self._radiate(state, out, ref, radiation, rng)
         state = np.asarray(state, dtype=float)
         if self.roll == 0.0:  # K1: a translation, and nothing to rotate
             d = self.offset()
             d = d if state.ndim == 1 else d[:, None]
             body_in = state - d
             body_out = self._track_body(body_in, ref)
-            return self._radiate(body_in, body_out, ref, radiation) + d
+            return self._radiate(body_in, body_out, ref, radiation, rng) + d
         M_in, k_in = self._alignment_entry(ref)
         M_out, k_out = self._alignment_exit(ref)
         if state.ndim != 1:
             k_in, k_out = k_in[:, None], k_out[:, None]
         body_in = M_in @ state + k_in
         body_out = self._track_body(body_in, ref)
-        return M_out @ self._radiate(body_in, body_out, ref, radiation) + k_out
+        return M_out @ self._radiate(body_in, body_out, ref, radiation, rng) + k_out
 
     def normalized_field(
         self, x: np.ndarray | float, y: np.ndarray | float
@@ -323,14 +330,19 @@ class Element(abc.ABC):
         return zero, zero
 
     def _radiate(
-        self, before: np.ndarray, after: np.ndarray, ref: ReferenceParticle, model: str
+        self,
+        before: np.ndarray,
+        after: np.ndarray,
+        ref: ReferenceParticle,
+        model: str,
+        rng: np.random.Generator | None = None,
     ) -> np.ndarray:
         """The radiation seam: a no-op unless a tracking call asked for it."""
         if model == "off":
             return after
-        from ..radiation_kick import mean_radiation_kick
+        from ..radiation_kick import radiation_kick
 
-        return mean_radiation_kick(self, before, after, ref, model)
+        return radiation_kick(self, before, after, ref, model, rng)
 
     def _repr_tail(self) -> str:
         """The trailing ``, name=..., dx=..., dy=..., roll=...`` every element shares.

@@ -3514,6 +3514,188 @@ every other cross-check here, which is why it went unnoticed until a deliberate 
 Gates: `tests/analytic/test_radiation_tracking.py` (24),
 `tests/reference/test_radiation_tracking_xtrack.py` (6).
 
+## Quantum excitation and the tracked equilibrium (B3 — implemented)
+
+B2's mean kick is, taken alone, a lie about the physics: it damps every amplitude to
+zero, and a real beam does not shrink to a point. Light comes in photons, and the random
+walk that graininess produces is what holds the beam open. B3 adds
+`radiation="quantum"` — the same map as `"mean"` with the radiated energy drawn from a
+Gaussian of the right mean and the right variance — and gates the equilibrium it settles
+into against Stage 7's closed forms, which were written a year earlier by a completely
+separate route.
+
+### The variance, and the one constant the two routes share
+
+Emission in one element is a compound Poisson process:
+
+- `n_γ = (5/(2√3)) α γ |κ l_path|` photons — the textbook `(5/(2√3)) α γ` per radian,
+- each drawn from the synchrotron spectrum, whose moments in units of the critical
+  energy `u_c = (3/2) ħc γ³ κ` are `⟨u⟩ = 8/(15√3) u_c` and `⟨u²⟩ = 11/27 u_c²`.
+
+The mean of that sum is **exactly** B2's `U = (C_γ/2π) E⁴ κ² l_path` — the bridge
+between the `α, ħc` system and the `C_γ, r_e` system, `r_e mc² = α ħc`, and the gate that
+says the two halves of axis B are describing one effect. Its variance is
+
+```
+σ_U² = n_γ ⟨u²⟩ = (55/(24√3)) u_c U = 2 C_q E γ² κ U
+```
+
+written with the package's own `quantum_constant_cq`, so the tracked route and the design
+route cannot carry two copies of the constant that sets the size of the whole effect.
+(`C_q` and `C_γ` both now live in `radiation_kick.py` and are re-exported by
+`radiation.py`, which is the direction the module dependency already ran.)
+
+**The moments are integrated, not quoted.** `⟨u⟩`, `⟨u²⟩` and `⟨u³⟩` come out of
+`∫_x^∞ K_{5/3}` in the analytic suite (swapping the order of integration once collapses
+the double integral to a single quadrature), so the symbolic gate on `σ_U²` is derived
+*from* the spectrum rather than from itself.
+
+**The synchrotron phase-averaging ½ is load-bearing.** The photons kick `δ` only, but
+`δ` is one coordinate of an oscillation: a kick at random phase adds `⟨Δδ²⟩` to the
+*invariant* `a²`, and `⟨δ²⟩ = ⟨a²⟩/2`. Balancing `2⟨δ²⟩/τ_z = ½ Σ⟨u²⟩/E²` against
+`1/τ_z = J_z U0/(2E)` gives `σ_δ² = C_q γ² I3/(J_z I2)` **exactly**. Drop the ½ and the
+answer is exactly 2× — an energy-, geometry- and lattice-independent error that no
+scaling gate could see, so it is pinned symbolically as exactly 2.
+
+### Measuring the equilibrium: solve, don't track
+
+Tracking to equilibrium is statistics-limited by construction, so it is not the sharp
+gate. The sharp gate is the **discrete Lyapunov equation** `Σ = M Σ Mᵀ + D` — the fixed
+point of "diffusion in, damping out" for the tracked map itself — solved exactly, with
+
+- `M` the one-turn Jacobian at the radiation-shifted fixed point, computed with
+  `radiation="mean"`. **Both** must use the mean map: Newton on a stochastic map does not
+  converge, and finite-differencing a noisy map returns garbage that does not fail loudly.
+- `D = Σ_i c_i c_iᵀ`, each `c_i` the noise element `i` injects propagated to the end of
+  the turn. Built with a **stand-in generator** that returns a chosen number of standard
+  deviations on one nominated draw and zero on the rest, which turns the stochastic map
+  into a differentiable one — exercising the shipped code path, including the variance
+  formula, with no statistics anywhere. Per-element Jacobians are accumulated backwards,
+  which is `O(n)` rather than `O(n²)` and is what makes a sliced ring affordable.
+
+Emittances come from the eigenvalues of `Σ S`, never from `σ_x²/β_x`: on these rings the
+dispersive term `(D_x σ_δ)²` is a third of `σ_x²`, so dividing by `β_x` reports an
+emittance ~2× too large.
+
+**Summing each element's variance is wrong by 24% on the test ring.** A kick injected
+early in the turn is partly rotated into `zeta` before the turn ends; propagating each
+element's noise to the observation point is the whole content of `D`.
+
+### Two departures from the closed forms, both with named owners
+
+The two routes do **not** agree to round-off, and the reasons were separated rather than
+absorbed:
+
+1. **The finite synchrotron tune.** `σ_δ² = C_q γ² I3/(J_z I2)` and
+   `ε_x = C_q γ² I5/(J_x I2)` are the **smooth-ring** result — they assume the
+   synchrotron phase barely advances while the turn's photons are emitted. Solving the
+   discrete map assumes nothing of the sort, so the two part company as
+   `1 + c (2π Q_s)²`. The claim that `Q_s` is the *whole* story is gated sharply:
+   **1.25 GeV at 30 MV and 5 GeV at 120 MV have the same `Q_s` and their departures agree
+   to 4 parts in 100,000**, while `U0 ∝ E⁴` differs by 256×, the equilibrium spread by 4×
+   and the emittance by 16×. Nothing but `Q_s` could do that. On a fixed geometry
+   `c ≈ 0.098` for `σ_δ²`, constant to 0.5% over a factor 2.8 in `Q_s`; `c` itself is
+   geometry-dependent, so it is the *order* that is asserted, not the number.
+2. **B2's one-kick-per-element lumping**, which lands on **one plane only**: it is a
+   ~0.6% offset in `ε_x` that slicing removes, while `σ_δ` moves by 3e-5 and is blind to
+   it. Two owners with two different signatures — this one dies under slicing and is
+   `Q_s`-independent, the other survives slicing and scales as `Q_s²` — so neither can be
+   mistaken for the other or for a wrong `C_q`.
+
+With both controlled (`Q_s = 0.024`, 8 slices) the two independent routes land on
+**0.11%** of each other in *both* `σ_δ` and `ε_x`, in the same direction.
+
+### What the emittance gate is blind to, stated up front
+
+**The horizontal excitation is dispersion, not photon recoil.** A photon does carry away
+transverse momentum, but the injected noise vector is exactly `(0, px, 0, py, 0, 1+δ)` —
+one common factor, as in B2 — so its transverse part is smaller than its longitudinal
+part by `px/(1+δ) ~ 2e-4`, and its effect on a *variance* is that squared. What excites
+the horizontal plane is the energy kick meeting the dispersion: the off-momentum closed
+orbit moves and the betatron amplitude jumps by `D_x Δδ`. That is the curly-H in `I5`.
+Deleting the direct recoil from the injected noise entirely moves `ε_x` by **4e-6**.
+
+So `ε_x` is a gate on `I5` and `C_q`, and it is blind to the kick's transverse arm to six
+figures. The gate that is *not* blind to it is B2's vertical damping time, which is the
+whole reason that one exists.
+
+### No vertical excitation at all — exactly zero, not small
+
+The photons leave along the direction of motion, so the model gives them no opening
+angle. On a flat lattice the injected noise has an identically zero vertical component
+and `ε_y` is **exactly** `0.0`, not merely small. Consequences worth knowing:
+
+- The equilibrium `Σ` is **singular** and has rank 4; `np.linalg.cholesky` on it raises.
+  Sampling an equilibrium bunch needs an eigen square root.
+- From a *nonzero* vertical start the beam does not stop at a floor — it keeps damping.
+  The noise on `py` is **multiplicative** (`py (f − ⟨f⟩)`, proportional to `py` itself),
+  so it perturbs the damping *rate* and leaves the fixed point at zero.
+- The real floor is the `1/γ` photon opening angle,
+  `ε_y = (13/55) C_q ⟨β_y/|ρ|³⟩ / (J_y I2)`, omitted by construction — the same
+  flat-lattice boundary Stage 7 records from the design side and G1's
+  `equilibrium_emittances_coupled` fills from coupling.
+
+### The Gaussian is unclamped, deliberately
+
+With `n_γ ~ 16–24` photons per magnet the relative fluctuation is `√(4.30/n_γ) ≈ 0.4–0.5`,
+so `u < 0` — an energy *gain* — sits at about 2 σ and happens in **1–3% of draws**. It is
+not a tail event. Clamping at zero would bias the mean **and** the variance by ~1%, which
+is five times the agreement the equilibrium gates achieve; an unclamped Gaussian keeps
+both exact, and the on-shell factor handles `f > 1` without a branch. It is asserted as a
+measured boundary, against xtrack, rather than left as a caveat.
+
+### The xtrack cross-check compares two genuinely different processes
+
+`configure_radiation(model="quantum")` in xtrack is a real compound Poisson process:
+exponential free paths, each photon's energy rejection-sampled off `K_{5/3}`, subtracted
+one at a time. accsim draws one Gaussian and never counts a photon. So everything that
+agrees is a statement that **only the first two moments matter** — the justification for
+the Gaussian, checked against the thing it approximates.
+
+- **Standard deviation of one magnet's loss: 0.18%**, against a statistical floor of
+  0.16% on 200,000 particles. Mean: 0.05%. Setup carries over from B2 unchanged
+  (`integrator="uniform"`, `num_multipole_kicks=1`).
+- **The shape is where they part company, and it is not subtle**: xtrack's skewness is
+  −0.91 and it *never* gains energy; accsim's is +0.003 and it gains 2.6% of the time.
+- **xtrack's own skewness counts its photons.** For a compound Poisson sum the skewness
+  is `⟨u³⟩/(√n_γ ⟨u²⟩^{3/2})`, so inverting it recovers `n_γ` — and using accsim's
+  spectrum moments it lands within 5% of `(5/(2√3)) α γ θ`, the rate xtrack computes
+  independently from `α`. The number the Gaussian throws away, measured from the tracking
+  that shows it is being thrown away.
+- xtrack's photon-record API (`start_internal_logging_for_elements_of_type`) returned no
+  photons on this build, so the spectrum is checked through the skewness route above
+  instead of directly.
+- **`ħc` is not a third named owner.** xtrack hardcodes `1.973269804593025e-7` and the
+  package rounds it; they agree to 5e-11. B2's two owners (the pre-2019 elementary charge
+  and the ultra-relativistic approximations) are unchanged. For the *variance* xtrack
+  additionally uses `β0 γ0` in the photon rate and `γ² γ0` in the critical energy, so its
+  diffusion carries `(1+δ)⁴` where the exact result carries `(1+δ)⁷` — a `3δ` effect that
+  averages to `O(δ²) ~ 1e-6`, far below any stochastic floor.
+
+### Deliberately not built
+
+A **photon-resolved sampler** (compound Poisson off the true spectrum). The equilibrium
+depends on the emission process *only* through its first two moments, which the Gaussian
+matches exactly, so it would not change any number this milestone gates. What it would
+change is the **tail** — the single hard photon that throws a particle out of the RF
+bucket — which is what Stage 4's `quantum_lifetime` is about. That makes it an axis of
+its own, not a refinement of this one.
+
+### API
+
+`rng: np.random.Generator` is plumbed through `Element.track` and every `Tracker` entry
+point (`track`, `track_once`, `track_turns`, `track_bunch`, `track_bunch_losses`) and is
+**required** for any model in `radiation_kick.STOCHASTIC_MODELS`. Asking for `"quantum"`
+without one **raises**: the package never seeds a global generator, because an unseeded
+stochastic track is not reproducible. Same convention as `orbit.misalign`.
+`mean_radiation_kick` is retained as an alias for the now-more-honestly-named
+`radiation_kick`.
+
+Gates: `tests/analytic/test_radiation_quantum.py` (34),
+`tests/reference/test_radiation_quantum_xtrack.py` (7). The settling gate tracks 600
+particles for five damping times and costs ~43 s — the dominant cost in the file (61 s
+total), and the roadmap's pre-committed gate, so it stays in the default suite.
+
 ## Luminosity (Stage 6 — implemented)
 
 `luminosity(N1, N2, sigma_x, sigma_y, f_rev, n_bunches, crossing_angle=0,

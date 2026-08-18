@@ -439,7 +439,9 @@ Directions the project could grow next, each written as a *candidate milestone*:
 defined, as always, by its **analytic gate** (a direction without a closed-form
 check is not worth building here — see the working agreement).
 
-**As of 2026-08-17 the delivered candidates are** A1–A3, B1, C1, C2, D1–D5, E1, E2,
+**As of 2026-08-19 the delivered candidates are** A1–A3, **B1–B3** (the radiation axis
+complete: the design-route integrals, classical radiation *in tracking*, and the quantum
+excitation that holds the equilibrium open), C1, C2, D1–D5, E1, E2,
 **F1**, **F2**, **G1 in full** (betatron-coupling optics — skew quad, coupled
 normal-mode tunes, closest-tune-approach `ΔQ_min` — *and* its ε_y vertical-emittance
 half, the eigen-mode sharing, whose pre-committed coefficient was corrected by xtrack),
@@ -486,8 +488,12 @@ classical radiation into `track()` so the damping the design route computes is
 **B2 shipped 2026-08-19** — a tracked particle's vertical damping time now lands on
 `damping_times` to `3e-5`, and the per-element kick matches xtrack to `6.5e-9` once
 xtrack's own eight-step integration is matched, with that residual split between its
-pre-2019 charge constant and its ultra-relativistic approximations. **B3 is the open
-milestone.** It is the
+pre-2019 charge constant and its ultra-relativistic approximations. **B3 shipped
+2026-08-19** — a tracked bunch's equilibrium, held open by the graininess of photon
+emission, now lands on Stage 7's `equilibrium_emittance` and `equilibrium_energy_spread`
+to 0.11% in both planes, with the two departures from round-off owned by the finite
+synchrotron tune and by B2's lumping. **Axis B is now complete as written, and there is
+no open milestone as of 2026-08-19.** It is the
 natural consumer of axis L - a faithful per-element map is what a per-element energy
 loss needs - and its reference arm was verified to arbitrate the map, not merely the
 observable, before the candidate was written.
@@ -660,16 +666,79 @@ sustained arc.
     (it lives in the test's measurement machinery), and radiation from thin elements — a
     zero-length magnet has no path to radiate over, which is scope, not approximation.
 
-- **B3 (candidate) — quantum excitation, and the equilibrium the damping settles into.**
-  What B2 deliberately does not build: photons come in quanta, and the resulting random
-  walk is what stops the beam damping to a point. Adds `radiation="quantum"` — a stochastic
-  kick per element with the right mean and variance — and the gate is that a bunch tracked
-  for several damping times reaches `equilibrium_emittance` and
-  `equilibrium_energy_spread` (the design-route formulas, unchanged) from *any* starting
-  distribution, with a stated statistical error budget rather than a loosened tolerance.
-  Reference: `configure_radiation(model="quantum")` — and, per B2, with
-  `integrator="uniform", num_multipole_kicks=1` so the integration order matches.
-  Effort **S–M**. **This is the open milestone as of 2026-08-19.**
+- **B3 — quantum excitation, and the equilibrium the damping settles into.**
+  ✅ **SHIPPED (2026-08-19)** — `radiation="quantum"` in `src/accsim/radiation_kick.py`:
+  the radiated energy drawn from a Gaussian with the mean B2 already ships and the
+  variance `σ_U² = 2 C_q E γ² κ U`, written with the package's own `C_q`. Full write-up
+  at CONVENTIONS.md → *Quantum excitation and the tracked equilibrium*. Gates:
+  `tests/analytic/test_radiation_quantum.py` (34) and
+  `tests/reference/test_radiation_quantum_xtrack.py` (7). The headline: a tracked bunch's
+  equilibrium, obtained from the tracking's *own* noise, lands on `equilibrium_emittance`
+  and `equilibrium_energy_spread` — closed forms written a year earlier by a route that
+  shares nothing with it but the constant `C_q` — to **0.11% in both planes**, and both
+  departures from round-off have named owners with measured laws.
+  - **The variance is derived from the spectrum, and the spectrum is integrated rather
+    than quoted.** `⟨u⟩ = 8/(15√3) u_c`, `⟨u²⟩ = 11/27 u_c²` and `⟨u³⟩` come out of
+    `∫_x^∞ K_{5/3}` in the suite itself, and `σ_U² = n_γ⟨u²⟩ → 2 C_q E γ² κ U` is a
+    symbolic identity from *those*, not from the collapsed form. The bridge gate
+    `n_γ⟨u⟩ = U` is what says the photon picture and B2's `C_γ` describe one effect.
+  - **The load-bearing coefficient was the synchrotron phase-averaging ½, exactly as the
+    candidate could not have guessed.** Photons kick `δ` only, but `⟨δ²⟩ = ⟨a²⟩/2` for an
+    oscillation; drop the ½ and the predicted spread is exactly `√2` too wide — an error
+    independent of energy, geometry and lattice, so *no* scaling gate could see it. It is
+    pinned symbolically as exactly 2.
+  - **The sharp gate is not tracking.** Tracking to equilibrium is statistics-limited by
+    construction, so the equilibrium is obtained by solving the discrete Lyapunov equation
+    `Σ = M Σ Mᵀ + D` for the tracked map — exactly, with no statistics — using a stand-in
+    generator that returns a chosen number of standard deviations on one nominated draw.
+    That turns the stochastic map into a differentiable one while still exercising the
+    shipped code path. The tracked settle-from-any-start gate the entry pre-committed is
+    kept, but as the *confirmation*, against a stated budget (2.0% on a width from 300
+    particles × 2 damping times).
+  - ⚠️ **The entry promised agreement with the closed forms and got it only after two
+    departures were separated — neither of which is a tolerance.** (1) The closed forms
+    are the **smooth-ring** limit: they assume the synchrotron phase barely advances while
+    the turn's photons are emitted, and the tracked answer departs as `1 + c(2πQ_s)²`.
+    This is gated sharply rather than fitted: **two rings whose radiated power differs by
+    256×, whose spread differs by 4× and whose emittance differs by 16× depart by the same
+    amount to 4 parts in 100,000, because they share `Q_s`.** (2) B2's one-kick-per-element
+    lumping owns a ~0.6% `ε_x` offset that slicing removes and to which `σ_δ` is blind
+    (3e-5). Two owners, two signatures — one dies under slicing and is `Q_s`-independent,
+    the other survives slicing and scales as `Q_s²` — so neither can be mistaken for the
+    other or for a wrong `C_q`.
+  - **A pre-commitment that held, after a measurement that first said otherwise.** The
+    horizontal excitation is *dispersion*, not photon recoil: deleting the direct
+    transverse kick from the injected noise moves `ε_x` by **4e-6**. The first attempt to
+    measure this zeroed the *propagated* noise column instead of the injected vector and
+    read 45% — a reminder that the blindness claim needs the right object, not a
+    plausible one.
+  - **`ε_y` is exactly 0.0, not small, and that has consequences.** No opening angle means
+    no vertical excitation at all, so the equilibrium `Σ` is **singular** (rank 4,
+    `cholesky` raises — found by sampling an equilibrium bunch) and a vertically displaced
+    beam keeps damping through the equilibrium rather than stopping at it, because the
+    noise on `py` is *multiplicative*. The real floor is the `1/γ` opening-angle limit,
+    omitted by construction.
+  - **The Gaussian is unclamped, deliberately, and that is measured against xtrack.** With
+    `n_γ ~ 16` photons per magnet, `u < 0` — an energy gain — is a 2σ event happening in
+    1–3% of draws, not a tail. Clamping would bias mean *and* variance by ~1%, five times
+    the agreement the equilibrium gates achieve. xtrack (real photons) never gains energy
+    and is skewed −0.91; accsim gains 2.6% of the time and is skewed +0.003.
+  - **The reference arm compares two genuinely different stochastic processes**, which is
+    what makes it worth having: xtrack samples real photons off `K_{5/3}`, accsim draws
+    one Gaussian, and the standard deviation of one magnet's loss agrees to **0.18%**
+    against a 0.16% statistical floor. And **xtrack's own skewness counts its photons** —
+    a compound Poisson sum's third moment inverts to `n_γ`, landing on the textbook
+    `(5/(2√3)) α γ θ`.
+  - **Blast radius zero.** No existing test changed; the 892 analytic tests stayed green
+    and 34 were added. `C_q`/`HBAR_C_EV_M` moved to `radiation_kick.py` and are re-exported
+    from `radiation.py` (the direction the dependency already ran), `mean_radiation_kick`
+    is an alias for `radiation_kick`, and `rng` is additive everywhere. Radiation still
+    defaults off, and a stochastic model without an `rng` **raises**.
+  - **Deliberately not built:** a photon-resolved sampler. The equilibrium depends on the
+    emission process only through its first two moments, which the Gaussian matches
+    exactly, so it would change no number this milestone gates. What it *would* change is
+    the tail — the single hard photon that empties the RF bucket — which is Stage 4's
+    `quantum_lifetime` and an axis of its own.
 
 ### C. Collider / beam-beam deepening (items explicitly deferred in Stage 6)
 

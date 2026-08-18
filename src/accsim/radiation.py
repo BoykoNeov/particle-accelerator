@@ -43,13 +43,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from .lattice import Lattice
+from .radiation_kick import HBAR_C_EV_M as HBAR_C_EV_M  # noqa: PLC0414  (re-export)
+from .radiation_kick import quantum_constant_cq as _cq
 from .radiation_kick import radiation_constant_cgamma as _cgamma
 from .reference import CLIGHT, ReferenceParticle
 from .twiss import _blocks, _dispersive_kick, _propagate_block, _transverse_4d, closed_twiss
-
-# CODATA hbar*c = 197.3269804 MeV*fm = 1.9732698045e-7 eV*m. The one physical
-# constant the radiation module adds beyond the reference particle's own.
-HBAR_C_EV_M: float = 1.9732698045e-7
 
 
 @dataclass(frozen=True)
@@ -94,8 +92,12 @@ def quantum_constant_cq(ref: ReferenceParticle) -> float:
 
     The quantum-excitation constant; ``55/(32 sqrt3)`` is the ratio of moments of the
     synchrotron-radiation spectrum (Sands). For the electron, ``3.832e-13 m``.
+
+    Defined in :mod:`accsim.radiation_kick` and re-exported here, for the same reason
+    ``C_gamma`` is: the equilibrium these integrals predict and the graininess B3's
+    per-element kick injects are the same effect, and one constant sets both.
     """
-    return 55.0 / (32.0 * math.sqrt(3.0)) * HBAR_C_EV_M / ref.mass_eV
+    return _cq(ref)
 
 
 def _curly_h(beta: float, alpha: float, dx: float, dpx: float) -> float:
