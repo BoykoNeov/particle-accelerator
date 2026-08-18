@@ -65,7 +65,9 @@ SEED = 20260819
 
 def _spectrum_moment(mu: float) -> float:
     """``int_0^inf x^mu F(x)/x dx`` — the same integral the analytic suite uses."""
-    return quad(lambda t: kv(5.0 / 3.0, t) * t ** (mu + 1.0) / (mu + 1.0), 0.0, np.inf, limit=200)[0]
+    return quad(lambda t: kv(5.0 / 3.0, t) * t ** (mu + 1.0) / (mu + 1.0), 0.0, np.inf, limit=200)[
+        0
+    ]
 
 
 def _line(k1: float = 0.0):

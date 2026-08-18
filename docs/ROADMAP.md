@@ -729,8 +729,14 @@ sustained arc.
     against a 0.16% statistical floor. And **xtrack's own skewness counts its photons** —
     a compound Poisson sum's third moment inverts to `n_γ`, landing on the textbook
     `(5/(2√3)) α γ θ`.
-  - **Blast radius zero.** No existing test changed; the 892 analytic tests stayed green
-    and 34 were added. `C_q`/`HBAR_C_EV_M` moved to `radiation_kick.py` and are re-exported
+  - **Blast radius one line, and it was only found because the first "suite is green"
+    check was not evidence.** A background run reported exit 0 with a *zero-byte* log, and
+    that was taken for a pass; re-run in the foreground, one B2 gate had in fact broken.
+    `test_radiation_without_the_nonlinear_path_raises_instead_of_being_ignored` used
+    `radiation="quantum"` as a name that was *unknown* when B2 was written — B3 made it
+    real, so the "must be one of" refusal now had to be provoked with a name that is
+    still unknown. Nothing else moved: 932 pre-existing analytic tests stayed green and
+    34 were added (966 total), and the radiation reference arm is 14 passing. `C_q`/`HBAR_C_EV_M` moved to `radiation_kick.py` and are re-exported
     from `radiation.py` (the direction the dependency already ran), `mean_radiation_kick`
     is an alias for `radiation_kick`, and `rng` is additive everywhere. Radiation still
     defaults off, and a stochastic model without an `rng` **raises**.

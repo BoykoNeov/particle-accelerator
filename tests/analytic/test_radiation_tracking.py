@@ -561,8 +561,11 @@ def test_radiation_without_the_nonlinear_path_raises_instead_of_being_ignored() 
         tracker.track(particle, radiation="mean")
     with pytest.raises(ValueError, match="nonlinear=True"):
         tracker.track_turns(particle, 1, radiation="mean")
+    # B3 note: this line used to read ``radiation="quantum"``, which was an unknown model
+    # when B2 was written and is a real one now. The gate is that an *unknown* name is
+    # refused, so it needs a name that is still unknown.
     with pytest.raises(ValueError, match="must be one of"):
-        tracker.track(particle, nonlinear=True, radiation="quantum")
+        tracker.track(particle, nonlinear=True, radiation="stochastic")
 
 
 def test_track_bunch_and_track_bunch_losses_radiate_like_the_single_particle_path() -> None:

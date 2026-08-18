@@ -3691,6 +3691,11 @@ stochastic track is not reproducible. Same convention as `orbit.misalign`.
 `mean_radiation_kick` is retained as an alias for the now-more-honestly-named
 `radiation_kick`.
 
+One existing gate changed: B2's
+`test_radiation_without_the_nonlinear_path_raises_instead_of_being_ignored` used
+`radiation="quantum"` as a name that was unknown then and is a real model now, so its
+"unknown model is refused" check needed a name that is still unknown.
+
 Gates: `tests/analytic/test_radiation_quantum.py` (34),
 `tests/reference/test_radiation_quantum_xtrack.py` (7). The settling gate tracks 600
 particles for five damping times and costs ~43 s — the dominant cost in the file (61 s
