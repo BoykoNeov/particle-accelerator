@@ -268,7 +268,9 @@ class Element(abc.ABC):
         k = self._kick_body(ref)
         return out + (k if out.ndim == 1 else k[:, None])
 
-    def track(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    def track(
+        self, state: np.ndarray, ref: ReferenceParticle, radiation: str = "off"
+    ) -> np.ndarray:
         """Map a 6D ``state`` (or a ``(6, n)`` bunch) through the element, as placed.
 
         :meth:`_track_body` wrapped in the element's alignment,
@@ -277,19 +279,58 @@ class Element(abc.ABC):
         by the same path so a displaced element tracks to the last bit as before.
         Identical to ``_track_body`` for an aligned element, so a design lattice is
         untouched by this wrapper.
+
+        ``radiation`` (default ``"off"``) turns on the classical synchrotron-radiation
+        energy loss of :mod:`accsim.radiation_kick`, applied once per element in the
+        element's own **body** frame — so a misaligned magnet radiates according to
+        where it really is. It is dissipative, so with it on the map is deliberately
+        **not** symplectic and ``matrix()`` is no longer its origin Jacobian; that is
+        why it is a per-call mode and never the default.
         """
         if not self.is_misaligned:
-            return self._track_body(state, ref)
+            out = self._track_body(state, ref)
+            return self._radiate(state, out, ref, radiation)
         state = np.asarray(state, dtype=float)
         if self.roll == 0.0:  # K1: a translation, and nothing to rotate
             d = self.offset()
             d = d if state.ndim == 1 else d[:, None]
-            return self._track_body(state - d, ref) + d
+            body_in = state - d
+            body_out = self._track_body(body_in, ref)
+            return self._radiate(body_in, body_out, ref, radiation) + d
         M_in, k_in = self._alignment_entry(ref)
         M_out, k_out = self._alignment_exit(ref)
         if state.ndim != 1:
             k_in, k_out = k_in[:, None], k_out[:, None]
-        return M_out @ self._track_body(M_in @ state + k_in, ref) + k_out
+        body_in = M_in @ state + k_in
+        body_out = self._track_body(body_in, ref)
+        return M_out @ self._radiate(body_in, body_out, ref, radiation) + k_out
+
+    def normalized_field(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[np.ndarray | float, np.ndarray | float]:
+        r"""The element's transverse field at ``(x, y)``, normalised to ``(B rho)_0``.
+
+        Returns ``(bx, by)`` in ``1/m``: ``by = h + k1 x + ...``, ``bx = k1 y + ...``,
+        the same normalisation the ``k`` strengths already use. It is what the
+        synchrotron-radiation kick needs and the *only* thing it needs from an element,
+        so a magnet that bends light is a magnet that defines this.
+
+        The default is no field at all, which is right for a drift, an aperture, a
+        beam-beam kick and the RF cavity, and harmless for the thin elements (they have
+        no length to radiate over — see :mod:`accsim.radiation_kick`).
+        """
+        zero = np.zeros_like(np.asarray(x, dtype=float))
+        return zero, zero
+
+    def _radiate(
+        self, before: np.ndarray, after: np.ndarray, ref: ReferenceParticle, model: str
+    ) -> np.ndarray:
+        """The radiation seam: a no-op unless a tracking call asked for it."""
+        if model == "off":
+            return after
+        from ..radiation_kick import mean_radiation_kick
+
+        return mean_radiation_kick(self, before, after, ref, model)
 
     def _repr_tail(self) -> str:
         """The trailing ``, name=..., dx=..., dy=..., roll=...`` every element shares.

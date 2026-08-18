@@ -98,6 +98,23 @@ class SkewQuadrupole(Element):
         into = s_rotation(-_SKEW_ROLL) @ st
         return s_rotation(+_SKEW_ROLL) @ thick_quadrupole_map(into, self.length, self.k1s, ref)
 
+    def normalized_field(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[np.ndarray | float, np.ndarray | float]:
+        r"""The normal quadrupole's field, carried through the same 45 deg roll.
+
+        The position is rotated *into* the body frame and the resulting field vector
+        rotated back out, exactly as :meth:`_track_body` does with the map — the same
+        magnet must not have two different fields depending on how it is spelled.
+        ``|b|^2 = k1s^2 (x^2 + y^2)`` is roll-invariant, so a skew quadrupole radiates
+        exactly as much as the normal one it is.
+        """
+        c, s_ = math.cos(_SKEW_ROLL), math.sin(_SKEW_ROLL)
+        xa, ya = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+        xb, yb = c * xa + s_ * ya, -s_ * xa + c * ya  # into the body frame
+        bx_b, by_b = self.k1s * yb, self.k1s * xb
+        return c * bx_b - s_ * by_b, s_ * bx_b + c * by_b
+
     def __repr__(self) -> str:
         return f"SkewQuadrupole(length={self.length}, k1s={self.k1s}{self._repr_tail()})"
 

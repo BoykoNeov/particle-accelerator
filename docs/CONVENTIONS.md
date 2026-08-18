@@ -3387,6 +3387,119 @@ integrals (Sands, SLAC-121) and the damping/equilibrium quantities they feed, in
   betatron coupling — real rings set `ε_y` by coupling/vertical dispersion, out of
   scope).
 
+## Radiation in tracking (B2 — implemented)
+
+Stage 7 / B1 is entirely a **design-route** module: the radiation integrals ride the
+Twiss functions and `damping_times` / `equilibrium_*` are closed forms on them. B2 is the
+other half — `src/accsim/radiation_kick.py`, a per-element energy loss applied to a
+*tracked* particle, so damping is something the simulation exhibits rather than asserts.
+Opt-in per tracking call (`radiation="off" | "mean" | "mean_delta_only"`, default off);
+`matrix()` and `kick()` are untouched, so every optics quantity is bit-for-bit unchanged.
+
+### The map
+
+Per element, once, with the field sampled at the **mid-point** of the traversal:
+
+```
+kappa  = |B_perp| / (B rho)_0 / (1 + delta)      # B_perp: field component ⊥ to motion
+l_path = rvv * (L - Delta zeta)                  # the element's own path length
+U      = (C_gamma / 2 pi) * E^4 * kappa^2 * l_path
+f      = sqrt(1 - U (2E - U) / (E^2 - m^2))      # on-shell, rationalised
+(1 + delta, px, py) *= f
+```
+
+- **One factor on all three momentum components** is the whole of the transverse damping.
+  Photons leave along the direction of motion, so the momentum *vector* shrinks with its
+  direction fixed. `pz` then scales by the same `f` **exactly**, and `x' = px/pz`, `y'`
+  are invariant to the last bit — an exact statement, not a leading-order one.
+- **`f` is the on-shell momentum ratio**, `sqrt((E-U)^2 - m^2)/sqrt(E^2 - m^2)`, written
+  rationalised so it never subtracts two numbers of size `E` (the trap L1 recorded for the
+  drift and L3 for the bend). It is `1 - U/(beta^2 E)` to first order and **exactly**
+  `1 - U/E` in the massless limit — there is no second-order term to argue about.
+- **The field comes from the element**, via `Element.normalized_field(x, y)` → `(bx, by)`
+  normalised to `(B rho)_0`: `(k1 y, h + k1 x)` for a dipole, `(k1 y, k1 x)` for a
+  quadrupole, the same through its 45° roll for a skew one, and zero by default. Sampling
+  the gradient at the particle's **own** `x` is what makes a combined-function magnet's
+  `J_x` differ from 1 in tracking.
+- **Applied in the element's body frame**, so a misaligned magnet radiates according to
+  where it really is: a particle on a *shifted* quadrupole's own axis radiates nothing.
+- **Thin elements do not radiate** (no length, no path). Scope, not approximation.
+
+### The wrong map, and why only one gate can see it
+
+Reducing `delta` alone and leaving `px, py` is the natural-looking mistake. It gets the
+**longitudinal** damping exactly right; inside the element it *anti*-damps the angle at
+first order, `d(x') = +eps px (1+delta)^2 / pz^3`; and per turn it produces **exactly
+zero** transverse damping, because `py` is never touched and the RF restores `delta`
+(measured: a fitted `tau_y` 300,000× too long). Available as `"mean_delta_only"` purely so
+the analytic suite can assert this.
+
+### Costs, all deliberate
+
+- **Not symplectic.** The first map in the package that must *fail* both
+  `is_symplectic_map` and `is_symplectic_map_canonical`; the suite asserts the rejection.
+- **`matrix()` is no longer the origin Jacobian of `track()`** with radiation on (the
+  reference particle radiates too). That is exactly why it is a per-call mode.
+- **One kick per element** evaluates the loss at the element's *entry* energy. Slicing
+  converges it as `dE(N) = U (1 - (N-1)/N · U/E)` — asserted as that law.
+- **The linear tracking path refuses it.** `radiation=` without `nonlinear=True` raises:
+  there is no element to radiate in, and silently returning an undamped answer would be
+  the worst outcome.
+
+### Two numbers that are *not* errors
+
+- **A tracked turn loses `U0 (1 - c U0/E)`, slightly less than the closed form**, because
+  the particle radiates at a progressively lower energy as it goes round while `U0`
+  evaluates everything at `E0`. On the 8-cell test ring `c = 1.26`, constant to 1% across
+  a factor 64 in `U0/E` (its leading part is the `(N-1)/N = 15/16` over 16 bends; the rest
+  is the orbit's own response). Gated as a stable coefficient, never as a tolerance.
+- **The damping *partition* is the damped-map eigenanalysis, not the integral method.**
+  The two are different methods and part company as `I4/I2` grows: 0.2% at `I4/I2 = 0.38`
+  (a normal arc), 11% at `0.71` (a very strong one). Stage 7 already recorded this against
+  xtrack at the ~1% level; B2 measures it from inside, and the load-bearing half is that
+  **one** number explains both planes — whatever `I4/I2` the tracked map implies reproduces
+  `J_x = 1 - I4/I2` *and* `J_z = 2 + I4/I2` together. So the sharp partition gates run on a
+  normal arc, and Robinson's `J_x + J_y + J_z = 4` from the *measured* rates converges to
+  4.000 as the lattice is sliced (4.026 → 4.0004).
+
+### Measuring damping at all: the three-sided squeeze
+
+`tau` in turns is `2E/(J U0)` — **144,000** on Stage 7's own 1 GeV ring, unrunnable. It
+falls as `1/E^3`, so the test rings are deliberately fast: 8 FODO cells at 3 GeV
+(`tau_y ≈ 2130` turns) and 20 cells at 5 GeV (`tau_y ≈ 1150`). Both are **above
+transition**, so the cavity needs `phi_s = pi`, and `V > U0` so the RF can replace the
+loss at all — the beam then settles at the `zeta` where it does. `tau_z` is read off a
+synchrotron oscillation, so the ring must also satisfy `T_s << tau_z`: `Q_s ≈ 0.08` gives
+43–65 periods per damping time. The equilibrium orbit is found by **Newton on the
+radiation-on one-turn map**, not by tracking to it — with `tau_x` in the thousands of
+turns a "converged" orbit is still drifting, and that drift contaminates every rate
+measured against it.
+
+### The xtrack cross-check needs its integration order matched first
+
+`xt.Line.configure_radiation(model="mean")` radiates from a **thick** `xt.Bend` with no
+slicing, so the comparison is per-element, like L1–L4. But xtrack sub-steps the loss
+*inside* the element, and its default `integrator="adaptive"` resolves to **eight** uniform
+steps for a plain bend — a 3.8e-5 disagreement at 5 GeV rising to 2.4e-3 at 20 GeV that
+looks exactly like a wrong coefficient. Set `integrator="uniform"`,
+`num_multipole_kicks=1` and the two are the same map. (`adaptive` picks for itself only
+while `num_multipole_kicks` is at its constructed `0`; set it to 8 and `adaptive` gives
+the *two*-step answer.)
+
+What remains is **6.5e-9, with two named owners, both xtrack's**:
+
+- `1.064e-8` from its **pre-2019 CODATA** elementary charge (`QELEM = 1.60217662e-19`
+  against today's exact `1.602176634e-19`). `r0 = e/(4 pi eps0 m c^2)` is linear in the
+  charge, so it lands on `C_gamma` and is energy-independent — a constants vintage.
+- `2/gamma0^2` from its **ultra-relativistic approximations** (`gamma = gamma0(1+delta)`,
+  `l/c` for `l/(beta c)`, `U/E` for the on-shell `U/(beta^2 E)`). accsim keeps the exact
+  forms, so this term *dies with energy*, and the reference suite asserts that it does
+  across a factor 80 in energy — which is what makes it a named owner and not a fitted
+  tolerance.
+
+Gates: `tests/analytic/test_radiation_tracking.py` (23),
+`tests/reference/test_radiation_tracking_xtrack.py` (5).
+
 ## Luminosity (Stage 6 — implemented)
 
 `luminosity(N1, N2, sigma_x, sigma_y, f_rev, n_bunches, crossing_angle=0,

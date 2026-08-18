@@ -16,6 +16,7 @@ import numpy as np
 from .coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements.aperture import Aperture
 from .lattice import Lattice
+from .radiation_kick import RADIATION_MODELS
 
 
 class Particle:
@@ -144,13 +145,32 @@ class LossResult:
         return np.unique(s, return_counts=True)
 
 
+def _check_radiation(nonlinear: bool, radiation: str) -> None:
+    """Radiation is a property of the *element-by-element* path, and only of it.
+
+    The linear path applies one hoisted matrix product per turn; there is no element
+    to evaluate a field at and no path length to radiate over, so silently ignoring
+    the request would hand back an undamped answer that looks fine. Raising is the
+    point: ``radiation`` without ``nonlinear=True`` is a caller error, not a default.
+    """
+    if radiation not in RADIATION_MODELS:
+        raise ValueError(f"radiation must be one of {RADIATION_MODELS}, got {radiation!r}")
+    if radiation != "off" and not nonlinear:
+        raise ValueError(
+            f"radiation={radiation!r} needs nonlinear=True: the linear path is one "
+            "hoisted matrix product per turn and has no element to radiate in."
+        )
+
+
 class Tracker:
     """Pushes particles / bunches through a lattice using its linear map."""
 
     def __init__(self, lattice: Lattice) -> None:
         self.lattice = lattice
 
-    def track(self, particle: Particle, nonlinear: bool = False) -> Particle:
+    def track(
+        self, particle: Particle, nonlinear: bool = False, radiation: str = "off"
+    ) -> Particle:
         """Track a single particle once through the lattice.
 
         ``nonlinear=False`` (default) uses the accumulated linear transfer matrix.
@@ -180,24 +200,47 @@ class Tracker:
         That default is deliberate (every optics quantity in the package is built on the
         linear map), but it is a choice the caller has to make knowingly.
         """
+        _check_radiation(nonlinear, radiation)
         if not nonlinear:
             M, k = self.lattice.transfer_map()
             return Particle.from_array(M @ particle.state + k)
-        return Particle.from_array(self._track_once(particle.state.copy()))
+        return Particle.from_array(self.track_once(particle.state.copy(), radiation))
 
-    def _track_once(self, state: np.ndarray) -> np.ndarray:
-        """One element-by-element pass through the lattice (nonlinear)."""
+    def track_once(self, state: np.ndarray, radiation: str = "off") -> np.ndarray:
+        """One element-by-element pass through the lattice (the nonlinear path).
+
+        ``state`` is a ``(6,)`` vector or a ``(6, n)`` bunch, and is not modified.
+        ``radiation`` is forwarded to every element's
+        :meth:`~accsim.elements.element.Element.track` — see
+        :mod:`accsim.radiation_kick` for what it costs (it is dissipative, so the
+        composed map is deliberately not symplectic).
+        """
         for elem in self.lattice.elements:
-            state = elem.track(state, self.lattice.ref)
+            state = elem.track(state, self.lattice.ref, radiation=radiation)
         return state
 
-    def track_bunch(self, bunch: Bunch) -> Bunch:
-        """Track every particle in a bunch once through the lattice."""
+    def _track_once(self, state: np.ndarray) -> np.ndarray:
+        """Backwards-compatible alias for :meth:`track_once` without radiation."""
+        return self.track_once(state)
+
+    def track_bunch(self, bunch: Bunch, nonlinear: bool = False, radiation: str = "off") -> Bunch:
+        """Track every particle in a bunch once through the lattice.
+
+        ``nonlinear`` / ``radiation`` behave exactly as in :meth:`track`; the default
+        is the one-turn affine map, as before.
+        """
+        _check_radiation(nonlinear, radiation)
+        if nonlinear:
+            return Bunch(self.track_once(bunch.states.astype(float, copy=True), radiation))
         M, k = self.lattice.transfer_map()
         return Bunch(M @ bunch.states + k[:, None])
 
     def track_bunch_losses(
-        self, bunch: Bunch, n_turns: int = 1, nonlinear: bool = False
+        self,
+        bunch: Bunch,
+        n_turns: int = 1,
+        nonlinear: bool = False,
+        radiation: str = "off",
     ) -> LossResult:
         """Track a bunch with aperture loss accounting.
 
@@ -226,6 +269,7 @@ class Tracker:
         """
         if n_turns < 1:
             raise ValueError(f"n_turns must be >= 1, got {n_turns}")
+        _check_radiation(nonlinear, radiation)
         ref = self.lattice.ref
         n = bunch.n_particles
         states = bunch.states.astype(float, copy=True)
@@ -249,7 +293,7 @@ class Tracker:
             for ei, elem in enumerate(self.lattice.elements):
                 if alive.any():
                     if nonlinear:
-                        states[:, alive] = elem.track(states[:, alive], ref)
+                        states[:, alive] = elem.track(states[:, alive], ref, radiation=radiation)
                     else:
                         M, k_col = maps[ei]
                         if k_col is None:
@@ -268,7 +312,13 @@ class Tracker:
 
         return LossResult(states, alive, loss_turn, loss_s, loss_element)
 
-    def track_turns(self, particle: Particle, n_turns: int, nonlinear: bool = False) -> np.ndarray:
+    def track_turns(
+        self,
+        particle: Particle,
+        n_turns: int,
+        nonlinear: bool = False,
+        radiation: str = "off",
+    ) -> np.ndarray:
         """Track a particle for ``n_turns`` turns of the (closed) lattice.
 
         Returns an ``(n_turns + 1, 6)`` array of states including the initial one
@@ -284,12 +334,13 @@ class Tracker:
         """
         if n_turns < 0:
             raise ValueError(f"n_turns must be >= 0, got {n_turns}")
+        _check_radiation(nonlinear, radiation)
         history = np.empty((n_turns + 1, DIM))
         history[0] = particle.state
         s = particle.state.copy()
         if nonlinear:
             for turn in range(1, n_turns + 1):
-                s = self._track_once(s)
+                s = self.track_once(s, radiation)
                 history[turn] = s
         else:
             M, k = self.lattice.one_turn_map()

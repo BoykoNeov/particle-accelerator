@@ -43,6 +43,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .lattice import Lattice
+from .radiation_kick import radiation_constant_cgamma as _cgamma
 from .reference import CLIGHT, ReferenceParticle
 from .twiss import _blocks, _dispersive_kick, _propagate_block, _transverse_4d, closed_twiss
 
@@ -80,8 +81,12 @@ def radiation_constant_cgamma(ref: ReferenceParticle) -> float:
     Computed from the particle's own classical radius and rest energy, so it is
     correct for any species (``r0 ∝ 1/m`` ⇒ ``C_gamma ∝ 1/m^3``). For the electron
     this is the familiar ``8.846e-5 m/GeV^3``.
+
+    Defined in :mod:`accsim.radiation_kick` and re-exported here: the design route
+    (these integrals) and the tracked route (B2's per-element kick) set the size of
+    the same effect, and must not carry two copies of the constant that does it.
     """
-    return 4.0 * math.pi * ref.classical_radius_m / (3.0 * ref.mass_eV**3)
+    return _cgamma(ref)
 
 
 def quantum_constant_cq(ref: ReferenceParticle) -> float:

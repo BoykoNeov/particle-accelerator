@@ -268,6 +268,18 @@ class Quadrupole(Element):
         """
         return thick_quadrupole_map(state, self.length, self.k1, ref)
 
+    def normalized_field(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[np.ndarray | float, np.ndarray | float]:
+        r"""``(b_x, b_y) = (k1 y, k1 x)`` — zero on axis, linear off it.
+
+        Normalised to ``(B rho)_0``. A quadrupole radiates only off axis, and
+        ``|b|^2 = k1^2 (x^2 + y^2)`` depends on the radius alone — which is why the
+        same magnet rolled (a :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole`)
+        must radiate identically.
+        """
+        return self.k1 * np.asarray(y, dtype=float), self.k1 * np.asarray(x, dtype=float)
+
     def __repr__(self) -> str:
         return f"Quadrupole(length={self.length}, k1={self.k1}{self._repr_tail()})"
 

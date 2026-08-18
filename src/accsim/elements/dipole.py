@@ -759,6 +759,23 @@ class Dipole(Element):
             st = _edge_matrix(h, self.e2) @ st
         return st
 
+    def normalized_field(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[np.ndarray | float, np.ndarray | float]:
+        r"""``(b_x, b_y) = (k1 y, h + k1 x)`` — the dipole term plus its own gradient.
+
+        Normalised to ``(B rho)_0``, so ``b_y`` on the design orbit is exactly the
+        curvature ``h = 1/rho`` that :meth:`curvature` returns and the radiation
+        integrals integrate. The gradient term is what makes a **combined-function**
+        magnet's damping partition ``J_x = 1 - I4/I2`` differ from 1 in tracking: the
+        particle at ``x`` sees a stronger or weaker field than the reference one does.
+
+        The pole-face edges are thin, so they contribute no field here — a zero-length
+        kick has no path to radiate over (see :mod:`accsim.radiation_kick`).
+        """
+        h = self.curvature
+        return self.k1 * np.asarray(y, dtype=float), h + self.k1 * np.asarray(x, dtype=float)
+
     def __repr__(self) -> str:
         grad = f", k1={self.k1}" if self.k1 else ""
         edges = f", e1={self.e1}, e2={self.e2}" if (self.e1 or self.e2) else ""
