@@ -70,3 +70,72 @@ def quantum_lifetime(aperture: float, sigma: float, amplitude_damping_time: floa
         raise ValueError(f"amplitude_damping_time must be > 0, got {amplitude_damping_time}")
     xi = aperture**2 / (2.0 * sigma**2)
     return amplitude_damping_time * math.exp(xi) / (2.0 * xi)
+
+
+def quantum_lifetime_exact(
+    aperture: float, sigma: float, amplitude_damping_time: float, *, terms: int = 10000
+) -> float:
+    r"""Exact aperture-limited quantum lifetime — the MFPT integral, not its asymptote.
+
+    ``τ_q = (τ_d/2) ∫₀^ξ (e^w − 1)/w dw``, ``ξ = A²/2σ²`` — the mean first-passage
+    time from the core to the aperture of the amplitude-diffusion Fokker–Planck
+    generator, of which :func:`quantum_lifetime` returns the ``ξ ≫ 1`` asymptote.
+
+    Use this whenever ``ξ`` is not large. The asymptote is accurate to ``O(1/ξ)``,
+    which at the ``ξ ≈ 4`` of a deliberately tight acceptance is **29%** — not a
+    tolerance but a different number (``17.667`` against ``13.650`` at ``ξ = 4``).
+    The two-term expansion does not rescue it either: ``1 + 1/ξ = 1.25`` and
+    ``1 + 1/ξ + 2/ξ² = 1.375`` *bracket* the true ratio ``1.2944``, so the
+    asymptotic series is only good to 5–10% there. Gate against this function.
+
+    Evaluated as the everywhere-positive series ``Σ_{n≥1} ξⁿ/(n·n!)``, which is
+    stable at every ``ξ``. The equivalent ``Ei(ξ) − γ − ln ξ`` is not: it is a
+    difference of large near-equal terms as ``ξ → 0``. The suite cross-checks the
+    two against each other where both are well conditioned.
+
+    Parameters
+    ----------
+    aperture, sigma, amplitude_damping_time
+        As :func:`quantum_lifetime` — ``A`` and ``σ`` in the same length unit,
+        ``τ_d`` the **amplitude** damping time (the emittance damps at ``τ_d/2``).
+    terms
+        Series-term cap. The terms peak near ``n ≈ ξ`` and the default is far
+        beyond the ``ξ ≲ 709`` at which ``e^ξ`` overflows a float anyway.
+
+    Returns
+    -------
+    float
+        Quantum lifetime in the units of ``amplitude_damping_time``.
+
+    Raises
+    ------
+    ValueError
+        On a non-positive input, or if the series has not converged in ``terms``.
+
+    Notes
+    -----
+    This is the mean time for *one* particle starting at the core to reach the
+    aperture. The decay constant of a *surviving population* is the slowest
+    eigenvalue of the same generator with an absorbing boundary, and the two agree
+    only as ``ξ → ∞``: measured, ``τ_q/τ_decay`` is 1.135 at ``ξ = 3``, 1.080 at
+    ``ξ = 4``, 1.005 at ``ξ = 8`` and 1.0004 at ``ξ = 12``. A fitted survival curve
+    is the *decay* constant; do not gate it against this function at small ``ξ``.
+    """
+    if aperture <= 0:
+        raise ValueError(f"aperture must be > 0, got {aperture}")
+    if sigma <= 0:
+        raise ValueError(f"sigma must be > 0, got {sigma}")
+    if amplitude_damping_time <= 0:
+        raise ValueError(f"amplitude_damping_time must be > 0, got {amplitude_damping_time}")
+    xi = aperture**2 / (2.0 * sigma**2)
+
+    total = 0.0
+    term = 1.0
+    for n in range(1, terms + 1):
+        term *= xi / n
+        total += term / n
+        if term / n <= 1e-17 * total:
+            break
+    else:
+        raise ValueError(f"series did not converge in {terms} terms at xi={xi}")
+    return 0.5 * amplitude_damping_time * total

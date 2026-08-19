@@ -41,7 +41,7 @@ from .elements import (
     ThinSkewSextupole,
 )
 from .lattice import Lattice, matrix_of
-from .lifetime import quantum_lifetime
+from .lifetime import quantum_lifetime, quantum_lifetime_exact
 from .longitudinal import (
     longitudinal_hamiltonian,
     rf_bucket_height,
@@ -187,6 +187,7 @@ __all__ = [
     "LossResult",
     # lifetime models
     "quantum_lifetime",
+    "quantum_lifetime_exact",
     "RadiationIntegrals",
     "radiation_integrals",
     "radiation_constant_cgamma",

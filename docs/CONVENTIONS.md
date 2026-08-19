@@ -3329,6 +3329,24 @@ this amplitude damping time (same convention, so they compose without a stray 2)
 `ξ = A²/2σ²` shares its `·/2σ²` structure with the circular transmission formula
 (same aperture-to-sigma ratio governs both).
 
+**The exact integral ships too (B4).** `quantum_lifetime_exact(A, sigma, tau_d)` returns
+the MFPT integral itself, evaluated as the everywhere-positive series
+`Sum_{n>=1} xi^n/(n n!)`. The equivalent `Ei(xi) - gamma - ln xi` is *not* what ships:
+it is a difference of large near-equal terms as `xi -> 0`. Use the exact form whenever
+`xi` is not large — at the `xi = 4` of a deliberately tight acceptance the asymptote is
+wrong by **29%** (17.6674 against 13.6495, ratio 1.29436), and the asymptotic *series*
+does not rescue it: `1 + 1/xi = 1.25` and `1 + 1/xi + 2/xi^2 = 1.375` **bracket** the
+truth. The departure is the law `xi (exact/asymptote - 1) -> 1`, not "halves when xi
+doubles" (measured 2.42 at `xi = 8 -> 16`).
+
+**Mean first-passage time is not the decay constant.** `quantum_lifetime` /
+`quantum_lifetime_exact` are the mean time for *one* particle at the core to reach the
+aperture. What a survival curve measures is the slowest eigenvalue `lambda_1` of the same
+generator with an absorbing boundary, and the two agree only as `xi -> infinity`:
+`MFPT/(1/lambda_1)` = 1.135 (`xi=3`), 1.080 (`xi=4`), 1.005 (`xi=8`), 1.0004 (`xi=12`).
+At a real ring's `xi` of tens they are the same number; at a gate-sized `xi` they are
+not, and a fitted lifetime must be compared to `lambda_1`.
+
 ## Synchrotron radiation / radiation damping (Stage 7 — implemented)
 
 `src/accsim/radiation.py` (baseline core physics, **not** gated). Five lattice
