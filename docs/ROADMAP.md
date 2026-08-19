@@ -492,11 +492,26 @@ pre-2019 charge constant and its ultra-relativistic approximations. **B3 shipped
 2026-08-19** — a tracked bunch's equilibrium, held open by the graininess of photon
 emission, now lands on Stage 7's `equilibrium_emittance` and `equilibrium_energy_spread`
 to 0.11% in both planes, with the two departures from round-off owned by the finite
-synchrotron tune and by B2's lumping. **Axis B is now complete as written, and there is
-no open milestone as of 2026-08-19.** It is the
+synchrotron tune and by B2's lumping. Axis B was complete as written on 2026-08-19; it is the
 natural consumer of axis L - a faithful per-element map is what a per-element energy
 loss needs - and its reference arm was verified to arbitrate the map, not merely the
 observable, before the candidate was written.
+**The direction chosen next, the same day, extends axis B once more: B4 and B5 below,
+written with their gates pre-committed and not yet built.** B4 gives a radiating bunch
+somewhere to die — an acceptance, transverse and longitudinal — so that Stage 4's
+year-old `quantum_lifetime` becomes something the tracking *produces* rather than
+something the design route quotes; B5 replaces B3's Gaussian graininess with real photons
+drawn from the synchrotron spectrum. The two candidates were chosen over the alternatives
+on the project's usual filter, **whether an independent code can arbitrate the answer**:
+the sideways photon recoil that would give the vertical plane a real emittance floor was
+ruled out on 2026-08-19 by reading xtrack's `synrad_spectrum.h`, which scales `px`/`py`
+along the direction of motion and applies no transverse kick at all — so building it would
+mean inventing a model with no reference, which is L5's reason and the one trade this
+project's validation strategy does not make. B5 carries the axis's most exposed
+pre-commitment, and it contradicts the intuition that motivated the direction: the single
+hard photon does **not** knock particles out of an electron storage ring, being suppressed
+by `e^-640` there, and B4's lifetime must be *unchanged* by switching from the Gaussian to
+real photons.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -745,6 +760,129 @@ sustained arc.
     exactly, so it would change no number this milestone gates. What it *would* change is
     the tail — the single hard photon that empties the RF bucket — which is Stage 4's
     `quantum_lifetime` and an axis of its own.
+
+- **B4 (candidate) — the acceptance a radiating bunch dies at, and the quantum lifetime
+  the tracking produces.** Stage 4 shipped `lifetime.quantum_lifetime` a year ago and B1
+  gave it a damping time computed from the lattice, but nothing in accsim has ever *lost*
+  a particle to radiation: B3's bunch reaches its equilibrium and sits in it for ever,
+  because the excitation only ever refills a distribution that has no exit. This is the
+  exit. **Deliverable:** losses at an acceptance for a quantum-excited track — the shipped
+  geometric `Aperture` needs no change for the transverse half, and the longitudinal half
+  needs a momentum acceptance that a loss-aware pass can consult (the RF bucket's own
+  separatrix, via the shipped `longitudinal_hamiltonian`, with a plain `|delta|` cut beside
+  it so the two boundaries can be told apart). The headline the milestone is *for*: a decay
+  constant fitted from tracked survival lands on the mean-first-passage time of a formula
+  written by a completely separate route, whose damping time comes from the radiation
+  integrals and whose width comes from B3.
+  - **The sharp gate is not the tracked decay, for the same reason B3's was not the tracked
+    equilibrium — and here it is worse.** A lifetime is a rare-event measurement: the
+    fractional error on a fitted decay constant is `~1/sqrt(N_lost)`, so a wrong tail
+    coefficient hides inside the error bar of any bunch this package can afford to track.
+    The sharp gate is therefore the **exact** mean-first-passage integral the `lifetime`
+    module already derives and the suite already verifies symbolically,
+    `tau_q = (tau_d/2) int_0^xi (e^w - 1)/w dw`, evaluated with `tau_d` and `sigma`
+    **measured from the tracked map itself** — B3's one-turn Jacobian and its discrete
+    Lyapunov solve, which return both with no statistics at all. Tracked survival is the
+    *confirmation*, against a budget stated in advance from `N_lost`, exactly as B3's
+    settle-from-any-start gate was kept as confirmation and not as proof.
+  - **The ring must be designed so that particles actually die, and that pre-commitment is
+    the milestone's first trap.** `tau_q = tau_d e^xi/(2 xi)` with `xi = A^2/2 sigma^2`
+    means a normal ring's `xi` of tens is a lifetime of `e^50` damping times — nothing is
+    ever lost, and a tracked lifetime gate would pass vacuously (the failure mode
+    `tracking-gate-needs-many-periods` already records from the other side). The ring is
+    therefore built with the acceptance at **3-5 sigma** — a low RF voltage for the
+    longitudinal boundary, a tight `Aperture` for the transverse one — which puts `tau_q`
+    in the low thousands of turns and `N_lost` in the hundreds. The cost is pre-committed
+    too: at `xi ~ 4` the familiar `e^xi/(2 xi)` asymptote is **not** the answer, and the gap
+    between it and the exact integral is asserted as a measured function of `xi` (it is
+    `O(1/xi)`, so tens of percent at `xi = 4` and shrinking) rather than absorbed into a
+    tolerance. The exact integral is the gate; the asymptote is a quantity whose departure
+    is itself gated.
+  - **The two boundaries are not the same boundary, and the closed form describes only one
+    of them.** The formula's `A` is the boundary on the oscillation *amplitude*; a geometric
+    aperture and a `|delta|` cut are instantaneous tests on the *coordinate*, so a particle
+    whose amplitude has just crossed `A` is not lost until its phase brings it to the
+    boundary — within one betatron or synchrotron period. The two therefore agree only while
+    that period is short against `tau_q`, which is exactly the regime here (`Q_s ~ 0.08`
+    gives a 12-turn period against a lifetime of thousands). The discriminating gate is to
+    **vary `Q_s` at fixed `xi` and assert the lifetime does not move**, which is a statement
+    no tolerance can be loosened into.
+  - **The vertical plane has no quantum lifetime at all, and that is a gate rather than a
+    gap.** B3 measured the vertical excitation as exactly `0.0` — no opening angle, no noise
+    — so a vertically displaced bunch damps *through* the equilibrium instead of stopping at
+    it. A vertical `Aperture` on a quantum-excited ring must therefore show **zero** losses
+    after the initial transient, however long it is tracked; the horizontal one, excited
+    through dispersion, must show the closed form. One ring, one model, two planes that must
+    disagree in a pre-stated way.
+  - **The factor-of-2 trap is already written down and will be walked into anyway.**
+    `quantum_lifetime` takes the **amplitude** damping time and `damping_times` returns it,
+    while the action damps at `tau_d/2`; the Lyapunov route naturally produces the action's
+    rate. Asserting the composition end-to-end, from lattice to lifetime with no
+    hand-carried factor, is what makes the two modules' conventions one convention.
+  - **Reference arm.** `xt.LongitudinalLimitRect` is a rectangular `zeta`/`pzeta` cut and
+    xtrack's radiation samples real photons, so the same ring can be tracked in both codes
+    and the two survival curves compared — two independent stochastic implementations
+    against one closed form, which is what the analytic gate cannot supply on its own. The
+    comparison is statistical by nature and is stated as such, with its floor.
+  - **Deliberately not built:** Touschek and IBS (out of scope, and a different loss
+    mechanism entirely), dynamic aperture (out of scope), and the vertical quantum lifetime,
+    which is unavailable by construction until the opening angle exists.
+  - Effort **M**.
+
+- **B5 (candidate) — the photon-resolved sampler, and how far the tail actually reaches.**
+  B3 shipped the graininess as a Gaussian of the right mean and the right variance and said
+  plainly what that leaves out: the tail. This builds the real thing — `radiation="photons"`,
+  a compound-Poisson sum with the count drawn from the photon rate
+  `n_gamma = 5/(2 sqrt3) alpha gamma kappa l` and each energy drawn from the normalised
+  synchrotron spectrum `S(x) = (9 sqrt3 / 8 pi) x int_x^inf K_{5/3}` that the B3 suite
+  already integrates for its moments.
+  - **The gates are already written and mostly already passing for the Gaussian.** The
+    sampler's first three moments must reproduce the suite's own Bessel quadratures
+    (`<x> = 8/(15 sqrt3)`, `<x^2> = 11/27`, and `<x^3>`); `n_gamma <u> = U` must bridge back
+    to `C_gamma`; and the compound-Poisson variance `n_gamma <u^2>` must be
+    `photon_energy_variance` **identically**, not approximately — which means B3's whole
+    equilibrium battery re-runs under the new model and must land on the same closed forms
+    within the same budget. That is the strongest statement available here: a model that
+    changes every draw and no aggregate.
+  - **The sharp gate is deterministic, via the sampler's own inverse.** Sampling by inverse
+    transform makes each draw an exactly predictable function of one uniform, so B3's
+    stand-in-generator trick applies unchanged: feed a chosen quantile and the photon energy
+    is a number with a closed form, including far out in the tail where the Gaussian is
+    wrong by orders of magnitude and where no amount of sampling would show it. The
+    exceedance `P(x > X)` is then gated against the spectrum's own quadrature at `X` where
+    the Gaussian model predicts `e^-X^2` and the truth is `~e^-X`.
+  - **Two signatures separate this model from B3's, and both are pre-committed.** The
+    Gaussian draws an energy *gain* in 1-3% of draws (B3 measured it, deliberately unclamped,
+    and matched xtrack's contrasting skew of `-0.91`); the photon model must draw one
+    **never**, and its skewness must be positive and must invert to `n_gamma` by the same
+    compound-Poisson identity B3 used to count xtrack's photons from the outside.
+  - ⚠️ **The prediction this entry is most exposed on, stated before it is measured: B4's
+    lifetime will not move.** The exit from the bucket is a many-photon random walk —
+    `n_gamma` per turn is in the hundreds and a damping time is thousands of turns — so the
+    central limit theorem makes the accumulated step Gaussian whatever the individual photon
+    spectrum is, and the lifetime depends on the emission process only through the first two
+    moments the Gaussian already matches exactly. If switching B4's ring from `"quantum"` to
+    `"photons"` moves the fitted lifetime by more than its stated statistical budget,
+    something in one of the two models is wrong, and the gate is written to say so rather
+    than to celebrate a difference.
+  - ⚠️ **And the single hard photon that empties the bucket in one go — the thing B3 named as
+    this axis's remaining physics — is, on any ring this package can build, exponentially
+    dead.** The channel needs a photon with `u > E delta_acc`, and the spectrum falls as
+    `e^-u/u_c`: at 5 GeV in a 10 m bend, `u_c/E = 5.5e-6` against an acceptance of `3.5e-3`,
+    so the required ratio is **~640** and the probability is `e^-640`. No tracking budget, and
+    no ring with a sane energy and bending radius, reaches it. This is not a reason to skip
+    the sampler — the sampler is what lets the claim be *measured* rather than asserted — but
+    the honest deliverable is the **suppression law**, `rate ~ n_gamma e^-(E delta_acc/u_c)`,
+    gated across a scan of `u_c/(E delta_acc)` in a regime where it is observable, with the
+    extrapolation to the real ring stated. The claim "graininess is what knocks particles
+    out" is, for electron storage rings, false, and this milestone is where the package
+    proves it instead of inheriting it.
+  - **Deliberately not built:** the opening angle (still no reference implements it — see
+    L5's reason, which is the same reason; verified 2026-08-19 in xtrack's
+    `synrad_spectrum.h`, which scales `px`/`py` along the direction of motion and applies no
+    transverse recoil), and beamstrahlung, which is the one place the single-photon channel
+    *does* dominate and which belongs to the beam-beam axis.
+  - Effort **M**. Depends on B4 only for its lifetime gate; the sampler itself stands alone.
 
 ### C. Collider / beam-beam deepening (items explicitly deferred in Stage 6)
 
