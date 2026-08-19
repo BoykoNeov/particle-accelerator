@@ -679,9 +679,14 @@ def test_a_tracked_bunch_dies_the_way_the_same_process_does_without_a_lattice() 
     # ...and the thing they agree on is NOT the closed form. The decay across the last
     # two marks is 1098 turns where tau/lambda_1 is 799: the gate above is 13% wide at
     # the last mark and the effect it has to survive is 37%, so agreeing with the toy and
-    # agreeing with the continuum answer are emphatically not the same test.
-    local_decay = (marks[-1] - marks[-2]) / math.log(reference[marks[-2]] / reference[marks[-1]])
-    assert local_decay / (tau / _lambda1(xi)) == pytest.approx(1.374, rel=0.02)
+    # agreeing with the continuum answer are emphatically not the same test. Asserted for
+    # BOTH curves: read off the toy alone it would be a statement about the toy, and would
+    # still pass if the tracking were wrong by anything the 3-sigma band above admits.
+    # accsim's tolerance is looser because two points carry the whole fit.
+    continuum = tau / _lambda1(xi)
+    for curve, tolerance in ((reference, 0.02), (survival, 0.10)):
+        local_decay = (marks[-1] - marks[-2]) / math.log(curve[marks[-2]] / curve[marks[-1]])
+        assert local_decay / continuum == pytest.approx(1.374, rel=tolerance)
     assert 0.15 < survival[marks[-1]] < 0.40  # a real decay, not everything or nothing
 
 
