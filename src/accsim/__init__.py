@@ -22,6 +22,7 @@ from .collider import (
 )
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements import (
+    AcceptanceElement,
     Aperture,
     BeamBeam,
     Collimator,
@@ -29,6 +30,7 @@ from .elements import (
     Dipole,
     Drift,
     Element,
+    MomentumAperture,
     Octupole,
     Quadrupole,
     RFCavity,
@@ -174,8 +176,10 @@ __all__ = [
     "ThinSkewQuadrupole",
     "ThinSkewSextupole",
     "RFCavity",
+    "AcceptanceElement",
     "Aperture",
     "Collimator",
+    "MomentumAperture",
     "BeamBeam",
     # lattice
     "Lattice",

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .coords import DELTA, DIM, PX, PY, ZETA, X, Y
-from .elements.aperture import Aperture
+from .elements.aperture import AcceptanceElement
 from .lattice import Lattice
 from .radiation_kick import RADIATION_MODELS, STOCHASTIC_MODELS
 
@@ -271,10 +271,12 @@ class Tracker:
         """Track a bunch with aperture loss accounting.
 
         Walks the lattice element-by-element for ``n_turns`` turns, accumulating
-        the geometric ``s``. At each :class:`~accsim.elements.aperture.Aperture`
-        the surviving particles are tested against its geometric predicate; a
-        particle that fails is recorded (turn, ``s``, element index) and
-        **frozen** — its state stops advancing and it is skipped on every later
+        the geometric ``s``. At each
+        :class:`~accsim.elements.aperture.AcceptanceElement` the surviving particles
+        are tested against its predicate — :class:`~accsim.elements.aperture.Aperture`
+        on ``(x, y)``, :class:`~accsim.elements.aperture.MomentumAperture` on
+        ``delta`` — and a particle that fails is recorded (turn, ``s``, element index)
+        and **frozen**: its state stops advancing and it is skipped on every later
         element and turn.
 
         ``nonlinear=False`` (default) acts with each element's affine 6x6, hoisted
@@ -328,7 +330,7 @@ class Tracker:
                             states[:, alive] = M @ states[:, alive]
                         else:
                             states[:, alive] = M @ states[:, alive] + k_col
-                if isinstance(elem, Aperture):
+                if isinstance(elem, AcceptanceElement):
                     inside = np.asarray(elem.survives(states), dtype=bool)
                     newly = alive & ~inside
                     if newly.any():

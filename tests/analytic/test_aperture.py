@@ -14,12 +14,18 @@ import numpy as np
 import pytest
 
 from accsim import (
+    DELTA,
+    ZETA,
+    AcceptanceElement,
     Aperture,
+    Bunch,
     Collimator,
     Drift,
     Lattice,
+    MomentumAperture,
     Particle,
     ReferenceParticle,
+    Tracker,
     X,
     Y,
 )
@@ -120,3 +126,118 @@ def test_collimator_has_length() -> None:
     c = Collimator("rectangular", 1e-2, 2e-2, length=0.25)
     assert c.length == 0.25
     assert Collimator("circular", 5e-3).length > 0.0  # default jaw length is finite
+
+
+# --- MomentumAperture (B4) — the longitudinal acceptance ----------------------
+#
+# Same discipline as above: hand-placed particles off the knife-edge, and the
+# element must be optics-transparent. The one thing this class has that Aperture
+# does not is ``center``, and the tests that matter are the ones that would pass
+# for a class that silently ignored it.
+def test_momentum_aperture_matrix_is_identity(proton_gamma5: ReferenceParticle) -> None:
+    assert np.allclose(MomentumAperture(1.0e-3).matrix(proton_gamma5), np.eye(6))
+
+
+def test_momentum_aperture_does_not_perturb_optics(proton_gamma5: ReferenceParticle) -> None:
+    """Inserting one leaves the one-turn map byte-identical — it is a predicate."""
+    bare = Lattice([Drift(1.0), Drift(1.0)], ref=proton_gamma5)
+    with_cut = Lattice(
+        [Drift(1.0), MomentumAperture(1.0e-3, center=5.0e-4), Drift(1.0)], ref=proton_gamma5
+    )
+    assert np.array_equal(bare.one_turn_matrix(), with_cut.one_turn_matrix())
+    assert with_cut.length == bare.length  # thin by default
+
+
+def test_momentum_predicate_is_a_window_on_delta_alone() -> None:
+    """Only ``delta`` is consulted: a huge ``x``/``y``/``zeta`` does not kill a particle."""
+    cut = MomentumAperture(2.0e-3)
+    inside = np.zeros(6)
+    inside[X], inside[Y], inside[ZETA] = 10.0, 10.0, 10.0
+    inside[DELTA] = 1.0e-3
+    assert bool(cut.survives(inside))
+    outside = inside.copy()
+    outside[DELTA] = 3.0e-3
+    assert not bool(cut.survives(outside))
+
+
+def test_the_window_is_centred_on_center_and_not_on_zero() -> None:
+    """``|delta − center| ≤ half_delta`` — asymmetric about zero when centred.
+
+    The gate a class that ignored ``center`` would fail: with the window shifted to
+    ``[+1, +9] × 1e-3``, ``delta = 0`` is *lost* and ``delta = 9e-3`` survives, which
+    is the opposite of what an uncentred cut says about both.
+    """
+    cut = MomentumAperture(4.0e-3, center=5.0e-3)
+    states = np.zeros((6, 6))
+    states[DELTA] = [0.0, 0.9e-3, 1.1e-3, 5.0e-3, 8.9e-3, 9.1e-3]
+    assert list(cut.survives(states)) == [False, False, True, True, True, False]
+    # a negative centre is the mirror image, exactly
+    mirrored = MomentumAperture(4.0e-3, center=-5.0e-3)
+    assert list(mirrored.survives(-states)) == list(cut.survives(states))
+
+
+def test_momentum_survives_is_scalar_for_one_and_vector_for_many() -> None:
+    cut = MomentumAperture(1.0e-3)
+    one = np.zeros(6)
+    one[DELTA] = 5.0e-4
+    assert cut.survives(one).shape == ()
+    many = np.zeros((6, 3))
+    many[DELTA] = [0.0, 5.0e-4, 5.0e-3]
+    got = cut.survives(many)
+    assert got.shape == (3,)
+    assert list(got) == [True, True, False]
+
+
+def test_momentum_boundary_is_inclusive_like_the_geometric_one() -> None:
+    """On the boundary survives, matching :class:`Aperture` and xtrack's limits."""
+    cut = MomentumAperture(2.0e-3, center=1.0e-3)
+    on = np.zeros(6)
+    on[DELTA] = 3.0e-3  # exactly center + half_delta
+    assert bool(cut.survives(on))
+    on[DELTA] = -1.0e-3  # exactly center - half_delta
+    assert bool(cut.survives(on))
+
+
+def test_momentum_construction_guards() -> None:
+    for bad in (0.0, -1.0e-3):
+        with pytest.raises(ValueError, match="half_delta must be > 0"):
+            MomentumAperture(bad)
+    assert MomentumAperture(1.0e-3, center=-2.0, length=0.5).length == 0.5  # centre is free
+    assert "center=-2.0" in repr(MomentumAperture(1.0e-3, center=-2.0))
+
+
+def test_both_kinds_are_acceptance_elements_and_nothing_else_is() -> None:
+    """The loss pass dispatches on the base class, so membership is the contract."""
+    assert isinstance(MomentumAperture(1.0e-3), AcceptanceElement)
+    assert isinstance(Aperture("circular", 1.0e-2), AcceptanceElement)
+    assert isinstance(Collimator("rectangular", 1.0e-2, 1.0e-2), AcceptanceElement)
+    assert not isinstance(Drift(1.0), AcceptanceElement)
+
+
+def test_the_loss_pass_consults_a_momentum_aperture(proton_gamma5: ReferenceParticle) -> None:
+    """End to end: an off-momentum particle is recorded lost at the cut's own ``s``.
+
+    Both kinds in one lattice, each killing a different particle, so a pass that
+    had kept dispatching on :class:`Aperture` alone would leave particle 1 alive.
+    """
+    lattice = Lattice(
+        [
+            Drift(1.0),
+            Aperture("circular", 5.0e-3),
+            Drift(2.0),
+            MomentumAperture(1.0e-3, center=0.0),
+            Drift(1.0),
+        ],
+        ref=proton_gamma5,
+    )
+    states = np.zeros((6, 3))
+    states[X] = [0.0, 0.0, 1.0e-2]  # particle 2 is outside the geometric aperture
+    states[DELTA] = [0.0, 5.0e-3, 0.0]  # particle 1 is outside the momentum one
+    result = Tracker(lattice).track_bunch_losses(Bunch(states), n_turns=1)
+
+    assert list(result.alive) == [True, False, False]
+    assert result.loss_element[1] == 3  # the MomentumAperture
+    assert result.loss_element[2] == 1  # the Aperture
+    assert result.loss_s[1] == pytest.approx(3.0)  # 1 m + 2 m of drift
+    assert result.loss_s[2] == pytest.approx(1.0)
+    assert list(result.loss_turn[[1, 2]]) == [0, 0]

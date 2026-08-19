@@ -3271,9 +3271,13 @@ adiabatic damping that must accompany it (`accsim.accelerate`).
   crossing are **out of scope**. No xtrack cross-check is warranted (derived closed
   forms over Stage-1/3-validated maps — the Stage-2 beam-envelope rationale).
 
-## Beam losses / apertures (Stage 4 — implemented)
+## Beam losses / apertures (Stage 4 — implemented; momentum acceptance B4)
 
-Geometric transverse acceptance with survival/loss accounting.
+Acceptance boundaries with survival/loss accounting. All of them subclass
+**`AcceptanceElement`**: an optics-transparent element (`matrix()` is the identity)
+whose physics is the predicate `survives(states)`, with loss *accounting* done by the
+tracking pass rather than the element. `track_bunch_losses` dispatches on that base
+class, so a new boundary only has to implement the predicate.
 
 - **`Aperture(shape, half_x, half_y=None, length=0.0)`** — an **optics-transparent**
   element: `matrix()` is the identity, so inserting one never perturbs Twiss,
@@ -3291,6 +3295,23 @@ Geometric transverse acceptance with survival/loss accounting.
   *peaks inside* a finite jaw and returns within the aperture at the exit is not
   caught. Negligible for pencil-thin collimators; costs accuracy only for long
   jaws with large local betatron slope.
+- **`MomentumAperture(half_delta, center=0.0, length=0.0)`** (B4) — the longitudinal
+  counterpart: `|delta − center| ≤ half_delta`. Only `delta` is consulted, so it is a
+  *momentum* acceptance and not a full longitudinal one; a `zeta` boundary is a different
+  object (the RF separatrix is not a rectangle in `(zeta, delta)`) and is deliberately not
+  this element. Same inclusive-`≤` convention as `Aperture`.
+  - ⚠️ **`center` must be the local closed-orbit `delta` on any ring with radiation.**
+    Radiation drains `delta` through the arcs and the cavity restores it in one lump, so
+    the periodic fixed point is *not* `delta = 0` at most elements; the swing is of order
+    `U0/E`. Measured on the B4 ring (6.5 GeV, `U0/E = 3.8e-3`, `sigma_delta = 2.0e-3`),
+    `delta_co(s)` runs from `−0.966 sigma` to `+0.921 sigma` — **1.887 sigma peak to
+    peak**. Because the quantum lifetime goes as `e^xi`, a symmetric cut at the worst
+    element is `xi = 1.73` one side and `7.20` the other where both should read `4.00`:
+    an order of magnitude in the lifetime from a boundary that looks reasonable. Centring
+    is also the correct physics — the closed form's amplitude is measured from the fixed
+    point. Get the number by propagating the radiation fixed point (Newton on
+    `track_once(s) == s` with `radiation="mean"`) and reading `delta` at the element's own
+    position.
 - **Loss accounting is separate from the element.** `Tracker.track_bunch_losses(
   bunch, n_turns)` walks the lattice element-by-element (linear optics),
   accumulating the **geometric** `s`. At each aperture the surviving particles are
