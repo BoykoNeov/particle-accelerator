@@ -496,11 +496,15 @@ synchrotron tune and by B2's lumping. Axis B was complete as written on 2026-08-
 natural consumer of axis L - a faithful per-element map is what a per-element energy
 loss needs - and its reference arm was verified to arbitrate the map, not merely the
 observable, before the candidate was written.
-**The direction chosen next, the same day, extends axis B once more: B4 and B5 below,
-written with their gates pre-committed and not yet built.** B4 gives a radiating bunch
-somewhere to die — an acceptance, transverse and longitudinal — so that Stage 4's
-year-old `quantum_lifetime` becomes something the tracking *produces* rather than
-something the design route quotes; B5 replaces B3's Gaussian graininess with real photons
+**The direction chosen next, the same day, extends axis B once more: B4 and B5 below.
+B4 is SHIPPED (2026-08-19); B5 remains a candidate with its gates pre-committed.** B4 gave a radiating bunch
+somewhere to die — a momentum acceptance — so that Stage 4's year-old `quantum_lifetime`
+became something the tracking *produces* rather than something the design route quotes.
+Its pre-committed headline turned out to be **wrong**, and the correction is the result:
+a tracked decay does *not* land on the closed form (it is 37% above it on this ring),
+because the closed form is a continuum limit and a tracked bunch is a discrete walk
+sampled once per turn. What shipped instead is a chain of three separately gated links,
+ending in a departure that is proportional to the step size and extrapolates to zero; B5 replaces B3's Gaussian graininess with real photons
 drawn from the synchrotron spectrum. The two candidates were chosen over the alternatives
 on the project's usual filter, **whether an independent code can arbitrate the answer**:
 the sideways photon recoil that would give the vertical plane a real emittance floor was
@@ -761,141 +765,120 @@ sustained arc.
     the tail — the single hard photon that empties the RF bucket — which is Stage 4's
     `quantum_lifetime` and an axis of its own.
 
-- **B4 (candidate, IN PROGRESS) — the acceptance a radiating bunch dies at, and the
-  quantum lifetime the tracking produces.** Stage 4 shipped `lifetime.quantum_lifetime`
-  a year ago and B1 gave it a damping time computed from the lattice, but nothing in
-  accsim has ever *lost* a particle to radiation: B3's bunch reaches its equilibrium and
-  sits in it for ever, because the excitation only ever refills a distribution that has
-  no exit. This is the exit. **Deliverable:** losses at a momentum acceptance for a
-  quantum-excited track — a new longitudinal acceptance element beside the shipped
-  geometric `Aperture`, and a loss-aware pass that consults both. The headline the
-  milestone is *for*: the decay of a tracked surviving population lands on a closed form
-  whose damping time comes from the radiation integrals and whose width comes from B3,
-  with **no fitted parameter in between**.
+- **B4 (SHIPPED 2026-08-19) — the acceptance a radiating bunch dies at, and the quantum
+  lifetime the tracking produces.** Stage 4 shipped `lifetime.quantum_lifetime` a year
+  ago and B1 gave it a damping time computed from the lattice, but nothing in accsim had
+  ever *lost* a particle to radiation: B3's bunch reached its equilibrium and sat in it
+  for ever, because the excitation only refilled a distribution with no exit. This is the
+  exit. **Shipped:** `MomentumAperture` (a `|delta − center|` acceptance) beside the
+  geometric `Aperture`, both now subclassing `AcceptanceElement` so the loss-aware pass
+  dispatches on the base class; `lifetime.quantum_lifetime_exact`, the mean-first-passage
+  integral itself; and 30 gates across `test_quantum_lifetime.py` (16) and
+  `test_quantum_lifetime_tracking.py` (14).
+  - ⚠️ **The headline this entry pre-committed was wrong, and the correction is the
+    milestone's main result.** The draft said a tracked decay would land on the closed
+    form "with no fitted parameter in between". It does not: on this ring the tracked
+    decay is **37% above** `tau/lambda_1`, reproducibly. The reason is physics, not a
+    bug. `quantum_lifetime` describes a *continuum* diffusion of the oscillation
+    amplitude; a tracked bunch is a *discrete* walk looked at once per turn, and one turn
+    moves the normalised action by 0.23 out of `xi = 3`. So the deliverable became **three
+    links, each gated separately**, in B3's shape:
+    1. the map's noise and damping — B3's Lyapunov solve (tracked `sigma_delta` is the
+       Lyapunov one to 0.05%, tracked `delta` is Gaussian to kurtosis 2.99);
+    2. the first-passage physics given that map — accsim's tracked survival curve against
+       **an independent twenty-line implementation of the same process** with no lattice,
+       no elements and no radiation model in it, agreeing pointwise across a factor of
+       four in survival;
+    3. that discrete process against the closed forms — its departure is proportional to
+       the step size and extrapolates to zero.
+    Stated plainly, because it is the limit of the argument: the toy shares the
+    *conceptual* model, so it cannot catch a wrong noise magnitude. That is link 1's job
+    and B3 already did it.
+  - **The two departures, separated and named.** A coordinate cut is not an amplitude
+    cut — `|delta|` is sampled once per turn, so a particle whose amplitude has crossed
+    the boundary survives until a sample lands near its extreme, worth a further 22%; and
+    even a true amplitude cut runs 14% long because the steps are not infinitesimal. The
+    **`Q_s` scan is what separates the two mechanisms**, and it is the reason the plain
+    `delta` cut had to replace the separatrix (below): the coordinate excess is *flat to
+    1.5% while `Q_s` moves by a factor of four*, so it is once-per-turn **sampling** and
+    not phase-rotation delay, which would have scaled with the synchrotron period. The
+    step-size scan alone could not have told them apart, because it moves both together.
+    At `Q_s = 0.5` the two cuts collapse onto each other and both fall *below* the closed
+    form — the half-integer synchrotron resonance, where every sample lands on the same
+    pair of phases; gated as the edge of the flat region rather than dropped.
   - **The boundary is a plain `|delta − delta_co| <= delta_acc` cut, and the RF separatrix
-    is explicitly *not* it.** The first draft said "a low RF voltage for the
-    longitudinal boundary" and that design fights itself from both ends. The bucket
-    half-height goes as `sqrt(V)` and so does `Q_s`, so with a separatrix boundary
-    `xi ∝ V` and `Q_s ∝ sqrt(V)` — **the one discriminating gate below, varying `Q_s` at
-    fixed `xi`, becomes unrunnable rather than merely awkward**. Worse, `Q_s(amplitude)
-    → 0` at the separatrix and the motion there is maximally anharmonic, while the
-    closed form is a *harmonic* first-passage result: that boundary sits outside the
-    formula's domain of validity. The plain `delta` cut has neither problem, because
-    `sigma_delta` is voltage-independent (radiation integrals only): measured across
-    30–180 MV on the B4 ring it is `2.0228e-3` to five figures while `Q_s` moves
-    `0.075 → 0.190`. So `xi` is set by the cut alone and `Q_s` scans freely. The
-    separatrix predicate is demoted to a *second, later* comparison — it is a different
-    boundary, and the closed form does not describe it. (Design ring: 6.5 GeV, 20 FODO
-    cells, `xi = 4` ⇒ `delta_acc = 5.72e-3`, which is **0.168 of the bucket height** —
-    deep in the harmonic region by construction.)
-  - ⚠️ **The cut must be centred on the local closed orbit, and this is the milestone's
-    sharpest trap.** Radiation drains `delta` through the arcs and the cavity restores it
-    in one lump, so the fixed point is *not* `delta = 0` at most elements: measured on
-    the B4 ring, `delta_co(s)` swings from `−0.966 sigma` to `+0.921 sigma`, **1.887
-    sigma peak to peak**, against `U0/E = 3.8e-3`. A symmetric cut at the worst element
-    would sit `1.73` in `xi` on one side and `7.20` on the other instead of `4.00` on
-    both — and since `tau_q ~ e^xi` that is an order of magnitude, not a correction. The
-    element therefore carries a `center`, which is also the correct physics: the
-    amplitude the closed form speaks about is measured from the fixed point, not from
-    the design momentum. This buys a free strong gate — **the fitted lifetime must be
-    the same with the cut placed at three different `s` around the ring**, which is what
-    proves the centring and fails loudly without it.
-  - **The tracked decay is gated against the slowest eigenvalue, not against the mean
-    first-passage time, and the difference is measured rather than assumed.** The
-    long-time decay of a surviving population is the smallest eigenvalue `lambda_1` of
-    the same Fokker–Planck generator with an absorbing boundary; `1/lambda_1` equals
-    `MFPT(0)` only as `xi → infinity`. Measured here by discretising the operator whose
-    backward-equation residual the suite already verifies symbolically, the ratio
-    `MFPT/(1/lambda_1)` is **1.135 at `xi = 3`, 1.080 at `xi = 4`, 1.005 at `xi = 8`,
-    1.0004 at `xi = 12`**. An 8% gap against a `1/sqrt(N_lost)` budget of ~2% would have
-    failed by 4x and read as a bug. So the milestone gates *two* closed forms — the
-    tracked decay against `lambda_1`, and the exact MFPT integral against the design
-    route — and asserts their ratio as a function of `xi` as a third.
-  - **`quantum_lifetime_exact` ships first, because the asymptote is not the answer
-    here.** `tau_q = tau_d e^xi/(2 xi)` is the `xi >> 1` limit and the ring is
-    deliberately built at `xi ~ 4`, where the exact integral is **17.6674** against the
-    asymptote's **13.6495** — a ratio of **1.29436**, gated to five figures as a pure
-    number. Pre-committed trap: the obvious way to gate that departure is against a
-    truncated `O(1/xi)` expression, and **that test would itself be wrong** — `1 + 1/xi
-    = 1.25` and `1 + 1/xi + 2/xi^2 = 1.375` *bracket* the truth, so the asymptotic
-    series is only good to 5–10% at this `xi`. The exact integral is the gate. Its
-    departure from the asymptote is stated as the law `xi·(exact/asymptote − 1) → 1`,
-    not as "halves when `xi` doubles", which is the same claim only in the limit (the
-    measured ratio at `xi = 8 → 16` is 2.42, not 2).
-  - **The ring must be designed so that particles actually die.** `xi = A^2/2 sigma^2`
-    means a normal ring's `xi` of tens is a lifetime of `e^50` damping times — nothing
-    is ever lost, and a tracked lifetime gate would pass vacuously (the failure mode
-    `tracking-gate-needs-many-periods` already records from the other side). The
-    acceptance is therefore **2.8 sigma** (`xi = 4`), which puts the decay constant at
-    ~1800 turns against a longitudinal amplitude damping time of 220 turns.
-  - **The `Q_s` scan holds the *measured* `xi` fixed, not the nominal one.** B3
-    established that the Lyapunov `sigma_delta` departs from the closed form as a
-    function of `Q_s`; since `tau_q ~ e^xi`, `d tau/tau ≈ 2 xi · d sigma/sigma ≈ 8x`, so
-    a 1% drift in `sigma_delta` across the scan is an 8% lifetime shift — larger than
-    any statistical budget. `delta_acc` is therefore recomputed from the Lyapunov
-    `sigma_delta` at each voltage so that the measured `xi` is identical by
-    construction, and *then* the lifetime is asserted unchanged. That isolates the
-    coordinate-versus-amplitude question and nothing else. The scan is capped at 180 MV:
-    at 360 MV the map's own damping time has already drifted to 254 turns against the
-    integrals' 220, which is B2's lumping and not this milestone's physics.
-  - **The two boundaries are not the same boundary, and the closed form describes only
-    one of them.** The formula's `A` is the boundary on the oscillation *amplitude*; a
-    `delta` cut is an instantaneous test on the *coordinate*, so a particle whose
-    amplitude has just crossed `A` is not lost until its phase brings it to the
-    boundary — within one synchrotron period. The two agree only while that period is
-    short against `tau_q`, which is the regime here (`1/Q_s` of 5–13 turns against a
-    decay of ~1800). The `Q_s` scan above is exactly this gate, and it is a statement no
-    tolerance can be loosened into.
-  - **The vertical plane has no quantum lifetime at all, and that is a gate rather than
-    a gap.** B3 measured the vertical excitation as exactly `0.0`, so a vertically
-    displaced bunch damps *through* the equilibrium instead of stopping at it. A
-    vertical `Aperture` on a quantum-excited ring must therefore show **zero** losses,
-    however long it is tracked, with the bunch started *below* the aperture (started
-    above, the transient losses would read as a broken gate). The vertical noise is not
-    absent so much as multiplicative — `py` is scaled by a random factor, so the
-    diffusion goes as `py^2` and the equilibrium is zero rather than the drive being
-    zero — and the gate is that this is utterly negligible against the damping.
-  - **The horizontal plane is deliberately *not* gated on a lifetime, and the reason is
-    stated rather than discovered.** `x = x_beta + D_x delta`, so a coordinate cut where
-    `D_x sigma_delta` is comparable to the betatron size is a **two-mode** first-passage
-    problem with no single `xi` — and the two modes here have damping times differing by
-    4x (220 turns against 846). A FODO ring has no dispersion-free location to put the
-    aperture in, and building a dispersion suppressor to create one is a different
-    milestone. The earlier draft's "the horizontal, excited through dispersion, must
-    show the closed form" conflated two roles of dispersion: in the bends it is what
-    *creates* the horizontal emittance (kept), at the aperture it is what *breaks* the
-    one-dimensional form (avoided).
-  - **The factor-of-2 trap is sidestepped rather than converted.** `quantum_lifetime`
-    takes the **amplitude** damping time and `damping_times` already returns it, but the
-    tracked route's natural output is an eigenvalue modulus: `tau_amp = −1/ln|lambda|`
-    turns *is* the amplitude time by definition, so there is no 2 to carry anywhere.
-    Measured, that number is 220.3 turns against the radiation integrals' 220.2 — an
-    independent cross-check of the two routes' conventions, for free. The Lyapunov
-    `Sigma`'s `zeta`–`delta` correlation is asserted small against
-    `sqrt(Sigma_zz Sigma_dd)`; if it were not, `xi = A^2/2 sigma^2` would not be the
-    right `xi`.
-  - **The survival fit uses the tail, not the whole curve.** `e^-xi` = 1.8% of an
-    equilibrium bunch starts with its action already past the boundary and dies inside
-    the first synchrotron period. That transient is a small share of the losses but sits
-    entirely at `t ≈ 0`, biasing a whole-curve fit towards too-fast decay; the first
-    damping time is discarded and the discarded window is stated.
-  - **Test placement is decided by measured cost, not retrofitted.** The deterministic
-    gates (Jacobian → Lyapunov → exact integral → `lambda_1`) are cheap and belong in
-    `tests/analytic`. The tracked survival run is ~6000 turns x ~100 elements x 10^4
-    particles with `nonlinear=True` forced by radiation; it is timed standalone before
-    it is committed anywhere, and goes behind a marker if it would move the green
-    target. Unsliced bends are used for it, on B3's own argument: the tracked bunch is
-    compared to the Lyapunov solution of the *same* map, not to a closed form.
-  - **Reference arm.** `xt.LongitudinalLimitRect` is a rectangular `zeta`/`pzeta` cut and
-    xtrack's radiation samples real photons, so the same ring can be tracked in both
-    codes and the two survival curves compared — two independent stochastic
-    implementations against one closed form. The comparison is statistical by nature and
-    is stated as such, with its floor.
-  - **Deliberately not built:** Touschek and IBS (out of scope, and a different loss
-    mechanism entirely), dynamic aperture (out of scope), the horizontal quantum
-    lifetime (above), and the vertical one, which is unavailable by construction until
-    the opening angle exists.
-  - Effort **M**.
+    is explicitly *not* it.** The first draft said "a low RF voltage for the longitudinal
+    boundary", and that design fights itself from both ends. The bucket half-height goes
+    as `sqrt(V)` and so does `Q_s`, so with a separatrix boundary `xi ∝ V` and
+    `Q_s ∝ sqrt(V)` — **the discriminating gate above becomes unrunnable**, not merely
+    awkward. Worse, `Q_s(amplitude) → 0` at the separatrix and the motion there is
+    maximally anharmonic, while the closed form is a *harmonic* first-passage result.
+    The plain `delta` cut has neither problem: `sigma_delta` is voltage-independent
+    (radiation integrals only), measured as `2.0228e-3` to five figures across 30–180 MV
+    while `Q_s` moves `0.075 → 0.190`. Ring: 6.5 GeV, 20 FODO cells, 90 MV, `xi = 3`,
+    which puts the acceptance at **0.15 of the bucket height** — harmonic by construction.
+  - ⚠️ **The cut must be centred on the local closed orbit.** Radiation drains `delta`
+    through the arcs and the cavity restores it in one lump, so the fixed point is *not*
+    `delta = 0` at most elements: measured, `delta_co(s)` swings from `−0.966` to `+0.921`
+    sigma, **1.887 sigma peak to peak**, and it is `U0/E = 3.8e-3` that sets that scale.
+    A symmetric cut at the worst element would sit at `xi = 1.73` one side and `7.20` the
+    other instead of `4.00` on both — a **6x shorter** lifetime, from a boundary that
+    looks perfectly reasonable. Centring is also the correct physics: the closed form's
+    amplitude is measured from the fixed point.
+  - **The mean first-passage time is not the decay constant, and gating against the wrong
+    one would have read as a bug.** What a survival curve measures is the slowest
+    eigenvalue `lambda_1` of the generator with an absorbing wall, not the mean time for
+    one particle to reach it. Measured by discretising the operator whose
+    backward-equation residual the suite already verifies symbolically:
+    `MFPT/(1/lambda_1)` = **1.134, 1.079, 1.005, 1.000** at `xi` = 3, 4, 8, 12. The 8% gap
+    at `xi = 4` against a `1/sqrt(N_lost)` budget of ~2% would have failed by 4x. The
+    eigenvalue route also has a **ceiling**, gated rather than discovered: the symmetrising
+    weight is `e^-w`, so past `xi ~ 20` double precision runs out and at `xi = 30` the
+    eigenvalue comes back *negative* — while `quantum_lifetime_exact`, an
+    everywhere-positive series, stays exact there.
+  - **`quantum_lifetime_exact` had to ship first.** At `xi = 4` the exact integral is
+    **17.6674** against the asymptote's **13.6495**, a ratio of **1.29436** gated to five
+    figures as a pure number. Pre-committed trap, with a test of its own: gating that
+    departure against a truncated `O(1/xi)` expression **would itself be wrong** —
+    `1 + 1/xi = 1.25` and `1 + 1/xi + 2/xi^2 = 1.375` *bracket* the truth. The departure
+    is the law `xi (exact/asymptote − 1) → 1`, not "halves when `xi` doubles", which is
+    the same claim only in the limit (measured 2.42 at `xi = 8 → 16`).
+  - **The vertical plane has no quantum lifetime, and that is a gate rather than a gap.**
+    One ring, one model, two planes that disagree in a pre-stated way: the momentum cut
+    loses two thirds of the bunch while a vertical aperture at comparable tightness loses
+    **zero**. The vertical noise is not absent so much as *multiplicative* — `py` is
+    scaled by a random factor, so diffusion goes as `py^2` and the equilibrium is zero
+    rather than the drive being zero — so the bunch is started *below* the aperture;
+    started above, the damping transient would carry particles across it and the zero
+    would read as a broken gate.
+  - **The horizontal plane is deliberately *not* gated on a lifetime.**
+    `x = x_beta + D_x delta`, so a coordinate cut where `D_x sigma_delta` is comparable to
+    the betatron size is a **two-mode** first-passage problem with no single `xi`, and the
+    two modes here differ 4x in damping time. A FODO ring has no dispersion-free location.
+    The earlier draft's "the horizontal, excited through dispersion, must show the closed
+    form" conflated two roles of dispersion: in the bends it *creates* the horizontal
+    emittance (kept), at the aperture it *breaks* the one-dimensional form (avoided). That
+    `xi` is well posed in the *longitudinal* plane is checked rather than assumed, by
+    projecting `Sigma` onto the eigen-modes of `Sigma S`: **99.3%** of the momentum spread
+    is the longitudinal mode. (At 180 MV that falls apart — the two modes hybridise, 0.05
+    against 0.95 — which is the real reason the scan is capped, not the damping-time drift
+    the draft cited.)
+  - **The factor of 2 is sidestepped rather than converted.** `tau = −1/ln|lambda|` from
+    the one-turn Jacobian **is** the amplitude damping time by definition, so nothing has
+    to be halved anywhere: measured 219.6 turns against the radiation integrals' 220.2, an
+    independent cross-check of two routes' conventions for free.
+  - **Cost, measured and deliberate.** The whole file is 54 s, of which the tracked gate
+    is 32 s. The cheaper 10-cell ring was tried and rejected: at `U0/E = 1.1%` per turn it
+    does not confine a beam at all (tracking without an acceptance returns `NaN`). The RF
+    bucket's anharmonicity was checked as an explanation for its disagreement and **ruled
+    out** — a pendulum toy matched to the same `Q_s` and bucket height returns 521 turns
+    where the linear one returns 523.
+  - **Not built:** Touschek and IBS (out of scope, a different loss mechanism), dynamic
+    aperture (out of scope), the separatrix predicate (a different boundary, which the
+    closed form does not describe), the horizontal quantum lifetime (above), the vertical
+    one (unavailable by construction until the opening angle exists), and the
+    `xt.LongitudinalLimitRect` reference arm — the analytic chain closed without it, and
+    a statistical two-code comparison would add cost rather than discrimination.
 
 - **B5 (candidate) — the photon-resolved sampler, and how far the tail actually reaches.**
   B3 shipped the graininess as a Gaussian of the right mean and the right variance and said

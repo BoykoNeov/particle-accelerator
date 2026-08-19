@@ -3366,7 +3366,31 @@ aperture. What a survival curve measures is the slowest eigenvalue `lambda_1` of
 generator with an absorbing boundary, and the two agree only as `xi -> infinity`:
 `MFPT/(1/lambda_1)` = 1.135 (`xi=3`), 1.080 (`xi=4`), 1.005 (`xi=8`), 1.0004 (`xi=12`).
 At a real ring's `xi` of tens they are the same number; at a gate-sized `xi` they are
-not, and a fitted lifetime must be compared to `lambda_1`.
+not, and a fitted lifetime must be compared to `lambda_1`. The `lambda_1` route has a
+**ceiling**: its symmetrising weight is `e^-w`, so past `xi ~ 20` double precision runs
+out and at `xi = 30` the eigenvalue comes back *negative*. `quantum_lifetime_exact` is
+exact there; use it, not the eigenvalue, at a real ring's `xi`.
+
+**⚠️ A tracked decay is not the closed form, and the gap is physics (B4).** The closed
+form is a *continuum* diffusion of the oscillation amplitude; a tracked bunch is a
+*discrete* walk looked at once per turn. On the B4 ring (`tau = 220` turns, `xi = 3`) one
+turn moves the normalised action by 0.23, and the tracked decay lands **37% above**
+`tau/lambda_1`. Two separable owners, both measured in
+`tests/analytic/test_quantum_lifetime_tracking.py`:
+
+- **a coordinate cut is not an amplitude cut** (+22%). `|delta|` is sampled once per
+  turn, so a particle whose amplitude has crossed the boundary survives until a sample
+  lands near its extreme. It is **flat in `Q_s` to 1.5% across a factor of four**, which
+  is what identifies it as *sampling* rather than phase-rotation delay — a rotation delay
+  would scale with the synchrotron period. At `Q_s = 0.5` the two cuts collapse onto each
+  other and both drop *below* the closed form (the half-integer synchrotron resonance:
+  every sample lands on the same pair of phases).
+- **finite steps** (+14% on top). Even a true amplitude cut runs long. The excess is
+  proportional to the step `sqrt(2 xi) sqrt(2/tau)` and extrapolates to zero.
+
+So gate a tracked lifetime against an **independent implementation of the same discrete
+process**, and gate *that* against the closed form as the step vanishes. Gating tracking
+directly against `quantum_lifetime` is a 37% failure that is not a bug.
 
 ## Synchrotron radiation / radiation damping (Stage 7 — implemented)
 
@@ -4962,6 +4986,19 @@ numerically plausible and otherwise invisible. It was made, and caught, during D
 
 Where the runtime goes, measured, and what was done about it. Recorded because the
 dominant term is **not** in accsim's code and is easy to misattribute.
+
+- **The analytic suite's one expensive tracking gate is B4's (2026-08-19).**
+  `tests/analytic/test_quantum_lifetime_tracking.py` costs **54 s** of which the tracked
+  survival gate is **32 s** (1500 particles x 1200 turns x 51 elements, `nonlinear=True`
+  forced by radiation). That is the price of the milestone's headline and it was sized
+  deliberately, not discovered: the budget is binomial on the survival fraction (1.9-4.4%
+  over the three marks, gated at 3 sigma), which has to stay tight against a 37% effect.
+  Two cheaper designs were measured and rejected — a fitted decay constant instead of
+  pointwise survival is ~2x noisier for the same cost, and a 10-cell ring (half the
+  elements, a third of the turns) does not confine a beam at all. **`slow` does not
+  deselect**: `addopts` is `-m 'not reference'`, so a `slow` mark changes nothing about
+  the default run; do not add `not slow` to make room, it would silently drop the
+  existing long-term tracking gates from the green target.
 
 - **The reference suite is a compiler benchmark, not a physics benchmark.** Every
   `xt.Line` tracker build JIT-compiles a fresh C kernel through clang-cl. There is
