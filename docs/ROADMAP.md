@@ -497,8 +497,15 @@ natural consumer of axis L - a faithful per-element map is what a per-element en
 loss needs - and its reference arm was verified to arbitrate the map, not merely the
 observable, before the candidate was written.
 **The direction chosen next, the same day, extended axis B once more: B4 and B5 below.
-Both are now SHIPPED — B4 on 2026-08-19, B5 on 2026-08-25. Axis B is complete as scoped;
-the next milestone means choosing a new direction.** B4 gave a radiating bunch
+Both are now SHIPPED — B4 on 2026-08-19, B5 on 2026-08-25. Axis B is complete as scoped.**
+**The new direction chosen after it, on 2026-08-25, is axis M — the optics *off-momentum*,
+the derivative of the machine rather than the machine at one momentum. It was picked by
+applying the project's usual filter mechanically: every quantity xtrack's `twiss()` reports
+was diffed against what accsim reports, and the chromatic family was the one clear gap with
+*two* arbiters already wired. M1 shipped the same day — and found that accsim, xtrack and
+MAD-X give three different second-order chromaticities on a ring with bends while agreeing
+on the tune to ten digits, with accsim's element maps and closed orbits proven identical to
+xtrack's. M2 is written to settle which of the three is right.** B4 gave a radiating bunch
 somewhere to die — a momentum acceptance — so that Stage 4's year-old `quantum_lifetime`
 became something the tracking *produces* rather than something the design route quotes.
 Its pre-committed headline turned out to be **wrong**, and the correction is the result:
@@ -2540,6 +2547,131 @@ move.
   precise: tracked chromaticity on a bendy combined-function ring must move from
   `(−0.13973, −0.13206)` to `natural_chromaticity`'s `(+0.114815, −0.015121)`, with
   `xt.Bend(model="bend-kick-bend")` as the arbiter. Effort **M**.
+
+
+### M. The optics off-momentum — the derivative of the machine (core accelerator)
+
+Every optics quantity on axes A-L describes the machine at **one** momentum. Axis M
+adds the derivative: how `beta`, `alpha` and the tune move as `delta` does. Opened
+2026-08-25 as a new axis rather than an extension because it is not a new *element*
+or a new *effect* — it is the same lattice differentiated, and its natural home is
+the Twiss module rather than any magnet.
+
+The direction was chosen on the project's usual filter, applied mechanically: every
+quantity `xtrack`'s `twiss()` reports was compared against what accsim reports, and
+the chromatic family (`bx_chrom`, `ax_chrom`, `wx_chrom`, `ddqx`, `ddqy`, `ddx`) was
+the one clear gap with **two** independent arbiters already wired (xtrack and, since
+D3, MAD-X).
+
+- **M1 — the chromatic functions and second-order chromaticity.** ✅ **SHIPPED
+  (2026-08-25)** — `chromatic_functions()` returns `dbeta/ddelta`, `dalpha/ddelta`
+  and the MAD8 normalised `a`/`b`/`w` at every element boundary;
+  `second_order_chromaticity()` returns `(Q''_x, Q''_y) = d^2Q/ddelta^2`. Both are
+  central differences of `propagate_twiss_on_orbit` / `tunes_on_orbit` in `delta`,
+  which is deliberate: it is the method **both** references use, so a disagreement
+  arbitrates the maps rather than the truncation order of two different expansions
+  (B2's argument). That also made M1 a thin layer over machinery L1-L4 and I1-I3
+  had already built — the off-momentum closed orbit and the per-element linearised
+  maps — which is why the milestone's weight is entirely in its gates.
+
+  What it delivered, and what it found:
+
+  - **The chromatic functions are validated in full.** They match xtrack **element
+    by element** around a ring with bends, to `2e-4` relative on a curve whose
+    `b_x` swings through more than 0.5 — a per-element readout rather than a single
+    scalar, because a one-turn number can be right by cancellation and a curve
+    cannot (J1's lesson).
+  - **`Q''` is exact where it can be checked and *not arbitrated* where it cannot.**
+    On a **bend-free** ring it reproduces a sympy closed form, and xtrack **and**
+    MAD-X agree with it — a genuine three-code agreement. The closed form exists
+    because a thin quadrupole carries **no** `1/(1+delta)` at all (its kick changes
+    every particle's momentum equally) and the exact `Drift`, linearised at the
+    origin, is simply `Drift(L/(1+delta))`; so a thin-lens ring's entire momentum
+    dependence is one substitution, and the tune can be differentiated twice
+    symbolically. That gate is the **control**, not a warm-up: it proves the
+    second-difference machinery, the quad map, the drift map and the phase
+    accumulation are all right at second order.
+  - **On a ring with bends the three codes split**: accsim `0.79307`, xtrack
+    `0.75202`, MAD-X `0.70441`, while agreeing on `Q` to **ten** digits and on `Q'`
+    to seven. MAD-X is *further* from xtrack than accsim is, which rules out the
+    easy reading ("two references agree, so accsim is wrong").
+  - **The split is provably not accsim's maps, and establishing that positively is
+    the milestone's real result.** accsim's `Dipole` Jacobian equals `xt.Bend`'s to
+    `5e-9` entry by entry **on the off-momentum closed orbit** — every
+    momentum-dependent entry, its weak focusing, its dispersion generation and its
+    path lengthening; the two closed orbits agree to `1e-9` including the
+    second-order dispersion that makes `x_co(+delta) != -x_co(-delta)`; and
+    accsim's two *independent* tune routes (accumulated Twiss phase, and the
+    one-turn trace) agree with each other to seven digits. Identical maps about
+    identical orbits cannot produce different tunes, so the spread lives in
+    second-order tune **extraction** on a dispersive ring. No reference currently
+    arbitrates it, so the value ships pinned as a named boundary rather than
+    quoted as validated — the way L4 shipped and named L5. **M2 is the milestone
+    written to close it**, and M1 handed it a scaling law to start from: the gap is
+    **exactly zero without bends and quadratic in the bending angle**, the signature
+    of the longitudinal constraint rather than of phase extraction.
+  - **A pre-committed expectation was wrong, and the correction is a result.** The
+    sextupole's contribution to `Q''` was expected to be linear in `k2l`. It is
+    **quadratic** (measured exponent `2.02`), and the reason is that the two
+    chromaticities take the same element at two different powers: a sextupole at
+    dispersion feeds down a gradient `k2l D_x delta`, which is first order in
+    `delta` and therefore lands on `Q'` *linearly* (exactly so — `dQ'/k2l` is one
+    number to nine digits) and cannot reach a second derivative at all by that
+    route. `Q''` is reached only at second order in the perturbation. The gate is
+    now the pair of **exponents**, which discriminates where no tolerance does.
+  - **xtrack's own `ddqx` is noise-limited below `delta ~ 5e-5`** (a second
+    difference amplifies closed-orbit noise as `1/delta^2`), running to `1.10` at
+    `1e-5` against its converged `0.7520`. accsim's default step and the gates'
+    steps both sit in the flat middle, and the analytic suite gates the
+    **convergence order** — halving `delta` quarters the residual against the
+    symbolic answer — rather than a value at one step (B4's argument, applied to a
+    derivative).
+  - **xtrack's nonlinear dipole fringe is invisible on-momentum** (it moves neither
+    tune at `delta = 0`, to thirteen digits) and acts only at *second* order in
+    `delta`, in the vertical plane alone. accsim's `Dipole` uses the linear
+    hard-edge kick, which is the identity at `e1 = e2 = 0`, so `edge='suppressed'`
+    is the apples-to-apples setting — and since `Q''_x` is identical under both
+    settings, the edge model is **not** what explains the horizontal split.
+
+- **M2 (candidate) — the longitudinal constraint, and which code is right.** The
+  deferral M1 named, and the first milestone on this axis with a genuinely open
+  answer. The facts to explain: three codes, identical element maps (`5e-9`),
+  identical closed orbits (`1e-9`), agreement on `Q` to ten digits and on `Q'` to
+  seven, and three different `Q''` on a dispersive ring.
+
+  **M1 narrowed it much further than "the codes differ", and this is the hypothesis
+  M2 opens with.** Sweeping the bending angle and differencing accsim against MAD-X
+  at each shows the gap is **exactly zero at zero angle and quadratic in the angle**
+  as it turns on (`gap/angle^2` = `8.91`, `8.22` at `0.03` and `0.06` rad, tending
+  to a constant as the angle shrinks). A term that vanishes with the bending angle,
+  grows as its square, and leaves `Q` and `Q'` untouched is something proportional
+  to dispersion acting twice — and the leading suspect is **what each code holds
+  fixed longitudinally when it closes an off-momentum orbit**. accsim's
+  `closed_orbit_nonlinear` fixes `zeta = 0` and `delta` at the entrance (its own
+  docstring says so, and without RF there is no 6D fixed point to find instead);
+  path length through a bend depends on `delta` where through a drift it does not,
+  which is exactly the observed on/off switch. xtrack's
+  `twiss(delta0=, method='4d')` and MAD-X's `twiss, deltap=` each make their own
+  choice.
+
+  The gate is pre-committed and sharp: **construct a ring where the closed form is
+  known.** A single thin quadrupole plus a single sector bend has a one-turn map
+  sympy can build as an exact function of `delta` and differentiate twice, exactly
+  as M1 did for the bend-free case — the bend's exact map is a circle (L3), so
+  nothing about it is beyond sympy. Whichever code reproduces that number is right,
+  and the other two are named; and if the answer is the longitudinal constraint, the
+  fix is a documented choice rather than a map change. Effort **M**.
+
+- **M3 (candidate) — second-order dispersion.** `ddx`, `ddy`, `ddpx`, `ddpy`: where
+  an off-momentum particle sits, past the straight-line term. A different object
+  from M1 (it needs bends to be non-trivial, and it is a property of the orbit
+  rather than of the optics about it), and it is already half-measured — M1's
+  reference suite pins accsim's off-momentum closed orbit against xtrack's to `1e-9`
+  at `delta = +/-1e-3`, which is precisely the finite difference `ddx` is built
+  from. `xtrack`'s `ddx` and MAD-X's `DDX` are both available as arbiters. Deferred
+  behind M2 only because a second-order quantity on a dispersive ring is exactly
+  what M2 is about, and settling that first stops M3 inheriting the same ambiguity.
+  Effort **S**.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

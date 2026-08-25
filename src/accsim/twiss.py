@@ -1450,3 +1450,176 @@ def chromaticity_on_orbit(lattice: Lattice, slices: int = 64) -> tuple[float, fl
     from .orbit import linearised_lattice
 
     return chromaticity(linearised_lattice(lattice), slices)
+
+
+# ---------------------------------------------------------------------------
+# M1: the optics off-momentum — chromatic functions and second-order chromaticity
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChromaticTwiss:
+    r"""How the linear optics at one point move when the momentum does.
+
+    Every other Twiss object in this package describes the machine at **one**
+    momentum. This one is its derivative: the rate at which ``beta`` and ``alpha``
+    change with ``delta``, in the MAD8 normalisation both MAD-X and xtrack report.
+
+    ``dbeta_u`` [m] and ``dalpha_u`` [1] are the raw derivatives
+    ``dbeta_u/ddelta`` and ``dalpha_u/ddelta``. The other three are the
+    conventional combinations (MAD8 physics manual section 6.3, and ``xtrack``'s
+    ``bx_chrom`` / ``ax_chrom`` / ``wx_chrom``):
+
+        b_u = (dbeta_u/ddelta) / beta_u,
+        a_u = dalpha_u/ddelta - (dbeta_u/ddelta) alpha_u / beta_u,
+        w_u = sqrt(a_u^2 + b_u^2).
+
+    ``b_u`` is the *relative* beta-beat per unit momentum, which is what makes it
+    comparable between machines and between points. ``w_u`` is the amplitude of the
+    chromatic perturbation and is the quantity a lattice designer squeezes: a large
+    ``w`` at an insertion means the off-momentum particles in the bunch are focused
+    to a visibly different spot than the on-momentum ones.
+
+    **Derivative with respect to** ``delta``, **not** ``pzeta``. The two differ by
+    ``beta0`` factors and so agree on an ultra-relativistic ring to round-off; the
+    choice is pinned on a low-``gamma0`` ring in the reference suite, where it is a
+    real difference rather than a naming preference. See ``docs/CONVENTIONS.md`` ->
+    *Chromatic functions*.
+    """
+
+    s: float
+    dbeta_x: float
+    dalpha_x: float
+    dbeta_y: float
+    dalpha_y: float
+    a_x: float
+    b_x: float
+    w_x: float
+    a_y: float
+    b_y: float
+    w_y: float
+
+
+def _chromatic_step(delta: float) -> float:
+    """Validate the momentum step shared by the two chromatic entry points."""
+    if delta <= 0.0:
+        raise ValueError(f"delta must be > 0 (it is a step size), got {delta}")
+    return float(delta)
+
+
+def chromatic_functions(
+    lattice: Lattice, *, delta: float = 1e-3, step: float = 1e-7
+) -> list[ChromaticTwiss]:
+    r"""``dbeta/ddelta``, ``dalpha/ddelta`` and the MAD8 ``a``/``b``/``w`` at every boundary.
+
+    Central-differences :func:`propagate_twiss_on_orbit` at ``+delta`` and
+    ``-delta``: the optics are re-matched **on the closed orbit at each momentum**,
+    so every source of momentum dependence the package models is included at once —
+    the thick quadrupole's ``k1/(1+delta)`` (L2), the exact drift and dipole (L1,
+    L3), and a sextupole's feed-down at the dispersion orbit it sits on.
+
+    Why finite differences rather than a perturbation integral: it is the method
+    both references use, so a disagreement arbitrates the **maps** rather than the
+    truncation order of two different expansions. That is B2's argument, and it is
+    the reason this function is a thin layer over machinery that already exists.
+
+    ``delta`` is the momentum step, not a tolerance. The error is ``O(delta^2)``
+    from truncation and ``O(orbit noise / delta)`` from the closed-orbit solve, so
+    the useful range is bounded at both ends; ``1e-3`` sits in the flat middle for
+    the rings this package builds. The analytic suite gates the **order** (halving
+    ``delta`` quarters the residual against the symbolic answer) rather than a value
+    at one step.
+
+    ``step`` is passed through to the Jacobian that builds each element's linearised
+    map.
+
+    Raises :class:`CoupledLatticeError` through :func:`propagate_twiss_on_orbit` if
+    the on-orbit map is x-y coupled at either momentum — the Courant-Snyder ``beta``
+    this differentiates is not defined there. The coupled analogue would be built on
+    G2's Edwards-Teng optics and is not built here.
+    """
+    d = _chromatic_step(delta)
+    plus = propagate_twiss_on_orbit(lattice, delta=+d, step=step)
+    minus = propagate_twiss_on_orbit(lattice, delta=-d, step=step)
+    centre = propagate_twiss_on_orbit(lattice, delta=0.0, step=step)
+
+    out: list[ChromaticTwiss] = []
+    for tp, tm, t0 in zip(plus, minus, centre, strict=True):
+        dbx = (tp.beta_x - tm.beta_x) / (2.0 * d)
+        dby = (tp.beta_y - tm.beta_y) / (2.0 * d)
+        dax = (tp.alpha_x - tm.alpha_x) / (2.0 * d)
+        day = (tp.alpha_y - tm.alpha_y) / (2.0 * d)
+        b_x = dbx / t0.beta_x
+        b_y = dby / t0.beta_y
+        a_x = dax - dbx * t0.alpha_x / t0.beta_x
+        a_y = day - dby * t0.alpha_y / t0.beta_y
+        out.append(
+            ChromaticTwiss(
+                s=t0.s,
+                dbeta_x=dbx,
+                dalpha_x=dax,
+                dbeta_y=dby,
+                dalpha_y=day,
+                a_x=a_x,
+                b_x=b_x,
+                w_x=math.hypot(a_x, b_x),
+                a_y=a_y,
+                b_y=b_y,
+                w_y=math.hypot(a_y, b_y),
+            )
+        )
+    return out
+
+
+def second_order_chromaticity(
+    lattice: Lattice, *, delta: float = 1e-3, step: float = 1e-7
+) -> tuple[float, float]:
+    r"""Second-order chromaticity ``(Q''_x, Q''_y) = d^2 Q / ddelta^2``.
+
+    The curvature of the tune-versus-momentum curve, where :func:`chromaticity` is
+    its slope. It is the quantity that decides how far off-momentum a particle can
+    be before the *linear* chromaticity correction stops describing it — a ring
+    whose sextupoles zero ``Q'`` still walks its tune onto a resonance at large
+    ``delta`` if ``Q''`` is big.
+
+    **Plain second difference of** :func:`tunes_on_orbit`, ``(Q(+d) - 2 Q(0) +
+    Q(-d)) / d^2``, so it is ``d^2Q/ddelta^2`` and **not** half of it. The two
+    conventions differ by exactly the factor a remembered formula gets wrong, and
+    the analytic suite pins this one against a symbolic second derivative.
+
+    :func:`tunes_on_orbit` carries the integer part of the tune, which this needs and
+    an ``acos`` of the one-turn map would not supply: a second difference of
+    fractional tunes is wrong by an integer whenever two of the three sample points
+    straddle a half integer.
+
+    **What is arbitrated and what is not — read this before quoting a number on a
+    ring with bends.** On a **bend-free** ring this agrees with a symbolic closed
+    form and with xtrack to seven digits. On a ring **with bends** accsim, xtrack and
+    MAD-X give three different answers (``0.7931``, ``0.7520``, ``0.7044`` on the
+    analytic suite's arc) while agreeing on ``Q`` to ten digits and on ``Q'`` to
+    seven. That spread is **not** an accsim map error, and the milestone established
+    this positively rather than assuming it: accsim's
+    :class:`~accsim.elements.dipole.Dipole` Jacobian equals ``xt.Bend``'s to
+    ``5.3e-10`` entry by entry on the off-momentum closed orbit (with xtrack's
+    nonlinear fringe suppressed, which is accsim's documented edge model), the two
+    closed orbits agree to ``2.9e-11``, and accsim's own two independent tune routes
+    — accumulated Twiss phase and the one-turn trace — agree to seven digits.
+    Identical maps and identical orbits cannot produce different tunes, so the spread
+    lives in second-order tune *extraction* on a dispersive ring, and no reference
+    currently arbitrates it. See ``docs/CONVENTIONS.md`` -> *Second-order
+    chromaticity is not arbitrated on a bendy ring*, and M2 in ``docs/ROADMAP.md``,
+    which is the milestone written to close it.
+
+    ``delta`` and ``step`` are as in :func:`chromatic_functions`. A second difference
+    divides by ``delta^2``, so closed-orbit noise enters as ``1/delta^2`` — twice as
+    steeply as it does for a first derivative, which is why the default is looser
+    here than a first-order chromaticity would want.
+    """
+    d = _chromatic_step(delta)
+    qp = tunes_on_orbit(lattice, delta=+d, step=step)
+    q0 = tunes_on_orbit(lattice, delta=0.0, step=step)
+    qm = tunes_on_orbit(lattice, delta=-d, step=step)
+    return (
+        (qp[0] - 2.0 * q0[0] + qm[0]) / (d * d),
+        (qp[1] - 2.0 * q0[1] + qm[1]) / (d * d),
+    )

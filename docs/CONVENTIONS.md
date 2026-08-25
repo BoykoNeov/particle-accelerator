@@ -5098,6 +5098,136 @@ check and shown shrinking with `Qs`.
 purpose: at this design point `sigma_z ≈ beta*`, so a positional swap is
 numerically plausible and otherwise invisible. It was made, and caught, during D1.
 
+
+## Chromatic functions (M1 — implemented)
+
+`chromatic_functions()` reports how the linear optics move with momentum, in the
+**MAD8 physics manual §6.3** normalisation that both MAD-X and xtrack use:
+
+```
+b_u = (dbeta_u/ddelta) / beta_u
+a_u = dalpha_u/ddelta - (dbeta_u/ddelta) * alpha_u / beta_u
+w_u = sqrt(a_u^2 + b_u^2)
+```
+
+Note the asymmetry, which is the place a remembered formula goes wrong: `b` **is**
+divided by `beta`, `a` is **not**, and `a` carries the `- dbeta * alpha / beta`
+correction rather than being a bare `dalpha`. The raw derivatives `dbeta_u` [m] and
+`dalpha_u` [1] are reported alongside, so a caller never has to un-normalise.
+
+**The derivative is with respect to `delta`, not `pzeta`.** The two differ by
+`beta0` factors, so on an ultra-relativistic ring they agree to round-off and the
+choice looks like a naming preference; it is not, and the reference suite pins it
+by rebuilding xtrack's reported `bx_chrom`/`ax_chrom` from a finite difference of
+xtrack's *own* `betx`/`alfx` in `delta`. xtrack's source is itself ambiguous on this
+point — its finite-difference site divides by a variable named `ddelta_local`, while
+its non-periodic branch names the same quantity `dbetx_dpzeta`.
+
+**Both quantities are central differences, deliberately.** The references compute
+them the same way, so a disagreement arbitrates the *maps* rather than the
+truncation order of two different expansions — the argument B2 established. The
+consequence is that `delta` is a **step size**, not a tolerance: the error is
+`O(delta^2)` from truncation and `O(orbit noise / delta)` (or `/delta^2` for a
+second difference) from the closed-orbit solve, so it is bounded at both ends and
+the default `1e-3` sits in the flat middle for the rings this package builds. Gates
+are written on the **convergence order**, never on a value at one step.
+
+## Second-order chromaticity is not arbitrated on a bendy ring (M1)
+
+`second_order_chromaticity()` returns the plain second difference
+
+```
+Q'' = (Q(+d) - 2 Q(0) + Q(-d)) / d^2
+```
+
+so it is `d^2Q/ddelta^2` and **not** the coefficient of `delta^2` in
+`Q = Q0 + Q' delta + Q'' delta^2 / 2`, which is half of it. It differences
+`tunes_on_orbit`, which carries the integer part of the tune — a second difference
+of *fractional* tunes is wrong by an integer whenever two of the three sample points
+straddle a half integer.
+
+**Where it is validated:** on a **bend-free** ring, against a sympy closed form, and
+xtrack and MAD-X both agree — a three-code agreement. The closed form exists because
+a thin quadrupole carries **no** `1/(1+delta)` (its kick changes every particle's
+momentum equally, so the *angle* change is what differs) and the exact `Drift`,
+linearised at the origin, is exactly `Drift(L/(1+delta))`. A thin-lens ring's whole
+momentum dependence is therefore one substitution.
+
+**Where it is not:** on a ring with bends, three codes give three answers —
+
+| code   | `Q''_x`  | `Q''_y`  |
+|--------|----------|----------|
+| accsim | 0.79307  | 0.76830  |
+| xtrack | 0.75202  | 0.76269  |
+| MAD-X  | 0.70441  | 0.72625  |
+
+— while agreeing on `Q` to **ten** digits and on `Q'` to seven. MAD-X is further
+from xtrack than accsim is, so "two references agree, therefore accsim is wrong" is
+not available.
+
+**This is not an accsim map error, and that was established positively rather than
+assumed.** All three of the following are gated in the suites:
+
+1. accsim's `Dipole` Jacobian equals `xt.Bend`'s to `5e-9` **entry by entry, on the
+   off-momentum closed orbit** (`x != 0`, `delta != 0`) — every momentum-dependent
+   entry included. The Jacobian is what sets a tune; comparing tracked *points*
+   would not have been enough, and initially was not.
+2. The two codes' off-momentum closed orbits agree to `1e-9`, including the
+   second-order dispersion that makes `x_co(+delta) != -x_co(-delta)`.
+3. accsim's two *independent* tune routes — accumulated Twiss phase, and the
+   one-turn map trace — agree with each other to seven digits, ruling out a bias in
+   the phase accumulation.
+
+Identical maps about identical orbits cannot yield different tunes, so the spread
+lives in second-order tune **extraction** on a dispersive ring.
+
+**And it has a scaling law**, which is the sharpest thing known about it: sweeping
+the bending angle, the accsim-vs-MAD-X gap is **exactly zero at zero angle** and
+**quadratic in the angle** as it turns on (`gap/angle^2` = `8.91`, `8.22` at `0.03`
+and `0.06` rad). A term that vanishes with the bending angle, grows as its square,
+and leaves `Q` and `Q'` untouched is something proportional to dispersion acting
+twice. The leading suspect is **what each code holds fixed longitudinally when
+closing an off-momentum orbit** — accsim's `closed_orbit_nonlinear` fixes
+`zeta = 0` and `delta` at the entrance, and path length through a bend depends on
+`delta` where through a drift it does not, which is exactly the observed on/off
+switch. That is M2's opening hypothesis.
+
+The value is pinned
+in the analytic suite as a **boundary**, so it cannot drift silently, and is
+documented as unarbitrated rather than quoted as validated. **M2** in
+`docs/ROADMAP.md` is the milestone written to settle it, with a pre-committed gate:
+a one-thin-quad-plus-one-sector-bend ring whose one-turn map sympy can build as an
+exact function of `delta` and differentiate twice.
+
+### Two facts found on the way, both worth keeping
+
+- **The sextupole reaches `Q'` and `Q''` at different powers of `k2l`.** A sextupole
+  at dispersion sits at `D_x delta` and feeds down a gradient `k2l D_x delta`. That
+  is first order in `delta`, so it lands on `Q'` **linearly** — exactly so, `dQ'/k2l`
+  is one number to nine digits — and by that route it cannot contribute to a second
+  derivative at all. `Q''` is reached only at second order in the perturbation and is
+  therefore **quadratic** in `k2l` (measured exponent `2.02`, approached from above
+  because a cubic term is also present). A pre-committed expectation of "linear" was
+  wrong here; the gate is now the pair of exponents.
+- **xtrack's nonlinear dipole fringe (`edge='full'`) is invisible on-momentum.** It
+  moves neither tune at `delta = 0` to thirteen digits, and acts only at *second*
+  order in `delta`, in the **vertical** plane alone. accsim's `Dipole` uses the
+  linear hard-edge kick of `_edge_matrix`, which is the identity at `e1 = e2 = 0`,
+  so `edge='suppressed'` is the apples-to-apples xtrack setting. Since `Q''_x` is
+  identical under both settings, the edge model is **not** what explains the
+  horizontal split above.
+
+### `natural_chromaticity`'s slicing is coarser than it looks
+
+`natural_chromaticity(lattice, slices=64)` integrates the beta-weighted gradient by
+trapezoidal sub-slicing, so its error falls as `1/slices^2`. On a modest arc
+(3 cells, `Dipole(1.0, 0.12)`) the default leaves **1.5e-5 relative** — larger than
+the agreement a reference cross-check wants to assert. Measured residual against the
+tracked derivative: `6.9e-5`, `4.4e-6`, `3.0e-7`, `4.7e-8` at 16, 64, 256 and 1024
+slices. This is convergence at the trapezoid's own order, **not** a physics gap
+between the analytic and tracked routes; raise `slices` when comparing against a
+reference at better than `1e-4`.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,

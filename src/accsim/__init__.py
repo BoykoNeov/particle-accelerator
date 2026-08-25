@@ -112,12 +112,14 @@ from .symplectic import (
 from .tracking import Bunch, LossResult, Particle, Tracker
 from .tune import ellipse_from_trajectory, naff, tracked_tunes
 from .twiss import (
+    ChromaticTwiss,
     CoupledLatticeError,
     CoupledTwiss,
     Twiss,
     UnstableLatticeError,
     amplitude_detuning,
     beam_sigma,
+    chromatic_functions,
     chromaticity,
     chromaticity_on_orbit,
     closed_twiss,
@@ -137,6 +139,7 @@ from .twiss import (
     propagate_coupled_twiss_on_orbit,
     propagate_twiss,
     propagate_twiss_on_orbit,
+    second_order_chromaticity,
     slip_factor,
     synchrotron_tune,
     tunes,
@@ -236,6 +239,10 @@ __all__ = [
     "chromaticity",
     "natural_chromaticity_on_orbit",
     "chromaticity_on_orbit",
+    # the optics off-momentum (M1)
+    "ChromaticTwiss",
+    "chromatic_functions",
+    "second_order_chromaticity",
     "momentum_compaction",
     "slip_factor",
     "synchrotron_tune",
