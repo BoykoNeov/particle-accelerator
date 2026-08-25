@@ -2604,7 +2604,8 @@ D3, MAD-X).
     accsim's two *independent* tune routes (accumulated Twiss phase, and the
     one-turn trace) agree with each other to seven digits. Identical maps about
     identical orbits cannot produce different tunes, so the spread lives in
-    second-order tune **extraction** on a dispersive ring. No reference currently
+    **how each code closes an off-momentum orbit** on a dispersive ring — not in
+    phase accumulation, which the two-route agreement above rules out. No reference currently
     arbitrates it, so the value ships pinned as a named boundary rather than
     quoted as validated — the way L4 shipped and named L5. **M2 is the milestone
     written to close it**, and M1 handed it a scaling law to start from: the gap is

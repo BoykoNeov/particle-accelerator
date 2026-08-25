@@ -348,6 +348,13 @@ def test_second_order_chromaticity_disagrees_with_bends_and_it_is_not_the_maps()
     The assertion is deliberately two-sided: the gap is real (so the milestone
     cannot be quietly declared validated) **and** bounded (so a future change that
     made it much worse would fail).
+
+    Both sides are computed live, so nothing here can go stale against an xtrack
+    version bump. The ``0.055`` window is a property of **this ring**, not of the
+    two codes: the gap scales as the square of the bending angle, so it runs from
+    ~1% at ``angle = 0.03`` to ~11% at ``0.12`` (measured against MAD-X). The ring
+    is pinned in this module's constants — if they are ever changed, this window
+    must be re-measured rather than widened.
     """
     lattice = _accsim_lattice(bends=True)
     line = _line(True)

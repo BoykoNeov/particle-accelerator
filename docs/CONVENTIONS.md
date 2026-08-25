@@ -5179,7 +5179,9 @@ assumed.** All three of the following are gated in the suites:
    the phase accumulation.
 
 Identical maps about identical orbits cannot yield different tunes, so the spread
-lives in second-order tune **extraction** on a dispersive ring.
+lives in **how each code closes an off-momentum orbit** on a dispersive ring. Note
+what this is *not*: phase accumulation is ruled out by point 3 above, so "the codes
+extract tunes differently" is too loose a statement to leave standing.
 
 **And it has a scaling law**, which is the sharpest thing known about it: sweeping
 the bending angle, the accsim-vs-MAD-X gap is **exactly zero at zero angle** and
