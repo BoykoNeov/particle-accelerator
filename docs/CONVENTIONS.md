@@ -3735,14 +3735,15 @@ the Gaussian, checked against the thing it approximates.
   diffusion carries `(1+δ)⁴` where the exact result carries `(1+δ)⁷` — a `3δ` effect that
   averages to `O(δ²) ~ 1e-6`, far below any stochastic floor.
 
-### Deliberately not built
+### Deliberately not built — *superseded by B5 (2026-08-25)*
 
-A **photon-resolved sampler** (compound Poisson off the true spectrum). The equilibrium
-depends on the emission process *only* through its first two moments, which the Gaussian
-matches exactly, so it would not change any number this milestone gates. What it would
-change is the **tail** — the single hard photon that throws a particle out of the RF
-bucket — which is what Stage 4's `quantum_lifetime` is about. That makes it an axis of
-its own, not a refinement of this one.
+A **photon-resolved sampler** (compound Poisson off the true spectrum) was left out here,
+on the grounds that the equilibrium depends on the emission process *only* through its
+first two moments, which the Gaussian matches exactly. That reasoning held: B5 built the
+sampler and **every number this milestone gates is unchanged**. What B5 added is the
+tail, and what it found there is that the hard-photon loss channel the argument above
+gestured at does not exist on any ring this package can build — see *Photon-resolved
+emission (B5)* below.
 
 ### API
 
@@ -3763,6 +3764,182 @@ Gates: `tests/analytic/test_radiation_quantum.py` (34),
 `tests/reference/test_radiation_quantum_xtrack.py` (7). The settling gate tracks 600
 particles for five damping times and costs ~43 s — the dominant cost in the file (61 s
 total), and the roadmap's pre-committed gate, so it stays in the default suite.
+
+## Photon-resolved emission (B5 — implemented)
+
+`radiation="photons"` replaces B3's Gaussian with the thing it stands in for: a Poisson
+count of photons per element, each energy drawn from the real synchrotron spectrum. The
+milestone's result is that **almost nothing changes**, and the value is entirely in the
+one thing that does.
+
+### Which spectrum — a factor of 4.297, not a factor of 1.3
+
+The textbook figure is the **power** spectrum `F(x) = x ∫_x^∞ K_{5/3}`; photons are
+counted off the **number** spectrum `F(x)/x`. In units of the critical energy
+`u_c = (3/2) ħc γ³ κ`, the sampler draws from
+
+    p(x) = (3 / 5π) ∫_x^∞ K_{5/3}(t) dt,   ∫_0^∞ p = 1.
+
+Normalising `F` as a density instead makes every photon `<x²>/<x>² = 4.297` times too
+energetic — a pure number nothing dimensional would catch, and *not* the 1.3 that the
+ratio of the two means looks like at a glance (that was written down wrong first, and the
+gate caught it). 4.297 is the same constant B3 already uses in the other direction, to
+count xtrack's photons out of a relative fluctuation.
+
+### Every constant derived, none quoted
+
+sympy integrates `K_{5/3}` outright, so the normalisation and all three moments are exact:
+
+| quantity | value | used by |
+|---|---|---|
+| `∫_0^∞ K_{5/3}(t) t dt` | `5π/3` | the normalisation |
+| `<x>` | `8/(15√3)` | B2's mean loss `U` |
+| `<x²>` | `11/27` | B3's `photon_energy_variance` |
+| `<x³>` | `224/(135√3)` | the skewness, which counts photons |
+
+B3 obtained the first two by quadrature; the third is new and is what turns a loss
+distribution's shape back into a photon count.
+
+### The two quadrature traps, both recorded as gates
+
+- **`quad(K_{5/3}, X, ∞)` in one piece silently returns zero for small `X`.** It emits an
+  `IntegrationWarning` and no exception, and a cumulative distribution built on it comes
+  out at exactly **2/3** of the truth — because the missing `x ∫_x^∞ K` half is exactly
+  half of the `∫_0^x K t` half that survives. Every integral in `photon_spectrum` splits
+  at `t = 1`: below it in `log t` (turning the `t^(-5/3)` singularity into a decaying
+  exponential), above it in the exponentially-scaled `kve`.
+- **The exceedance collapses to one quadrature.** Swapping the order of integration gives
+  `P(x > X) = (3/5π) ∫_X^∞ K_{5/3}(t)(t − X) dt`, which in scaled form is `e^-X` times a
+  well-conditioned integral. So `photon_log_survival` is exact at `X = 640`, where the
+  answer is `e^-636` and no histogram could hold anything.
+
+`photon_number_cdf` is relatively accurate only down to `x ~ 1e-20`; below that `quad`
+runs out of dynamic range. That is a quadrature floor, not physics, and it is documented.
+
+### The sampler is an inverse, which is what makes it gate-able
+
+Inverse-transform sampling makes each photon energy a deterministic function of one
+uniform, so a test feeds a chosen quantile and checks the answer against the quadrature —
+including at an exceedance of `1e-16` (a 33 `u_c` photon), where sampling would need
+`1e18` draws to place one. The inverse is tabulated once per process (~2.5 s of
+quadrature) in the two variables the distribution's two shapes are straight lines in:
+`log x` against `log q` below the median (`x ∝ q³`, coefficient
+`(27/10π) 2^(2/3) Γ(5/3) = 1.2316`) and `x` against `log P(x > X)` above it. Accurate to
+**~1e-9** relative across the whole range, measured rather than assumed.
+
+### The loss replaces the classical one; it does not perturb it
+
+`"quantum"` adds a zero-mean Gaussian draw to `u`. `"photons"` **is** `u`. Adding it by
+analogy with the Gaussian would double the mean loss — the natural copy-paste slip.
+
+### What must not change, and does not
+
+`n_γ <u> = U` and `n_γ <u²> = photon_energy_variance` are identities, gated to **1e-13
+through the shipped code path** on off-axis trajectories with non-zero `ζ` — where a `κ`
+or an `l_path` computed differently between the mean route and the photon route would
+show and a symbolic identity could not. Both dimensional numbers are captured *out of*
+the running kick by a stand-in generator rather than recomputed in the test.
+
+Consequently the diffusion matrix `D` is the same entry-by-entry in all 6×6, and so is
+the equilibrium beam — same momentum spread, same horizontal emittance, and the vertical
+still **exactly** zero (these photons leave along the direction of motion; the `1/γ`
+opening-angle floor is the thing neither model has).
+
+### What does change — three signatures, all pre-committed
+
+1. The loss can **never** be negative, against the Gaussian's deliberate 2.6% of energy
+   *gains*.
+2. It is skewed, and the skewness inverts to the photon count by
+   `<u³>/(√n_γ <u²>^(3/2))`. In `delta` it lands at **−0.92** against xtrack's measured
+   **−0.91**.
+3. And **none of that survives a turn.** Crossing `N` magnets suppresses the skewness as
+   `1/√N`, gated over a factor of 100 in `N`. One turn of the B3/B4 ring is already down
+   to `−0.129` with a Gaussian kurtosis. (That is 11% short of `−0.92/√40`, because a
+   turn is a *weighted* sum of its photons — each magnet's loss is fed through the
+   remaining `R56` into `ζ` and then through the cavity — not a plain one.)
+
+### The hard photon does not exist
+
+The milestone's most exposed pre-commitment, and both halves land.
+
+**The lifetime does not move**: 1154 turns against 1240 from the same frozen bunch, a
+ratio of 0.930 where one standard deviation is 8.2% — 0.86 σ. The statistic is a *fitted*
+decay rather than binomial marks, because a fit uses every turn: 400 particles then give
+a 25% three-sigma band where three marks at 800 would give 37%, and 25% is narrower than
+the 37% departure from the continuum that B4 already measured.
+
+**And the reason is not that the tail is unimportant — it is that the tail does not
+reach.** Emptying the bucket in one photon needs `X = E δ_acc / u_c` critical energies:
+
+| ring | `u_c/E` | `δ_acc` | `X` | `log P(x > X)` |
+|---|---|---|---|---|
+| B4's 6.5 GeV ring at `ξ = 3` | `1.47e-5` | `4.96e-3` | **337** | **−341** |
+| the roadmap's 5 GeV / 10 m example | `5.55e-6` | `3.5e-3` | **631** | **−636** |
+
+Restated as something holdable: the hardest of the `4.0e8` photons emitted in a whole
+400 × 1200 tracking run is **17.0 `u_c`**, a factor of twenty short, and ten times the run
+buys only `log 10 = 2.3` more, because the largest of `N` draws off an exponential tail
+grows as `log N`.
+
+**The claim has to be the narrow one.** No single photon carries a particle *from the core
+across* the acceptance. Particles are of course lost *at* an emission — that is the only
+place `delta` ever falls — but the photon that finishes the job is an ordinary one
+arriving at a particle the random walk has already carried to the wall. "Graininess is
+what knocks particles out" is true only in that trivial sense.
+
+### The cross-check B3 said it could not write
+
+B3's reference arm is useful *because* the two codes did different things. They no longer
+do, so `tests/reference/test_radiation_photons_xtrack.py` compares two genuine
+compound-Poisson processes sampled by unrelated numerical routes (accsim: inverse
+transform off a quadrature table; xtrack: rejection against `K_{5/3}` along an exponential
+free path). The tail agrees **pointwise to better than 1% out to one draw in a thousand**
+(−0.44%, −0.12%, +0.66%) where B3's Gaussian is **19.4% low**; the third and fourth
+moments match; both count the same photons; and the median separates all three for free
+(below the mean for a skewed distribution, exactly on it for a Gaussian).
+
+Two lessons that first appeared as failures, both now in that file's prose:
+
+- **xtrack's emission is not seeded by this suite.** Its sample is redrawn every run, so
+  every gate is a *two-sample* comparison and its budget needs the `√2`. Without it a
+  routine 2.9-σ fluctuation reads as a 4.1-σ failure. (B3's arm carries the same exposure
+  with a `3.0 × floor` budget and has not tripped.)
+- **An extreme *value* has no bounded variance on an exponential tail.** Gating xtrack's
+  maximum failed on an ordinary redraw. The gate counts traversals past the Gaussian's
+  `4.5 σ` ceiling instead — Poisson, so `1/√n` — where it expects 0.7 and both photon
+  codes deliver ~70.
+
+### A precision fix in B2's kick, surfaced by reaching for 1e-13
+
+`out[delta] = f*(1 + delta) - 1` subtracts two numbers of size 1 to produce one of size
+`1e-7`, keeping six digits of the increment. Rewritten as
+`delta + (f - 1)(1 + delta)` with the rationalised `f - 1 = -shrink/(1 + f)`, it keeps
+full relative precision — the same trap this module's docstring already warned about for
+`E`, one level down. The 96 analytic gates of B2/B3/B4 are unmoved by it.
+
+### API and cost
+
+`RADIATION_MODELS` gains `"photons"`; `STOCHASTIC_MODELS` gains it too, so it **requires**
+an explicit `rng` exactly as `"quantum"` does. New public helpers in `radiation_kick`:
+`critical_photon_energy`, `photon_rate`, `fine_structure_constant` (computed from the
+species' own `r_0 mc²/ħc`, the one bridge between the `α, ħc` and `C_γ, r_0` systems).
+`accsim.photon_spectrum` is the dimensionless spectrum and its sampler, and knows nothing
+about rings.
+
+`sample_photon_sum` draws off `rng` in a fixed order — the Poisson counts for the whole
+input at once, then one uniform per photon — so a bunch and a single particle consume the
+generator differently and the bunch-vs-particle gate is **distributional**, not
+draw-by-draw.
+
+Cost: ~16 uniforms per particle per magnet, a few times dearer than one Gaussian.
+Gates: `tests/analytic/test_photon_spectrum.py` (42, ~5 s),
+`test_radiation_photons.py` (23, ~25 s), `test_photon_equilibrium.py` (3, **~155 s** — the
+largest file in the analytic suite, and it says so in its own docstring),
+`test_photon_lifetime.py` (6, 73–128 s), `tests/reference/test_radiation_photons_xtrack.py`
+(12). The two expensive files are the roadmap's pre-committed tracking gates; parts 1 and 2
+buy their sharpness from determinism instead, which is why the price is paid twice and not
+everywhere.
+
 
 ## Luminosity (Stage 6 — implemented)
 

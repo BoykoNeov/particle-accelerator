@@ -496,8 +496,9 @@ synchrotron tune and by B2's lumping. Axis B was complete as written on 2026-08-
 natural consumer of axis L - a faithful per-element map is what a per-element energy
 loss needs - and its reference arm was verified to arbitrate the map, not merely the
 observable, before the candidate was written.
-**The direction chosen next, the same day, extends axis B once more: B4 and B5 below.
-B4 is SHIPPED (2026-08-19); B5 remains a candidate with its gates pre-committed.** B4 gave a radiating bunch
+**The direction chosen next, the same day, extended axis B once more: B4 and B5 below.
+Both are now SHIPPED — B4 on 2026-08-19, B5 on 2026-08-25. Axis B is complete as scoped;
+the next milestone means choosing a new direction.** B4 gave a radiating bunch
 somewhere to die — a momentum acceptance — so that Stage 4's year-old `quantum_lifetime`
 became something the tracking *produces* rather than something the design route quotes.
 Its pre-committed headline turned out to be **wrong**, and the correction is the result:
@@ -511,11 +512,14 @@ the sideways photon recoil that would give the vertical plane a real emittance f
 ruled out on 2026-08-19 by reading xtrack's `synrad_spectrum.h`, which scales `px`/`py`
 along the direction of motion and applies no transverse kick at all — so building it would
 mean inventing a model with no reference, which is L5's reason and the one trade this
-project's validation strategy does not make. B5 carries the axis's most exposed
-pre-commitment, and it contradicts the intuition that motivated the direction: the single
-hard photon does **not** knock particles out of an electron storage ring, being suppressed
-by `e^-640` there, and B4's lifetime must be *unchanged* by switching from the Gaussian to
-real photons.
+project's validation strategy does not make. B5 carried the axis's most exposed
+pre-commitment, and it contradicted the intuition that motivated the direction — **and it
+held**: the single hard photon does *not* knock particles out of an electron storage ring
+(suppressed by `e^-341` on B4's own ring, `e^-636` on the 5 GeV example that produced the
+`~640`), and B4's lifetime was unchanged by switching from the Gaussian to real photons
+(0.930 of it, against a one-sigma band of 8.2%). What B5 bought instead is the tail itself,
+cross-checked against xtrack pointwise to better than 1% out to one draw in a thousand,
+where B3's Gaussian is 19.4% low.
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -880,7 +884,7 @@ sustained arc.
     `xt.LongitudinalLimitRect` reference arm — the analytic chain closed without it, and
     a statistical two-code comparison would add cost rather than discrimination.
 
-- **B5 (candidate) — the photon-resolved sampler, and how far the tail actually reaches.**
+- **B5 (SHIPPED 2026-08-25) — the photon-resolved sampler, and how far the tail actually reaches.**
   B3 shipped the graininess as a Gaussian of the right mean and the right variance and said
   plainly what that leaves out: the tail. This builds the real thing — `radiation="photons"`,
   a compound-Poisson sum with the count drawn from the photon rate
@@ -934,6 +938,50 @@ sustained arc.
     transverse recoil), and beamstrahlung, which is the one place the single-photon channel
     *does* dominate and which belongs to the beam-beam axis.
   - Effort **M**. Depends on B4 only for its lifetime gate; the sampler itself stands alone.
+  - ✅ **What shipped, and how the pre-commitments landed.** All of them held, and the two
+    marked ⚠️ above — the ones the entry was most exposed on — held with numbers:
+    - **the lifetime did not move**: 1154 turns against 1240 from the *same frozen bunch*,
+      a ratio of 0.930 where one standard deviation is 8.2%, i.e. 0.86 sigma. The statistic
+      is a **fitted decay** rather than binomial marks, because a fit uses every turn: 400
+      particles then give a 25% three-sigma band where three marks at 800 would give 37%,
+      and 25% is narrower than the 37% departure from the continuum B4 itself measured;
+    - **the hard photon is exponentially dead**, and the exponent depends on the ring. B4's
+      6.5 GeV ring at `xi = 3` needs `X = E delta_acc/u_c = 337` critical energies, where
+      the exceedance is `e^-341`; the 5 GeV / 10 m / `3.5e-3` configuration this entry
+      quoted computes to `X = 631` and `e^-636`, so the `~640` above was right *for that
+      machine* and is not a property of the axis. Both are gated. Restated as something
+      holdable: the hardest of the `4.0e8` photons in a whole `400 x 1200` run is
+      **17.0 u_c**, a factor of twenty short, and ten times the run buys `log 10 = 2.3` more;
+    - **the shape signatures both appeared**: the loss can never be negative (against the
+      Gaussian's deliberate 2.6% of energy *gains*), and its skewness inverts to the photon
+      count — in `delta` it lands at **-0.92** against xtrack's measured **-0.91**;
+    - **and no aggregate moved**: `n_gamma <u> = U` and `n_gamma <u^2> = photon_energy_variance`
+      are gated to **1e-13 through the shipped code path** off-axis, so the diffusion matrix
+      is the same entry-by-entry in all 6x6 and B3's equilibrium battery re-runs unchanged.
+  - ✅ **The claim had to be narrowed, and that is the milestone's real content.** No single
+    photon carries a particle *from the core across* the acceptance. Particles are of course
+    lost *at* an emission — it is the only place `delta` ever falls — but the photon that
+    finishes the job is an ordinary one arriving at a particle the random walk has already
+    carried to the wall. The broad version, "graininess is what knocks particles out", is
+    false for an electron storage ring, and this is where the package proves it rather than
+    inheriting it.
+  - ✅ **B3's reference arm could finally be written the other way round.** Its own docstring
+    opens by saying it is the most useful arm on this axis *because the two codes do not do
+    the same thing*. They now do, by unrelated numerical routes — accsim inverse-transforms a
+    tabulated quadrature of `int_x^inf K_{5/3}`, xtrack rejection-samples `K_{5/3}` along an
+    exponential free path — and the tails agree **pointwise to better than 1% out to one draw
+    in a thousand**, where B3's Gaussian is 19.4% low. One in ten thousand is where 200000
+    particles run out, and that is gated as its own statement rather than assumed.
+  - ⚠️ **Two traps worth carrying forward, both found as failures.** `quad(K_{5/3}, X, inf)`
+    in one piece *silently* returns zero for small `X` — it warns and does not raise, and a
+    cumulative distribution built on it comes out at exactly 2/3 of the truth. And xtrack's
+    emission is **not seeded** by this suite, so every cross-check gate is a two-sample
+    comparison whose budget needs the `sqrt(2)`; without it a routine 2.9-sigma fluctuation
+    reads as a 4.1-sigma failure. Both are recorded in `CONVENTIONS.md`.
+  - Reaching for 1e-13 also surfaced a real cancellation in B2's shipped kick:
+    `f*(1+delta) - 1` keeps six digits of an increment of size `1e-7`. Rewritten as
+    `delta + (f-1)(1+delta)` with the rationalised `f - 1 = -shrink/(1+f)`. The 96 analytic
+    gates of B2/B3/B4 are unmoved by it.
 
 ### C. Collider / beam-beam deepening (items explicitly deferred in Stage 6)
 
