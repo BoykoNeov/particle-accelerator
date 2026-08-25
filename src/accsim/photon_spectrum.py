@@ -60,7 +60,7 @@ which in scaled form is ``e^-X`` times a well-conditioned integral -- so
 transform makes each photon energy an exactly predictable function of one uniform, so a
 test can feed a chosen quantile and check the answer against the quadratures above --
 including far out in the tail, where no amount of sampling would show a mistake. The
-inverse is tabulated once per process (about a second of quadrature) in the two
+inverse is tabulated once per process (~2.5 s of quadrature) in the two
 variables the two shapes are straight lines in: ``log x`` against ``log q`` below the
 median, where ``x ~ q^3``, and ``x`` against ``log P(x > X)`` above it, where ``x`` is
 nearly ``-log q``. That is accurate to ~1e-9 relative across the whole range, which the
@@ -293,7 +293,7 @@ _TABLE: _InverseTable | None = None
 
 
 def _inverse_table() -> _InverseTable:
-    """The tabulated inverse, built on first use (about a second of quadrature)."""
+    """The tabulated inverse, built on first use (~2.5 s of quadrature)."""
     global _TABLE
     if _TABLE is None:
         _TABLE = _InverseTable()

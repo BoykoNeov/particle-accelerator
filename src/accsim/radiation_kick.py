@@ -86,8 +86,10 @@ measured ``-0.91``.
 *What it costs.* Roughly ``n_gamma`` uniforms per particle per magnet — of order 20 —
 so a long tracking run is a few times dearer than ``"quantum"``. That is the price of
 the tail, and the tail is the only thing being bought: at any energy and bending radius
-this package can build, the hard photon that would empty the bucket is suppressed by
-``e^-640`` and the two models give the *same lifetime*.
+this package can build, the hard photon that would empty the bucket in one go is
+suppressed by hundreds of e-folds — ``e^-341`` on the ring B4 measures a lifetime on,
+``e^-636`` on a 5 GeV machine in a 10 m bend — and the two models give the *same
+lifetime* (0.930 of it, against a one-sigma band of 8.2%).
 
 *The model can draw an energy gain.* The Gaussian is unclamped, deliberately. With
 ``n_gamma`` of order 20 per magnet the relative fluctuation is ``sqrt(4.30 / n_gamma)``
