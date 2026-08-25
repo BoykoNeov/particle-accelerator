@@ -26,7 +26,13 @@ out of the emission process's *first two moments only*. So:
      emittance is still exactly zero, not merely small, and the opening-angle floor is
      still the thing neither model has.
 
-Cost: ~75 s, essentially all of it gate 2's five damping times. Gate 1 is ~6 s.
+**Cost, stated because it is the largest single file in the analytic suite.** ~155 s on
+a quiet box: gate 2's four damping times of photon-resolved tracking are ~95 s of it and
+gate 1's two 60000-particle turns ~20 s. Both are dominated by the draws themselves --
+this model spends ~16 uniforms per particle per magnet and a turn of this ring is 40
+magnets, so it is a few times dearer than B3's one Gaussian per magnet. That is the
+price of the tail, and it is paid once here rather than in every gate: parts 1 and 2 buy
+their sharpness from determinism instead.
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ import pytest
 
 from accsim import Dipole, Lattice, ReferenceParticle, RFCavity, ThinQuadrupole, Tracker
 from accsim.radiation import damping_times, equilibrium_energy_spread
+from accsim.reference import CLIGHT
 from accsim.symplectic import unit_symplectic_matrix
 
 ELECTRON_MASS_EV = 0.51099895069e6
@@ -66,6 +73,9 @@ def _ring(cells: int, focal: float, energy: float, voltage: float, harmonic: int
     return Lattice([*elements, cavity], ref=ref)
 
 
+_ORBIT_CACHE: dict[int, np.ndarray] = {}
+
+
 def _closed_orbit(tracker: Tracker, turns: int = 4000) -> np.ndarray:
     """The fixed point a radiating ring actually settles on, found by damping onto it.
 
@@ -74,10 +84,23 @@ def _closed_orbit(tracker: Tracker, turns: int = 4000) -> np.ndarray:
     trap that cost it the most. Tracked with ``"mean"`` — the deterministic map — because
     the fixed point is a property of the map, not of the noise on it.
     """
-    state = np.zeros(6)
-    for _ in range(turns):
-        state = tracker.track_once(state, "mean")
-    return state
+    key = id(tracker.lattice.elements)
+    if key not in _ORBIT_CACHE:
+        state = np.zeros(6)
+        for _ in range(turns):
+            state = tracker.track_once(state, "mean")
+        _ORBIT_CACHE[key] = state
+    return _ORBIT_CACHE[key].copy()
+
+
+def _tau_turns(lattice: Lattice) -> tuple[float, float, float]:
+    """``damping_times`` in turns, ascending ``(tau_z, tau_y, tau_x)``.
+
+    The shipped helper returns seconds; a tracking budget is counted in turns, and the
+    revolution period is the ring's own length over ``beta0 c``.
+    """
+    period = lattice.length / (lattice.ref.beta0 * CLIGHT)
+    return tuple(sorted(t / period for t in damping_times(lattice)))  # type: ignore[return-value]
 
 
 def _mode_emittances(sigma: np.ndarray) -> tuple[float, float, float]:
@@ -87,7 +110,7 @@ def _mode_emittances(sigma: np.ndarray) -> tuple[float, float, float]:
     the three distinct magnitudes gives the mode emittances, which is the coupling-proof
     way to read a beam's size off a covariance matrix.
     """
-    values = np.abs(np.linalg.eigvals(sigma @ unit_symplectic_matrix(6)))
+    values = np.abs(np.linalg.eigvals(sigma @ unit_symplectic_matrix()))
     ordered = np.sort(values)[::-1]
     return float(ordered[0]), float(ordered[2]), float(ordered[4])
 
@@ -104,16 +127,15 @@ def test_the_two_models_inject_the_same_diffusion_matrix_in_all_six_dimensions()
     then the equilibrium is the same *by B3's gate*, with no further tracking needed.
 
     Measured rather than derived, because deriving it would only re-run part 2's algebra.
-    A bunch of 120000 starts exactly on the closed orbit and takes one turn; what it
-    picks up is ``D``. The budget on a variance from ``N`` samples is
-    ``sqrt(2/N) = 0.41%``, and the gate is 4 sigma of that on the entries that are not
-    structurally zero.
+    A bunch of 60000 starts exactly on the closed orbit and takes one turn; what it picks
+    up is ``D``. The budget on a variance from ``N`` samples is ``sqrt(2/N) = 0.58%``,
+    and the gate is 4 sigma of that on the entries that are not structurally zero.
     """
     lattice = _ring(**SETTLE)
     tracker = Tracker(lattice)
     orbit = _closed_orbit(tracker)
 
-    n = 120_000
+    n = 60_000
     injected = {}
     for model in ("quantum", "photons"):
         start = np.repeat(orbit[:, None], n, axis=1)
@@ -146,9 +168,12 @@ def test_a_bunch_of_real_photons_settles_where_the_gaussian_one_does() -> None:
     thing being varied.
 
     **The budget, computed rather than tuned.** The action decorrelates in ``tau/2``, so
-    averaging over ``2 tau`` with 250 particles is ~1200 independent samples: 2.0% on a
+    averaging over ``2 tau`` with 150 particles is ~1200 independent samples: 2.0% on a
     width and 4.1% on a variance, and two independently noisy curves are compared, so the
-    difference carries ``sqrt(2)`` of that. The gate is 3 sigma.
+    difference carries ``sqrt(2)`` of that. The gate is 3 sigma, i.e. 12% on the momentum
+    spread — set by what four damping times of photon-resolved tracking cost, and wide
+    only against the *statistics*: a model with the wrong variance would miss by tens of
+    percent, and gate 1 pins the variance itself to 1.6%.
 
     A sanity band, not a gate, closes it: this ring is 12% off
     :func:`equilibrium_energy_spread` because its ``Q_s`` is large and its lumping
@@ -158,13 +183,13 @@ def test_a_bunch_of_real_photons_settles_where_the_gaussian_one_does() -> None:
     lattice = _ring(**SETTLE)
     tracker = Tracker(lattice)
     orbit = _closed_orbit(tracker)
-    tau = int(round(damping_times(lattice, in_turns=True)[2]))
+    tau = int(round(_tau_turns(lattice)[2]))
     assert 700 < tau < 1000  # the ring the budget below was computed for
 
-    n_each = 250
+    n_each = 150
     rng = np.random.default_rng(2026)
     bunch = np.repeat(orbit[:, None], 2 * n_each, axis=1)
-    settle, average = 3 * tau, 2 * tau
+    settle, average = 2 * tau, 2 * tau
     accumulated = np.zeros((2, 6, 6))
     parts = (slice(0, n_each), slice(n_each, 2 * n_each))
 
