@@ -73,10 +73,10 @@ def _ring(cells: int, focal: float, energy: float, voltage: float, harmonic: int
     return Lattice([*elements, cavity], ref=ref)
 
 
-_ORBIT_CACHE: dict[int, np.ndarray] = {}
+_ORBIT_CACHE: dict[tuple, np.ndarray] = {}
 
 
-def _closed_orbit(tracker: Tracker, turns: int = 4000) -> np.ndarray:
+def _closed_orbit(tracker: Tracker, params: dict, turns: int = 4000) -> np.ndarray:
     """The fixed point a radiating ring actually settles on, found by damping onto it.
 
     Not ``delta = 0``: radiation drains momentum through the arcs and the cavity puts it
@@ -84,7 +84,9 @@ def _closed_orbit(tracker: Tracker, turns: int = 4000) -> np.ndarray:
     trap that cost it the most. Tracked with ``"mean"`` — the deterministic map — because
     the fixed point is a property of the map, not of the noise on it.
     """
-    key = id(tracker.lattice.elements)
+    # keyed on the ring's parameters, not on id() of anything: a freed list's id is
+    # reusable, so an id-keyed cache would silently hand back another ring's orbit.
+    key = tuple(sorted(params.items()))
     if key not in _ORBIT_CACHE:
         state = np.zeros(6)
         for _ in range(turns):
@@ -133,7 +135,7 @@ def test_the_two_models_inject_the_same_diffusion_matrix_in_all_six_dimensions()
     """
     lattice = _ring(**SETTLE)
     tracker = Tracker(lattice)
-    orbit = _closed_orbit(tracker)
+    orbit = _closed_orbit(tracker, SETTLE)
 
     n = 60_000
     injected = {}
@@ -182,7 +184,7 @@ def test_a_bunch_of_real_photons_settles_where_the_gaussian_one_does() -> None:
     """
     lattice = _ring(**SETTLE)
     tracker = Tracker(lattice)
-    orbit = _closed_orbit(tracker)
+    orbit = _closed_orbit(tracker, SETTLE)
     tau = int(round(_tau_turns(lattice)[2]))
     assert 700 < tau < 1000  # the ring the budget below was computed for
 
@@ -232,7 +234,7 @@ def test_the_vertical_plane_is_still_exactly_zero_and_not_merely_small() -> None
     """
     lattice = _ring(**SETTLE)
     tracker = Tracker(lattice)
-    orbit = _closed_orbit(tracker)
+    orbit = _closed_orbit(tracker, SETTLE)
     start = np.repeat(orbit[:, None], 4000, axis=1)
     out = tracker.track_once(start, "photons", np.random.default_rng(5))
     deterministic = tracker.track_once(orbit.copy(), "mean")
