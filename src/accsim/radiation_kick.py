@@ -63,8 +63,31 @@ variance. So a Gaussian with the right mean and variance reproduces
 :func:`accsim.radiation.equilibrium_energy_spread` exactly, and the reference arm
 checks that against xtrack, which emits genuine photons off the true spectrum. What a
 Gaussian gets wrong is the **tail** — the single hard photon that throws a particle out
-of the bucket — which is what Stage 4's ``quantum_lifetime`` is about. Resolving
-individual photons is therefore a separate axis, not a refinement of this one.
+of the bucket — which is what Stage 4's ``quantum_lifetime`` is about.
+
+**The photons themselves (B5).** ``model="photons"`` is the thing the Gaussian stands
+in for: a Poisson count of photons from :func:`photon_rate`, each drawn from the real
+synchrotron spectrum (:mod:`accsim.photon_spectrum`) in units of
+:func:`critical_photon_energy`. Note that it **replaces** the classical loss rather
+than perturbing it — the Gaussian adds a zero-mean draw to ``u``, and the photon sum
+*is* ``u``; adding it by analogy would double the mean.
+
+*What changes, and what must not.* Every aggregate stays put, exactly: the sum's mean
+is ``n_gamma <u> = U`` and its variance is ``n_gamma <u^2> =``
+:func:`photon_energy_variance`, both identities rather than approximations, so B3's
+whole equilibrium battery re-runs under the new model and lands on the same closed
+forms. What changes is the **shape**. The Gaussian hands a particle *energy* in about
+1% of draws (see below); the photon sum never can. The Gaussian is symmetric; the
+photon sum is skewed, by ``<u^3> / (sqrt(n_gamma) <u^2>^(3/2))``, which is the
+compound-Poisson identity B3's reference arm already used to count xtrack's photons
+from the outside — and, run on ``delta``, it lands at ``-0.92`` against xtrack's
+measured ``-0.91``.
+
+*What it costs.* Roughly ``n_gamma`` uniforms per particle per magnet — of order 20 —
+so a long tracking run is a few times dearer than ``"quantum"``. That is the price of
+the tail, and the tail is the only thing being bought: at any energy and bending radius
+this package can build, the hard photon that would empty the bucket is suppressed by
+``e^-640`` and the two models give the *same lifetime*.
 
 *The model can draw an energy gain.* The Gaussian is unclamped, deliberately. With
 ``n_gamma`` of order 20 per magnet the relative fluctuation is ``sqrt(4.30 / n_gamma)``
@@ -119,7 +142,10 @@ __all__ = [
     "HBAR_C_EV_M",
     "RADIATION_MODELS",
     "STOCHASTIC_MODELS",
+    "critical_photon_energy",
+    "fine_structure_constant",
     "photon_energy_variance",
+    "photon_rate",
     "quantum_constant_cq",
     "radiation_constant_cgamma",
     "radiation_kick",
@@ -127,11 +153,11 @@ __all__ = [
 
 #: The radiation models ``track`` accepts. ``"mean_delta_only"`` is the deliberately
 #: wrong map the discriminating gate needs; it is not a physical choice.
-RADIATION_MODELS: tuple[str, ...] = ("off", "mean", "mean_delta_only", "quantum")
+RADIATION_MODELS: tuple[str, ...] = ("off", "mean", "mean_delta_only", "quantum", "photons")
 
 #: The subset that draws random numbers, and so requires an explicit
 #: :class:`numpy.random.Generator`. The package never seeds a global one.
-STOCHASTIC_MODELS: frozenset[str] = frozenset({"quantum"})
+STOCHASTIC_MODELS: frozenset[str] = frozenset({"quantum", "photons"})
 
 
 #: CODATA ``hbar*c = 197.3269804 MeV*fm``. The one physical constant radiation adds
@@ -215,6 +241,60 @@ def photon_energy_variance(
     return 2.0 * quantum_constant_cq(ref) * energy * gamma * gamma * kappa * u
 
 
+def fine_structure_constant(ref: ReferenceParticle) -> float:
+    r"""``alpha = r_0 m c^2 / (hbar c)`` — the bridge between the two constant systems.
+
+    The photon picture speaks ``alpha`` and ``hbar c``; the radiation integrals speak
+    ``C_gamma`` and ``r_0``. They meet here and nowhere else, which is why this is
+    computed from the reference particle's *own* classical radius and rest energy rather
+    than typed in as ``1/137``: any species gives the same number, and if it did not,
+    the two routes would be describing different electrodynamics.
+    """
+    return ref.classical_radius_m * ref.mass_eV / HBAR_C_EV_M
+
+
+def critical_photon_energy(
+    energy: np.ndarray | float, kappa: np.ndarray | float, ref: ReferenceParticle
+) -> np.ndarray | float:
+    r"""``u_c = (3/2) hbar c gamma^3 kappa`` [eV] — the scale of the photon spectrum.
+
+    The energy that divides the synchrotron spectrum in half *by power*: half the
+    radiated energy comes out above it and half below. Photon energies are drawn in
+    units of it (:mod:`accsim.photon_spectrum` works entirely in ``x = u/u_c``), so it,
+    together with :func:`photon_rate`, is the whole of what couples a dimensionless
+    spectrum to a particular ring.
+
+    On this package's rings it is small: 5 GeV in a 10 m bend gives ``u_c/E = 5.5e-6``,
+    which is the number that makes the single-hard-photon loss channel unreachable.
+    """
+    gamma = np.asarray(energy) / ref.mass_eV
+    return 1.5 * HBAR_C_EV_M * gamma**3 * kappa
+
+
+def photon_rate(
+    energy: np.ndarray | float,
+    kappa: np.ndarray | float,
+    path_length: np.ndarray | float,
+    ref: ReferenceParticle,
+) -> np.ndarray | float:
+    r"""``n_gamma = (5 / 2 sqrt3) alpha gamma |kappa| l`` — photons emitted in one traversal.
+
+    The Poisson mean of the number of photons radiated over a path ``path_length`` [m]
+    of curvature ``kappa`` [1/m]. ``(5 / 2 sqrt3) alpha gamma`` per radian of bend is the
+    textbook rate; B3's suite already recovers it from the *outside*, by inverting the
+    relative fluctuation of a Gaussian that never counted anything.
+
+    The two dimensional numbers meet the classical loss exactly:
+    ``n_gamma <u> = (C_gamma / 2 pi) E^4 kappa^2 l``, both sides being
+    ``(2/3) alpha hbar c gamma^4 kappa^2 l`` once ``alpha hbar c = r_0 m c^2``. That is
+    the bridge B3 gated symbolically; B5's suite gates it again through these two
+    functions, where a ``kappa`` or an ``l_path`` computed differently from the mean
+    route would show up and a symbolic identity could not.
+    """
+    gamma = np.asarray(energy) / ref.mass_eV
+    return 2.5 / math.sqrt(3.0) * fine_structure_constant(ref) * gamma * np.abs(kappa) * path_length
+
+
 def radiation_kick(
     element: Element,
     before: np.ndarray,
@@ -239,9 +319,12 @@ def radiation_kick(
     of that being put in by hand.
 
     ``model="quantum"`` adds the graininess: the loss is drawn from a Gaussian of that
-    same mean and of variance :func:`photon_energy_variance`, which needs an explicit
-    ``rng``. The package never seeds a global generator — an unseeded stochastic track
-    is not reproducible, so asking for one **raises**.
+    same mean and of variance :func:`photon_energy_variance`. ``model="photons"`` draws
+    the photons themselves — a Poisson count off :func:`photon_rate`, each energy off
+    the synchrotron spectrum — which has that same mean and that same variance and, in
+    addition, the right tail. Both need an explicit ``rng``: the package never seeds a
+    global generator, because an unseeded stochastic track is not reproducible, so
+    asking for one **raises**.
     """
     if model == "off":
         return after
@@ -281,11 +364,30 @@ def radiation_kick(
         # see the module docstring's *The model can draw an energy gain*.
         assert rng is not None  # guaranteed above; narrows the type
         u = u + rng.normal(0.0, np.sqrt(photon_energy_variance(u, energy, kappa, ref)))
+    elif model == "photons":
+        # ...and this is the sum itself: a Poisson count of photons, each drawn from the
+        # synchrotron spectrum. It REPLACES the classical loss rather than perturbing it
+        # -- adding it, by analogy with the Gaussian above, would double the mean.
+        from .photon_spectrum import sample_photon_sum
+
+        assert rng is not None  # guaranteed above; narrows the type
+        u_c = critical_photon_energy(energy, kappa, ref)
+        rate = photon_rate(energy, kappa, l_path, ref)
+        shape = np.shape(u)
+        drawn = sample_photon_sum(np.broadcast_to(rate, shape) if shape else rate, rng)
+        u = u_c * (drawn.reshape(shape) if shape else drawn[0])
     # On shell: f = P_new/P with E_new = E - U, rationalised so no two numbers of size E
     # are subtracted (the trap L1 recorded for the drift, L3 for the bend).
-    f = np.sqrt(np.maximum(1.0 - u * (2.0 * energy - u) / (energy * energy - m * m), 0.0))
+    shrink = u * (2.0 * energy - u) / (energy * energy - m * m)
+    f = np.sqrt(np.maximum(1.0 - shrink, 0.0))
 
-    out[DELTA] = f * (1.0 + delta) - 1.0
+    # ...and the SAME trap one level down. f is 1 - 3e-7 here, so `f*(1+delta) - 1`
+    # subtracts two numbers of size 1 to produce one of size 1e-7 and keeps six digits
+    # of it. Written as `delta + (f-1)(1+delta)` with `f - 1 = -shrink/(1+f)` -- the
+    # rationalised form again -- the increment carries full relative precision, which is
+    # what lets B5 gate the photon route against the mean route at 1e-13 instead of
+    # 1e-10. The maximum reproduces `f - 1 = -1` when a loss takes the whole momentum.
+    out[DELTA] = delta + np.maximum(-shrink / (1.0 + f), -1.0) * (1.0 + delta)
     if model != "mean_delta_only":
         # The photons leave along the direction of motion, so the transverse momenta
         # scale by the SAME factor -- this line, and only this line, is what damps the
