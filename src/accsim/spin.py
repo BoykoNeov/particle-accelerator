@@ -96,30 +96,57 @@ against; the gates that discriminate are:
   because **N3 is the milestone that consumes exactly this combination**: a radiating,
   precessing particle is what Sokolov-Ternov polarization is about, and an undocumented
   ordering is the kind of thing M1 was caught by.
+
+**The closed solution (N2), which is the second half of this module.** Everything above
+is a *map*. Given a ring, the questions that follow are the two the closed orbit and the
+tune answer for position and momentum: which spin direction comes back to itself after a
+turn (``n_0``, :func:`closed_spin_solution`), and how fast a spin that is *not* along it
+winds around it (``nu_0``, the spin tune). They are reached the same way I1 reached the
+closed orbit -- as the fixed point of the one-turn map -- with one simplification and one
+trap.
+
+The simplification: the one-turn spin map is a **rotation**, and a rotation is linear in
+the spin, so :func:`spin_one_turn_matrix` gets the whole 3x3 exactly by carrying the three
+Cartesian basis vectors around once. There is no Newton iteration and no differencing
+step; ``n_0`` is then the eigenvector of eigenvalue ``1`` and ``nu_0`` the rotation angle
+about it. The trap is that on a flat, unsteered ring the answer is ``n_0 = y`` **bit for
+bit**, whatever the coefficients of the map are -- so the closed solution is as blind a
+control as the spin tune was in N1 until the ring is given a *vertical* closed orbit. What
+breaks the degeneracy, what the tilt then measures, and why it is an **integer** spin tune
+(not ``k +- Q_y``) that it resonates at, are set out in :func:`closed_spin_solution`.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from .coords import DELTA, PX, PY, ZETA, X, Y
+from .coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from .reference import ReferenceParticle
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance
     from .elements.element import Element
+    from .lattice import Lattice
 
 __all__ = [
     "SPIN_DIM",
+    "ClosedSpinSolution",
+    "SpinSolutionError",
     "anomalous_moment",
     "along_direction_of_motion",
+    "closed_spin_solution",
     "direction_of_motion",
     "precession_vector",
+    "propagate_spin_solution",
     "rotate",
     "rotate_about_s",
+    "spin_axis_and_tune",
+    "spin_one_turn_matrix",
     "spin_precession",
+    "spin_tune",
 ]
 
 #: A spin is a unit 3-vector ``(S_x, S_y, S_z)`` in the local curvilinear frame — the
@@ -351,3 +378,239 @@ def spin_precession(
             spin = rotate(spin, omega, l_path)
 
     return _rotate_about_y(spin, half_frame)
+
+
+# ---------------------------------------------------------------------------
+# N2: the closed spin solution and the spin tune
+# ---------------------------------------------------------------------------
+
+
+class SpinSolutionError(ValueError):
+    """Raised when a lattice has no unique periodic spin direction.
+
+    The spin twin of :class:`accsim.orbit.ClosedOrbitError`, and the same
+    degeneracy: there the one-turn map has an orbital eigenvalue ``1`` and no orbit
+    closes; here the one-turn **rotation** is the identity, every direction closes,
+    and ``n_0`` is not a property of the ring.
+    """
+
+
+@dataclass(frozen=True)
+class ClosedSpinSolution:
+    """The periodic spin direction of a ring, and the rate it precesses about it.
+
+    :attr:`n0` is the unit vector a spin must lie along at the lattice entrance to
+    come back to itself after one turn; :attr:`spin_tune` is how many times per turn
+    a spin *not* along it winds around it. :attr:`one_turn_matrix` is the rotation
+    both are read from, and :attr:`orbit` is the closed orbit they were built on --
+    kept because on a flat, unsteered ring the answer is ``y`` no matter what the
+    map does (see :func:`closed_spin_solution`), so *which orbit* is half the claim.
+    """
+
+    n0: np.ndarray
+    spin_tune: float
+    one_turn_matrix: np.ndarray
+    orbit: np.ndarray
+
+
+#: Below this, the one-turn rotation is the identity to working precision and
+#: ``n_0`` is undefined. The quantity compared against it is the second-smallest
+#: singular value of ``R - I``, which is ``2 |sin(pi nu_0)|`` -- so the test is
+#: literally "is the spin tune an integer?", the same question
+#: :func:`accsim.orbit.closed_orbit` asks of the orbital tune.
+_SPIN_DEGENERACY_LIMIT = 1e-12
+
+
+def spin_axis_and_tune(one_turn: np.ndarray) -> tuple[np.ndarray, float]:
+    r"""Read ``(n_0, nu_0)`` off a 3x3 one-turn spin rotation.
+
+    ``n_0`` is the eigenvector of ``one_turn`` with eigenvalue ``1`` -- the fixed
+    point of the rotation, exactly as the closed orbit is the fixed point of the
+    affine map -- taken as the null space of ``R - I`` rather than by an eigenvalue
+    solve, because that stays accurate at a half-integer spin tune, where ``R``'s
+    antisymmetric part vanishes and the axis cannot be read off it at all.
+
+    **Two sign conventions, both forced rather than chosen.**
+
+    - ``n_0`` is oriented so that ``n_0 . y > 0`` -- the vertical component, which on
+      any flat ring is the whole of it. That is xtrack's convention too (its fixed
+      point search sets ``s_y = +sqrt(1 - s_x^2 - s_z^2)``, so it can only ever
+      return an upward solution), which is what makes the two comparable at all.
+      Where ``n_0`` is exactly horizontal the rule falls back to ``n_0 . x > 0`` and
+      then to ``n_0 . z > 0``.
+    - ``nu_0`` is returned as a **fraction in** ``[0, 1)``, defined by
+      ``R = R(n_0, -2 pi nu_0)``: the spin turns by ``2 pi nu_0`` about ``n_0`` in
+      the *negative* sense. That minus sign is not decoration. A flat ring's net spin
+      rotation is ``-(1 + G gamma) theta`` from Thomas-BMT plus ``+theta`` from the
+      frame, i.e. ``-G gamma theta`` about ``+y``; writing it as ``+2 pi nu_0`` would
+      make ``nu_0 = -G gamma``, and every textbook -- and the whole of N1 -- quotes
+      ``nu_0 = +G gamma``. The convention is picked to agree with that.
+
+    Only the fraction is knowable: a rotation matrix has no memory of how many whole
+    turns produced it, exactly as a one-turn transfer matrix has none of the integer
+    part of the betatron tune.
+
+    Raises :class:`SpinSolutionError` when ``R`` is the identity to working precision
+    -- an **integer** spin tune, where every direction is periodic and none is *the*
+    periodic one.
+    """
+    R = np.asarray(one_turn, dtype=float)
+    if R.shape != (SPIN_DIM, SPIN_DIM):
+        raise ValueError(f"one_turn must be a ({SPIN_DIM}, {SPIN_DIM}) rotation, got {R.shape}")
+
+    _, singular, right = np.linalg.svd(R - np.eye(SPIN_DIM))
+    if singular[-2] < _SPIN_DEGENERACY_LIMIT:
+        raise SpinSolutionError(
+            f"no unique closed spin solution: the one-turn spin rotation is the identity "
+            f"to working precision (2|sin(pi nu_0)| = {singular[-2]:.3g}), i.e. the spin "
+            "tune is an **integer**. Every direction is then periodic and none is the "
+            "periodic one -- the spin twin of an integer betatron tune, where no closed "
+            "orbit exists because a kick repeats in phase every turn"
+        )
+    n0 = right[-1]
+
+    # Orient: up if it has a vertical component at all, then +x, then +z.
+    for component in (1, 0, 2):
+        if abs(n0[component]) > _SPIN_DEGENERACY_LIMIT:
+            if n0[component] < 0.0:
+                n0 = -n0
+            break
+
+    # The antisymmetric part is ``n sin(theta)``, which fixes the *sign* of the turn
+    # about the n_0 just oriented; the trace fixes its size.
+    axis_sin = 0.5 * np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+    theta = math.acos(min(1.0, max(-1.0, 0.5 * (float(np.trace(R)) - 1.0))))
+    signed = theta if float(axis_sin @ n0) >= 0.0 else -theta
+    return n0, (-signed / (2.0 * math.pi)) % 1.0
+
+
+def _closed_state(lattice: Lattice, orbit0: np.ndarray | None) -> np.ndarray:
+    """The 6D state a spin is carried around the ring on.
+
+    ``orbit0`` defaults to :func:`accsim.orbit.closed_orbit_nonlinear` -- the fixed
+    point of :meth:`~accsim.elements.element.Element.track`, **not** of
+    :meth:`~accsim.elements.element.Element.matrix`. That is the whole reason the
+    default is the expensive one: the spin is rotated by what ``track`` does, so a
+    spin carried around the *linear* closed orbit is carried around a trajectory that
+    does not quite close, and its "one-turn" rotation is really a rotation between two
+    different points. With the exact maps of axis L the gap is ``O(x_co^3)``; on N2's
+    own gate ring it shows up as a one-turn orbit residual of ``1e-8`` where the
+    tracked orbit gives ``1e-18``.
+    """
+    from .orbit import closed_orbit_nonlinear
+
+    orbit = closed_orbit_nonlinear(lattice) if orbit0 is None else np.asarray(orbit0, dtype=float)
+    if orbit.shape != (4,):
+        raise ValueError(f"orbit0 must be a length-4 (x, px, y, py) vector, got {orbit.shape}")
+    state = np.zeros(DIM)
+    state[[X, PX, Y, PY]] = orbit
+    return state
+
+
+def spin_one_turn_matrix(lattice: Lattice, orbit0: np.ndarray | None = None) -> np.ndarray:
+    r"""The 3x3 rotation one turn applies to a spin riding the closed orbit.
+
+    Obtained by carrying the three Cartesian basis vectors around as a ``(3, 3)`` spin
+    on a ``(6, 3)`` bunch of identical closed-orbit particles: the columns of the
+    result are the images of ``x``, ``y``, ``z``, which *is* the matrix. It is
+    **exact**, with no differencing step, because the spin map is linear in the spin
+    -- every element rotates it about an axis fixed by the *orbit*, never by the spin
+    itself. xtrack builds the same matrix by finite differences with ``ds = 1e-5``
+    (``twiss.py``, ``_get_spin_polarization``), which is why the reference comparison
+    lands near ``1e-10`` rather than at round-off, and which way round the two codes'
+    accuracies go.
+
+    That the result comes out orthogonal is *not* a check on the physics: a product of
+    rotations is orthogonal whatever fields it was built from.
+    """
+    from .tracking import Tracker
+
+    state = np.tile(_closed_state(lattice, orbit0)[:, None], (1, SPIN_DIM))
+    _, matrix = Tracker(lattice).track_once_with_spin(state, np.eye(SPIN_DIM))
+    return matrix
+
+
+def closed_spin_solution(lattice: Lattice, orbit0: np.ndarray | None = None) -> ClosedSpinSolution:
+    r"""``n_0`` and ``nu_0`` for a ring: the spin analogue of the closed orbit and the tune.
+
+    **The degeneracy is the first thing to know about this function.** On a flat,
+    unsteered ring every field a spin meets is vertical, every rotation is about ``y``,
+    and ``n_0 = y`` exactly -- not to a tolerance but bit for bit, for any lattice, any
+    energy, and any implementation of the map that gets the *plane* right. Nothing
+    about the transverse coefficient, the quadrupoles, or even the ``(1 + G gamma)``
+    factor can be read off such a ring. ``n_0`` becomes informative only once the
+    closed orbit has a **vertical** excursion through a field, which is why the
+    analytic gates for this milestone are built on a steered ring and assert the
+    *order in the steering*. M3 found the same shape one axis earlier; I1's correctors
+    are what break it here.
+
+    **What tilts it, and by how much.** Take a ring whose entire spin perturbation is a
+    single localized rotation by ``chi`` about ``x`` -- one thick quadrupole inside a
+    closed vertical bump, with every bend on the design orbit. Then, to first order in
+    ``chi``, observed at the entrance with the kick at the top of the turn,
+
+        ``n_0 = ( -(chi/2) cot(pi nu_0),  1,  -chi/2 )``.
+
+    The two transverse components say different things, and only together do they pin
+    the map. The ``z`` component is ``-chi/2`` with **no** resonance denominator, so it
+    measures the kick itself -- and hence the ``(1 + G gamma) k1 int y ds`` behind it.
+    The ``x`` component carries ``cot(pi nu_0)``, which diverges at every **integer**
+    spin tune: that is the first-order (imperfection) spin resonance, and since
+    ``nu_0 = G gamma`` on a flat ring it is crossed by *scanning the beam energy*,
+    which is why a polarized ring measures its own energy to a part in ``10^4``.
+
+    Their ratio ``n_0 . x / n_0 . z = cot(pi nu_0)`` drops ``chi`` altogether, so the
+    **direction** the solution tilts in measures the spin tune on its own, with nothing
+    about the strength of the perturbation in it.
+
+    ``nu_0`` itself is unmoved at first order in ``chi`` -- it shifts by
+    ``chi^2 cot(pi nu_0) / (8 pi)`` -- which is this axis's version of N1's "the spin
+    tune is a control": the number everybody quotes is the one that cannot see the
+    perturbation. Use the tilt, not the tune.
+
+    The vertical resonance ``nu_0 = k +- Q_y`` is a different statement about a
+    different object and is **not** here: it is a property of the invariant spin field
+    of a particle with vertical betatron *amplitude*, not of ``n_0``, which lives on
+    the closed orbit and therefore sees only one-turn-periodic perturbations -- integer
+    harmonics, integer resonances. See ``docs/ROADMAP.md`` under N3.
+    """
+    orbit = _closed_state(lattice, orbit0)[[X, PX, Y, PY]]
+    matrix = spin_one_turn_matrix(lattice, orbit)
+    n0, nu0 = spin_axis_and_tune(matrix)
+    return ClosedSpinSolution(n0=n0, spin_tune=nu0, one_turn_matrix=matrix, orbit=orbit)
+
+
+def spin_tune(lattice: Lattice, orbit0: np.ndarray | None = None) -> float:
+    """The fractional spin tune ``nu_0`` of ``lattice`` -- see :func:`closed_spin_solution`."""
+    return closed_spin_solution(lattice, orbit0).spin_tune
+
+
+def propagate_spin_solution(
+    lattice: Lattice, n0: np.ndarray | None = None, orbit0: np.ndarray | None = None
+) -> list[np.ndarray]:
+    """``n_0`` at every element boundary -- ``len(lattice) + 1`` unit vectors.
+
+    The counterpart of :func:`accsim.orbit.propagate_orbit`, and read the same way:
+    the entrance, then the exit of each element in order. With ``n0`` defaulted to
+    :func:`closed_spin_solution`'s the last vector equals the first -- that is what
+    "closed" means for a spin as much as for an orbit -- and a lattice whose elements
+    are all thin returns the same vector ``len(lattice) + 1`` times, because thin
+    elements do not precess (see the module docstring).
+
+    Pass an explicit ``n0`` to follow an arbitrary spin down the ring instead; it is
+    normalised on the way in, since only its direction means anything.
+    """
+    state = _closed_state(lattice, orbit0)
+    if n0 is None:
+        spin = closed_spin_solution(lattice, state[[X, PX, Y, PY]]).n0
+    else:
+        spin = np.asarray(n0, dtype=float)
+        if spin.shape != (SPIN_DIM,):
+            raise ValueError(f"n0 must be a ({SPIN_DIM},) vector, got {spin.shape}")
+        spin = spin / np.linalg.norm(spin)
+
+    points = [spin]
+    for elem in lattice.elements:
+        state, spin = elem.track_with_spin(state, spin, lattice.ref)
+        points.append(spin)
+    return points
