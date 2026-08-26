@@ -82,6 +82,7 @@ from .orbit import (
     propagate_orbit_nonlinear,
 )
 from .radiation import (
+    PolarizationIntegrals,
     RadiationIntegrals,
     damping_partition_numbers,
     damping_times,
@@ -89,9 +90,12 @@ from .radiation import (
     equilibrium_emittance,
     equilibrium_emittances_coupled,
     equilibrium_energy_spread,
+    polarization_buildup_time,
+    polarization_integrals,
     quantum_constant_cq,
     radiation_constant_cgamma,
     radiation_integrals,
+    sokolov_ternov_polarization,
 )
 from .reference import (
     CLIGHT,
@@ -207,6 +211,11 @@ __all__ = [
     "equilibrium_emittance",
     "equilibrium_emittances_coupled",
     "equilibrium_energy_spread",
+    # Sokolov-Ternov polarization (N3)
+    "PolarizationIntegrals",
+    "polarization_integrals",
+    "sokolov_ternov_polarization",
+    "polarization_buildup_time",
     # symplectic helpers
     "is_symplectic",
     "is_symplectic_map",

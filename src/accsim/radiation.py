@@ -42,6 +42,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .coords import X, Y
+from .elements.element import Element
 from .lattice import Lattice
 from .radiation_kick import HBAR_C_EV_M as HBAR_C_EV_M  # noqa: PLC0414  (re-export)
 from .radiation_kick import quantum_constant_cq as _cq
@@ -351,3 +353,185 @@ def equilibrium_emittances_coupled(lattice: Lattice) -> tuple[float, float]:
     eps_1 = eps_x0 * (g + delta) / (2.0 * g)
     eps_2 = eps_x0 * (g - delta) / (2.0 * g)
     return float(eps_1), float(eps_2)
+
+
+# ---------------------------------------------------------------------------
+# N3: Sokolov-Ternov -- the polarization the radiation builds up
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PolarizationIntegrals:
+    r"""The two Derbenev-Kondratenko rate integrals, on the closed orbit [1/m^3].
+
+    The spin-flip channel of the same synchrotron radiation ``I1..I5`` describe. Its
+    two rates -- flips *out of* ``n_0`` and flips *into* it -- differ slightly, and that
+    asymmetry is the whole of the Sokolov-Ternov effect. Written as arc-length averages
+    over the ring (A. Chao, *Evaluation of Radiative Spin Polarization in an Electron
+    Storage Ring*; the same pair ``xtrack`` reports as ``spin_alpha_plus_co`` /
+    ``spin_alpha_minus_co``):
+
+    - ``alpha_plus  = (1/C) int kappa^3 (1 - (2/9) (n_0 . v)^2) ds``  -- sets the **rate**,
+    - ``alpha_minus = (1/C) int kappa^3 (n_0 . b) ds``               -- sets the **direction**,
+
+    with ``kappa = |B_perp| / (B rho)_0`` the local orbit curvature, ``b`` the unit vector
+    along the **physical** magnetic field, ``v`` the unit vector along the particle's
+    motion, and ``n_0`` the periodic spin direction of :mod:`accsim.spin`.
+
+    ``alpha_minus`` is **signed** and ``alpha_plus`` is not: the magnitude of the
+    curvature lives in ``kappa^3``, the sense of the bend lives in ``b``. On a flat ring
+    ``n_0`` is ``+y`` while an electron's guide field points ``-y``, so
+    ``alpha_minus = -alpha_plus`` and the equilibrium polarization comes out
+    **negative** -- the beam polarizes *antiparallel* to the field, which is the textbook
+    direction and not a sign convention this package is free to choose.
+    """
+
+    alpha_plus: float
+    alpha_minus: float
+
+
+def _polarization_integrand(
+    elem: Element, state: np.ndarray, spin: np.ndarray, qsign: float
+) -> tuple[float, float]:
+    """``(kappa^3 (1 - 2/9 (n_0.v)^2), kappa^3 (n_0.b))`` at one point on the orbit."""
+    from .spin import along_direction_of_motion
+
+    bx, by = elem.normalized_field(state[X], state[Y])
+    # normalized_field is B/(B rho)_0, and (B rho)_0 = p/q carries the charge's sign, so
+    # the *physical* field direction needs that multiplied back out. Getting it wrong
+    # flips the polarization's direction while leaving every magnitude untouched.
+    b = np.array([float(bx), float(by), 0.0]) * qsign
+    kappa = float(np.linalg.norm(b))
+    if kappa == 0.0:
+        return 0.0, 0.0
+    n_dot_v = float(spin @ along_direction_of_motion(state))
+    return kappa**3 * (1.0 - 2.0 / 9.0 * n_dot_v * n_dot_v), kappa**3 * float(spin @ (b / kappa))
+
+
+def polarization_integrals(lattice: Lattice, slices: int = 64) -> PolarizationIntegrals:
+    r"""Compute ``(alpha_plus, alpha_minus)`` for a periodic ``lattice`` [1/m^3].
+
+    Both integrals are accumulated **per sub-slice**, carrying ``n_0(s)`` from
+    :func:`accsim.spin.closed_spin_solution` along with the closed orbit, because the
+    weights ``(n_0 . b)`` and ``(n_0 . v)`` are properties of the *local* spin direction.
+    On a flat ring the shortcut ``alpha_plus = I3 / C`` is exactly right and the
+    accumulation is wasted work; it stops being right the moment ``n_0`` tilts, and no
+    flat ring can tell the two apart.
+
+    **``slices`` must resolve the spin phase, not the optics.** Inside a bend of angle
+    ``theta`` the horizontal part of ``n_0`` turns through ``G gamma theta`` relative to
+    the direction of motion -- 4.4 radians per bend on N2's 5 GeV gate ring, an order more
+    at LEP energies -- while the dispersion :func:`radiation_integrals` sub-steps turns
+    through ``theta``. The quadrature here is **Simpson's rule** over the sub-slice
+    boundaries rather than the trapezoid used there, for exactly that reason: it
+    converges as ``slices^-4`` and reaches the round-off floor of the ``(n_0 . v)^2``
+    term at the default 64, where the trapezoid is still ``1.5e-2`` short of it.
+
+    **Scope: only dipoles radiate** -- the same restriction :func:`radiation_integrals`
+    carries, and deliberately the same one, because ``alpha_plus * C == I3`` is a gate
+    the two routes must agree on and so they must agree on what radiates. A quadrupole
+    traversed off-axis really does curve the orbit and really does radiate (``xtrack``
+    counts it, reading ``kappa`` from the closed orbit element by element); on N2's gate
+    ring the one offset quadrupole would add ``3e-12`` of ``alpha_plus``, which is
+    negligible against both ``alpha_plus`` and the ``1e-8`` tilt term this milestone is
+    about -- but only *there*: it grows as the **cube** of the orbit offset where the
+    tilt term grows as its square, so the margin closes on a badly steered ring. Lifting
+    the restriction means lifting it in both places, which moves axis B's numbers, so it
+    is a separate change.
+    """
+    from .elements.dipole import Dipole
+    from .spin import _closed_state, closed_spin_solution
+
+    ref = lattice.ref
+    spin = closed_spin_solution(lattice).n0.copy()
+    state = _closed_state(lattice, None)
+    qsign = math.copysign(1.0, ref.charge)
+    alpha_plus = alpha_minus = 0.0
+    for elem in lattice.elements:
+        if isinstance(elem, Dipole) and elem.length > 0.0 and elem.curvature != 0.0:
+            n = slices + (slices % 2)  # Simpson's rule needs an even number of steps
+            ds = elem.length / n
+            sub = Dipole(ds, elem.curvature * ds, k1=elem.k1)
+            f_plus, f_minus = _polarization_integrand(sub, state, spin, qsign)
+            alpha_plus += f_plus * ds / 3.0
+            alpha_minus += f_minus * ds / 3.0
+            for i in range(1, n + 1):
+                state, spin = sub.track_with_spin(state, spin, ref)
+                weight = (1.0 if i == n else (4.0 if i % 2 else 2.0)) / 3.0
+                f_plus, f_minus = _polarization_integrand(sub, state, spin, qsign)
+                alpha_plus += weight * f_plus * ds
+                alpha_minus += weight * f_minus * ds
+            continue
+        state, spin = elem.track_with_spin(state, spin, ref)
+    return PolarizationIntegrals(alpha_plus / lattice.length, alpha_minus / lattice.length)
+
+
+def _alpha_plus_or_raise(lattice: Lattice, slices: int) -> PolarizationIntegrals:
+    """The integrals, refusing a lattice that does not bend and so cannot polarize."""
+    integrals = polarization_integrals(lattice, slices)
+    if integrals.alpha_plus == 0.0:
+        raise ValueError(
+            "a lattice with no bending radiates nothing and has no Sokolov-Ternov "
+            "polarization: alpha_plus is exactly zero"
+        )
+    return integrals
+
+
+def sokolov_ternov_polarization(lattice: Lattice, slices: int = 64) -> float:
+    r"""Equilibrium beam polarization ``P_inf = (8 / (5 sqrt3)) alpha_minus / alpha_plus``.
+
+    Signed and dimensionless, measured along ``n_0``: **negative** on an ordinary
+    electron ring, where the beam polarizes antiparallel to the guide field (see
+    :class:`PolarizationIntegrals`). ``8 / (5 sqrt3) = 0.9237604...`` is the ratio of the
+    two spin-flip rates, and it is reached exactly whenever ``n_0`` is parallel to the
+    field everywhere the ring bends -- which every flat, unsteered ring satisfies.
+
+    **That number is a control, not a gate.** It is a *ratio* of the two integrals, so
+    any uniform mis-scale of the pair -- a wrong power of ``kappa``, a wrong
+    circumference, a stray factor in the accumulation -- cancels out of it exactly and it
+    returns ``-0.9237604...`` regardless. What it does measure is the two weights pulling
+    apart: on a ring whose ``n_0`` tilts away from the field by ``t`` the departure is
+    ``t^2 (1/2 - (2/9) <cos^2>)``, second order, and of *opposite sign* in the two
+    integrals. That is the gate.
+
+    **No depolarization.** This is ``xtrack``'s ``spin_polarization_inf_no_depol``, not
+    its ``spin_polarization_eq``: the ``(11/18) int kappa^3 |dn/ddelta|^2`` term that
+    fights the buildup needs the spin-orbit coupling ``dn/d(x, px, ...)``, which this
+    package does not have yet (``docs/ROADMAP.md`` -> N4).
+    """
+    integrals = _alpha_plus_or_raise(lattice, slices)
+    return 8.0 / (5.0 * math.sqrt(3.0)) * integrals.alpha_minus / integrals.alpha_plus
+
+
+def polarization_buildup_time(lattice: Lattice, slices: int = 64) -> float:
+    r"""The Sokolov-Ternov buildup time constant ``tau_pol`` [s].
+
+    ``1 / tau = (5 sqrt3 / 8) r_0 (hbar / m_0) gamma^5 alpha_plus`` -- the rate at which
+    the polarization approaches :func:`sokolov_ternov_polarization`, as
+    ``1 - exp(-t / tau)``. The ``gamma^5``, and the ``kappa^3`` inside ``alpha_plus``,
+    make it violently energy- and radius-dependent: a second in a small strong-bending
+    ring, hours at LEP.
+
+    **The coefficient is the discriminating quantity, and ``P_inf`` cannot see it** --
+    that is a ratio in which any uniform mis-scale of the two rates cancels. Here it does
+    not, so this is where a wrong constant shows up. Two things guard it: ``gamma^5`` and
+    ``rho^3`` scaling, which catch a wrong *power*, and ``xtrack``'s
+    ``spin_t_pol_component_s``, which catches a wrong *factor* and is the only thing that
+    does. The eV-to-SI bridge is the risky step and is written out rather than folded
+    into a literal: ``hbar / m_0 = (hbar c) c / (m c^2)``, in ``m^2/s``, assembled from
+    the package's own ``HBAR_C_EV_M`` and the particle's own rest energy -- so a slip here
+    is a slip axis B would feel too.
+    """
+    integrals = _alpha_plus_or_raise(lattice, slices)
+    ref = lattice.ref
+    hbar_over_mass = HBAR_C_EV_M * CLIGHT / ref.mass_eV  # [m^2/s]
+    rate = (
+        5.0
+        * math.sqrt(3.0)
+        / 8.0
+        * ref.classical_radius_m
+        * hbar_over_mass
+        * ref.gamma0**5
+        * integrals.alpha_plus
+    )
+    return 1.0 / rate
