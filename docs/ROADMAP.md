@@ -2590,7 +2590,7 @@ D3, MAD-X).
     `b_x` swings through more than 0.5 — a per-element readout rather than a single
     scalar, because a one-turn number can be right by cancellation and a curve
     cannot (J1's lesson).
-  - **`Q''` is exact where it can be checked and *not arbitrated* where it cannot.**
+  - **`Q''` was exact where M1 could check it, and (M2) is exact where it could not.**
     On a **bend-free** ring it reproduces a sympy closed form, and xtrack **and**
     MAD-X agree with it — a genuine three-code agreement. The closed form exists
     because a thin quadrupole carries **no** `1/(1+delta)` at all (its kick changes

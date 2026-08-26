@@ -26,14 +26,14 @@ dominates. A pass/fail at one step size would hide both ends, so the gate is tha
 halving ``delta`` **quarters** the residual against the symbolic answer — B4's
 argument, applied to a derivative instead of a lifetime.
 
-**The bendy ring's ``Q''`` is pinned as a named model boundary, not as a
-validated number.** accsim, xtrack and MAD-X give three different answers there
-while agreeing on ``Q`` to ten digits and ``Q'`` to seven. That is *not* an accsim
-map error — the reference suite proves the Dipole Jacobian and the closed orbit
-both match xtrack — so the value is pinned here to stop it drifting silently, and
-the milestone that closes it is M2. See
-``docs/CONVENTIONS.md`` -> *Second-order chromaticity is not arbitrated on a bendy
-ring*.
+**The bendy ring's ``Q''`` was pinned here as an unarbitrated boundary; M2 arbitrated
+it and accsim is right.** accsim, xtrack and MAD-X give three different answers there
+while agreeing on ``Q`` to ten digits and ``Q'`` to seven, and M1 read that as "not an
+accsim map error". It *is* the maps — the **drift**: accsim's is exact, xtrack's
+default and MAD-X's are paraxial, and they coincide identically whenever the closed
+orbit is straight. See ``tests/analytic/test_chromatic_arbiter.py``, which checks
+accsim against a sixty-digit derivation rather than against another code, and
+``docs/CONVENTIONS.md`` -> *The drift model is what splits ``Q''`` on a bendy ring*.
 """
 
 from __future__ import annotations
@@ -318,24 +318,30 @@ def test_the_sextupole_reaches_q_prime_linearly_and_q_double_prime_quadratically
 
 
 # ---------------------------------------------------------------------------
-# 5. The named model boundary — pinned so it cannot drift quietly
+# 5. The bendy ring's Q'' — pinned, and since M2 also validated
 # ---------------------------------------------------------------------------
 
 
 def test_the_bendy_ring_second_order_chromaticity_is_pinned(ref: ReferenceParticle) -> None:
-    r"""``Q''`` on the dispersive arc, pinned as a **boundary**, not as a validated number.
+    r"""``Q''`` on the dispersive arc: pinned so it cannot drift, and now also arbitrated.
 
-    accsim gives ``(+0.79307, +0.76830)`` here; xtrack gives ``+0.75202`` and MAD-X
-    ``+0.70441`` in ``x``, all three agreeing on ``Q`` to ten digits and on ``Q'``
-    to seven. The reference suite establishes that this is not an accsim map error
-    (the Dipole Jacobian matches ``xt.Bend`` to ``5.3e-10`` on the off-momentum
-    orbit, and the closed orbits agree to ``2.9e-11``), and the two independent
-    accsim tune routes agree with each other to seven digits.
+    accsim gives ``(+0.79307, +0.76830)`` here; xtrack on its **default** drift gives
+    ``+0.75202`` and MAD-X ``+0.70441`` in ``x``, all three agreeing on ``Q`` to ten
+    digits and on ``Q'`` to seven.
 
-    So this test exists to make the number *stable*, not to bless it: if a future
-    change moves it, that is a real change in the package's off-momentum optics and
-    should be noticed. M2 is the milestone that resolves which of the three is
-    right.
+    M1 pinned this value as an unarbitrated boundary and reasoned that the spread
+    could not be an accsim map error, because the ``Dipole`` Jacobian matched
+    ``xt.Bend`` off-momentum. That reasoning generalised **one element** to all of
+    them. M2 swept the rest and found the **drift**: accsim's is exact
+    (``x += L px/pz``), xtrack's default and MAD-X's are paraxial
+    (``x += L px/(1+delta)``), and with ``xt.Drift(model="exact")`` xtrack returns
+    ``0.79309`` — accsim's number.
+
+    So this test now does two jobs. It still makes the value stable, and it records
+    what a change to it would mean: accsim's ``Q''`` is the *exact-drift* answer,
+    confirmed against a sixty-digit geometric derivation in
+    ``test_chromatic_arbiter.py``, so a future change moving these numbers is a
+    change in the package's off-momentum optics rather than a boundary shifting.
     """
     ddq_x, ddq_y = second_order_chromaticity(_arc(ref), delta=1e-3)
     assert ddq_x == pytest.approx(0.793072, rel=1e-4)

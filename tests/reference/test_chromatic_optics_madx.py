@@ -225,8 +225,8 @@ def test_the_madx_split_is_not_an_energy_variable_convention() -> None:
     and an ultra-relativistic one.
 
     Ruling this out is what makes the split a statement about the *models* rather
-    than about bookkeeping, and it is why M2 looks at the longitudinal constraint
-    instead.
+    than about bookkeeping — and M2 confirmed that reading: the models differ in the
+    **drift**, which no change of energy variable could ever produce.
     """
     import_madx()
     values = []
@@ -269,9 +269,6 @@ def test_madx_sits_on_the_paraxial_drift_answer_with_a_small_residual_of_its_own
     The residual is *not* asserted to shrink under any option, because there is none:
     MAD-X's TWISS has no exact-drift setting.
     """
-    import sys
-
-    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
     from _m2_minimal_ring import ANG as M_ANG
     from _m2_minimal_ring import KF
     from _m2_minimal_ring import LB as M_LB

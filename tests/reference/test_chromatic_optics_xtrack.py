@@ -469,11 +469,27 @@ def test_second_order_chromaticity_agrees_with_bends_once_the_drift_models_match
 
     Two-sided on purpose. The **default** must still disagree by ~5%, because that
     disagreement is a real difference between two documented models and a future
-    change that quietly removed it would mean accsim had stopped being exact. The
-    **exact** model must agree, in ``y`` to nine digits; in ``x`` the two codes'
-    second differences are limited by their own closed-orbit noise at
-    ``delta = 1e-3``, so ``2e-5`` relative is the floor of the comparison, not of the
-    physics — the analytic suite gates accsim against a sixty-digit arbiter instead.
+    change that quietly removed it would mean accsim had stopped being exact.
+
+    **The exact model agrees to nine digits in ``y`` and only to ``2e-5`` relative in
+    ``x``, and the two planes differ for a measured reason, not a supposed one.**
+    Checking each code's residual against the minimal ring's sixty-digit arbiter as
+    ``delta`` halves:
+
+        y   9.79e-6  2.45e-6  6.12e-7  1.53e-7      ratios 4.00, 4.00, 4.00
+        x   1.02e-5  3.00e-6  2.96e-6  5.18e-6      ratios 3.39, 1.01, 0.57
+
+    The vertical closed orbit is identically zero, so there is nothing to solve and
+    xtrack truncates cleanly at ``delta^2`` all the way down — and accsim's vertical
+    residual is ``6.12e-7`` at the same step, the *same number*, so the truncation
+    cancels between the two codes and what is left is nine digits. The horizontal
+    orbit must be solved, and xtrack's residual stops falling below
+    ``delta ~ 2.5e-3`` and then grows: that is closed-orbit noise entering as
+    ``1/delta^2``, and ``~3e-6`` is xtrack's floor on this ring. accsim is still
+    converging there (``7.1e-7``, and ``1.1e-7`` one step further), so the ``2e-5``
+    relative gap in ``x`` is xtrack's noise floor rather than a difference between the
+    two models. The analytic suite gates accsim against the arbiter directly, which
+    is why nothing here has to rest on that inference.
     """
     lattice = _accsim_lattice(bends=True)
     ours = second_order_chromaticity(lattice, delta=DELTA)

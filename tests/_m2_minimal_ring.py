@@ -155,7 +155,10 @@ def bend_map(state: list, length, angle) -> list:
         ca, sa = _angles(phi)
         return (centre_x + r * ca - exit_x) * dir_x + (centre_z + r * sa - exit_z) * dir_z
 
-    phi = findroot(_face, angle, tol=mpf(10) ** (-2 * mp.dps))
+    # mpmath compares |f|^2 against tol, so the exponent is halved in effect: this asks
+    # for a residual near 10^-dps, i.e. full working precision, not the impossible
+    # 10^-2dps the literal reads as. Written explicitly rather than left as an accident.
+    phi = findroot(_face, angle, tol=mpf(10) ** (-2 * (mp.dps - 5)))
     ca, sa = _angles(phi)
     pos_x, pos_z = centre_x + r * ca, centre_z + r * sa
 
@@ -195,7 +198,7 @@ def closed_orbit(delta, *, exact_drift: bool, angle: float = ANG) -> tuple:
         out = turn_map([x, px, mpf(0), mpf(0), delta], exact_drift=exact_drift, angle=angle)
         return out[0] - x, out[1] - px
 
-    root = findroot(residual, (mpf(0), mpf(0)), tol=mpf(10) ** (-2 * mp.dps))
+    root = findroot(residual, (mpf(0), mpf(0)), tol=mpf(10) ** (-2 * (mp.dps - 5)))
     return root[0], root[1]
 
 
