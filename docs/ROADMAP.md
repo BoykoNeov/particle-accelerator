@@ -541,6 +541,16 @@ held**: the single hard photon does *not* knock particles out of an electron sto
 (0.930 of it, against a one-sigma band of 8.2%). What B5 bought instead is the tail itself,
 cross-checked against xtrack pointwise to better than 1% out to one draw in a thousand,
 where B3's Gaussian is 19.4% low.
+**With axis M closed the same day it opened, the direction chosen next — also
+2026-08-26 — is axis N: the particle's spin.** It is the last piece of single-particle
+physics the package has no notion of at all, and it was picked on the same filter M was:
+`xtrack` 0.106.4 already tracks spin through its thick magnets, reports the closed spin
+solution from `twiss(spin=True)` and computes a linearised polarization analysis, while
+independent closed forms exist for the headline numbers — so both arms of the validation
+strategy are in place before a line is written. Unlike axis L it re-baselines nothing,
+because spin does not act back on the orbit; the flip side is that no existing gate
+constrains it either, which is why each milestone's weight is entirely in its gates.
+
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -2817,6 +2827,141 @@ D3, MAD-X).
     the orbit to `~1e-19` and the noise disappears underneath.
 
   **Axis M is now closed**: no written candidate remains on it.
+
+### N. Spin — the particle's own magnet, and the polarization it builds up (core accelerator)
+
+Opened 2026-08-26 as a **new axis**. Every quantity on axes A-L is a property of the
+particle's *position and momentum*, and axis M is that machine differentiated; a charged
+particle also carries a **spin**, and that spin is acted on by every field the lattice
+contains. It is the last piece of single-particle physics this package has no notion of
+at all, and in an electron ring it is not a curiosity: synchrotron radiation slowly
+polarizes the beam (Sokolov-Ternov), the polarized beam is what makes resonant
+depolarization possible, and resonant depolarization is how LEP measured its own energy
+to a part in a million and how FCC-ee intends to.
+
+Chosen on the project's usual filter — **can an independent code arbitrate the answer?**
+— and it passes on both arms at once, which nothing else remaining does:
+
+- `xtrack` 0.106.4 (already installed, already wired into the reference suite) tracks
+  `spin_x/y/z` through its thick magnets, reports the closed spin solution at every
+  element boundary from `twiss(spin=True)`, and computes a full linearised polarization
+  analysis (`polarization_analysis=True`: spin tune, buildup time, depolarizing
+  component, `dn/ddelta`).
+- Independent **closed forms** exist for the headline numbers — the precession rate
+  `nu_0 = G gamma`, the Sokolov-Ternov equilibrium `8/(5 sqrt3)` and its time constant —
+  so the reference is not the only judge.
+
+Two properties worth stating before the milestones, because they set the axis's shape:
+
+- **Spin does not feed back into the orbit.** Unlike L1, this axis re-baselines
+  *nothing*: not one existing number moves, `matrix()` and `kick()` are untouched, and
+  the symplecticity invariant that bounds axis L is unaffected (a rotation of a unit
+  vector is not a phase-space map). The flip side is that **no existing gate constrains
+  it either**, so every check on this axis is new and the milestones' whole weight is in
+  their gates — the same position M1 was in, for the same reason.
+- **`xtrack`'s own default is "no anomalous moment".** `xt.Particles` leaves
+  `anomalous_magnetic_moment` at `0`, which silently makes every spin rotation the
+  *cyclotron* rotation and the spin tune exactly zero. That is M2's trap by another name
+  — a reference whose *default configuration* is not the physics being checked — and it
+  is named here in advance rather than after being tripped over.
+
+- **N1 — the spin as a tracked quantity: the Thomas-BMT map, element by element.**
+  The map that rotates a particle's spin as it crosses a magnet, and nothing else. The
+  spin obeys `dS/ds = Omega x S` with
+
+      `Omega = -(1/(1+delta)) [ (1 + G gamma) b_perp + (1 + G) b_par ]`      [rad/m]
+
+  where `b = B/(B rho)_0` is the element's existing `normalized_field` (so the whole of
+  what a magnet must provide for spin is what it already provides for radiation, and no
+  element grows a second field model), `b_par` / `b_perp` are its components along and
+  across the direction of motion, `G` is the species' anomalous magnetic moment and
+  `gamma` the **particle's** own. A bend additionally rotates the *frame* the spin is
+  expressed in, by the design bend angle about `y`.
+
+  Deliberately **not** a new state vector: the 6D `(x, px, y, py, zeta, delta)` state is
+  untouched and the spin rides alongside it, because it neither influences it nor is
+  part of it.
+
+  Gates. The value gate (`nu_0 = G gamma`) is the **control**, not the gate — it depends
+  only on the bends summing to `2 pi` and on the beam energy, so an implementation whose
+  transverse coefficient is mis-scaled, or whose quadrupole contribution is missing
+  entirely, reproduces it exactly. That blindness is asserted, J1-style, rather than
+  hoped against. What discriminates:
+
+  - **`G = 0` locks the spin to the direction of motion.** With no anomalous moment the
+    BMT rotation *is* the cyclotron rotation, so a spin started along `p` must stay along
+    `p` through any sequence of elements, at any amplitude, on or off momentum, in either
+    frame. It is exact, needs no reference, and is broken by a mis-scaled transverse
+    coefficient, by a wrong sign, and by a missing or mis-signed bend frame rotation —
+    the three things the control cannot see.
+  - **A quadrupole at a vertical offset** rotates the spin about `x` by
+    `(1 + G gamma) k1 int y ds`, with `int y ds` derived symbolically through the
+    quadrupole's own exact map. This is the gate that pins the `(1 + G gamma)` factor
+    itself, which the `G = 0` identity cannot (it is `1` there by construction).
+  - **The `(1 + G)` parallel term is exercised even with no solenoid in the package.**
+    `b_par` is the component of a purely *transverse* field along the direction of
+    motion, which is non-zero as soon as the particle has an angle; the term therefore
+    enters at `O(px b_x)` rather than being dead code awaiting a longitudinal field.
+  - **Reference: element by element, gated on the convergence order.** `xtrack` does not
+    evaluate an analytic field — `magnet_estimate_field` back-derives `B` from the
+    trajectory's curvature — so accsim's midpoint-rule integral of its own analytic field
+    and xtrack's differ at `O(L^2)` by construction. The gate is therefore that slicing
+    converges the two together at the expected order, which is B2's argument
+    (`integrator='uniform', num_multipole_kicks=1`, to strip xtrack's own eight-step
+    sub-stepping first) applied to a rotation instead of an energy loss.
+
+  Scope, stated rather than discovered:
+
+  - **Thin elements do not precess**, and unlike radiation this is an approximation
+    rather than a limit. A thin magnet's radiated energy really does go to zero with its
+    length (`U ~ kappa^2 L`), but its integrated field does not, so a thin quadrupole's
+    true spin rotation is finite and dropping it is a real omission. It is dropped
+    anyway, because **`xtrack`'s thin `Multipole` does not rotate spin either** — spin
+    lives only in its `track_magnet` family — so there would be no arbiter, which is
+    L5's reason. The cost is precise and is recorded: a thin-lens ring has no vertical
+    spin dynamics at all, so every gate on this axis is built from **thick** magnets.
+  - **`xtrack` 0.106.4's `direction_of_motion` has a sign typo** —
+    `sqrt(1 - ix*ix + iy*iy)`, a `+` where a `-` belongs
+    (`beam_elements/elements_src/track_magnet_radiation.h:22`). The vector it returns is
+    therefore not a unit vector, wrong at `O(py^2)`, and it feeds **both** the spin
+    precession and `compute_b_perp_mod` (hence B2's radiation kick). accsim writes it
+    correctly; the reference gate asserts the disagreement **and its order in `py`**
+    rather than avoiding it by setting `py = 0`, which is M2's "both models separately
+    confirmed" standard rather than a reconciliation.
+
+  Effort **M**.
+
+- **N2 (candidate) — the closed spin solution and the spin tune.** The periodic direction
+  `n_0(s)` a spin must lie along to come back to itself after a turn, and the rate `nu_0`
+  it precesses about it — the spin analogue of the closed orbit and the tune, and reached
+  the same way (I1's fixed point, but on a rotation rather than an affine map). Arbiter:
+  `twiss(spin=True)`'s `spin_x/y/z` element by element, and `polarization_analysis=True`'s
+  `spin_tune_fractional`.
+
+  The discriminating gate is **not** `nu_0 = G gamma`, for the reason N1 records; it is
+  the **first-order resonance condition** `nu_0 = k +- Q_y`, which predicts an *integer*
+  (where the spin solution tilts away from vertical, as the energy is scanned) separably
+  from a coefficient (how far it tilts). Gating on the location of an integer-indexed
+  family is J2's "gate on the order, not a tolerance" in another guise. Expect the
+  degeneracy M3 just found to recur: on a flat ring with no vertical orbit `n_0` is
+  exactly `y` everywhere and every tilt-driven quantity is identically zero — so the ring
+  the gate runs on must be steered, and the **order in the steering** is the thing to
+  assert. Effort **M**.
+
+- **N3 (candidate) — Sokolov-Ternov: the polarization radiation builds, and the
+  depolarization it fights.** The spin-flip channel of the synchrotron radiation axis B
+  already has: an equilibrium polarization `P_inf = 8/(5 sqrt3) = 92.376%` and a buildup
+  time constant, both against `polarization_analysis`'s
+  `spin_polarization_inf_no_depol` and `spin_t_pol_buildup_s`. Its natural home is
+  `accsim.radiation`, alongside the integrals, since it is one more integral over the
+  same curvature.
+
+  `P_inf = 8/(5 sqrt3)` is a good pre-commitment but is **blind by construction** — it is
+  a ratio in which any uniform mis-scale of the two spin-flip rates cancels. The
+  discriminating quantity is the **time constant's coefficient** (the `hbar`, `r_e`,
+  `gamma^5`, `rho^3` combination), which must be **derived in sympy**, not quoted: B2's
+  pre-2019 charge constant and B5's three quiet disagreements are exactly this failure
+  mode on this axis's own neighbour. Effort **M**.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
