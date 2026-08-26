@@ -15,15 +15,24 @@ of them is a reference code:
    iteration — and accsim's exact drift departs from it at the **third** power of the
    kick angle, which is measured as an exponent rather than asserted as a tolerance.
 
-**The milestone's finding, and it reverses what was written down in advance.** The
-roadmap pre-committed that any ``ddx`` cross-check would have to force
-``xt.Drift(model="exact")`` or reproduce M1's 5% disagreement. It does not: the exact
-and paraxial drifts put the closed orbit in different places only at ``O(delta^3)``,
-so a symmetric second difference — of an odd function — cannot see the difference at
-all. ``Q''`` is split by the same term because ``Q''`` differentiates the *Jacobian*
-about the orbit, which brings the ``O(px^3)`` displacement down one order. Both halves
-of that statement are asserted below, out of the same arbiter, with no reference code
-in the room.
+**The milestone's finding, and it reverses what was written down in advance — with a
+condition attached that is part of the result.** The roadmap pre-committed that any
+``ddx`` cross-check would have to force ``xt.Drift(model="exact")`` or reproduce M1's 5%
+disagreement. **On a ring that closes on the axis it does not**, and the reason is one
+power of ``delta``: the exact drift exceeds the paraxial one by
+``L px (px^2 + py^2)/(2 (1+delta)^3)``, so with ``px = a + b delta`` on the closed orbit
+the ``delta^2`` coefficient of the difference is ``3 a b^2``. That vanishes identically
+when the **on-momentum** orbit angle ``a`` is zero, which every unsteered ring has.
+``Q''`` is split anyway, because it differentiates the *Jacobian* about the orbit, and
+``d/dpx`` of the same term is ``O(b^2 delta^2)`` — one order lower, and independent of
+``a``.
+
+**Steer the orbit off axis and the split comes back**, first order in ``a`` and second
+order in ``b``: on M2's ring a 10 mrad steerer splits ``ddx`` by ``6.8e-3`` relative,
+and splits the *first-order* dispersion by ``4.1e-4``. Both the vanishing and its
+condition are asserted below, out of the same arbiter, with no reference code in the
+room — because "M1 generalised from the one element it had checked" is this axis's own
+recorded failure mode and an unconditional claim here would be it repeating.
 """
 
 from __future__ import annotations
@@ -190,6 +199,58 @@ def test_the_arbiters_exact_drift_reproduces_accsims_drift() -> None:
     assert worst < 1e-15
 
 
+def test_the_drift_models_do_split_it_once_the_orbit_is_steered_off_axis() -> None:
+    r"""The bound on the finding above — and the reason the finding is not a general law.
+
+    Adding a thin steerer to M2's ring moves the **on-momentum** closed orbit off the
+    axis, which is the one thing every ring in this suite and in both reference suites
+    lacks. With ``a = px(delta=0)`` non-zero the ``3 a b^2`` term is live, and the two
+    drift models stop agreeing: ``6.8e-3`` of relative split on ``ddisp_x`` at a 10 mrad
+    kick, against ``1e-15`` at zero kick on the very same ring.
+
+    Both zeros are asserted, because each is a different half of the law: no steerer
+    means ``a = 0``, and no bend means ``b = 0``, and the product needs both.
+    """
+    unsteered = arbiter.dispersion_drift_model_split()
+    assert abs(unsteered["px_on_momentum"]) < 1e-30
+    assert abs(unsteered["dd_x"]) < 1e-20
+
+    steered = arbiter.dispersion_drift_model_split(kick=1e-2)
+    assert abs(steered["px_on_momentum"]) > 1e-2
+    assert steered["dd_x_relative"] > 5e-3
+
+    # Same steerer, no bend: the dispersion angle is gone, so the split is gone too,
+    # even though the orbit is just as far off axis.
+    straight = arbiter.dispersion_drift_model_split(kick=1e-2, angle=0.0)
+    assert abs(straight["px_on_momentum"]) > 1e-2
+    assert abs(straight["dd_x"]) < 1e-20
+
+    # The *first*-order dispersion is split as well, and by a different power — which is
+    # why the reference suites' ``disp_x`` comparisons are safe only on an unsteered ring.
+    assert steered["D_x_relative"] > 1e-4
+    assert abs(straight["D_x"]) > 1e-6  # and this one survives the bend being removed
+
+
+def test_the_split_is_first_order_in_the_orbit_angle_and_second_in_the_bending_angle() -> None:
+    r"""``3 a b^2``, measured as two exponents rather than asserted as an expansion.
+
+    Doubling the steerer doubles the split (``a``, first order); doubling the bending
+    angle quadruples it (``b``, second order). The kick sweep is run at small kicks so
+    ``a`` is linear in it, and the angle sweep at a small kick so the on-momentum orbit
+    barely moves as the angle changes — otherwise the two factors are not separable and
+    neither exponent means anything.
+    """
+    kicks = [arbiter.dispersion_drift_model_split(kick=k)["dd_x"] for k in (1e-4, 2e-4, 4e-4)]
+    for coarse, fine in zip(kicks[1:], kicks, strict=False):
+        assert coarse / fine == pytest.approx(2.0, rel=0.02)
+
+    angles = [
+        arbiter.dispersion_drift_model_split(kick=1e-3, angle=a)["dd_x"] for a in (0.01, 0.02, 0.04)
+    ]
+    for coarse, fine in zip(angles[1:], angles, strict=False):
+        assert coarse / fine == pytest.approx(4.0, rel=0.06)
+
+
 # ---------------------------------------------------------------------------
 # 3. a closed form in exact arithmetic, with no bend anywhere in the ring
 # ---------------------------------------------------------------------------
@@ -260,15 +321,21 @@ def test_a_corrector_ring_lands_on_its_exact_rational_second_order_dispersion() 
     assert point.ddisp_px == pytest.approx(ddpx * theta, rel=1e-3)
 
 
-def test_the_exact_drifts_correction_is_third_order_in_the_kick_angle() -> None:
-    r"""What separates accsim from the closed form scales as ``theta^3``, and only that.
+def test_the_corrector_rings_departure_from_it_is_the_drift_model_split_at_theta_cubed() -> None:
+    r"""What separates accsim from the closed form scales as ``theta^3`` — and *is* the split.
 
-    The exact drift exceeds the paraxial one by ``L px^3/(2 pz^3) + ...``, and on this
-    ring ``px`` on the closed orbit is proportional to the kick angle. Tripling the
-    angle must therefore multiply the residual by 27 — an exponent, which discriminates
-    where a tolerance would not: a *uniformly* mis-scaled second-order dispersion would
-    show up as a residual growing like ``theta`` and would sail through any tolerance
-    chosen on one ring.
+    The closed form above is the fixed point of the **paraxial** map; accsim tracks the
+    **exact** one. So this residual is not a nuisance term, it is the drift-model
+    disagreement itself, on a ring where it is emphatically not invisible: at
+    ``theta = 0.02`` it is ``2e-3`` of ``ddisp_x``, six orders above the ``1e-9`` the
+    same split is worth on an unsteered ring.
+
+    The exponent is the ``3 a b^2`` law with *both* factors carried by the corrector —
+    this ring has no bend, so the on-momentum orbit angle and the dispersion angle are
+    both proportional to ``theta`` and the split goes as ``theta^3``. Tripling the angle
+    must multiply the residual by 27, which discriminates where a tolerance would not: a
+    *uniformly* mis-scaled second-order dispersion would show a residual growing like
+    ``theta`` and would sail through any tolerance chosen on one ring.
     """
     ddx, _ = _corrector_closed_form(CORRECTOR_CELL)
     residuals = []

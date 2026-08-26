@@ -9,22 +9,26 @@ Two things are established here, in order:
    twice-differencing xtrack's **own** closed orbit and comparing with its own
    reported column.
 
-2. **The finding: this quantity does not care which drift model the reference uses.**
-   The roadmap pre-committed the opposite — that a ``ddx`` comparison would have to
-   force ``xt.Drift(model="exact")`` or reproduce M1's 5% ``Q''`` disagreement in a new
-   place. It does not. xtrack's default (paraxial) and exact drifts give ``ddx`` values
-   that differ in the **ninth** significant digit, and accsim's exact-drift answer sits
-   the same tiny distance from both. The reason is derived in the analytic suite with
-   no reference code present (``test_second_order_dispersion.py``): the two drift
-   models place the closed orbit differently only at ``O(delta^3)``, which is odd in
-   ``delta`` and therefore invisible to a symmetric second difference. ``Q''`` is split
-   by the same term because it differentiates the *Jacobian* about the orbit, where the
-   ``O(px^3)`` displacement contributes one order lower.
+2. **The finding: on this ring the quantity does not care which drift model the
+   reference uses.** The roadmap pre-committed the opposite — that a ``ddx`` comparison
+   would have to force ``xt.Drift(model="exact")`` or reproduce M1's 5% ``Q''``
+   disagreement in a new place. It does not here: xtrack's default (paraxial) and exact
+   drifts give ``ddx`` values that differ in the **ninth** significant digit, and
+   accsim's exact-drift answer sits the same tiny distance from both.
 
-Both drift models are therefore asserted to agree, which is the exact opposite of what
-``test_chromatic_optics_xtrack.py`` asserts about ``Q''`` on this same ring. The pair
-is the point: one quantity splits, the neighbouring one does not, and the reason is a
-single power of ``delta``.
+   **"On this ring" is load-bearing.** The analytic suite derives the condition with no
+   reference code present (``test_second_order_dispersion.py``): the ``delta^2`` part of
+   the two drifts' difference is ``3 a b^2``, with ``a`` the **on-momentum** closed-orbit
+   angle and ``b`` the dispersion angle. This ring closes on the axis, so ``a = 0`` and
+   the split is gone; a steered ring has ``a != 0`` and splits ``ddx`` by ``6.8e-3``
+   relative at a 10 mrad kick. ``Q''`` is split either way, because it differentiates the
+   *Jacobian* about the orbit, where the same term contributes at ``O(b^2 delta^2)`` —
+   one order lower, and free of ``a``.
+
+Both drift models are therefore asserted to agree **on this unsteered ring**, which is
+the exact opposite of what ``test_chromatic_optics_xtrack.py`` asserts about ``Q''`` on
+the same one. The pair is the point: one quantity splits, the neighbouring one does not,
+and the reason is a single power of ``delta``.
 
 The edge model is ``suppressed`` for the same reason as in M1 — accsim's ``Dipole``
 uses the linear hard-edge kick, which is the identity for a sector bend.
@@ -153,6 +157,11 @@ def test_second_order_dispersion_matches_xtrack_around_the_ring(drift_model: str
     The parametrisation is the milestone's finding rather than thoroughness: the
     agreement is the same to within the two codes' own steps whether xtrack uses the
     drift accsim uses or the one M2 showed splits ``Q''`` by 5%.
+
+    Scope, stated because it is easy to over-read: this ring's on-momentum closed orbit
+    is on the axis, which is the condition under which the two drift models agree here at
+    all. The ``disp_x`` comparison below is safe for the same reason — first-order
+    dispersion is split by a steered orbit too, and by a *lower* power.
     """
     lattice = _accsim_lattice()
     points = second_order_dispersion(lattice, delta=DELTA)
@@ -191,8 +200,10 @@ def test_the_drift_model_moves_ddx_in_the_ninth_digit_where_it_moves_qpp_by_5_pe
     Same line, same bend model, same tune — only ``xt.Drift``'s ``model`` changes. M2
     established that this moves ``Q''`` from ``0.75202`` to about ``0.79``, a 5% split
     that took a milestone to explain. On the neighbouring quantity it is worth eight
-    orders of magnitude less, because the orbit displacement the two models disagree
-    about is odd in ``delta`` and a second difference is even.
+    orders of magnitude less, because the ``delta^2`` part of the two models' difference
+    carries a factor of the **on-momentum** orbit angle, which this ring does not have.
+    Steer it and the eight orders come back — asserted in the analytic suite, where the
+    arbiter can be given a steerer without a second JIT build.
     """
     paraxial = _line(None).twiss(method="4d")
     exact = _line("exact").twiss(method="4d")

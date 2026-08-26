@@ -514,10 +514,12 @@ answer while xtrack's default converges onto the paraxial one, and switching xtr
 was valid reasoning from a false premise: it had compared exactly one element (the dipole)
 and generalised, and the drift went unchecked because L1 had shipped it exact — which
 validated its *map*, not its agreement with a reference's *default configuration*. **M3
-shipped the same day and closed the axis** — second-order dispersion, where M2's finding
-does *not* apply: the drift model reaches the orbit only at the third power of `delta`, so
-all three codes agree on `ddx` to `2e-7` where they split `Q''` by 5%, and MAD-X is
-reconciled rather than named for the first time on this axis.** B4 gave a radiating bunch
+shipped the same day and closed the axis** — second-order dispersion, which *bounds* M2's
+finding rather than inheriting it: the drift model reaches the closed orbit as `3ab²`,
+where `a` is the on-momentum orbit angle, so it is invisible on any ring that closes on
+the axis (all three codes then agree on `ddx` to `2e-7` where they split `Q''` by 5%, and
+MAD-X is reconciled rather than named for the first time on this axis) and plainly visible
+once a steerer is on. The orbit and the optics about it are reached at different powers.** B4 gave a radiating bunch
 somewhere to die — a momentum acceptance — so that Stage 4's year-old `quantum_lifetime`
 became something the tracking *produces* rather than something the design route quotes.
 Its pre-committed headline turned out to be **wrong**, and the correction is the result:
@@ -2732,26 +2734,39 @@ D3, MAD-X).
   linear ones — every `Element.matrix()` in this package is `delta`-independent, so a
   purely affine machine has *no* second-order dispersion at all.
 
-  **The milestone's pre-committed warning was wrong, and overturning it is the result.**
-  M2's entry above told M3 that "a second-order orbit quantity on a dispersive ring is
-  exactly what the drift model moves, so any `ddx` cross-check must set
-  `xt.Drift(model="exact")`". It must not, and the reason is one power of `delta`.
+  **The milestone's pre-committed warning was wrong, and overturning it — with the
+  condition that bounds the correction — is the result.** M2's entry above told M3 that
+  "a second-order orbit quantity on a dispersive ring is exactly what the drift model
+  moves, so any `ddx` cross-check must set `xt.Drift(model="exact")`". On a ring whose
+  on-momentum orbit runs down the axis it must not, and the reason is one power of
+  `delta`. On a **steered** ring it must after all, and saying so is the other half.
 
-  - **The drift model is invisible here.** The exact and paraxial drifts place the closed
-    orbit in different positions only at `O(delta^3)` — measured on M2's own minimal ring
-    as a ratio held fixed to `1e-2` over three decades of `delta`, i.e. a pure cubic — and
-    a symmetric second difference of an **odd** function is exactly zero. Inside xtrack,
-    on one line with only `xt.Drift`'s `model` changed, `ddx` moves in the **ninth**
-    significant digit while `ddqx` moves by **5%**. The arbiter says the same thing with
-    no reference code in the room: its exact-drift and paraxial-drift `ddx` agree to
-    `1e-15` while its `Q''` differs by `1.4e-2`.
-  - **Why one and not the other, in one sentence.** The exact drift exceeds the paraxial
-    one by the relative factor `(px^2+py^2)/(2(1+delta)^2)`, so the *displacement*
-    difference is `O(px^3) = O(delta^3)`; `Q''` differentiates the **Jacobian** about the
-    orbit, and `d/dpx` of that same term is `O(delta^2)` — one order lower, and squarely
-    on a second derivative. The orbit and the optics about it are separate objects, and a
-    map difference can land on one and not the other. M1 had already called `ddx` "a
-    different object from `Q''`"; it is more different than M1 or M2 supposed.
+  - **On an unsteered ring the drift model is invisible here.** Inside xtrack, on one
+    line with only `xt.Drift`'s `model` changed, `ddx` moves in the **ninth** significant
+    digit while `ddqx` moves by **5%**. The arbiter says the same with no reference code
+    in the room: its exact-drift and paraxial-drift `ddx` agree to `1e-15` while its
+    `Q''` differs by `1.4e-2`.
+  - **Why, and exactly when.** The exact drift exceeds the paraxial one by
+    `L px (px²+py²)/(2(1+δ)³)`. With `px = a + bδ` on the closed orbit — `a` the
+    **on-momentum** orbit angle, `b` the dispersion angle — the `δ²` part of that
+    difference is `3ab²`, which vanishes when *either* factor is zero. `a = 0` is every
+    ring in this project's suites and in both reference suites; `b = 0` is a ring with no
+    bend. `Q''` is split regardless, because it differentiates the **Jacobian** about the
+    orbit and `d/dpx` of the same term is `O(b²δ²)` — one order lower, and free of `a`.
+    The orbit and the optics about it are separate objects, and a map difference can
+    reach them at **different powers**; never carry a finding about one to the other
+    without checking the order.
+  - **The bound is gated, not merely stated.** M2's arbiter now takes a steerer. A 10
+    mrad kick splits `ddisp_x` between the two drift models by **6.8e-3** relative
+    (against `1e-15` at zero kick on the same ring), and the two exponents are asserted:
+    first order in `a` (ratio `2.001` per doubling of the kick) and second order in `b`
+    (ratio → `4` per doubling of the bending angle), with the split returning to machine
+    zero when the bend is removed. The **first-order** dispersion splits too, by a
+    different power that survives with no bend at all, so the reference suites' `disp_x`
+    comparisons are safe only because their rings are unsteered. Writing the headline
+    unconditionally would have been M1's own recorded failure — generalising from the
+    cases that happened to be checked — with the counterexample sitting three tests away
+    in the same file.
   - **All three codes agree, where all three disagreed on `Q''`.** accsim matches xtrack
     element by element around a bendy ring to `2e-6` relative — on **either** of xtrack's
     drift models — and MAD-X to `2e-7` after the change of momentum variable. The same
@@ -2778,7 +2793,10 @@ D3, MAD-X).
     from that closed form at the **third** power of the kick angle (measured ratio `27.0`
     per tripling), which is the discriminating gate: a uniformly mis-scaled second-order
     dispersion would show a residual growing like `theta` and would pass any tolerance
-    chosen on one ring. A *symmetric* thin FODO with the kick at the entrance is
+    chosen on one ring. That residual *is* the drift-model split under another name — the
+    same `3ab²` law with both factors carried by the kick, since the ring has no bend —
+    and at `theta = 0.02` it is `2e-3` of `ddisp_x`, six orders above what the same split
+    is worth on an unsteered ring. A *symmetric* thin FODO with the kick at the entrance is
     degenerate — sympy returns a numerator of degree one, so its `ddx` is not small but
     **identically zero** — which is kept as a control that no spurious additive term can
     hide behind.

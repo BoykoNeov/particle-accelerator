@@ -5328,23 +5328,47 @@ which on the M1 arc is `-0.3083` where the true derivative is `+0.4381` — the 
 **sign**, not merely the wrong size. Asserted in the reference suite rather than
 merely avoided.
 
-### The drift model does not reach this quantity, and the roadmap said it would
+### The drift model reaches this quantity only on a steered ring
 
 M2 established that accsim's exact `Drift` and xtrack's/MAD-X's paraxial one give
 `Q''` values 5% apart on a ring that bends. The roadmap pre-committed that a `ddx`
-cross-check would therefore have to force `xt.Drift(model="exact")`. **It does not.**
-The two drift models place the closed orbit in different places only at
-`O(delta^3)` — measured on M2's minimal ring as a ratio held fixed to `1e-2` over
-three decades of `delta`, i.e. a pure cubic — and a symmetric second difference of an
-**odd** function is exactly zero. Inside xtrack, switching drift models moves `ddx` in
-the ninth significant digit while moving `ddqx` by 5%.
+cross-check would therefore have to force `xt.Drift(model="exact")`. **On a ring whose
+on-momentum orbit runs down the axis it does not**, and the algebra says exactly when.
 
-Why one and not the other: the exact drift exceeds the paraxial one by the relative
-factor `(px^2 + py^2)/(2*(1+delta)^2)`, so the *displacement* difference is
-`O(px^3) = O(delta^3)`. `Q''` differentiates the **Jacobian** about the orbit, and
-`d/dpx` of that term is `O(px^2) = O(delta^2)` — one order lower, and squarely on a
-second derivative. **The orbit and the optics about it are separate objects, and a
-map difference can land on one and not the other.**
+The exact drift exceeds the paraxial one by `L*px*(px^2+py^2)/(2*(1+delta)^3)`. Write
+`px = a + b*delta` on the closed orbit (`a` the **on-momentum** orbit angle, `b` the
+dispersion angle `D_px`). In the flat case the `delta^2` coefficient of that difference
+is
+
+```
+3*a*b^2
+```
+
+so it vanishes identically when **either** factor is zero — `a = 0` for any unsteered
+ring, `b = 0` for any ring with no bend. Every ring in this project's analytic and
+reference suites closes on the axis, which is why `ddx` looked drift-model-independent:
+on M2's minimal ring the two models agree to `1e-15`, and inside xtrack, switching drift
+models moves `ddx` in the ninth significant digit while moving `ddqx` by 5%.
+
+`Q''` is split regardless, because it differentiates the **Jacobian** about the orbit,
+and `d/dpx` of the same term is `O(b^2 delta^2)` — one order lower, and free of `a`.
+**The orbit and the optics about it are separate objects, and a map difference can reach
+them at different powers.** Never carry a finding about one to the other without
+checking the order.
+
+**Steered, the split comes back**, and the two exponents are gated: first order in `a`
+(measured ratio `2.001` per doubling of the steerer) and second order in `b` (ratio →
+`4` per doubling of the bending angle). A 10 mrad steerer on M2's minimal ring splits
+`ddisp_x` by **6.8e-3** relative. The **first-order** dispersion is split too, by a
+different power, and survives even with the bend removed — `1.9e-4` relative there — so
+the reference suites' `disp_x` comparisons are safe only because their rings are
+unsteered. On a machine with a real error orbit (K1 misalignments, uncorrected
+steering), accsim and a paraxial reference are measuring different things, exactly as
+they are for `Q''`.
+
+The `theta^3` law in the corrector-ring gate is the same formula with both factors
+carried by the kick: that ring has no bend, so `a` and `b` are both proportional to the
+kick angle.
 
 ### A linear-matrix machine has no second-order dispersion at all
 

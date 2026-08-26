@@ -1717,15 +1717,25 @@ def second_order_dispersion(
     noise disappears under the truncation. ``step`` is the Jacobian step of the same
     solve.
 
-    **The drift model does not matter here, and that is the milestone's finding.**
-    accsim's :class:`~accsim.elements.drift.Drift` is exact where xtrack's default
-    and MAD-X's are paraxial, and M2 showed that splits ``Q''`` by 5% on a ring with
-    bends. It does **not** split this: the two drift models put the closed orbit in
-    different places only at ``O(delta^3)``, and a symmetric second difference of an
-    odd function is exactly zero. The split reaches ``Q''`` because ``Q''`` is a
-    property of the *Jacobian* about the orbit, where the same ``O(px^3)`` term
-    contributes one order lower. So all three codes agree on this quantity to
-    ``~1e-7`` where they disagreed by 5% on the other — see M3 in ``docs/ROADMAP.md``.
+    **On a ring that closes on the axis the drift model does not matter here, and that
+    is the milestone's finding.** accsim's :class:`~accsim.elements.drift.Drift` is
+    exact where xtrack's default and MAD-X's are paraxial, and M2 showed that splits
+    ``Q''`` by 5% on a ring with bends. It does **not** split this on an unsteered ring:
+    the exact drift exceeds the paraxial one by ``L px (px^2+py^2)/(2 (1+delta)^3)``, so
+    with ``px = a + b delta`` on the closed orbit the ``delta^2`` part of the difference
+    is ``3 a b^2`` — and the **on-momentum** orbit angle ``a`` is zero for any ring whose
+    orbit runs down the axis. ``Q''`` is split anyway, because it differentiates the
+    *Jacobian* about the orbit and ``d/dpx`` of the same term is ``O(b^2 delta^2)``: one
+    order lower, and free of ``a``. So all three codes agree on this quantity to
+    ``~1e-7`` where they disagreed by 5% on the other.
+
+    **The condition is real, not a formality.** Steer the orbit off axis — a corrector,
+    a misalignment (K1), an uncorrected error orbit — and the split returns, first order
+    in ``a`` and second order in ``b``: a 10 mrad steerer on M2's minimal ring splits
+    ``ddisp_x`` by ``6.8e-3`` relative and ``disp_x`` by ``4.1e-4``. On such a machine
+    this function and a paraxial reference are measuring different things, exactly as
+    they are for ``Q''``. See M3 in ``docs/ROADMAP.md`` and ``docs/CONVENTIONS.md`` ->
+    *Second-order dispersion*.
 
     Raises :class:`~accsim.orbit.ClosedOrbitError` or
     :class:`~accsim.orbit.OrbitConvergenceError` through the orbit solve. Unlike

@@ -171,8 +171,17 @@ def bend_map(state: list, length, angle) -> list:
     ]
 
 
-def turn_map(state: list, *, exact_drift: bool, angle: float = ANG) -> list:
-    """One turn of the minimal ring. ``angle`` is swept by the scaling-law gate."""
+def turn_map(state: list, *, exact_drift: bool, angle: float = ANG, kick: float = 0.0) -> list:
+    """One turn of the minimal ring. ``angle`` is swept by the scaling-law gate.
+
+    ``kick`` adds a thin steerer at the entrance — a constant, momentum-independent
+    ``px`` deflection. It is zero for everything M2 does, and non-zero for M3's gate on
+    *when* the drift model reaches the closed orbit: with it the on-momentum orbit no
+    longer runs down the axis, and the two drift models stop agreeing at second order.
+    """
+    if kick:
+        state = list(state)
+        state[1] = state[1] + mpf(kick)
     state = thin_quad_map(state, mpf(KF))
     state = drift_map(state, mpf(LD), exact=exact_drift)
     # angle = 0 replaces the bend by a drift of the same length, in the *same* drift
@@ -191,11 +200,13 @@ def turn_map(state: list, *, exact_drift: bool, angle: float = ANG) -> list:
 # ---------------------------------------------------------------------------
 
 
-def closed_orbit(delta, *, exact_drift: bool, angle: float = ANG) -> tuple:
+def closed_orbit(delta, *, exact_drift: bool, angle: float = ANG, kick: float = 0.0) -> tuple:
     """``(x, px)`` of the 4D fixed point at fixed ``delta`` — ``y = py = 0`` by symmetry."""
 
     def residual(x, px):
-        out = turn_map([x, px, mpf(0), mpf(0), delta], exact_drift=exact_drift, angle=angle)
+        out = turn_map(
+            [x, px, mpf(0), mpf(0), delta], exact_drift=exact_drift, angle=angle, kick=kick
+        )
         return out[0] - x, out[1] - px
 
     root = findroot(residual, (mpf(0), mpf(0)), tol=mpf(10) ** (-2 * (mp.dps - 5)))
@@ -258,24 +269,31 @@ def design_traces(*, exact_drift: bool = True) -> dict[str, float]:
 
 
 @functools.lru_cache(maxsize=32)
-def dispersion_orders(*, exact_drift: bool, angle: float = ANG) -> dict[str, float]:
+def dispersion_orders(
+    *, exact_drift: bool, angle: float = ANG, kick: float = 0.0
+) -> dict[str, float]:
     """First and second ``delta``-derivatives of the closed orbit, to twenty digits.
 
     ``D_x = dx/ddelta``, ``dd_x = d^2x/ddelta^2`` and the same for ``px``. Built from
     the same sixty-digit fixed point :func:`second_order_chromaticity` differentiates,
     which is what makes M3's gate an extension of M2's rather than a new claim.
 
-    Both drift models are offered for symmetry with everything else here, and the
-    striking result is that they return the **same** numbers: the exact and paraxial
-    drifts place the closed orbit differently only at ``O(delta^3)``
-    (:func:`drift_model_orbit_split`), and a symmetric second difference cannot see an
-    odd function.
+    Both drift models are offered for symmetry with everything else here. At
+    ``kick = 0`` they return the **same** numbers to ``1e-15``: with the on-momentum
+    orbit on the axis, the exact and paraxial drifts place the closed orbit differently
+    only at ``O(delta^3)`` (:func:`drift_model_orbit_split`), and a symmetric second
+    difference cannot see an odd function. Turn the steerer on and that stops being
+    true — see :func:`dispersion_drift_model_split`, and M3 in ``docs/ROADMAP.md``.
+
+    ``px_on_momentum`` is the on-momentum closed orbit's ``px``, which is the quantity
+    the split is proportional to, reported so a gate can assert the *reason* rather than
+    the coincidence.
     """
     with mp.workdps(DPS):
-        plus = closed_orbit(+STEP, exact_drift=exact_drift, angle=angle)
-        zero = closed_orbit(mpf(0), exact_drift=exact_drift, angle=angle)
-        minus = closed_orbit(-STEP, exact_drift=exact_drift, angle=angle)
-        out = {}
+        plus = closed_orbit(+STEP, exact_drift=exact_drift, angle=angle, kick=kick)
+        zero = closed_orbit(mpf(0), exact_drift=exact_drift, angle=angle, kick=kick)
+        minus = closed_orbit(-STEP, exact_drift=exact_drift, angle=angle, kick=kick)
+        out = {"px_on_momentum": float(zero[1])}
         for name, i in (("x", 0), ("px", 1)):
             out[f"D_{name}"] = float((plus[i] - minus[i]) / (2 * STEP))
             out[f"dd_{name}"] = float((plus[i] - 2 * zero[i] + minus[i]) / STEP**2)
@@ -300,3 +318,28 @@ def drift_model_orbit_split(delta_exp: int, *, angle: float = ANG) -> dict[str, 
             "dx_over_delta3": float((xe - xp) / d**3),
             "dpx_over_delta3": float((pe - pp) / d**3),
         }
+
+
+@functools.lru_cache(maxsize=64)
+def dispersion_drift_model_split(*, kick: float = 0.0, angle: float = ANG) -> dict[str, float]:
+    r"""``(exact - paraxial)`` second-order dispersion, as a function of the steering.
+
+    The bound on M3's headline. The exact drift exceeds the paraxial one by
+    ``L px (px^2 + py^2)/(2 (1+delta)^3)``; writing ``px = a + b delta`` on the closed
+    orbit, its ``delta^2`` coefficient is ``3 a b^2`` (in the flat, ``py = 0`` case).
+    So the split into ``d^2x/ddelta^2`` is **first order in the on-momentum orbit angle
+    ``a``** and **second order in the dispersion angle ``b``** — and it vanishes
+    identically when *either* is zero. ``a = 0`` is what every ring M2 and M3 measured
+    the agreement on: they close on the axis. ``b = 0`` is a ring with no bend.
+
+    Returns the split in both orders plus the on-momentum ``px`` it is proportional to.
+    """
+    exact = dispersion_orders(exact_drift=True, angle=angle, kick=kick)
+    paraxial = dispersion_orders(exact_drift=False, angle=angle, kick=kick)
+    return {
+        "dd_x": exact["dd_x"] - paraxial["dd_x"],
+        "dd_x_relative": abs((exact["dd_x"] - paraxial["dd_x"]) / exact["dd_x"]),
+        "D_x": exact["D_x"] - paraxial["D_x"],
+        "D_x_relative": abs((exact["D_x"] - paraxial["D_x"]) / exact["D_x"]),
+        "px_on_momentum": exact["px_on_momentum"],
+    }
