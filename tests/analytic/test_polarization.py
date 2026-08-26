@@ -360,13 +360,19 @@ def test_the_spin_phase_counter_rotates_against_the_bend():
 
     It is measured on a **flat** ring, with a horizontal spin injected by hand rather than
     ``n_0`` read off the gate ring, and the second half of the test says why. On the gate
-    ring the same phase misses ``-G gamma theta`` by ``7.4e-8`` -- which is not
-    round-off and not a quadrature error, but N2's own second precession term: the
-    vertical bump leaks ``py = 2.2e-11`` into the arc, a bend with a vertical angle
-    precesses the spin about ``z`` at ``h i_y G (gamma - 1)``, and that ``1e-10`` rotation
-    is divided by a horizontal projection only ``t = 3.3e-4`` long. A ``1e-11`` orbit
-    becoming a ``1e-7`` phase is the amplification this milestone works inside, and it is
-    asserted rather than absorbed into a loose tolerance.
+    ring the same phase misses ``-G gamma theta`` by ``7.4e-8``, which is not round-off:
+    it grows as the **square** of the bump amplitude, to five digits, and numerical noise
+    does not scale at all. It has to originate in the bump's vertical orbit leaking into
+    the arc (``py = 2.2e-11`` there), since that is the only asymmetry the ring has -- but
+    the ``h i_y G (gamma - 1)`` precession N2 pins is *first* order in ``py``, and would
+    therefore be amplitude-**independent** once divided by a tilt itself linear in the
+    bump. The observed second order does not match it, so the precise mechanism is **not
+    established here**; it is stated as measured rather than explained away.
+
+    Which is why the assertion is on the exponent and a bound, not on the number. That is
+    enough for the purpose it serves: the residual is a hundred times smaller than the
+    tilt term this milestone gates, and it explains why the counter-rotation sign is
+    measured on a flat ring instead of on the bump ring.
     """
     ref = electron()
     theta = 2.0 * math.pi / N_CELLS
@@ -377,15 +383,22 @@ def test_the_spin_phase_counter_rotates_against_the_bend():
     phase = math.atan2(flat[1][0], flat[1][2]) - math.atan2(flat[0][0], flat[0][2])
     assert abs((phase - predicted + math.pi) % (2.0 * math.pi) - math.pi) < 1e-14
 
-    tilted = propagate_spin_solution(gate_ring(1e-3, ref))
-    # The arc cell is ThinQuadrupole, Drift, Dipole, Drift, and only the dipole precesses.
-    entrance, after_one_bend = tilted[n_straight() + 2], tilted[n_straight() + 3]
-    arc_phase = math.atan2(after_one_bend[0], after_one_bend[2]) - math.atan2(
-        entrance[0], entrance[2]
-    )
-    arc_predicted = -G_E * ref.gamma0 * (math.pi / N_CELLS)
-    leak = (arc_phase - arc_predicted + math.pi) % (2.0 * math.pi) - math.pi
-    assert abs(leak) == pytest.approx(7.36e-8, rel=0.05)
+    def arc_leak(amplitude: float) -> float:
+        """How far one arc bend's phase misses ``-G gamma theta`` on the bump ring."""
+        n0 = propagate_spin_solution(gate_ring(amplitude, ref))
+        # The arc cell is ThinQuadrupole, Drift, Dipole, Drift; only the dipole precesses.
+        entrance, after_one_bend = n0[n_straight() + 2], n0[n_straight() + 3]
+        phase = math.atan2(after_one_bend[0], after_one_bend[2]) - math.atan2(
+            entrance[0], entrance[2]
+        )
+        predicted = -G_E * ref.gamma0 * (math.pi / N_CELLS)
+        return (phase - predicted + math.pi) % (2.0 * math.pi) - math.pi
+
+    amplitudes = [1e-3, 2e-3, 4e-3]
+    leaks = [abs(arc_leak(a)) for a in amplitudes]
+    assert 1e-8 < leaks[0] < 1e-6  # far above round-off, far below the phase itself
+    slope = np.polyfit(np.log(amplitudes), np.log(leaks), 1)[0]
+    assert slope == pytest.approx(2.0, abs=1e-3)
 
 
 # --- the gate: the two weights pull apart --------------------------------------------
@@ -444,10 +457,14 @@ def test_the_tilted_ring_separates_the_two_weights(amplitude: float):
     assert residual == pytest.approx(both, rel=2e-6)
 
     # ... and the two one-legged alternatives are excluded, not merely different.
+    # Excluded by a wide margin, not merely by more than the tolerance: dropping the
+    # ``2/9`` term overshoots by 28% of the answer, and keeping it alone misses by 128%.
+    # A threshold set just above the tolerance would pass with the ``2/9`` coefficient
+    # wrong by a factor of three; this one does not.
     only_b = t**2 * 0.5
     only_v = -(t**2) * 2.0 / 9.0 * mean_cos_sq
-    assert abs(residual - only_b) > 100.0 * abs(both) * 2e-6
-    assert abs(residual - only_v) > 100.0 * abs(both) * 2e-6
+    assert abs(residual - only_b) > 0.2 * abs(both)
+    assert abs(residual - only_v) > 0.2 * abs(both)
 
 
 def test_the_departure_from_the_textbook_ratio_is_second_order_in_the_tilt():
