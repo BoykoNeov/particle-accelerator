@@ -3104,8 +3104,9 @@ Two properties worth stating before the milestones, because they set the axis's 
   matrix is exact, while xtrack finite-differences it at `ds = 1e-5` and finds `n_0` with a
   two-knob optimiser to `1e-12`.
 
-  Gates: `tests/analytic/test_spin_solution.py` (24), `tests/reference/test_spin_solution_xtrack.py` (5).
-  Nothing on axes A–M or in N1 moved.
+  Gates: `tests/analytic/test_spin_solution.py` (26), `tests/reference/test_spin_solution_xtrack.py` (5).
+  The full analytic suite is **1169 passed**, against 1143 after N1 — the whole difference
+  is this milestone's own file, so nothing on axes A–M or in N1 moved.
 
 - **N3 (candidate) — Sokolov-Ternov: the polarization radiation builds, and the
   depolarization it fights.** The spin-flip channel of the synchrotron radiation axis B

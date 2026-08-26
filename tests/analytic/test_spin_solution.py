@@ -69,6 +69,7 @@ from accsim.spin import (
     SpinSolutionError,
     closed_spin_solution,
     propagate_spin_solution,
+    rotate,
     spin_axis_and_tune,
     spin_one_turn_matrix,
     spin_tune,
@@ -185,6 +186,12 @@ def derive_tilt_of_the_closed_solution() -> tuple[sp.Expr, sp.Expr, sp.Expr]:
     ``y``. Every other rotation in the ring is about ``y`` and commutes with it, so they
     lump exactly. The fixed axis is read off the antisymmetric part, oriented upward, and
     expanded to first order in ``chi``; the tune comes from the trace.
+
+    The upward orientation is applied as ``-sign(sin 2 pi nu)``, which assumes ``nu_0`` is
+    not a **half**-integer -- there ``sin 2 pi nu`` is zero and the raw axis has no vertical
+    component to orient by. Every energy used below is far from one, and the package's own
+    :func:`accsim.spin.spin_axis_and_tune` does not share the assumption: it reads the axis
+    from the null space of ``R - I``, which is exactly what stays accurate there.
     """
     nu, chi = sp.symbols("nu chi", real=True)
 
@@ -291,15 +298,30 @@ def test_the_unsteered_spin_tune_is_g_gamma_and_agrees_with_n1s_route(energy_eV)
 
 
 def test_an_integer_spin_tune_has_no_closed_solution():
-    """At ``G gamma`` integer the one-turn rotation is the identity and ``n_0`` is undefined.
+    r"""At ``G gamma`` integer the one-turn rotation is the identity and ``n_0`` is undefined.
 
-    The spin twin of :class:`accsim.orbit.ClosedOrbitError` on an integer betatron tune,
-    and the same statement: the fixed point stops being unique, so returning one would
-    claim a uniqueness the map does not have. The energy is chosen to put ``G gamma``
-    on ``11`` exactly.
+    The spin twin of :class:`accsim.orbit.ClosedOrbitError` on an integer betatron tune, and
+    the same statement: the fixed point stops being unique, so returning one would claim a
+    uniqueness the map does not have.
+
+    The *reason* the raise fires is asserted, not just the raise. The quantity the code
+    tests is the second-smallest singular value of ``R - I``, which is ``2 |sin(pi nu_0)|``;
+    the energy here puts ``G gamma`` within ``4e-15`` of ``11``, so that value is ``3.2e-14``
+    -- above zero, thirty times below the ``1e-12`` limit, and equal to
+    ``2 |sin(pi (G gamma - 11))|`` to within the ring's own tracking round-off. A test that
+    only caught the exception would pass just as well with the threshold set to ``1``.
     """
     ref = electron(11.0 / G_E * ELECTRON_MASS_EV)
-    assert G_E * ref.gamma0 == pytest.approx(11.0, abs=1e-9)
+    offset = G_E * ref.gamma0 - 11.0
+    assert abs(offset) < 1e-14
+
+    singular = np.linalg.svd(
+        spin_one_turn_matrix(flat_ring(1.2, ref)) - np.eye(3), compute_uv=False
+    )
+    assert singular[-2] > 0.0
+    assert singular[-2] < 1e-12
+    assert singular[-2] == pytest.approx(2.0 * abs(math.sin(math.pi * offset)), abs=2e-14)
+
     with pytest.raises(SpinSolutionError, match="integer"):
         closed_spin_solution(flat_ring(1.2, ref))
 
@@ -337,7 +359,7 @@ def test_the_bump_closes_so_the_arc_stays_on_the_design_orbit():
 
         assert np.abs(orbit[:, Y]).max() > 0.2 * amplitude  # there really is a bump
         # not exactly zero: axis L's exact maps couple the planes on a vertical orbit --
-        # but thirteen orders below the bump, so the ring is horizontally on the design orbit
+        # but fifteen orders below the bump, so the ring is horizontally on the design orbit
         assert np.abs(orbit[:, X]).max() < 1e-16
         leaks.append(float(np.abs(arc[:, [Y, PY]]).max()))
 
@@ -721,3 +743,34 @@ def test_n0_is_oriented_upward_and_the_tune_is_a_fraction():
     n0, tune = spin_axis_and_tune(np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]))
     assert n0[1] > 0.0
     assert tune == pytest.approx(1.0 - 0.4, abs=1e-14)
+
+
+def test_the_upward_orientation_falls_back_when_n0_is_horizontal():
+    r"""A ring whose ``n_0`` has no vertical component at all still gets a deterministic sign.
+
+    Nothing in this package builds one -- it would take a vertical bend -- but the rule has
+    three branches and only the first is reachable from a lattice, so the other two are
+    exercised by hand. ``n_0 . y > 0``, then ``n_0 . x > 0``, then ``n_0 . z > 0``, and the
+    tune is unaffected by which branch fires: flipping ``n_0`` would send ``nu_0`` to
+    ``1 - nu_0``, so a wrong tie-break is a wrong tune, not just a wrong sign.
+    """
+    turn = 0.3
+    for axis in (np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0]), np.array([1.0, 0.0, 1.0])):
+        axis = axis / np.linalg.norm(axis)
+        matrix = np.array(
+            [rotate(np.eye(3)[:, j], axis * (-2.0 * math.pi * turn), 1.0) for j in range(3)]
+        ).T
+        n0, nu0 = spin_axis_and_tune(matrix)
+        assert np.abs(n0 - axis).max() < 1e-14  # the +x / +z fallbacks, not -x / -z
+        assert nu0 == pytest.approx(turn, abs=1e-14)
+
+
+def test_the_shapes_are_checked_rather_than_broadcast():
+    """A ``(2,)`` spin or a ``(3,)`` orbit is a mistake, not something to reshape around."""
+    lattice = gate_ring(1e-3, electron())
+    with pytest.raises(ValueError, match="rotation"):
+        spin_axis_and_tune(np.eye(2))
+    with pytest.raises(ValueError, match="length-4"):
+        closed_spin_solution(lattice, np.zeros(3))
+    with pytest.raises(ValueError, match="n0 must be"):
+        propagate_spin_solution(lattice, np.zeros(2))
