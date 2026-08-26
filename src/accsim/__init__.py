@@ -82,16 +82,20 @@ from .orbit import (
     propagate_orbit_nonlinear,
 )
 from .radiation import (
+    DepolarizationIntegrals,
     PolarizationIntegrals,
     RadiationIntegrals,
     damping_partition_numbers,
     damping_times,
+    depolarization_integrals,
+    derbenev_kondratenko_polarization,
     energy_loss_per_turn,
     equilibrium_emittance,
     equilibrium_emittances_coupled,
     equilibrium_energy_spread,
     polarization_buildup_time,
     polarization_integrals,
+    polarization_time,
     quantum_constant_cq,
     radiation_constant_cgamma,
     radiation_integrals,
@@ -216,6 +220,11 @@ __all__ = [
     "polarization_integrals",
     "sokolov_ternov_polarization",
     "polarization_buildup_time",
+    # Derbenev-Kondratenko depolarization (N4)
+    "DepolarizationIntegrals",
+    "depolarization_integrals",
+    "derbenev_kondratenko_polarization",
+    "polarization_time",
     # symplectic helpers
     "is_symplectic",
     "is_symplectic_map",

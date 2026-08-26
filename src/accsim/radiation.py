@@ -38,11 +38,12 @@ coupling/vertical dispersion, out of scope).
 from __future__ import annotations
 
 import math
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
 
-from .coords import X, Y
+from .coords import DELTA, X, Y
 from .elements.element import Element
 from .lattice import Lattice
 from .radiation_kick import HBAR_C_EV_M as HBAR_C_EV_M  # noqa: PLC0414  (re-export)
@@ -390,22 +391,65 @@ class PolarizationIntegrals:
     alpha_minus: float
 
 
+def _curvature_and_field(
+    elem: Element, state: np.ndarray, qsign: float
+) -> tuple[float, np.ndarray]:
+    """``(kappa, b_hat)`` at one point on the orbit -- the local bend and its direction.
+
+    ``normalized_field`` is ``B/(B rho)_0``, and ``(B rho)_0 = p/q`` carries the charge's
+    sign, so the *physical* field direction needs that multiplied back out. Getting it
+    wrong flips the polarization's direction while leaving every magnitude untouched.
+    """
+    bx, by = elem.normalized_field(state[X], state[Y])
+    b = np.array([float(bx), float(by), 0.0]) * qsign
+    kappa = float(np.linalg.norm(b))
+    return kappa, (b / kappa if kappa != 0.0 else b)
+
+
 def _polarization_integrand(
     elem: Element, state: np.ndarray, spin: np.ndarray, qsign: float
 ) -> tuple[float, float]:
     """``(kappa^3 (1 - 2/9 (n_0.v)^2), kappa^3 (n_0.b))`` at one point on the orbit."""
     from .spin import along_direction_of_motion
 
-    bx, by = elem.normalized_field(state[X], state[Y])
-    # normalized_field is B/(B rho)_0, and (B rho)_0 = p/q carries the charge's sign, so
-    # the *physical* field direction needs that multiplied back out. Getting it wrong
-    # flips the polarization's direction while leaving every magnitude untouched.
-    b = np.array([float(bx), float(by), 0.0]) * qsign
-    kappa = float(np.linalg.norm(b))
+    kappa, b_hat = _curvature_and_field(elem, state, qsign)
     if kappa == 0.0:
         return 0.0, 0.0
     n_dot_v = float(spin @ along_direction_of_motion(state))
-    return kappa**3 * (1.0 - 2.0 / 9.0 * n_dot_v * n_dot_v), kappa**3 * float(spin @ (b / kappa))
+    return kappa**3 * (1.0 - 2.0 / 9.0 * n_dot_v * n_dot_v), kappa**3 * float(spin @ b_hat)
+
+
+def _quadrature_nodes(
+    lattice: Lattice, slices: int, state: np.ndarray, spin: np.ndarray
+) -> Iterator[tuple[Element, np.ndarray, np.ndarray, float]]:
+    """Walk the ring, yielding ``(sub_element, state, spin, weight)`` at every node.
+
+    The one place the polarization quadrature is written down, shared by the N3 rate
+    integrals and the N4 depolarization ones so the two can never drift apart on where
+    they sample or how heavily. **Simpson's rule** over each dipole's sub-slices, and
+    :func:`polarization_integrals` explains why it is Simpson and not the trapezoid
+    :func:`radiation_integrals` uses. Non-dipoles are tracked through and yield nothing:
+    only bending radiates, which is that function's stated scope.
+
+    ``state`` / ``spin`` may be a single particle or a bunch; the walk does not look
+    inside them, which is what lets the N4 route push a whole ``(6, 13)`` differencing
+    bundle through the identical nodes.
+    """
+    from .elements.dipole import Dipole
+
+    ref = lattice.ref
+    for elem in lattice.elements:
+        if isinstance(elem, Dipole) and elem.length > 0.0 and elem.curvature != 0.0:
+            n = slices + (slices % 2)  # Simpson's rule needs an even number of steps
+            ds = elem.length / n
+            sub = Dipole(ds, elem.curvature * ds, k1=elem.k1)
+            yield sub, state, spin, ds / 3.0
+            for i in range(1, n + 1):
+                state, spin = sub.track_with_spin(state, spin, ref)
+                weight = (1.0 if i == n else (4.0 if i % 2 else 2.0)) / 3.0
+                yield sub, state, spin, weight * ds
+            continue
+        state, spin = elem.track_with_spin(state, spin, ref)
 
 
 def polarization_integrals(lattice: Lattice, slices: int = 64) -> PolarizationIntegrals:
@@ -439,30 +483,17 @@ def polarization_integrals(lattice: Lattice, slices: int = 64) -> PolarizationIn
     the restriction means lifting it in both places, which moves axis B's numbers, so it
     is a separate change.
     """
-    from .elements.dipole import Dipole
     from .spin import _closed_state, closed_spin_solution
 
-    ref = lattice.ref
+    qsign = math.copysign(1.0, lattice.ref.charge)
     spin = closed_spin_solution(lattice).n0.copy()
-    state = _closed_state(lattice, None)
-    qsign = math.copysign(1.0, ref.charge)
     alpha_plus = alpha_minus = 0.0
-    for elem in lattice.elements:
-        if isinstance(elem, Dipole) and elem.length > 0.0 and elem.curvature != 0.0:
-            n = slices + (slices % 2)  # Simpson's rule needs an even number of steps
-            ds = elem.length / n
-            sub = Dipole(ds, elem.curvature * ds, k1=elem.k1)
-            f_plus, f_minus = _polarization_integrand(sub, state, spin, qsign)
-            alpha_plus += f_plus * ds / 3.0
-            alpha_minus += f_minus * ds / 3.0
-            for i in range(1, n + 1):
-                state, spin = sub.track_with_spin(state, spin, ref)
-                weight = (1.0 if i == n else (4.0 if i % 2 else 2.0)) / 3.0
-                f_plus, f_minus = _polarization_integrand(sub, state, spin, qsign)
-                alpha_plus += weight * f_plus * ds
-                alpha_minus += weight * f_minus * ds
-            continue
-        state, spin = elem.track_with_spin(state, spin, ref)
+    for sub, state, n0, weight in _quadrature_nodes(
+        lattice, slices, _closed_state(lattice, None), spin
+    ):
+        f_plus, f_minus = _polarization_integrand(sub, state, n0, qsign)
+        alpha_plus += weight * f_plus
+        alpha_minus += weight * f_minus
     return PolarizationIntegrals(alpha_plus / lattice.length, alpha_minus / lattice.length)
 
 
@@ -523,6 +554,194 @@ def polarization_buildup_time(lattice: Lattice, slices: int = 64) -> float:
     is a slip axis B would feel too.
     """
     integrals = _alpha_plus_or_raise(lattice, slices)
+    ref = lattice.ref
+    hbar_over_mass = HBAR_C_EV_M * CLIGHT / ref.mass_eV  # [m^2/s]
+    rate = (
+        5.0
+        * math.sqrt(3.0)
+        / 8.0
+        * ref.classical_radius_m
+        * hbar_over_mass
+        * ref.gamma0**5
+        * integrals.alpha_plus
+    )
+    return 1.0 / rate
+
+
+# ---------------------------------------------------------------------------
+# N4: Derbenev-Kondratenko -- the depolarization that fights the buildup
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DepolarizationIntegrals:
+    r"""The Derbenev-Kondratenko rates: N3's pair, plus what the spin field costs.
+
+    Sokolov-Ternov (N3) is what a beam would do if every particle rode the closed
+    orbit. Real particles do not: each sits on its own invariant spin direction
+    ``n(x) = n_0 + N x`` (:func:`accsim.spin.spin_orbit_coupling`), and every photon it
+    emits jumps its ``delta`` -- and therefore its ``n`` -- somewhere else. The spread
+    that opens up is **depolarization**, and it enters the same two averages as two more
+    ``kappa^3`` integrals over ``dn/ddelta``:
+
+    - :attr:`depolarization_plus`  ``= (11/18) (1/C) int kappa^3 |dn/ddelta|^2 ds``,
+      which **adds** to the rate: it is a loss channel, so it makes the beam reach
+      equilibrium sooner and at a lower polarization;
+    - :attr:`depolarization_minus` ``= (1/C) int kappa^3 (dn/ddelta . b) ds``, which is
+      **subtracted** from the direction integral.
+
+    :attr:`alpha_plus` and :attr:`alpha_minus` are the assembled pair,
+    ``xtrack``'s ``spin_alpha_plus`` / ``spin_alpha_minus`` against the ``_co``-suffixed
+    ones N3 compares to. ``11/18`` is not adjustable and not derived here -- it is the
+    Derbenev-Kondratenko coefficient, and the only thing in the package that can see it
+    is the reference cross-check.
+
+    **The sign of the effect is not a matter of convention.** ``|dn/ddelta|^2`` is a
+    square, so :attr:`depolarization_plus` is non-negative for every ring, and the
+    equilibrium polarization can therefore only ever be *reduced* by it. A ring that
+    reports more polarization with depolarization than without has a bug, and
+    ``tests/analytic/test_depolarization.py`` says so with an assertion.
+    """
+
+    alpha_plus_co: float
+    alpha_minus_co: float
+    depolarization_plus: float
+    depolarization_minus: float
+
+    @property
+    def alpha_plus(self) -> float:
+        """``alpha_plus_co + depolarization_plus`` -- the full rate."""
+        return self.alpha_plus_co + self.depolarization_plus
+
+    @property
+    def alpha_minus(self) -> float:
+        """``alpha_minus_co - depolarization_minus`` -- the full direction integral."""
+        return self.alpha_minus_co - self.depolarization_minus
+
+
+def depolarization_integrals(
+    lattice: Lattice, slices: int = 64, *, step: float | None = None
+) -> DepolarizationIntegrals:
+    r"""All four Derbenev-Kondratenko integrals for a periodic ``lattice`` [1/m^3].
+
+    One walk of the ring, through :func:`polarization_integrals`' own quadrature nodes,
+    carrying the ``(6, 13)`` differencing bundle of
+    :func:`accsim.spin.spin_orbit_coupling` instead of a single closed-orbit particle.
+    The bundle is launched **on** the invariant spin field, so ``N(s)`` -- and with it
+    ``dn/ddelta(s)`` -- falls out of its central differences at every node, at the cost
+    of tracking thirteen particles instead of one.
+
+    :attr:`~DepolarizationIntegrals.alpha_plus_co` and
+    :attr:`~DepolarizationIntegrals.alpha_minus_co` come back bit-for-bit equal to
+    :func:`polarization_integrals`', because they are computed from the bundle's centre
+    column at the same nodes with the same weights -- asserted rather than assumed.
+
+    **The flat ring is degenerate here too, and exactly.** With no vertical closed orbit
+    nothing ever produces a horizontal field on the orbit, every rotation a spin meets is
+    about ``y``, and a ``delta`` perturbation only changes *how fast* it turns about
+    ``y`` -- which does nothing at all to ``n_0 = y``. So ``dn/ddelta = 0`` identically,
+    both new integrals vanish, and the Derbenev-Kondratenko polarization equals
+    Sokolov-Ternov's to the last bit. That is the same shape N3 found in ``P_inf`` and N2
+    found in ``n_0``: this axis's degeneracy, arriving for the fourth time.
+
+    ``step`` is the differencing perturbation, defaulting to
+    :data:`accsim.spin._SPIN_ORBIT_STEP`; :class:`accsim.spin.SpinResonanceError`
+    propagates from the coupling solve if the ring sits on ``nu_0 = k +- Q``.
+    """
+    from .spin import (
+        _SPIN_ORBIT_STEP,
+        _bundle,
+        _closed_state,
+        _coupling_from_bundle,
+        spin_orbit_coupling,
+    )
+
+    step = _SPIN_ORBIT_STEP if step is None else float(step)
+    coupling = spin_orbit_coupling(lattice, step=step)
+    qsign = math.copysign(1.0, lattice.ref.charge)
+    states, spins = _bundle(
+        _closed_state(lattice, coupling.orbit), coupling.n0, coupling.matrix, step
+    )
+
+    alpha_plus = alpha_minus = depol_plus = depol_minus = 0.0
+    for sub, state, spin, weight in _quadrature_nodes(lattice, slices, states, spins):
+        centre = state[:, 0]
+        # The N3 pair through N3's own integrand, arithmetic included, so the two routes
+        # agree to the last bit rather than to a tolerance.
+        f_plus, f_minus = _polarization_integrand(sub, centre, spin[:, 0], qsign)
+        alpha_plus += weight * f_plus
+        alpha_minus += weight * f_minus
+        kappa, b_hat = _curvature_and_field(sub, centre, qsign)
+        if kappa == 0.0:
+            continue
+        dn = _coupling_from_bundle(state, spin, step)[:, DELTA]
+        depol_plus += weight * kappa**3 * float(dn @ dn)
+        depol_minus += weight * kappa**3 * float(dn @ b_hat)
+
+    circumference = lattice.length
+    return DepolarizationIntegrals(
+        alpha_plus_co=alpha_plus / circumference,
+        alpha_minus_co=alpha_minus / circumference,
+        depolarization_plus=11.0 / 18.0 * depol_plus / circumference,
+        depolarization_minus=depol_minus / circumference,
+    )
+
+
+def _depolarization_or_raise(
+    lattice: Lattice, slices: int, step: float | None
+) -> DepolarizationIntegrals:
+    """The four integrals, refusing a lattice that does not bend and so cannot polarize."""
+    integrals = depolarization_integrals(lattice, slices, step=step)
+    if integrals.alpha_plus == 0.0:
+        raise ValueError(
+            "a lattice with no bending radiates nothing and has no Sokolov-Ternov "
+            "polarization: alpha_plus is exactly zero"
+        )
+    return integrals
+
+
+def derbenev_kondratenko_polarization(
+    lattice: Lattice, slices: int = 64, *, step: float | None = None
+) -> float:
+    r"""Equilibrium polarization **with** depolarization: ``xtrack``'s ``spin_polarization_eq``.
+
+    ``P_eq = (8/(5 sqrt3)) (alpha_minus_co - <kappa^3 dn/ddelta . b>)
+    / (alpha_plus_co + (11/18) <kappa^3 |dn/ddelta|^2>)`` -- the same ratio
+    :func:`sokolov_ternov_polarization` returns, with both integrals corrected for the
+    spread in the invariant spin direction that photon emission opens up.
+
+    **This is the number that is not a control.** ``P_inf`` is degenerate on a flat ring
+    by construction and comes back at ``-0.9237604...`` whatever the coefficients are
+    (N3). ``P_eq`` is degenerate there too -- and *only* there. Give the ring a vertical
+    orbit and move its energy towards ``nu_0 = k +- Q_y``, and it falls away from the
+    Sokolov-Ternov value without limit while ``P_inf`` sits unmoved at nine digits: on
+    N4's gate ring, ``-0.9238 -> -0.15`` over a tune distance of ``3e-5``. That collapse
+    is the whole physical content of the milestone, and it is what a real polarized ring
+    spends its life avoiding -- the reason ``nu_0 = G gamma`` makes the beam energy a
+    quantity you steer rather than merely read.
+
+    The denominator can only grow (it gains a square) and the numerator can only shrink
+    towards it, so ``|P_eq| <= |P_inf|`` always.
+    """
+    integrals = _depolarization_or_raise(lattice, slices, step)
+    return 8.0 / (5.0 * math.sqrt(3.0)) * integrals.alpha_minus / integrals.alpha_plus
+
+
+def polarization_time(lattice: Lattice, slices: int = 64, *, step: float | None = None) -> float:
+    r"""The polarization time constant **with** depolarization [s] -- ``spin_t_pol_buildup_s``.
+
+    :func:`polarization_buildup_time`'s expression with
+    :attr:`DepolarizationIntegrals.alpha_plus` in place of the closed-orbit rate:
+
+        ``1 / tau = (5 sqrt3 / 8) r_0 (hbar / m_0) gamma^5 alpha_plus``.
+
+    Depolarization is a *rate*, so it adds: this is always **shorter** than
+    :func:`polarization_buildup_time`, and near a resonance it is shorter without limit.
+    The beam reaches its equilibrium faster and that equilibrium is worse, which is the
+    thing about depolarization most easily got backwards -- a fast-polarizing ring is not
+    a well-polarized one.
+    """
+    integrals = _depolarization_or_raise(lattice, slices, step)
     ref = lattice.ref
     hbar_over_mass = HBAR_C_EV_M * CLIGHT / ref.mass_eV  # [m^2/s]
     rate = (

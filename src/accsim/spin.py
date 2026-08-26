@@ -134,17 +134,21 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance
 __all__ = [
     "SPIN_DIM",
     "ClosedSpinSolution",
+    "SpinOrbitCoupling",
+    "SpinResonanceError",
     "SpinSolutionError",
     "anomalous_moment",
     "along_direction_of_motion",
     "closed_spin_solution",
     "direction_of_motion",
     "precession_vector",
+    "propagate_spin_orbit_coupling",
     "propagate_spin_solution",
     "rotate",
     "rotate_about_s",
     "spin_axis_and_tune",
     "spin_one_turn_matrix",
+    "spin_orbit_coupling",
     "spin_precession",
     "spin_tune",
 ]
@@ -411,6 +415,7 @@ class ClosedSpinSolution:
     spin_tune: float
     one_turn_matrix: np.ndarray
     orbit: np.ndarray
+    delta: float = 0.0
 
 
 #: Below this, the one-turn rotation is the identity to working precision and
@@ -484,7 +489,7 @@ def spin_axis_and_tune(one_turn: np.ndarray) -> tuple[np.ndarray, float]:
     return n0, (-signed / (2.0 * math.pi)) % 1.0
 
 
-def _closed_state(lattice: Lattice, orbit0: np.ndarray | None) -> np.ndarray:
+def _closed_state(lattice: Lattice, orbit0: np.ndarray | None, delta: float = 0.0) -> np.ndarray:
     """The 6D state a spin is carried around the ring on.
 
     ``orbit0`` defaults to :func:`accsim.orbit.closed_orbit_nonlinear` -- the fixed
@@ -496,18 +501,31 @@ def _closed_state(lattice: Lattice, orbit0: np.ndarray | None) -> np.ndarray:
     different points. With the exact maps of axis L the gap is ``O(x_co^3)``; on N2's
     own gate ring it shows up as a one-turn orbit residual of ``1e-8`` where the
     tracked orbit gives ``1e-18``.
+
+    ``delta`` closes the orbit at a fixed momentum instead of on the reference one --
+    the *off-momentum* periodic spin direction, which N4 needs because ``dn/ddelta``
+    along the dispersion is checkable against it without going near a Sylvester solve.
+    Without an RF cavity ``delta`` is an exact constant of the motion, so the orbit it
+    closes on is a genuine fixed point and ``n_0(delta)`` a genuine periodic direction.
     """
     from .orbit import closed_orbit_nonlinear
 
-    orbit = closed_orbit_nonlinear(lattice) if orbit0 is None else np.asarray(orbit0, dtype=float)
+    orbit = (
+        closed_orbit_nonlinear(lattice, delta=delta)
+        if orbit0 is None
+        else np.asarray(orbit0, dtype=float)
+    )
     if orbit.shape != (4,):
         raise ValueError(f"orbit0 must be a length-4 (x, px, y, py) vector, got {orbit.shape}")
     state = np.zeros(DIM)
     state[[X, PX, Y, PY]] = orbit
+    state[DELTA] = delta
     return state
 
 
-def spin_one_turn_matrix(lattice: Lattice, orbit0: np.ndarray | None = None) -> np.ndarray:
+def spin_one_turn_matrix(
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0
+) -> np.ndarray:
     r"""The 3x3 rotation one turn applies to a spin riding the closed orbit.
 
     Obtained by carrying the three Cartesian basis vectors around as a ``(3, 3)`` spin
@@ -525,12 +543,14 @@ def spin_one_turn_matrix(lattice: Lattice, orbit0: np.ndarray | None = None) -> 
     """
     from .tracking import Tracker
 
-    state = np.tile(_closed_state(lattice, orbit0)[:, None], (1, SPIN_DIM))
+    state = np.tile(_closed_state(lattice, orbit0, delta)[:, None], (1, SPIN_DIM))
     _, matrix = Tracker(lattice).track_once_with_spin(state, np.eye(SPIN_DIM))
     return matrix
 
 
-def closed_spin_solution(lattice: Lattice, orbit0: np.ndarray | None = None) -> ClosedSpinSolution:
+def closed_spin_solution(
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0
+) -> ClosedSpinSolution:
     r"""``n_0`` and ``nu_0`` for a ring: the spin analogue of the closed orbit and the tune.
 
     **The degeneracy is the first thing to know about this function.** On a flat,
@@ -574,19 +594,25 @@ def closed_spin_solution(lattice: Lattice, orbit0: np.ndarray | None = None) -> 
     the closed orbit and therefore sees only one-turn-periodic perturbations -- integer
     harmonics, integer resonances. See ``docs/ROADMAP.md`` under N3.
     """
-    orbit = _closed_state(lattice, orbit0)[[X, PX, Y, PY]]
-    matrix = spin_one_turn_matrix(lattice, orbit)
+    orbit = _closed_state(lattice, orbit0, delta)[[X, PX, Y, PY]]
+    matrix = spin_one_turn_matrix(lattice, orbit, delta=delta)
     n0, nu0 = spin_axis_and_tune(matrix)
-    return ClosedSpinSolution(n0=n0, spin_tune=nu0, one_turn_matrix=matrix, orbit=orbit)
+    return ClosedSpinSolution(
+        n0=n0, spin_tune=nu0, one_turn_matrix=matrix, orbit=orbit, delta=delta
+    )
 
 
-def spin_tune(lattice: Lattice, orbit0: np.ndarray | None = None) -> float:
+def spin_tune(lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0) -> float:
     """The fractional spin tune ``nu_0`` of ``lattice`` -- see :func:`closed_spin_solution`."""
-    return closed_spin_solution(lattice, orbit0).spin_tune
+    return closed_spin_solution(lattice, orbit0, delta=delta).spin_tune
 
 
 def propagate_spin_solution(
-    lattice: Lattice, n0: np.ndarray | None = None, orbit0: np.ndarray | None = None
+    lattice: Lattice,
+    n0: np.ndarray | None = None,
+    orbit0: np.ndarray | None = None,
+    *,
+    delta: float = 0.0,
 ) -> list[np.ndarray]:
     """``n_0`` at every element boundary -- ``len(lattice) + 1`` unit vectors.
 
@@ -600,9 +626,9 @@ def propagate_spin_solution(
     Pass an explicit ``n0`` to follow an arbitrary spin down the ring instead; it is
     normalised on the way in, since only its direction means anything.
     """
-    state = _closed_state(lattice, orbit0)
+    state = _closed_state(lattice, orbit0, delta)
     if n0 is None:
-        spin = closed_spin_solution(lattice, state[[X, PX, Y, PY]]).n0
+        spin = closed_spin_solution(lattice, state[[X, PX, Y, PY]], delta=delta).n0
     else:
         spin = np.asarray(n0, dtype=float)
         if spin.shape != (SPIN_DIM,):
@@ -613,4 +639,272 @@ def propagate_spin_solution(
     for elem in lattice.elements:
         state, spin = elem.track_with_spin(state, spin, lattice.ref)
         points.append(spin)
+    return points
+
+
+# ---------------------------------------------------------------------------
+# N4: the invariant spin field, and the resonance it lives on
+# ---------------------------------------------------------------------------
+
+
+class SpinResonanceError(SpinSolutionError):
+    """Raised when a lattice sits on a spin-orbit resonance and ``n(x)`` does not exist.
+
+    The third degeneracy on this axis, and the first one that is *not* about ``n_0``.
+    :class:`SpinSolutionError` fires when the one-turn spin rotation is the identity --
+    an **integer** spin tune, the imperfection resonance, which N2 gates. This subclass
+    fires when the spin rotation and an *orbital* rotation come back in step:
+    ``nu_0 = k +- Q_x``, ``k +- Q_y``, ``k +- Q_s``. There ``n_0`` is perfectly well
+    defined and the invariant spin *field* around it is not -- a spin riding a betatron
+    oscillation is driven at its own precession frequency and never closes.
+
+    It subclasses :class:`SpinSolutionError` because both are the same statement --
+    "this ring has no periodic spin object of the kind you asked for" -- and because a
+    caller who wants to skip resonant rings should not have to name them separately.
+    """
+
+
+#: The perturbation used to differentiate the one-turn map with respect to the orbit
+#: [in the mixed units of the 6D state]. There is no analytic Jacobian to be had: an
+#: element's spin rotation depends on the orbit through ``normalized_field`` and the
+#: frame rotation, and neither is differentiated symbolically anywhere in the package.
+#: Central differences make the truncation ``O(step^2) ~ 1e-12`` and the round-off
+#: ``O(eps/step) ~ 1e-10``, and the answer is flat between ``1e-7`` and ``1e-5`` -- see
+#: ``tests/analytic/test_spin_orbit_coupling.py``.
+_SPIN_ORBIT_STEP = 1e-6
+
+#: Below this separation between an orbital eigenvalue and ``exp(+-2 pi i nu_0)`` the
+#: Sylvester solve is amplifying the differencing noise above rather than physics, and
+#: :func:`spin_orbit_coupling` raises instead of returning it. The quantity compared is
+#: ``|lambda_orbit - exp(+-2 pi i nu_0)| = 2 |sin(pi (nu_0 -+ Q))|``, so this is a
+#: distance in *tune*, not in the matrix.
+_SPIN_ORBIT_RESONANCE_LIMIT = 1e-8
+
+
+@dataclass(frozen=True)
+class SpinOrbitCoupling:
+    r"""The first-order invariant spin field of a ring: ``n(x) = n_0 + N x``.
+
+    :attr:`matrix` is ``N = dn/d(x, px, y, py, zeta, delta)``, a ``(3, 6)`` real matrix
+    -- ``xtrack``'s ``spin_n_matrix``. It answers the question N2 could not: a particle
+    that is *not* on the closed orbit has its own periodic spin direction, and to first
+    order in its deviation from the closed orbit that direction is ``n_0 + N x``.
+
+    :attr:`dn_ddelta` is the column that matters for polarization. A photon emission
+    changes ``delta`` and **nothing else** -- it is instantaneous, so the transverse
+    coordinates do not move -- which is exactly why the Derbenev-Kondratenko
+    depolarization rate is built from the partial derivative at fixed ``(x, px, y, py)``
+    rather than from the derivative along the dispersion orbit. The two differ by
+    ``N[:, :4] D``, and on N4's gate ring they differ by a factor of two.
+
+    The remaining fields are the three matrices the solve is assembled from, kept
+    because each is a separate claim: :attr:`one_turn_matrix` is N2's exact ``(3, 3)``
+    spin rotation ``A``, :attr:`orbit_matrix` the ``(6, 6)`` one-turn Jacobian ``R``
+    about the closed orbit, and :attr:`spin_response` the ``(3, 6)`` matrix
+    ``D = d(spin after one turn)/d(orbit before)`` with the spin started along ``n_0``.
+    """
+
+    matrix: np.ndarray
+    n0: np.ndarray
+    spin_tune: float
+    one_turn_matrix: np.ndarray
+    orbit_matrix: np.ndarray
+    spin_response: np.ndarray
+    orbit: np.ndarray
+
+    @property
+    def dn_ddelta(self) -> np.ndarray:
+        """``dn/ddelta`` at the lattice entrance -- the depolarization strength."""
+        return self.matrix[:, DELTA]
+
+
+def _perp_basis(n0: np.ndarray) -> np.ndarray:
+    """An orthonormal ``(3, 2)`` basis of the plane perpendicular to ``n0``."""
+    seed = np.eye(SPIN_DIM)[int(np.argmin(np.abs(n0)))]
+    q1 = np.cross(n0, seed)
+    q1 = q1 / np.linalg.norm(q1)
+    return np.column_stack([q1, np.cross(n0, q1)])
+
+
+def _bundle(
+    state: np.ndarray, spin: np.ndarray, coupling: np.ndarray | None, step: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """The ``2 * DIM + 1`` column bundle the coupling matrix is differenced from.
+
+    Column ``0`` is the closed orbit itself; columns ``1 .. DIM`` are displaced by
+    ``+step`` along each coordinate and ``DIM + 1 .. 2 DIM`` by ``-step``. With
+    ``coupling`` given, each displaced column's spin is put on the invariant spin field
+    ``n_0 + step N e_j`` as well, so the bundle *stays* on the field as it is tracked and
+    :func:`_coupling_from_bundle` reads ``N(s)`` off it at any point downstream.
+    """
+    states = np.tile(np.asarray(state, dtype=float)[:, None], (1, 1 + 2 * DIM))
+    spins = np.tile(np.asarray(spin, dtype=float)[:, None], (1, 1 + 2 * DIM))
+    for j in range(DIM):
+        states[j, 1 + j] += step
+        states[j, 1 + DIM + j] -= step
+        if coupling is not None:
+            spins[:, 1 + j] += step * coupling[:, j]
+            spins[:, 1 + DIM + j] -= step * coupling[:, j]
+    return states, spins
+
+
+def _differences(
+    states: np.ndarray, spins: np.ndarray, step: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(dstate, dspin)`` -- the central differences of a :func:`_bundle`."""
+    return (
+        (states[:, 1 : 1 + DIM] - states[:, 1 + DIM :]) / (2.0 * step),
+        (spins[:, 1 : 1 + DIM] - spins[:, 1 + DIM :]) / (2.0 * step),
+    )
+
+
+def _coupling_from_bundle(states: np.ndarray, spins: np.ndarray, step: float) -> np.ndarray:
+    r"""``N(s)`` from a bundle that was launched *on* the invariant spin field.
+
+    The deviations obey ``dspin(s) = N(s) dstate(s)`` for every column at once, so
+    ``N(s) = dspin(s) dstate(s)^-1``: six equations for the six columns, solved as one
+    ``(6, 6)`` system. ``dstate(s)`` is the transfer matrix from the entrance, which is
+    the identity at ``s = 0`` and symplectic thereafter, so it is never singular on a
+    lattice that tracks at all.
+    """
+    dstate, dspin = _differences(states, spins, step)
+    return np.linalg.solve(dstate.T, dspin.T).T
+
+
+def _require_off_resonance(orbit_matrix: np.ndarray, nu0: float) -> None:
+    """Raise unless the orbital spectrum stays clear of ``exp(+-2 pi i nu_0)``."""
+    spin_eigenvalues = np.exp(np.array([2j, -2j]) * math.pi * nu0)
+    gaps = np.abs(np.linalg.eigvals(orbit_matrix)[:, None] - spin_eigenvalues[None, :])
+    smallest = float(np.min(gaps))
+    if smallest < _SPIN_ORBIT_RESONANCE_LIMIT:
+        raise SpinResonanceError(
+            f"no invariant spin field: an orbital eigenvalue coincides with "
+            f"exp(+-2 pi i nu_0) to {smallest:.3g}, i.e. the ring sits on a spin-orbit "
+            f"resonance nu_0 = k +- Q (nu_0 = {nu0:.9f}). n_0 is still perfectly well "
+            "defined -- it is the field *around* n_0 that does not close"
+        )
+
+
+def spin_orbit_coupling(
+    lattice: Lattice,
+    orbit0: np.ndarray | None = None,
+    *,
+    step: float = _SPIN_ORBIT_STEP,
+) -> SpinOrbitCoupling:
+    r"""``N = dn/dx``: the invariant spin field to first order in the orbit deviation.
+
+    **The equation, and why it is a Sylvester equation.** A particle displaced by ``x``
+    from the closed orbit carries the spin ``n_0 + N x``. One turn later its orbit
+    deviation is ``R x`` and its spin is ``A (n_0 + N x) + D x = n_0 + (A N + D) x``,
+    where ``A`` is N2's one-turn spin rotation and ``D = d(spin out)/d(orbit in)``. For
+    ``n`` to be a *field* -- the same function of the deviation at the same point every
+    turn -- those must be the same vector, so ``A N + D = N R``, i.e.
+
+        ``A N - N R = -D``,
+
+    a linear equation in the eighteen entries of ``N``. It is solved as such
+    (:func:`scipy.linalg.solve_sylvester`) rather than mode by mode, which is what makes
+    the flat ring reachable here and not in the arbiter -- see below.
+
+    **Two reductions, both forced by the physics rather than chosen for convenience.**
+
+    - ``n`` is a *unit* vector, so ``n_0 . N = 0`` exactly: the component of ``N`` along
+      ``n_0`` is not small, it is meaningless. ``N`` is therefore solved for in the
+      two-dimensional plane perpendicular to ``n_0``, where ``A`` acts as a plain
+      rotation by ``2 pi nu_0``. The corresponding row of the full equation is the
+      consistency condition ``n_0 . D = 0``, which holds to the differencing accuracy
+      (``1e-10`` on N4's gate ring) for the same reason: the spin after one turn is a
+      unit vector too, so perturbing the orbit can only move it sideways.
+    - That reduction is what makes a **flat ring** work. Solved mode by mode, as
+      ``xtrack`` does, the eigenvalue-``1`` orbital mode (``delta``, in a lattice with no
+      RF) needs ``inv(I - A)``, and ``I - A`` is singular for *every* ring, because
+      ``A n_0 = n_0``. xtrack survives a tilted ring only because its finite-differenced
+      ``A`` misses that by ``1e-10``, and dies on a flat one where the zero is exact
+      (N3's finding, now explained rather than merely observed). Perpendicular to
+      ``n_0`` there is no such eigenvalue and no such singularity.
+
+    **The resonances are in the spectra, and they are the milestone.** In the reduced
+    plane ``A``'s eigenvalues are ``exp(-+2 pi i nu_0)``; ``R``'s are
+    ``exp(+-2 pi i Q_x)``, ``exp(+-2 pi i Q_y)``, ``exp(+-2 pi i Q_s)`` (and, with no RF,
+    ``1`` twice). A Sylvester equation is solvable exactly when the two spectra are
+    disjoint, so ``N`` blows up at
+
+        ``nu_0 = k``  (integer -- N2's *imperfection* resonance, via the eigenvalue 1),
+        ``nu_0 = k +- Q_x, k +- Q_y, k +- Q_s``  (the **intrinsic** resonances),
+
+    and there is nothing else in the equation for it to blow up at. This is where the
+    ``k +- Q_y`` that N2 was written expecting actually lives: not in ``n_0``, which
+    rides the closed orbit and sees only one-turn-periodic perturbations, but in the
+    spin field of a particle with vertical betatron *amplitude*. Within
+    :data:`_SPIN_ORBIT_RESONANCE_LIMIT` of an intrinsic one,
+    :class:`SpinResonanceError` is raised rather than a number returned.
+
+    The integer case never actually reaches that check, and the ordering is deliberate:
+    at an integer ``nu_0`` the one-turn spin rotation is the identity, so ``n_0`` itself
+    does not exist and :func:`closed_spin_solution` has already raised
+    :class:`SpinSolutionError` before there is a matrix to test. The caller sees the more
+    specific failure -- "this ring has no ``n_0``" rather than "no field around it" --
+    which is why :class:`SpinResonanceError` is a *subclass* and not a sibling.
+
+    **What is differenced and what is exact.** ``A`` is exact
+    (:func:`spin_one_turn_matrix` carries three basis vectors round; a spin map is linear
+    in the spin). ``R`` and ``D`` are central differences of one tracked turn at
+    ``step``, sharing the same bundle so they cannot disagree about which orbit they were
+    taken on. That is the whole numerical content of this function.
+    """
+    from scipy.linalg import solve_sylvester
+
+    from .tracking import Tracker
+
+    state = _closed_state(lattice, orbit0)
+    solution = closed_spin_solution(lattice, state[[X, PX, Y, PY]])
+    n0 = solution.n0
+    states, spins = _bundle(state, n0, None, step)
+    states, spins = Tracker(lattice).track_once_with_spin(states, spins)
+    orbit_matrix, spin_response = _differences(states, spins, step)
+
+    _require_off_resonance(orbit_matrix, solution.spin_tune)
+    perp = _perp_basis(n0)
+    reduced = perp.T @ solution.one_turn_matrix @ perp
+    coupling = perp @ solve_sylvester(reduced, -orbit_matrix, -perp.T @ spin_response)
+
+    return SpinOrbitCoupling(
+        matrix=coupling,
+        n0=n0,
+        spin_tune=solution.spin_tune,
+        one_turn_matrix=solution.one_turn_matrix,
+        orbit_matrix=orbit_matrix,
+        spin_response=spin_response,
+        orbit=solution.orbit,
+    )
+
+
+def propagate_spin_orbit_coupling(
+    lattice: Lattice,
+    orbit0: np.ndarray | None = None,
+    *,
+    step: float = _SPIN_ORBIT_STEP,
+) -> list[np.ndarray]:
+    r"""``N(s)`` at every element boundary -- ``len(lattice) + 1`` ``(3, 6)`` matrices.
+
+    The counterpart of :func:`propagate_spin_solution`, and read the same way: the
+    entrance, then the exit of each element in order. ``xtrack``'s ``spin_n_matrix`` is
+    the same object on the same convention, so ``dn/ddelta`` element by element is
+    directly comparable.
+
+    Obtained by launching :func:`spin_orbit_coupling`'s bundle **on** the field -- each
+    displaced column's spin set to ``n_0 + step N e_j`` -- and tracking it. A spin that
+    starts on the invariant field stays on it, so the central differences at any point
+    downstream give ``N(s)`` directly, with no second solve and no transport matrices to
+    accumulate. The first matrix returned equals :attr:`SpinOrbitCoupling.matrix` to
+    round-off, which is the cheapest available check that the launch was right.
+    """
+    coupling = spin_orbit_coupling(lattice, orbit0, step=step)
+    state = _closed_state(lattice, coupling.orbit)
+    states, spins = _bundle(state, coupling.n0, coupling.matrix, step)
+
+    points = [_coupling_from_bundle(states, spins, step)]
+    for elem in lattice.elements:
+        states, spins = elem.track_with_spin(states, spins, lattice.ref)
+        points.append(_coupling_from_bundle(states, spins, step))
     return points
