@@ -5635,6 +5635,155 @@ statement. Asserted with both exponents rather than dodged by tracking at `py = 
 disagreement with a derived exponent is a finding; one hidden by a choice of test point is
 a gap.
 
+## Closed spin solution and spin tune (N2 — implemented)
+
+`accsim.spin.closed_spin_solution` returns `n_0`, the spin direction that comes back to
+itself after one turn, and `nu_0`, the rate a spin *not* along it winds around it. They
+are the spin analogues of I1's closed orbit and the betatron tune, and are reached the
+same way — as the fixed point of the one-turn map — with the simplification that the
+one-turn *spin* map is a rotation, hence **linear in the spin**: carrying the three
+Cartesian basis vectors around once gives the whole 3×3 exactly, with no Newton iteration
+and no differencing step (`spin_one_turn_matrix`).
+
+### Two sign conventions, and why neither was free
+
+- **`n_0` is oriented upward: `n_0 · ŷ > 0`.** This is xtrack's convention, forced rather
+  than adopted for taste — its fixed-point search sets `s_y = +sqrt(1 - s_x² - s_z²)`, so
+  it can only ever return an upward solution, and matching it is what makes the two
+  comparable at all. Where `n_0` is exactly horizontal the rule falls back to `n_0 · x̂ > 0`
+  and then `n_0 · ẑ > 0`.
+- **`nu_0` is the fraction in `[0, 1)` defined by `R = R(n_0, −2π nu_0)`** — the spin turns
+  by `2π nu_0` about `n_0` in the *negative* sense. The minus sign is not decoration. A
+  flat ring's net spin rotation is `−(1 + Gγ) θ` from Thomas-BMT plus `+θ` from the frame,
+  i.e. `−Gγ θ` about `+ŷ`; writing it as `+2π nu_0` would give `nu_0 = −Gγ`, and every
+  textbook — and the whole of N1 — quotes `nu_0 = +Gγ`.
+- Only the **fraction** is knowable. A rotation matrix has no memory of how many whole
+  turns produced it, exactly as a one-turn transfer matrix has none of the integer betatron
+  tune.
+- **xtrack's `spin_tune_fractional` is folded to `[0, 0.5]`**: it takes
+  `max(angle(eigvals(A)))/2π` and `np.angle` returns `(−π, π]`, so the sign and the
+  half-turn are thrown away. The comparison folds accsim's (`min(ν, 1−ν)`) rather than
+  unfolding xtrack's — the information is not there to unfold.
+
+### The degeneracy is the whole milestone
+
+On a flat, unsteered ring every field a spin meets is vertical, every rotation is about
+`ŷ`, and **`n_0 = (0, 1, 0)` bit for bit** — for any lattice, any energy, any quadrupole
+strength, a quadrupole field multiplied by seven, and even a *sign-flipped* precession
+vector. Nothing about the transverse coefficient can be read off such a ring. This is N1's
+"the spin tune is a control" arriving one milestone later in a second quantity, and M3's
+degeneracy in a third guise. `n_0` becomes informative only once the closed orbit has a
+**vertical** excursion through a field.
+
+### The gate ring, and the closed form it was built for
+
+A closed vertical bump (three correctors, solved from the elements' own vertical transfer
+matrices) holding exactly **one thick quadrupole**, inside a **bend-free** straight, with a
+thin-lens FODO arc whose bends sum to `2π`. Two facts make that the only honest
+construction:
+
+- **A bend traversed with a vertical angle precesses the spin about `ẑ`**, at
+  `Ω_z = h i_y i_z G(γ−1)` — the difference between the `(1 + Gγ)` perpendicular
+  coefficient and the `(1 + G)` parallel one, which is what survives when a vertical angle
+  gives a horizontal-field magnet a component along the motion. It is **first order in
+  `py`** and scales with `Gγ`, so it is comparable to the quadrupole kick the gate is
+  about. Vertical orbit leaking into the arc is therefore a second, distributed,
+  uncontrolled driving term — and the closed form would still *fit*, with a wrong
+  coefficient.
+- **Thin elements do not precess** (N1's stated omission), so the arc's focusing can be
+  thin and contributes nothing at all. The one thick quadrupole is then the entire spin
+  perturbation.
+
+The ring reduces to one localized rotation `chi` about `x̂` composed with a uniform
+`−2π nu_0` about `ŷ`, and (derived with sympy, observed at the entrance with the kick at
+the top of the turn)
+
+    n_0 = ( −(chi/2) cot(π nu_0),  1,  −chi/2 )      to first order in chi
+    nu_0 → nu_0 + chi² cot(π nu_0) / (8π)            i.e. unmoved at first order
+
+The two transverse components are **two different gates**:
+
+- the `z` component is `−chi/2` with **no resonance denominator at all**, so it measures
+  the kick itself, and through it the `(1 + Gγ)` factor — inside a ring, where N1 pinned it
+  in a single element. Its residual is the midpoint rule's quadrature of `∫ y ds` and
+  converges at second order in the slice length (ratio 4.00 per halving, measured over
+  n = 2…64).
+- the `x` component carries `cot(π nu_0)`, which diverges at every **integer** spin tune
+  and nowhere else. Since `nu_0 = Gγ`, the resonance is crossed by **scanning the beam
+  energy**, which is where a polarized ring's energy calibration comes from.
+- their **ratio** `n_0·x̂ / n_0·ẑ = cot(π nu_0)` drops `chi` entirely, so the *direction* the
+  solution leans in measures the spin tune with nothing about the imperfection left in it.
+
+`nu_0` is unmoved at first order in the steering — this axis's version of "the number
+everybody quotes is the one that cannot see the perturbation." Use the tilt, not the tune.
+
+### The resonance is at an **integer**, not at `nu_0 = k ± Q_y`
+
+The roadmap's N2 entry named `nu_0 = k ± Q_y` as the discriminating condition. That is
+wrong for this object, and the correction is recorded rather than quietly applied. `n_0`
+lives on the **closed orbit**, so the perturbation it sees is one-turn periodic and has
+only **integer** harmonics; the resonant denominator is `1 − e^{−2πi nu_0}`, which vanishes
+only at integer `nu_0`. That is the *imperfection* resonance.
+
+`k ± Q_y` is the **intrinsic** resonance, and it is a statement about a different object:
+the invariant spin field of a particle with vertical betatron *amplitude*, whose
+denominator is `λ_i I − A` with `λ_i = e^{2πi Q_y}` an orbital eigenvalue (this is literally
+xtrack's `EE_spin[:, i] = inv(λ_i I − A) @ DD @ EE_orb[:, i]`). It needs the spin–orbit
+coupling matrix `∂n/∂(x, px, y, py, ζ, δ)`, which is exactly what xtrack's `spin_n_matrix`,
+`spin_eigenvectors` and `spin_dn_ddelta_*` carry and what N3's depolarization term is built
+from — and none of those appear in N2's own arbiter list. Deferred to N3, deliberately.
+
+### `n_0` needs the **tracked** closed orbit, not the linear one
+
+`closed_spin_solution` defaults `orbit0` to `closed_orbit_nonlinear`, and the expense is
+the point: the spin is rotated by what `track()` does, so a spin carried around the
+*linear* closed orbit is carried around a trajectory that does not quite close, and its
+"one-turn" rotation is really a rotation between two different points. With the exact maps
+of axis L the gap is `O(x_co³)` — measured as a factor 8 per doubling of the bump — and on
+the gate ring it is a one-turn orbit residual of `1e-8` where the tracked orbit gives
+`1e-18`.
+
+The same third-order departure means the bump, whose correctors are solved from the
+elements' **matrices**, does not close *exactly* under the exact maps. The leak is
+`1.6e-9` at a 2 mm bump, cubic in the amplitude; the arc's whole spin driving that follows
+from it is bounded against `chi` at `5e-5` at the largest amplitude any gate uses, below
+every tolerance any of them assert. Bounded, not assumed.
+
+### `SpinSolutionError`: the spin twin of an integer betatron tune
+
+At integer `nu_0` the one-turn rotation is the identity, **every** direction is periodic,
+and none is *the* periodic one. `spin_axis_and_tune` raises rather than returning one of
+them — the same contract, and the same reason, as `closed_orbit` raising on an integer
+tune where `I − M4` is singular. The test is the second-smallest singular value of `R − I`,
+which is `2|sin(π nu_0)|`, so it is literally "is the spin tune an integer?".
+
+### Comparing against xtrack: a fourth silent switch, and it is the drift model
+
+N1 recorded three switches that silently return a plausible wrong answer
+(`configure_spin`, `anomalous_magnetic_moment`, the bend `model`). N2 adds a fourth, and it
+is M2's finding arriving on a new axis: **xtrack's default `xt.Drift` is the paraxial one**.
+A ring of paraxial drifts closes this bump *exactly* — the bump is solved from matrices —
+while a ring of exact drifts does not. With the default, the two codes' closed orbits
+therefore disagree by exactly accsim's own leak, and every spin comparison inherits it.
+`xt.Drift(model="exact")` removes it. The disagreement is gated in its own right
+(`test_the_paraxial_drift_closes_the_bump_that_the_exact_one_does_not`): the gap equals the
+leak the analytic suite measures from a completely separate line, to two digits.
+
+With that set, and the orbit compared element by element **before** any spin component is
+looked at (N1's finding 2 in a ring instead of a magnet), `n_0(s)` agrees with
+`twiss(spin=True)`'s `spin_x/y/z` element by element and `nu_0` with
+`polarization_analysis`'s `spin_tune_fractional`. The tolerance is `1e-8`/`1e-9` rather
+than round-off, and **the residual is xtrack's, not accsim's**: accsim's one-turn matrix is
+exact, while xtrack finite-differences it at `ds = 1e-5` and finds `n_0` with a two-knob
+optimiser to `1e-12`.
+
+### One more blind structural check, kept and labelled
+
+The one-turn matrix is orthogonal to `1e-14`. That is *not* a check on the physics — a
+product of rotations is orthogonal whatever fields it was built from — and the proof is
+that it survives multiplying every quadrupole field by seven. It catches a broken
+Rodrigues formula and nothing else.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,

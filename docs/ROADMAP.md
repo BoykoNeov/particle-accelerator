@@ -2994,22 +2994,118 @@ Two properties worth stating before the milestones, because they set the axis's 
   slicing and the order-gate would have passed vacuously). **Nothing on axes A-M moved**,
   which is the structural claim the axis opened with.
 
-- **N2 (candidate) — the closed spin solution and the spin tune.** The periodic direction
-  `n_0(s)` a spin must lie along to come back to itself after a turn, and the rate `nu_0`
-  it precesses about it — the spin analogue of the closed orbit and the tune, and reached
-  the same way (I1's fixed point, but on a rotation rather than an affine map). Arbiter:
-  `twiss(spin=True)`'s `spin_x/y/z` element by element, and `polarization_analysis=True`'s
-  `spin_tune_fractional`.
+- **N2 — the closed spin solution and the spin tune.**
+  ✅ **SHIPPED (2026-08-26)** — `accsim.spin.closed_spin_solution`, `spin_one_turn_matrix`,
+  `propagate_spin_solution`, `spin_tune`, `spin_axis_and_tune`, `ClosedSpinSolution`,
+  `SpinSolutionError`. The periodic direction `n_0(s)` a spin must lie along to come back
+  to itself after a turn, and the rate `nu_0` it precesses about it — the spin analogue of
+  the closed orbit and the tune, and reached the same way (I1's fixed point, but on a
+  rotation rather than an affine map).
 
-  The discriminating gate is **not** `nu_0 = G gamma`, for the reason N1 records; it is
-  the **first-order resonance condition** `nu_0 = k +- Q_y`, which predicts an *integer*
-  (where the spin solution tilts away from vertical, as the energy is scanned) separably
-  from a coefficient (how far it tilts). Gating on the location of an integer-indexed
-  family is J2's "gate on the order, not a tolerance" in another guise. Expect the
-  degeneracy M3 just found to recur: on a flat ring with no vertical orbit `n_0` is
-  exactly `y` everywhere and every tilt-driven quantity is identically zero — so the ring
-  the gate runs on must be steered, and the **order in the steering** is the thing to
-  assert. Effort **M**.
+  One simplification makes it cheaper than I1: the one-turn spin map is a **rotation**, so
+  it is linear in the spin, and carrying the three Cartesian basis vectors around once
+  gives the whole `3x3` **exactly** — no Newton iteration, no differencing step. `n_0` is
+  then the eigenvector of eigenvalue `1` and `nu_0` the rotation angle about it.
+
+  **The milestone's stated expectation about the gate was wrong, and the correction is the
+  first thing in it.** N2 was written expecting the discriminating condition to be the
+  first-order resonance `nu_0 = k +- Q_y`. It is not, for this object. `n_0` lives on the
+  **closed orbit**, so the perturbation it sees is one-turn periodic and has only
+  **integer** harmonics; its resonant denominator is `1 - e^{-2 pi i nu_0}`, which vanishes
+  only at integer `nu_0`. That is the *imperfection* resonance, and it is what N2 gates.
+  `k +- Q_y` is the *intrinsic* resonance and a statement about a different object — the
+  invariant spin field of a particle with vertical betatron **amplitude**, whose
+  denominator is `lambda_i I - A` with `lambda_i = e^{2 pi i Q_y}` an orbital eigenvalue.
+  It needs the spin-orbit coupling matrix, which is exactly what `xtrack`'s
+  `spin_n_matrix` / `spin_eigenvectors` / `spin_dn_ddelta_*` carry — **none of which appear
+  in N2's own arbiter list**, while N3's depolarization term is built from precisely them.
+  Moved to N3 rather than quietly dropped. The milestone's *epistemics* survive intact: an
+  integer-indexed family of locations, predicted separably from any coefficient.
+
+  **The degeneracy the milestone predicted did recur, and is worse than expected.** On a
+  flat, unsteered ring `n_0 = (0, 1, 0)` **bit for bit** — for any lattice, any energy, any
+  quadrupole strength, a quadrupole field multiplied by seven, *and a sign-flipped
+  precession vector*. Every field a spin meets is vertical, so `y` is a fixed point of each
+  factor separately and nothing about the coefficients survives. This is N1's "the spin
+  tune is a control" arriving one milestone later in a second quantity, and M3's degeneracy
+  in a third guise, asserted rather than hoped against.
+
+  **The ring that breaks it, and the two facts that force its shape.** A closed vertical
+  bump (three correctors, solved from the elements' own vertical transfer matrices) holding
+  exactly **one thick quadrupole**, inside a **bend-free** straight, with a thin-lens FODO
+  arc whose bends sum to `2 pi`:
+
+  - **a bend traversed at a vertical angle precesses the spin about `z`**, at
+    `Omega_z = h i_y i_z G (gamma - 1)` — what survives when a vertical angle gives a
+    horizontal-field magnet a component along the motion, i.e. the difference between the
+    `(1 + G gamma)` perpendicular coefficient and the `(1 + G)` parallel one. It is
+    **first order in `py`** and comparable in size to the quadrupole kick the gate is
+    about, so vertical orbit leaking into the arc is a second, distributed, uncontrolled
+    driving term — and the closed form would still *fit*, with a wrong coefficient. Found
+    by measurement before the ring was designed, not after the gate misbehaved;
+  - **thin elements do not precess** (N1's stated omission), so the arc's focusing is thin
+    and contributes exactly nothing. The one thick quadrupole is then the entire
+    perturbation. N1's cost has become N2's instrument.
+
+  The ring reduces to one localized rotation `chi` about `x` composed with a uniform
+  `-2 pi nu_0` about `y`, and the sympy-derived closed form is
+
+      `n_0 = ( -(chi/2) cot(pi nu_0),  1,  -chi/2 )`   to first order in `chi`,
+      `nu_0 -> nu_0 + chi^2 cot(pi nu_0) / (8 pi)`     — unmoved at first order.
+
+  **Its two transverse components are two different gates, and that is the finding.**
+
+  - the **`z` component is `-chi/2` with no resonance denominator at all**, so it measures
+    the kick itself — and through it the `(1 + G gamma)` factor, now pinned inside a *ring*
+    where N1 pinned it in a single element. Its residual is the midpoint rule's quadrature
+    of `int y ds` and converges at second order in the slice length (ratio 4.00 per
+    halving, `n = 2..64`);
+  - the **`x` component carries `cot(pi nu_0)`**, which diverges at every integer spin tune
+    and nowhere else. `nu_0 = G gamma`, so the resonance is crossed by *scanning the beam
+    energy*: a 111-point sweep from 4.80 to 5.35 GeV finds its two tilt peaks at
+    `G gamma = 11` and `12` and nowhere else, while the same sweep's `z` component, divided
+    by `chi`, stays at `-1/2` to four digits straight through both crossings;
+  - their **ratio** `n_0.x / n_0.z = cot(pi nu_0)` drops `chi` entirely — the *direction*
+    the solution leans in measures the spin tune with nothing about the imperfection in it.
+
+  And `nu_0` itself is unmoved at first order in the steering, gated as both the exponent
+  and the derived `chi^2 cot(pi nu_0)/(8 pi)` coefficient: this axis's second instance of
+  "the number everybody quotes is the one that cannot see the perturbation."
+
+  Three more things it turned up:
+
+  - **`n_0` needs the *tracked* closed orbit, and the default is the expensive one for that
+    reason.** The spin is rotated by what `track()` does, so a spin carried around the
+    *linear* closed orbit is carried around a trajectory that does not close, and its
+    "one-turn" rotation is a rotation between two different points. Axis L's exact maps
+    depart from their own Jacobians at `O(x_co^3)` — asserted as that exponent — which on
+    the gate ring is a one-turn orbit residual of `1e-8` against the tracked orbit's
+    `1e-18`.
+  - **The same third order means the bump does not close exactly**, since its correctors
+    are solved from matrices. The leak is `1.6e-9` at a 2 mm bump, cubic in the amplitude,
+    and the arc's whole spin driving that follows is **bounded** against `chi` at `5e-5` at
+    the largest amplitude any gate uses — below every tolerance any of them assert. Bounded
+    in the suite, not assumed in prose.
+  - **A fourth silent switch on the reference side, and it is M2's drift model.** N1 named
+    three (`configure_spin`, `anomalous_magnetic_moment`, the bend `model`). xtrack's
+    *default* `xt.Drift` is the **paraxial** one, and a paraxial ring closes this
+    matrix-solved bump *exactly* where an exact-drift ring does not — so with the default
+    the two codes' closed orbits differ by precisely accsim's own leak, and every spin
+    comparison inherits it. Gated in its own right: the gap equals the leak the analytic
+    suite measures from a completely separate line, to two digits. M2's lesson unchanged —
+    localise before deriving.
+
+  **Reference.** With `xt.Drift(model="exact")` set, and the orbit compared element by
+  element *before* any spin component is looked at (N1's finding 2 in a ring instead of a
+  magnet), `n_0(s)` matches `twiss(spin=True)`'s `spin_x/y/z` element by element and
+  `nu_0` matches `polarization_analysis`'s `spin_tune_fractional` (folded to `[0, 0.5]` the
+  way xtrack folds it — the sign and half-turn are not there to unfold). The tolerance is
+  `1e-8`/`1e-9` rather than round-off, and **the residual is xtrack's**: accsim's one-turn
+  matrix is exact, while xtrack finite-differences it at `ds = 1e-5` and finds `n_0` with a
+  two-knob optimiser to `1e-12`.
+
+  Gates: `tests/analytic/test_spin_solution.py` (24), `tests/reference/test_spin_solution_xtrack.py` (5).
+  Nothing on axes A–M or in N1 moved.
 
 - **N3 (candidate) — Sokolov-Ternov: the polarization radiation builds, and the
   depolarization it fights.** The spin-flip channel of the synchrotron radiation axis B
@@ -3024,7 +3120,18 @@ Two properties worth stating before the milestones, because they set the axis's 
   discriminating quantity is the **time constant's coefficient** (the `hbar`, `r_e`,
   `gamma^5`, `rho^3` combination), which must be **derived in sympy**, not quoted: B2's
   pre-2019 charge constant and B5's three quiet disagreements are exactly this failure
-  mode on this axis's own neighbour. Effort **M**.
+  mode on this axis's own neighbour.
+
+  **It also inherits the resonance N2 turned out not to be about.** `nu_0 = k +- Q_y` is
+  the *intrinsic* resonance — a property of the **invariant spin field** of a particle with
+  vertical betatron amplitude, not of `n_0`, which lives on the closed orbit and sees only
+  integer harmonics (see N2). Reaching it means the spin-orbit coupling matrix
+  `partial n / partial (x, px, y, py, zeta, delta)`, whose resonant denominator is
+  `lambda_i I - A` with `lambda_i = e^{2 pi i Q_y}` an orbital eigenvalue. That is the same
+  object depolarization is computed from, and `xtrack` already exposes it as
+  `spin_n_matrix`, `spin_eigenvectors` and `spin_dn_ddelta_*` — so the arbiter is in place,
+  and the gate is again an integer-indexed *location* (now shifted by `Q_y`) separably from
+  a coefficient. Effort **M**, and larger than it was.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
