@@ -16,20 +16,31 @@ The energy-to-``delta`` factor is ``1/(beta0^2 E0)`` (**not** ``1/E0``): with th
 momentum variable ``delta``, ``dE = beta0^2 E0 * delta`` at the reference, the same
 ``beta0^2`` that distinguishes ``R56 = L/gamma0^2`` from the energy-variable form.
 
-**Phase convention matches xtrack's ``Cavity``**: xtrack applies
-``energy_kick = q V sin(lag_rad - (2*pi f / c) * zeta / beta0)`` — i.e. the same
-``phi = phi_s - k_rf zeta`` used here, with ``phi_s`` playing the role of xtrack's
-``lag`` (xtrack takes ``lag`` in *degrees*; accsim uses radians, consistent with
-the rest of the codebase). Cross-checked in ``tests/reference/``.
+**Phase convention matches xtrack's ``Cavity`` — for a positive charge only.**
+xtrack applies ``energy_kick = q V sin(phase + lag_rad - (2 pi f / c) zeta / beta0)``,
+the same ``phi = phi_s - k_rf zeta`` used here — **but its** ``q`` **is**
+``fabs(q0) * charge_ratio`` (``beam_elements/elements_src/track_rf.h``), the
+*absolute* charge, where the expression above uses the signed ``ref.charge``. For a
+**negative** particle the two cavities are therefore exact negatives of each other,
+and the correspondence is ``phase = phi_s + pi`` (equivalently
+``lag = degrees(phi_s) + 180``), not ``phase = phi_s``. Neither convention is wrong:
+this one is the physical ``q E . v``, xtrack's makes ``lag`` mean the same thing for
+every species. Getting it backwards makes an electron ring come out longitudinally
+*unstable* rather than merely shifted — see ``docs/CONVENTIONS.md`` → *RF cavity /
+synchrotron tune* and ``tests/reference/test_spin_sidebands_xtrack.py``.
 
 **Synchronous phase and acceleration.** The synchronous particle (``zeta = 0``)
 receives the constant offset ``-sin(phi_s)``, so its net kick is zero *in the
 frame that follows the reference energy*. A stationary (non-accelerating) bucket
-takes ``phi_s = 0`` below transition and ``phi_s = pi`` above it (``sin phi_s = 0``,
-no energy gain). For ``sin(phi_s) != 0`` the same ``[sin(phi_s - k_rf zeta) -
-sin(phi_s)]`` kick is the **accelerating** kick measured relative to a *ramping*
-reference: the synchronous particle still gets zero net Delta delta and stays at
-``delta = 0``, while the reference energy climbs by ``q V sin(phi_s)`` per turn.
+has ``sin phi_s = 0``, and **which** of the two roots is the stable one depends on
+the **sign of the charge**: stability needs ``eta q cos phi_s < 0``, so a *proton*
+takes ``phi_s = 0`` below transition and ``phi_s = pi`` above it, and an *electron*
+— for which ``q < 0`` — takes them the other way round.
+
+For ``sin(phi_s) != 0`` the same ``[sin(phi_s - k_rf zeta) - sin(phi_s)]`` kick is the
+**accelerating** kick measured relative to a *ramping* reference: the synchronous
+particle still gets zero net Delta delta and stays at ``delta = 0``, while the
+reference energy climbs by ``q V sin(phi_s)`` per turn.
 That ramp — plus the accompanying adiabatic damping — is driven by
 :func:`accsim.accelerate` (Stage 5); this element's ``matrix``/``slope``/
 ``energy_kick_delta`` are unchanged. The small-amplitude motion is stable when
@@ -56,7 +67,8 @@ from .element import Element
 class RFCavity(Element):
     r"""A thin RF cavity of peak ``voltage`` [V] at ``frequency`` [Hz].
 
-    ``phi_s`` [rad] is the synchronous phase (xtrack's ``lag``, but in radians).
+    ``phi_s`` [rad] is the synchronous phase (xtrack's ``phase``, plus ``pi`` for a
+    negative charge -- see the module docstring).
     Zero length: only ``delta`` is affected, via the longitudinal shear ``R65``.
     """
 
@@ -118,9 +130,11 @@ class RFCavity(Element):
     def slope(self, ref: ReferenceParticle) -> float:
         """Small-amplitude longitudinal focusing ``R65 = d(Delta delta)/d(zeta)|_0``.
 
-        ``R65 = -(q V k_rf cos phi_s) / (beta0^2 E0)`` [1/m]. Negative for a
-        below-transition stationary bucket (``phi_s = 0``), which combines with the
-        (also negative) slip factor into a positive ``Qs^2``.
+        ``R65 = -(q V k_rf cos phi_s) / (beta0^2 E0)`` [1/m]. Its sign carries the
+        charge's: for a **proton** at ``phi_s = 0`` it is negative, combining with the
+        (also negative) below-transition slip factor into a positive ``Qs^2``; for an
+        **electron** at the same phase it is positive, and pairs with a positive
+        above-transition slip factor instead. See the module docstring.
         """
         return -(ref.charge * self.voltage * self.k_rf(ref) * math.cos(self.phi_s)) / (
             ref.beta0**2 * ref.total_energy_eV

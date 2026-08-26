@@ -489,7 +489,9 @@ def spin_axis_and_tune(one_turn: np.ndarray) -> tuple[np.ndarray, float]:
     return n0, (-signed / (2.0 * math.pi)) % 1.0
 
 
-def _closed_state(lattice: Lattice, orbit0: np.ndarray | None, delta: float = 0.0) -> np.ndarray:
+def _closed_state(
+    lattice: Lattice, orbit0: np.ndarray | None, delta: float | None = None
+) -> np.ndarray:
     """The 6D state a spin is carried around the ring on.
 
     ``orbit0`` defaults to :func:`accsim.orbit.closed_orbit_nonlinear` -- the fixed
@@ -507,8 +509,22 @@ def _closed_state(lattice: Lattice, orbit0: np.ndarray | None, delta: float = 0.
     along the dispersion is checkable against it without going near a Sylvester solve.
     Without an RF cavity ``delta`` is an exact constant of the motion, so the orbit it
     closes on is a genuine fixed point and ``n_0(delta)`` a genuine periodic direction.
+
+    ``delta=None`` (the default) asks instead for **the ring's own** closed momentum,
+    :func:`accsim.orbit.closed_orbit_delta`. On an unbunched ring that is ``0.0`` exactly
+    and nothing on N1-N4 moves; on a ring with an RF cavity it is the momentum at which
+    ``zeta`` also closes, and without it this state is **not a fixed point at all** -- the
+    closed orbit is longer than the design circumference, one turn moves ``zeta``, and the
+    cavity turns that slip into a ``delta`` kick. Everything built on this state (the exact
+    one-turn rotation ``A``, the shared ``(R, D)`` bundle) would then be describing a
+    trajectory that does not close. That is N5, and it is why the default is ``None``
+    rather than ``0.0``: an explicit ``0.0`` still means "close the orbit at the reference
+    momentum", which on a bunched ring is a deliberate off-momentum question.
     """
-    from .orbit import closed_orbit_nonlinear
+    from .orbit import closed_orbit_delta, closed_orbit_nonlinear
+
+    if delta is None:
+        delta = closed_orbit_delta(lattice)
 
     orbit = (
         closed_orbit_nonlinear(lattice, delta=delta)
@@ -524,7 +540,7 @@ def _closed_state(lattice: Lattice, orbit0: np.ndarray | None, delta: float = 0.
 
 
 def spin_one_turn_matrix(
-    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float | None = None
 ) -> np.ndarray:
     r"""The 3x3 rotation one turn applies to a spin riding the closed orbit.
 
@@ -549,7 +565,7 @@ def spin_one_turn_matrix(
 
 
 def closed_spin_solution(
-    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float | None = None
 ) -> ClosedSpinSolution:
     r"""``n_0`` and ``nu_0`` for a ring: the spin analogue of the closed orbit and the tune.
 
@@ -594,7 +610,8 @@ def closed_spin_solution(
     the closed orbit and therefore sees only one-turn-periodic perturbations -- integer
     harmonics, integer resonances. See ``docs/ROADMAP.md`` under N3.
     """
-    orbit = _closed_state(lattice, orbit0, delta)[[X, PX, Y, PY]]
+    state = _closed_state(lattice, orbit0, delta)
+    orbit, delta = state[[X, PX, Y, PY]], float(state[DELTA])
     matrix = spin_one_turn_matrix(lattice, orbit, delta=delta)
     n0, nu0 = spin_axis_and_tune(matrix)
     return ClosedSpinSolution(
@@ -602,7 +619,9 @@ def closed_spin_solution(
     )
 
 
-def spin_tune(lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float = 0.0) -> float:
+def spin_tune(
+    lattice: Lattice, orbit0: np.ndarray | None = None, *, delta: float | None = None
+) -> float:
     """The fractional spin tune ``nu_0`` of ``lattice`` -- see :func:`closed_spin_solution`."""
     return closed_spin_solution(lattice, orbit0, delta=delta).spin_tune
 
@@ -612,7 +631,7 @@ def propagate_spin_solution(
     n0: np.ndarray | None = None,
     orbit0: np.ndarray | None = None,
     *,
-    delta: float = 0.0,
+    delta: float | None = None,
 ) -> list[np.ndarray]:
     """``n_0`` at every element boundary -- ``len(lattice) + 1`` unit vectors.
 
@@ -628,7 +647,7 @@ def propagate_spin_solution(
     """
     state = _closed_state(lattice, orbit0, delta)
     if n0 is None:
-        spin = closed_spin_solution(lattice, state[[X, PX, Y, PY]], delta=delta).n0
+        spin = closed_spin_solution(lattice, state[[X, PX, Y, PY]], delta=state[DELTA]).n0
     else:
         spin = np.asarray(n0, dtype=float)
         if spin.shape != (SPIN_DIM,):
@@ -711,6 +730,7 @@ class SpinOrbitCoupling:
     orbit_matrix: np.ndarray
     spin_response: np.ndarray
     orbit: np.ndarray
+    delta: float = 0.0
 
     @property
     def dn_ddelta(self) -> np.ndarray:
@@ -857,7 +877,7 @@ def spin_orbit_coupling(
     from .tracking import Tracker
 
     state = _closed_state(lattice, orbit0)
-    solution = closed_spin_solution(lattice, state[[X, PX, Y, PY]])
+    solution = closed_spin_solution(lattice, state[[X, PX, Y, PY]], delta=state[DELTA])
     n0 = solution.n0
     states, spins = _bundle(state, n0, None, step)
     states, spins = Tracker(lattice).track_once_with_spin(states, spins)
@@ -876,6 +896,7 @@ def spin_orbit_coupling(
         orbit_matrix=orbit_matrix,
         spin_response=spin_response,
         orbit=solution.orbit,
+        delta=solution.delta,
     )
 
 
@@ -900,7 +921,7 @@ def propagate_spin_orbit_coupling(
     round-off, which is the cheapest available check that the launch was right.
     """
     coupling = spin_orbit_coupling(lattice, orbit0, step=step)
-    state = _closed_state(lattice, coupling.orbit)
+    state = _closed_state(lattice, coupling.orbit, coupling.delta)
     states, spins = _bundle(state, coupling.n0, coupling.matrix, step)
 
     points = [_coupling_from_bundle(states, spins, step)]

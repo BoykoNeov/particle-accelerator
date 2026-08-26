@@ -98,7 +98,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .coords import DELTA, DIM, PX, PY, X, Y
+from .coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements.corrector import Corrector
 from .elements.element import Element
 from .lattice import Lattice
@@ -384,6 +384,96 @@ def closed_orbit_nonlinear(
         f"max residual {np.max(np.abs(residual)):.3g} > tol {tol:.3g}. Either the "
         "orbit excursion is large enough that the sextupole kick dominates, or the "
         "feed-down gradient has pushed the machine outside its stable tune range"
+    )
+
+
+def _tracked_turn_6d(lattice: Lattice, state: np.ndarray) -> np.ndarray:
+    """One turn of the real map on a **full 6D** state, ``zeta`` and all.
+
+    :func:`_tracked_turn` deliberately throws the longitudinal coordinates away and
+    re-imposes ``delta`` on every call, which is what makes the 4D fixed point well posed.
+    :func:`closed_orbit_delta` needs the half that is thrown away.
+    """
+    out = np.asarray(state, dtype=float)
+    for elem in lattice.elements:
+        out = elem.track(out, lattice.ref)
+    return out
+
+
+def closed_orbit_delta(lattice: Lattice, *, tol: float = 1e-15, max_iter: int = 8) -> float:
+    r"""The momentum ``delta_co`` a **bunched** ring's closed orbit sits at (N5).
+
+    Every closed orbit in this module is a fixed point of the *transverse* map at a
+    ``delta`` the caller chooses. On a ring with an RF cavity that is no longer enough: the
+    cavity reads ``zeta``, so a state whose ``zeta`` does not come back to itself is not
+    periodic in ``delta`` either, and there is exactly one momentum at which both close.
+
+    **The physics, in one line.** The closed orbit is generally *longer* than the design
+    circumference — an orbit distortion adds path length at second order in its angles —
+    while the RF is locked to the reference revolution. The beam therefore arrives late by
+    a fixed amount every turn unless it shifts in momentum until its path length matches:
+
+        ``delta_co = -(Delta C / C) / alpha_c``,
+
+    with ``Delta C`` the one-turn ``zeta`` slip of the on-momentum orbit. Above transition
+    a lower-momentum particle takes a *shorter* path, so a long orbit gives
+    ``delta_co < 0``. That closed form is the analytic gate in
+    ``tests/analytic/test_spin_sidebands.py``; it is deliberately **not** what this function
+    computes, so that the two are independent. What is computed is the root of the tracked
+    slip itself, by secant.
+
+    ``zeta_co`` is not returned because on a ``phi_s = 0`` cavity it is exactly ``0``: the
+    kick is ``sin(phi_s - k zeta) - sin(phi_s)``, so the synchronous particle sits at the
+    zero crossing whatever the RF frequency is. A ring that must make up a real energy loss
+    every turn — ``phi_s != 0``, or radiation switched on in tracking — has ``zeta_co != 0``
+    and needs a genuine 6D fixed point; that is deliberately deferred (``docs/ROADMAP.md``
+    → N5).
+
+    **Returns ``0.0`` exactly on an unbunched ring, and that is a boundary rather than a
+    shortcut.** Without a cavity nothing couples ``zeta`` into ``delta``: *every* momentum
+    closes, the one that also closes ``zeta`` is still well defined, and N1–N4 deliberately
+    did not use it because nothing on those milestones reads ``zeta``. Adopting it silently
+    would re-baseline four milestones of gates for no physics. It is also the third
+    appearance of one degeneracy on this axis — without RF, ``zeta`` and ``delta`` are both
+    eigenvalue-``1`` directions of the one-turn map, so a 6D Newton solve would be singular
+    here rather than merely unnecessary.
+    """
+    if lattice.one_turn_matrix()[DELTA, ZETA] == 0.0:
+        return 0.0
+
+    guess: np.ndarray | None = None
+
+    def slip(delta: float) -> float:
+        """One turn's change in ``zeta`` on the closed orbit of momentum ``delta``."""
+        nonlocal guess
+        guess = closed_orbit_nonlinear(lattice, guess, delta=delta)
+        state = _embed(guess, delta)
+        return float(_tracked_turn_6d(lattice, state)[ZETA] - state[ZETA])
+
+    # A momentum small enough to stay inside the linear response and large enough to leave
+    # the slip's round-off far behind. The slip is very nearly ``-alpha_c C delta``, so two
+    # points fix it and the iterations below only clean up the nonlinearity.
+    previous, slip_previous = 0.0, slip(0.0)
+    if slip_previous == 0.0:
+        return 0.0
+    current, slip_current = 1e-6, slip(1e-6)
+
+    for _ in range(max_iter):
+        if abs(slip_current) < tol * lattice.length:
+            return current
+        if slip_current == slip_previous:
+            break
+        step = -slip_current * (current - previous) / (slip_current - slip_previous)
+        previous, slip_previous = current, slip_current
+        current = current + step
+        slip_current = slip(current)
+
+    raise OrbitConvergenceError(
+        f"the closed-orbit momentum did not converge in {max_iter} secant steps: "
+        f"one-turn zeta slip {slip_current:.3g} at delta = {current:.6g}. The ring is "
+        "either unstable longitudinally (check phi_s against transition and the voltage) "
+        "or its orbit distortion is large enough that the path length is no longer "
+        "quadratic in it"
     )
 
 

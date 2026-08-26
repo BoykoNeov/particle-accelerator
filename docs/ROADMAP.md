@@ -558,6 +558,9 @@ moving the orbit rather than its spin being wrong, and a real sign typo in xtrac
 dodged.
 
 **N2, N3 and N4 shipped the same day too, and the axis closed on the shape it had from
+N1** — and then **N5 reopened it**, on the one gap N4's own write-up had named: every ring
+on the axis had no RF cavity. See the end of the axis for what that turned out to cost.
+**N2, N3 and N4 shipped the same day too, and the axis closed on the shape it had from
 N1.** Every milestone on it has a headline number that is *degenerate on any ring the
 package would casually build* — N1's spin tune, N2's `n_0 = (0,1,0)`, N3's
 `P_inf = 8/(5 sqrt3)`, N4's `dn/ddelta = 0` — and in each case the milestone's real weight
@@ -569,6 +572,18 @@ closed orbit and can only resonate at integers, but of the invariant spin *field
 it — and it is the same object depolarization is computed from. With it the axis is
 **complete**: the map (N1), the closed solution (N2), the polarization radiation builds
 (N3), and the field and the resonance that destroy it (N4).
+
+**N5 reopened it the same day, and it was chosen the way this project chooses: by taking
+a milestone's own stated limitation seriously.** N4 had written that its six-column
+equation and xtrack's five-column one are the same object only because nothing reads
+`zeta`, "and that stops being true the moment an RF cavity enters." Putting one in turned
+out to break something a level below the spin machinery — the *closed orbit* on a bunched
+ring is not where the 4D solve puts it — and to open a second family of resonances, the
+synchrotron sidebands, which are what actually limits polarization in a real electron
+ring. It also carried this axis's most exposed pre-commitment, **and that one did not
+hold**: xtrack's momentum column was predicted to come into line once RF removed the
+singular inverse N4 blamed, and instead a larger, differently-caused disagreement appeared
+— arbitrated, this time, by a test that runs inside the reference's own tracker.
 
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
@@ -3324,6 +3339,155 @@ Two properties worth stating before the milestones, because they set the axis's 
   file, so nothing on axes A–M or in N1–N3 moved, including the two files N4 edited
   (`radiation.py`'s shared quadrature and `spin.py`'s new `delta` keyword).
 
+- **N5 — the spin field when the beam is bunched: a closed orbit with a momentum of its
+  own, and the sidebands the synchrotron motion opens.** ✅ **SHIPPED (2026-08-26)** —
+  `accsim.orbit.closed_orbit_delta`, plus the `delta` keyword `spin_orbit_coupling` used to
+  drop. Every ring on N1–N4 had **no RF cavity**, and N4's write-up named the consequence
+  itself: `N[:, ZETA]` is exactly zero "because nothing reads `zeta` — which is what makes
+  accsim's six-column equation and xtrack's five-column one the same object, and stops
+  being true the moment an RF cavity enters." This milestone entered it. Effort **M**.
+
+  - **The finding that made it an implementation and not only a test file, and it was not
+    the expected one.** The N4 machinery is already six-column general and an RF cavity is
+    thin, so it does not precess — the map needed nothing. What broke was *underneath*:
+    `_closed_state` built the spin's carrier state from the **4D** closed orbit with
+    `zeta = delta = 0`, and on a bunched ring that is **not a fixed point**. One turn moves
+    `zeta` by `-8.3e-7 m` on N2's bump ring — the closed orbit is longer than the design
+    circumference — and the cavity turns that into a `delta` kick of `-4.7e-9` per turn.
+    The whole of N4's construction (an exact one-turn rotation `A`, a shared bundle for `R`
+    and `D`) then describes a trajectory that does not close. The `zeta` slip is there on
+    the RF-free rings too and is invisible only because nothing reads it.
+
+  - **What the fixed point actually is, and it is one scalar.** `zeta_co = 0` exactly
+    (accsim's cavity subtracts `sin(phi_s)`, so the synchronous particle sits at the zero
+    crossing whatever the frequency), and the ring instead locks its revolution period by
+    shifting the beam **off momentum** until the path length matches:
+    `delta_co = -(Delta C / C) / alpha_c`. Measured `-4.778883e-8` against the closed
+    form's `-4.778882e-8` — seven digits, with `alpha_c` from the package's own
+    `momentum_compaction` — and xtrack's 6D `twiss` closed orbit confirms it to seven
+    digits as well. The solve is a secant on the tracked `zeta` slip, deliberately *not*
+    the closed form, so the two stay independent. **No 6D closed-orbit solver was built**
+    — see the deferral below.
+
+  - **It is not a rounding correction, and the slope inside it is not `G gamma`.**
+    `delta_co` moves the spin tune by `5.4e-7`, five percent of the distance at the closest
+    point of the resonance scan, and it biases the *whole* scan the same way — so the pole
+    would still have looked like a clean straight line, just one aimed slightly off `Q_s`.
+    The obvious coefficient is wrong too: `d nu_0/d delta` is **`0.7003 G gamma`**, 43%
+    below the naive guess, and it is `0.7003` with the vertical bump on *or off* — a
+    property of the arc (dispersion through the quadrupoles, path length through the
+    dipoles), not of the distortion. The gate measures it rather than quoting `G gamma`.
+
+  - **The two-sided gate is the bump, not the frequency, and the frequency guess was
+    wrong.** Changing the RF frequency changes the bucket width and nothing else: accsim's
+    cavity phase is `phi_s - k zeta` with no turn counter, so the RF is locked to the
+    *reference* revolution and both `zeta_co` and `delta_co` are frequency-independent.
+    What turns the effect off is the orbit distortion that lengthens the ring — bump at
+    zero, `delta_co == 0.0` exactly, asserted with `==`. It scales as the bump amplitude
+    **squared** (fitted exponent within `0.02` of 2), because a path length is even in the
+    orbit angle.
+
+  - **The headline held: the imperfection resonance acquires synchrotron sidebands.** With
+    RF the orbital spectrum is `exp(+-2 pi i Q_x)`, `exp(+-2 pi i Q_y)`,
+    `exp(+-2 pi i Q_s)` — the doubled eigenvalue `1` is gone — and the Sylvester equation's
+    poles move to `nu_0 = k +- Q_s` as well. On N2's bump ring with `Q_s = 0.0505`:
+    `1/|N E_s|` extrapolates to `Q_s` within `1e-6`, and across three decades `|N E_s|`
+    runs over a factor of `1000` while the residue `|N E_s| . 2|sin(pi (nu_0 - Q_s))|` is
+    constant to `0.2%`; all four alternative denominators are excluded by a factor of `20`.
+    The lower sideband `k - Q_s` is a separate pole and is gated separately. At the far end
+    (`1e-2`) a non-resonant background is still worth `19%` — named, and asserted at that
+    size, rather than swallowed by a tolerance.
+
+  - **The energy knob is no longer clean, and mode identification needed a new rule.**
+    N4's scan rested on the beam energy moving `nu_0` and nothing else. With a cavity
+    `Q_s^2 ~ 1/E` moves the *target*, and `Q_x` picks up a `+4.1e-3` synchro-betatron shift
+    through `R56 . R65`, so the scan energy is solved **self-consistently**; `Q_y` is the
+    one tune that does not move, and all three are asserted. Separately, N4's "which plane
+    does the eigenvector live in" rule fails with three modes — on a dispersive ring the
+    *horizontal* eigenvector's largest component is `zeta` — and the first version of this
+    scan found no pole at all because of it. The rule that works: the synchrotron mode is
+    the one with the largest `|delta|`.
+
+  - **The primary gate is now tracking, and it is sharper than the one it replaces.** N4's
+    identity `N (D, 0, 1) = d/ddelta [n_0 closed at delta]` does not exist here. What
+    replaces it is the definition: launch at `x` with spin `n_0 + N x`, track, and require
+    the spin to still be `n_0 + N x(turn)` forty turns later. Because that is a
+    *first-order* statement, the **relative** residual falls linearly with the amplitude
+    for a correct `N` (`5.6e-4, 5.6e-5, 5.6e-6`) and sits at a constant `f` for one wrong
+    by a fraction `f`. It reads a wrong matrix off directly rather than through a
+    tolerance. A second, weaker anchor is continuity onto the RF-free field: the new `zeta`
+    column and the shift in `dn/ddelta` both vanish as `Q_s^2`, gated as a fitted exponent
+    (`2.09, 2.03, 2.01`) because a linear-in-`Q_s` correction rides on the quadratic law.
+
+  - **The pre-commitment was REFUTED, and the milestone is bigger for it.** Written down
+    before measuring: with no eigenvalue `1` left, xtrack's momentum column should come
+    into line at the `1e-8` its betatron columns reach. It does not. N4's `2e-6` gap is
+    unchanged (it is reproduced here at `1.8e-6` on N4's own ring), and a **new**
+    disagreement appears that is zero without RF, grows as `Q_s^2`, and reaches **14%** on
+    the gate ring — the `zeta` and `delta` columns differing by a constant factor `1.1434`,
+    the horizontal ones by `1.14` through the dispersion, the vertical ones not at all.
+
+  - **Whose gap it is, decided outside both codes' spin-field machinery.** The invariance
+    test above, run in **xtrack's own tracker**: xtrack's own matrix sits at `3.56%` at
+    every amplitude — a first-order error — while accsim's falls with the amplitude.
+    accsim's tracker returns the same verdict, so there is no configuration in which the
+    reference's matrix is the invariant one. And the gap is **downstream of everything the
+    two codes agree on**: differencing xtrack's own map gives `D` matching accsim's to
+    `1.6e-9` and `R` to `1.2e-10`; the mode-by-mode construction transcribed from xtrack's
+    own source reproduces accsim's Sylvester solve to `7.6e-11` (the two formulations are
+    one equation, confirmed numerically rather than argued); and feeding **xtrack's** `D`
+    and `R` through it returns *accsim's* matrix to `1.0e-7`, three orders inside the `14%`
+    at issue. The
+    error enters somewhere after that, in the stage where xtrack rescales its
+    eigenvectors, tracks them at finite amplitude and reassembles
+    `NN = EE_spin @ inv(EE_orb)` — *which* of those steps is not determined, and is not
+    claimed. One mechanism is **excluded** by data
+    already taken — cancellation would grow as the resonance is approached, and the
+    discrepancy is flat in the tune distance — and no other is claimed.
+
+  - **A sixth silent switch on the reference side, and the first that is a documented
+    convention rather than a default.** xtrack's RF kernel uses
+    `q = fabs(q0) * charge_ratio` (`track_rf.h`) — the **absolute** charge — while accsim's
+    `RFCavity` multiplies by the signed `ref.charge`. For an electron the two cavities are
+    exact negatives, so the correspondence is `phase = phi_s + pi`, not `phase = phi_s`.
+    With the naive mapping the xtrack line is longitudinally **unstable** (eigenvalues
+    `1.373` and `0.728`) and its 6D `twiss` dies inside the normal form with `Invalid n3` —
+    loudly, which is the only reason this one did not become a quiet wrong number.
+    `rfcavity.py` claimed the conventions simply matched; it now states the caveat, as does
+    `docs/CONVENTIONS.md`, which also gains the correction that **which** stationary phase
+    is stable depends on the sign of the charge (every ring on axis N is an electron ring
+    above transition at `phi_s = 0`, the opposite of the proton rule the file stated).
+
+  - **The same degeneracy, for the third time on this axis.** N3 found xtrack's `twiss`
+    unable to do an exactly flat ring; N4 explained it as `inv(I - A)` being singular for
+    every ring; and a genuine 6D Newton solve is singular on an *RF-free* ring for the
+    third instance of it — `zeta` and `delta` are both eigenvalue-`1` directions of
+    `I - J`. That is why `closed_orbit_delta` returns `0.0` on an unbunched ring by an
+    explicit guard rather than by solving, and it is what keeps N1–N4 exactly where they
+    were.
+
+  - **Deferred, named, with its gate.** A genuine **6D closed orbit** — the fixed point in
+    all six coordinates, which a ring with `phi_s != 0` or with radiation *tracked* needs,
+    where `zeta_co != 0` because the cavity has to make up the turn's energy loss. Nothing
+    in this milestone exercises it (`phi_s = 0`, and the polarization route integrates
+    radiation analytically rather than tracking it), so building it here would have been a
+    feature no gate touches. Its gate already exists in closed form: `zeta_co` is where
+    `q V [sin(phi_s - k zeta) - sin(phi_s)] = U_0`, with `U_0` the package's own
+    `energy_loss_per_turn`, and xtrack's 6D `twiss` closed orbit as the arbiter.
+
+  - **Scope, stated.** The Derbenev-Kondratenko `11/18` stays anchored where **N4**
+    anchored it — on an unbunched ring, where the two codes' fields agree. N5's
+    polarization comparison inherits the field disagreement (`-0.00569` against `-0.00747`)
+    and is recorded as such rather than used as a physics check. The sideband pole here is
+    a *first-order* one; the higher-order sideband hierarchy of the literature is not in
+    scope.
+
+  Gates: `tests/analytic/test_spin_sidebands.py` (19),
+  `tests/reference/test_spin_sidebands_xtrack.py` (10). The full analytic suite is
+  **1229 passed**, against 1210 after N4 — the whole difference is this milestone's own
+  file, so nothing on axes A–M or in N1–N4 moved, including the three files N5 edited
+  (`orbit.py`'s new solve, `spin.py`'s `delta = None` default, and `rfcavity.py`'s
+  corrected docstring).
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
