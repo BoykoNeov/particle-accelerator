@@ -103,6 +103,15 @@ def _xtrack_element(elem):
 
 
 def _build(lattice, q0: float = -1.0):
+    """The xtrack twin of ``lattice``, at **``lattice``'s own energy**.
+
+    The reference momentum is read off ``lattice.ref`` rather than taken from this
+    module's ``P0C``. On N3's rings the two are the same number and it makes no
+    difference; on N4's they are not, because that milestone's only knob is the beam
+    energy (``nu_0 = G gamma``), and a hard-coded ``p0c`` would have quietly compared a
+    resonance-tuned accsim ring against a 5 GeV xtrack one -- the two codes agreeing to
+    nine digits on everything except the one quantity the milestone is about.
+    """
     elements = [_xtrack_element(e) for e in lattice.elements]
     line = xt.Line(elements=elements, element_names=[f"e{i}" for i in range(len(elements))])
     # Two xt.Particles defaults that are wrong here, both silently. anomalous_magnetic_moment
@@ -111,7 +120,11 @@ def _build(lattice, q0: float = -1.0):
     # and the polarization comes back pointing the wrong way -- see
     # test_the_charge_is_the_fifth_silent_switch_on_the_xtrack_side.
     line.particle_ref = xt.Particles(
-        mass0=MASS0, p0c=P0C, q0=q0, anomalous_magnetic_moment=G, spin_y=1.0
+        mass0=lattice.ref.mass_eV,
+        p0c=math.sqrt(lattice.ref.total_energy_eV**2 - lattice.ref.mass_eV**2),
+        q0=q0,
+        anomalous_magnetic_moment=G,
+        spin_y=1.0,
     )
     line.configure_spin("auto")  # without it the kernel compiles with spin off
     try:
