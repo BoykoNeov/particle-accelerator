@@ -5277,6 +5277,111 @@ slices. This is convergence at the trapezoid's own order, **not** a physics gap
 between the analytic and tracked routes; raise `slices` when comparing against a
 reference at better than `1e-4`.
 
+## Second-order dispersion (M3 — implemented)
+
+`second_order_dispersion()` reports the off-momentum closed orbit's Taylor expansion
+to second order at every element boundary:
+
+```
+x_co(delta) = disp_x * delta + 1/2 * ddisp_x * delta^2 + ...
+```
+
+`disp_*` are `d(x, px, y, py)/ddelta` — the same quantity as `Twiss.disp_*`, but
+measured on the **tracked** orbit rather than solved for from the linear maps.
+`ddisp_*` are the **full** second derivatives `d^2(x, px, y, py)/ddelta^2`, matching
+`xtrack`'s `ddx` / `ddpx` / `ddy` / `ddpy` — *not* half of them.
+
+### Two codes, two conventions, and neither is guessable
+
+- **xtrack's `ddx` is the full second derivative.** Pinned by twice-differencing
+  xtrack's *own* `x` at three momenta and reading the ratio to its reported column:
+  `1.0`, decisively not `0.5`.
+- **MAD-X's `DDX` is the `pt^2` coefficient**, i.e. half a second derivative *and* in
+  the energy variable rather than the momentum one. With
+  `pt = beta0*delta + beta0*delta^2/(2*gamma0^2)` and `x = DX*pt + DDX*pt^2`:
+
+  ```
+  DDX = (d^2x/ddelta^2 - (dx/ddelta)/gamma0^2) / (2*beta0^2)
+  ```
+
+  Reading `DDX` as a plain `1/2 d^2x/ddelta^2` is wrong by
+  `|1 - (dx/ddelta)/(d^2x/ddelta^2)| / (beta0*gamma0)^2` — **4.6e-4** at `gamma0 = 20`,
+  small enough to pass for round-off, and **7.6e-3** at `gamma0 = 5`. The reference
+  suite runs both energies for exactly that reason: the error moves with the beam
+  energy, so a single-ring fit cannot masquerade as agreement. After the transform,
+  MAD-X and accsim agree to **2e-7**. This is consistent with the first-order
+  convention already recorded above (`DX = (1/beta0) dx/ddelta`) — both orders live in
+  the same momentum variable.
+
+### MAD-X renormalises `PX` at non-zero `DELTAP`
+
+Sampling MAD-X's own table at three `DELTAP` values — the trick M1 and M2 used to
+check its tunes without trusting a `DD` column — works for `X` and is **silently
+wrong for `PX`**. MAD-X divides the transverse momentum by the shifted reference
+momentum, so the second difference returns
+
+```
+d^2/ddelta^2 [ px/(1+delta) ] = d^2px/ddelta^2 - 2 dpx/ddelta
+```
+
+which on the M1 arc is `-0.3083` where the true derivative is `+0.4381` — the wrong
+**sign**, not merely the wrong size. Asserted in the reference suite rather than
+merely avoided.
+
+### The drift model does not reach this quantity, and the roadmap said it would
+
+M2 established that accsim's exact `Drift` and xtrack's/MAD-X's paraxial one give
+`Q''` values 5% apart on a ring that bends. The roadmap pre-committed that a `ddx`
+cross-check would therefore have to force `xt.Drift(model="exact")`. **It does not.**
+The two drift models place the closed orbit in different places only at
+`O(delta^3)` — measured on M2's minimal ring as a ratio held fixed to `1e-2` over
+three decades of `delta`, i.e. a pure cubic — and a symmetric second difference of an
+**odd** function is exactly zero. Inside xtrack, switching drift models moves `ddx` in
+the ninth significant digit while moving `ddqx` by 5%.
+
+Why one and not the other: the exact drift exceeds the paraxial one by the relative
+factor `(px^2 + py^2)/(2*(1+delta)^2)`, so the *displacement* difference is
+`O(px^3) = O(delta^3)`. `Q''` differentiates the **Jacobian** about the orbit, and
+`d/dpx` of that term is `O(px^2) = O(delta^2)` — one order lower, and squarely on a
+second derivative. **The orbit and the optics about it are separate objects, and a
+map difference can land on one and not the other.**
+
+### A linear-matrix machine has no second-order dispersion at all
+
+Every `Element.matrix()` in this package is `delta`-independent, so the *affine*
+closed orbit is exactly `D*delta` and its second derivative is identically zero. What
+`second_order_dispersion()` returns is, in full, the difference between the map a
+particle follows and the matrix used to describe it — which makes it a cross-check of
+the exact maps (L1–L4) rather than a re-reading of the linear ones.
+
+### `tol` is tighter than the orbit solve's own default, and it is measurable
+
+A second difference divides by `delta^2`, so `closed_orbit_nonlinear`'s default
+`tol = 1e-14` lands as **~6e-9** of noise in `ddisp_x` at the default step — a third
+of the truncation error, for nothing. At `tol = 1e-15` Newton's last step takes the
+orbit to `~1e-19` and the noise disappears under the truncation. Truncation is
+`(d^4x/ddelta^4)/12 * delta^2`; on M2's minimal ring the two cross near
+`delta ~ 7e-5`, and the default `1e-3` sits in the truncation-dominated region where
+the analytic suite's convergence-order gate is meaningful.
+
+### It is defined where the chromatic functions are not
+
+`chromatic_functions()` differentiates a Courant-Snyder `beta`, which an x-y coupled
+lattice does not have, so it raises `CoupledLatticeError`. A closed orbit exists all
+the same: `second_order_dispersion()` routes through `propagate_orbit_nonlinear`, not
+through the on-orbit Twiss, and a skew quadrupole standing at horizontal dispersion
+gives the orbit a **vertical** second-order dispersion at both orders.
+
+### What drives it: the sextupole exponent is one, where `Q''`'s is two
+
+A sextupole at dispersion `D` sees `D*delta` and gives back a dipole kick
+`-1/2 k2l (D delta)^2` — second order in `delta`, first order in `k2l`. So it lands on
+`ddisp_x` **linearly** (measured ratio `2.0000` per doubling of `k2l`). The same
+feed-down reaches `Q''` only as a *gradient*, which is first order in `delta` and so
+needs the perturbation twice: `Q''` goes as `k2l^2` (M1 measured `2.02`). One element,
+two quantities, two different powers — the pair is the gate, because a uniformly
+mis-scaled sextupole kick would be invisible to a tolerance on either.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,

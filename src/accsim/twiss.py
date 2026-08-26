@@ -1632,3 +1632,123 @@ def second_order_chromaticity(
         (qp[0] - 2.0 * q0[0] + qm[0]) / (d * d),
         (qp[1] - 2.0 * q0[1] + qm[1]) / (d * d),
     )
+
+
+# ---------------------------------------------------------------------------
+# M3: second-order dispersion — where the off-momentum orbit is, past the line
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SecondOrderDispersion:
+    r"""The off-momentum closed orbit's Taylor expansion in ``delta``, to second order.
+
+    Linear dispersion says the orbit moves *proportionally* to the momentum error.
+    It does not: ``x_co(delta) = disp_x delta + 1/2 ddisp_x delta^2 + ...``, and this
+    object carries both coefficients at one point ``s``.
+
+    ``disp_x``/``disp_px``/``disp_y``/``disp_py`` [m, rad, m, rad] are
+    ``d(x, px, y, py)/ddelta`` — the same quantity as :class:`Twiss`'s ``disp_*``,
+    but *measured on the tracked orbit* rather than solved for from the linear maps.
+    ``ddisp_*`` are the second derivatives ``d^2(x, px, y, py)/ddelta^2``, in
+    ``[m, rad, m, rad]`` again.
+
+    **Full second derivative, not half of it**, matching ``xtrack``'s ``ddx`` /
+    ``ddpx`` / ``ddy`` / ``ddpy``. MAD-X's ``DDX`` is a *different* number — it is
+    the coefficient of ``pt^2`` in an expansion in the **energy** deviation, so it
+    is half of this after a change of variables; the exact relation is pinned in
+    ``tests/reference/test_second_order_dispersion_madx.py`` and recorded in
+    ``docs/CONVENTIONS.md`` -> *Second-order dispersion*.
+
+    This is a property of the **orbit**, not of the optics about it, which is what
+    makes it defined on a lattice where :func:`chromatic_functions` is not: an x-y
+    coupled ring has no Courant-Snyder ``beta`` to differentiate, but it certainly
+    has a closed orbit, and a skew quadrupole sitting at horizontal dispersion gives
+    that orbit a *vertical* second-order dispersion.
+    """
+
+    s: float
+    disp_x: float
+    disp_px: float
+    disp_y: float
+    disp_py: float
+    ddisp_x: float
+    ddisp_px: float
+    ddisp_y: float
+    ddisp_py: float
+
+
+def second_order_dispersion(
+    lattice: Lattice,
+    *,
+    delta: float = 1e-3,
+    tol: float = 1e-15,
+    step: float = 1e-8,
+) -> list[SecondOrderDispersion]:
+    r"""``d^2(x, px, y, py)/ddelta^2`` (and the first derivative) at every boundary.
+
+    Central-differences the **tracked** closed orbit
+    (:func:`~accsim.orbit.propagate_orbit_nonlinear`) at ``+delta``, ``0`` and
+    ``-delta``. Every source of curvature the package models is therefore included
+    at once and none is put in by hand: the bend's own ``1/(1+delta)`` stiffness, the
+    thick quadrupole's ``k1/(1+delta)`` (L2), the exact drift and sector bend (L1,
+    L3), and a sextupole's feed-down at the dispersion orbit it sits on.
+
+    **A linear-matrix machine has none of this.** Every ``Element.matrix()`` in this
+    package is ``delta``-independent, so the *affine* closed orbit is exactly
+    ``D delta`` and its second derivative is identically zero. What this function
+    returns is, in full, the difference between the map a particle follows and the
+    matrix used to describe it — which is why it is a cross-check of the exact maps
+    rather than a re-reading of the linear ones.
+
+    Returns ``len(lattice) + 1`` points, aligned with :func:`propagate_twiss`.
+
+    ``delta`` is the momentum step, not a tolerance. Truncation is ``O(delta^2)``
+    (the fourth derivative over twelve) and closed-orbit noise enters as
+    ``1/delta^2``, so the useful range is bounded at both ends; the analytic suite
+    gates the **order** — halving ``delta`` quarters the residual against a
+    sixty-digit answer — rather than a value at one step.
+
+    ``tol`` is tighter than :func:`~accsim.orbit.closed_orbit_nonlinear`'s own
+    default **on purpose, and the difference is measurable**: a second difference
+    divides by ``delta^2``, so that function's ``1e-14`` would land as ``~6e-9`` of
+    noise in ``ddisp_x`` at the default step — a third of the truncation error, for
+    nothing. At ``1e-15`` Newton's last step takes the orbit to ``~1e-19`` and the
+    noise disappears under the truncation. ``step`` is the Jacobian step of the same
+    solve.
+
+    **The drift model does not matter here, and that is the milestone's finding.**
+    accsim's :class:`~accsim.elements.drift.Drift` is exact where xtrack's default
+    and MAD-X's are paraxial, and M2 showed that splits ``Q''`` by 5% on a ring with
+    bends. It does **not** split this: the two drift models put the closed orbit in
+    different places only at ``O(delta^3)``, and a symmetric second difference of an
+    odd function is exactly zero. The split reaches ``Q''`` because ``Q''`` is a
+    property of the *Jacobian* about the orbit, where the same ``O(px^3)`` term
+    contributes one order lower. So all three codes agree on this quantity to
+    ``~1e-7`` where they disagreed by 5% on the other — see M3 in ``docs/ROADMAP.md``.
+
+    Raises :class:`~accsim.orbit.ClosedOrbitError` or
+    :class:`~accsim.orbit.OrbitConvergenceError` through the orbit solve. Unlike
+    :func:`chromatic_functions` it does **not** require an uncoupled lattice.
+    """
+    from .orbit import closed_orbit_nonlinear, propagate_orbit_nonlinear
+
+    d = _chromatic_step(delta)
+
+    def _orbit(value: float) -> np.ndarray:
+        o0 = closed_orbit_nonlinear(lattice, delta=value, tol=tol, step=step)
+        return np.array(propagate_orbit_nonlinear(lattice, o0, delta=value))
+
+    plus, centre, minus = _orbit(+d), _orbit(0.0), _orbit(-d)
+    first = (plus - minus) / (2.0 * d)
+    second = (plus - 2.0 * centre + minus) / (d * d)
+
+    out: list[SecondOrderDispersion] = []
+    s = 0.0
+    for i in range(len(lattice.elements) + 1):
+        if i:
+            s += lattice.elements[i - 1].length
+        out.append(
+            SecondOrderDispersion(s, *(float(v) for v in first[i]), *(float(v) for v in second[i]))
+        )
+    return out

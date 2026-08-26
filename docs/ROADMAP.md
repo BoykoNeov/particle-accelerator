@@ -513,8 +513,11 @@ answer while xtrack's default converges onto the paraxial one, and switching xtr
 `Drift(model="exact")` collapses the whole 5% gap to nine-digit agreement. M1's inference
 was valid reasoning from a false premise: it had compared exactly one element (the dipole)
 and generalised, and the drift went unchecked because L1 had shipped it exact — which
-validated its *map*, not its agreement with a reference's *default configuration*. With M2
-closed, only M3 remains written on this axis.** B4 gave a radiating bunch
+validated its *map*, not its agreement with a reference's *default configuration*. **M3
+shipped the same day and closed the axis** — second-order dispersion, where M2's finding
+does *not* apply: the drift model reaches the orbit only at the third power of `delta`, so
+all three codes agree on `ddx` to `2e-7` where they split `Q''` by 5%, and MAD-X is
+reconciled rather than named for the first time on this axis.** B4 gave a radiating bunch
 somewhere to die — a momentum acceptance — so that Stage 4's year-old `quantum_lifetime`
 became something the tracking *produces* rather than something the design route quotes.
 Its pre-committed headline turned out to be **wrong**, and the correction is the result:
@@ -2721,18 +2724,81 @@ D3, MAD-X).
     documented models, and a future change that quietly removed it would mean accsim
     had stopped being exact.
 
-- **M3 (candidate) — second-order dispersion.** `ddx`, `ddy`, `ddpx`, `ddpy`: where
-  an off-momentum particle sits, past the straight-line term. A different object
-  from M1 (it needs bends to be non-trivial, and it is a property of the orbit
-  rather than of the optics about it), and it is already half-measured — M1's
-  reference suite pins accsim's off-momentum closed orbit against xtrack's to `1e-9`
-  at `delta = +/-1e-3`, which is precisely the finite difference `ddx` is built
-  from. `xtrack`'s `ddx` and MAD-X's `DDX` are both available as arbiters. It was deferred
-  behind M2 so as not to inherit that milestone's ambiguity; **M2 has now closed, and
-  closed in a way that matters here** — a second-order orbit quantity on a dispersive
-  ring is exactly what the drift model moves, so any `ddx` cross-check must set
-  `xt.Drift(model="exact")` or it will reproduce M1's disagreement in a new place.
-  M3 is now the only written candidate left on axis M. Effort **S**.
+- **M3 — second-order dispersion.** ✅ **SHIPPED (2026-08-26)** — `second_order_dispersion()`
+  gives `ddisp_x`, `ddisp_px`, `ddisp_y`, `ddisp_py` (and the first-order pair, free from
+  the same three orbits) at every element boundary: where an off-momentum particle sits
+  once the straight-line term is used up. It is a second difference of the **tracked**
+  closed orbit, so it is a cross-check of the exact maps rather than a re-reading of the
+  linear ones — every `Element.matrix()` in this package is `delta`-independent, so a
+  purely affine machine has *no* second-order dispersion at all.
+
+  **The milestone's pre-committed warning was wrong, and overturning it is the result.**
+  M2's entry above told M3 that "a second-order orbit quantity on a dispersive ring is
+  exactly what the drift model moves, so any `ddx` cross-check must set
+  `xt.Drift(model="exact")`". It must not, and the reason is one power of `delta`.
+
+  - **The drift model is invisible here.** The exact and paraxial drifts place the closed
+    orbit in different positions only at `O(delta^3)` — measured on M2's own minimal ring
+    as a ratio held fixed to `1e-2` over three decades of `delta`, i.e. a pure cubic — and
+    a symmetric second difference of an **odd** function is exactly zero. Inside xtrack,
+    on one line with only `xt.Drift`'s `model` changed, `ddx` moves in the **ninth**
+    significant digit while `ddqx` moves by **5%**. The arbiter says the same thing with
+    no reference code in the room: its exact-drift and paraxial-drift `ddx` agree to
+    `1e-15` while its `Q''` differs by `1.4e-2`.
+  - **Why one and not the other, in one sentence.** The exact drift exceeds the paraxial
+    one by the relative factor `(px^2+py^2)/(2(1+delta)^2)`, so the *displacement*
+    difference is `O(px^3) = O(delta^3)`; `Q''` differentiates the **Jacobian** about the
+    orbit, and `d/dpx` of that same term is `O(delta^2)` — one order lower, and squarely
+    on a second derivative. The orbit and the optics about it are separate objects, and a
+    map difference can land on one and not the other. M1 had already called `ddx` "a
+    different object from `Q''`"; it is more different than M1 or M2 supposed.
+  - **All three codes agree, where all three disagreed on `Q''`.** accsim matches xtrack
+    element by element around a bendy ring to `2e-6` relative — on **either** of xtrack's
+    drift models — and MAD-X to `2e-7` after the change of momentum variable. The same
+    ring, the same two references, split `Q''` three ways by 5%.
+  - **MAD-X is reconciled rather than named, for the first time on this axis.** Its `DDX`
+    is the `pt^2` coefficient — half a second derivative *and* in the energy variable:
+    `DDX = (d²x/dδ² − (dx/dδ)/γ₀²)/(2β₀²)`. Reading it as a plain `½ d²x/dδ²` is wrong by
+    `4.6e-4` at `γ₀ = 20`, which passes for round-off, and by `7.6e-3` at `γ₀ = 5`. Both
+    energies are run, because the error *moves with the beam energy* and a single-ring fit
+    could not distinguish a convention from a coincidence. M1 and M2 both ended with MAD-X
+    permanently out of reach on `Q''` (its TWISS drift is paraxial and cannot be changed);
+    that obstacle simply does not exist here.
+  - **A trap found on the way: MAD-X renormalises `PX` at non-zero `DELTAP`.** Sampling
+    its own table at three `DELTAP` values — the trick M1 and M2 used to check its tunes
+    without trusting a `DD` column — works for `X` and is silently wrong for `PX`, which
+    comes back divided by the *shifted* reference momentum. The second difference returns
+    `d²px/dδ² − 2 dpx/dδ`: `-0.3083` where the true derivative is `+0.4381`, the wrong
+    **sign**. Asserted in the reference suite rather than merely avoided.
+  - **A second derivation, with no bend anywhere in the ring.** Momentum enters a
+    *paraxial* drift only as `L → L/(1+delta)`, and a thin quadrupole's kick and a
+    corrector's kick carry no momentum dependence at all — so a thin-lens corrector ring's
+    closed orbit is a **rational function of `delta`**, and sympy produces its `ddx` in
+    exact arithmetic, no floating point and no iteration. accsim's exact drift departs
+    from that closed form at the **third** power of the kick angle (measured ratio `27.0`
+    per tripling), which is the discriminating gate: a uniformly mis-scaled second-order
+    dispersion would show a residual growing like `theta` and would pass any tolerance
+    chosen on one ring. A *symmetric* thin FODO with the kick at the entrance is
+    degenerate — sympy returns a numerator of degree one, so its `ddx` is not small but
+    **identically zero** — which is kept as a control that no spurious additive term can
+    hide behind.
+  - **The value gate reuses M2's arbiter rather than adding a claim.** `dispersion_orders()`
+    differentiates the same sixty-digit fixed point M2's `Q''` came from; accsim converges
+    onto it at second order in the step (halving `delta` quarters the residual, over two
+    halvings). The arbiter's hand-written **drift** — unpinned by M2, which was safe while
+    the *bend* carried the answer — is now pinned against accsim's `Drift` directly, since
+    the drift is the element this milestone is about.
+  - **It is defined where M1's object is not.** `chromatic_functions()` differentiates a
+    Courant-Snyder `beta` and refuses an x-y coupled lattice; a closed orbit exists all the
+    same, and a skew quadrupole standing at horizontal dispersion gives the orbit a
+    *vertical* second-order dispersion. Routing through the tracked orbit rather than the
+    on-orbit Twiss is what buys that, and it is asserted rather than left to accident.
+  - **`tol` is tighter than the orbit solve's own default on purpose.** A second difference
+    divides by `delta²`, so `closed_orbit_nonlinear`'s `1e-14` would land as `~6e-9` of
+    noise at the default step — a third of the truncation error, for nothing. `1e-15` takes
+    the orbit to `~1e-19` and the noise disappears underneath.
+
+  **Axis M is now closed**: no written candidate remains on it.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

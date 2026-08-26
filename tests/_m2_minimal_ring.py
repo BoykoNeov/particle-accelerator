@@ -250,3 +250,53 @@ def design_traces(*, exact_drift: bool = True) -> dict[str, float]:
     """On-momentum ``Tr M`` per plane, for the stability guard."""
     with mp.workdps(DPS):
         return {p: float(v) for p, v in one_turn_traces(mpf(0), exact_drift=exact_drift).items()}
+
+
+# ---------------------------------------------------------------------------
+# M3: the same ring's dispersion orders, derived the same way
+# ---------------------------------------------------------------------------
+
+
+@functools.lru_cache(maxsize=32)
+def dispersion_orders(*, exact_drift: bool, angle: float = ANG) -> dict[str, float]:
+    """First and second ``delta``-derivatives of the closed orbit, to twenty digits.
+
+    ``D_x = dx/ddelta``, ``dd_x = d^2x/ddelta^2`` and the same for ``px``. Built from
+    the same sixty-digit fixed point :func:`second_order_chromaticity` differentiates,
+    which is what makes M3's gate an extension of M2's rather than a new claim.
+
+    Both drift models are offered for symmetry with everything else here, and the
+    striking result is that they return the **same** numbers: the exact and paraxial
+    drifts place the closed orbit differently only at ``O(delta^3)``
+    (:func:`drift_model_orbit_split`), and a symmetric second difference cannot see an
+    odd function.
+    """
+    with mp.workdps(DPS):
+        plus = closed_orbit(+STEP, exact_drift=exact_drift, angle=angle)
+        zero = closed_orbit(mpf(0), exact_drift=exact_drift, angle=angle)
+        minus = closed_orbit(-STEP, exact_drift=exact_drift, angle=angle)
+        out = {}
+        for name, i in (("x", 0), ("px", 1)):
+            out[f"D_{name}"] = float((plus[i] - minus[i]) / (2 * STEP))
+            out[f"dd_{name}"] = float((plus[i] - 2 * zero[i] + minus[i]) / STEP**2)
+        return out
+
+
+@functools.lru_cache(maxsize=32)
+def drift_model_orbit_split(delta_exp: int, *, angle: float = ANG) -> dict[str, float]:
+    """``(exact - paraxial)`` closed orbit at ``delta = 10^delta_exp``, and over ``delta^3``.
+
+    The ratio is what carries the finding: it is the *same* number over three decades
+    of ``delta``, so the split is a pure cubic and contributes nothing to a second
+    derivative.
+    """
+    with mp.workdps(DPS):
+        d = mpf(10) ** delta_exp
+        xe, pe = closed_orbit(d, exact_drift=True, angle=angle)
+        xp, pp = closed_orbit(d, exact_drift=False, angle=angle)
+        return {
+            "dx": float(xe - xp),
+            "dpx": float(pe - pp),
+            "dx_over_delta3": float((xe - xp) / d**3),
+            "dpx_over_delta3": float((pe - pp) / d**3),
+        }
