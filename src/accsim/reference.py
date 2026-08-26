@@ -18,6 +18,16 @@ from dataclasses import dataclass
 ELECTRON_MASS_EV: float = 0.51099895069e6
 PROTON_MASS_EV: float = 938.27208816e6
 
+# Anomalous magnetic moment G = (g - 2)/2 — the whole of what the spin precession
+# (axis N) needs beyond the kinematics above. It is a *species* property, like the
+# mass, which is why it lives here rather than in :mod:`accsim.spin`; and it is
+# deliberately NOT given a numeric default on :class:`ReferenceParticle`, because a
+# silent ``0`` is exactly the trap ``xt.Particles`` sets — it turns every spin
+# rotation into the cyclotron rotation and the spin tune into zero, without erroring.
+# CODATA 2018 values.
+ELECTRON_ANOMALOUS_MOMENT: float = 1.15965218128e-3
+PROTON_ANOMALOUS_MOMENT: float = 1.79284734463
+
 # Speed of light in vacuum [m/s] — exact by the SI definition. Enters the RF
 # angular wavenumber ``k_rf = 2*pi*f/(beta0*c)`` (Stage 3+).
 CLIGHT: float = 299792458.0
@@ -44,6 +54,17 @@ class ReferenceParticle:
     """Total energy E0 = gamma0 * m c^2 in eV (must be >= mass_eV)."""
     charge: float = 1.0
     """Charge in units of the elementary charge e."""
+    anomalous_moment: float | None = None
+    """Anomalous magnetic moment ``G = (g - 2)/2``, or ``None`` if unset.
+
+    The species property the Thomas-BMT spin precession needs (axis N) and nothing
+    else in the package reads. ``None`` rather than ``0.0`` on purpose: zero is a
+    *physical* value (a Dirac particle, whose spin is locked to its direction of
+    motion — the exact identity N1's sharpest gate is built on), so it cannot double
+    as "not specified". :func:`accsim.spin.anomalous_moment` raises on ``None``,
+    which is what stops a spin track from silently reporting the cyclotron rotation.
+    Pass :data:`ELECTRON_ANOMALOUS_MOMENT` or :data:`PROTON_ANOMALOUS_MOMENT`.
+    """
 
     def __post_init__(self) -> None:
         if self.mass_eV <= 0:
@@ -57,29 +78,66 @@ class ReferenceParticle:
     # --- constructors --------------------------------------------------------
     @classmethod
     def from_total_energy(
-        cls, mass_eV: float, total_energy_eV: float, charge: float = 1.0
+        cls,
+        mass_eV: float,
+        total_energy_eV: float,
+        charge: float = 1.0,
+        anomalous_moment: float | None = None,
     ) -> ReferenceParticle:
-        return cls(mass_eV=mass_eV, total_energy_eV=total_energy_eV, charge=charge)
+        return cls(
+            mass_eV=mass_eV,
+            total_energy_eV=total_energy_eV,
+            charge=charge,
+            anomalous_moment=anomalous_moment,
+        )
 
     @classmethod
     def from_kinetic_energy(
-        cls, mass_eV: float, kinetic_energy_eV: float, charge: float = 1.0
+        cls,
+        mass_eV: float,
+        kinetic_energy_eV: float,
+        charge: float = 1.0,
+        anomalous_moment: float | None = None,
     ) -> ReferenceParticle:
-        return cls(mass_eV=mass_eV, total_energy_eV=mass_eV + kinetic_energy_eV, charge=charge)
+        return cls(
+            mass_eV=mass_eV,
+            total_energy_eV=mass_eV + kinetic_energy_eV,
+            charge=charge,
+            anomalous_moment=anomalous_moment,
+        )
 
     @classmethod
     def from_momentum(
-        cls, mass_eV: float, momentum_eV: float, charge: float = 1.0
+        cls,
+        mass_eV: float,
+        momentum_eV: float,
+        charge: float = 1.0,
+        anomalous_moment: float | None = None,
     ) -> ReferenceParticle:
         """``momentum_eV`` is p0*c expressed in eV."""
         total = math.hypot(momentum_eV, mass_eV)
-        return cls(mass_eV=mass_eV, total_energy_eV=total, charge=charge)
+        return cls(
+            mass_eV=mass_eV,
+            total_energy_eV=total,
+            charge=charge,
+            anomalous_moment=anomalous_moment,
+        )
 
     @classmethod
-    def from_gamma(cls, mass_eV: float, gamma0: float, charge: float = 1.0) -> ReferenceParticle:
+    def from_gamma(cls,
+        mass_eV: float,
+        gamma0: float,
+        charge: float = 1.0,
+        anomalous_moment: float | None = None,
+    ) -> ReferenceParticle:
         if gamma0 < 1:
             raise ValueError(f"gamma0 must be >= 1, got {gamma0}")
-        return cls(mass_eV=mass_eV, total_energy_eV=gamma0 * mass_eV, charge=charge)
+        return cls(
+            mass_eV=mass_eV,
+            total_energy_eV=gamma0 * mass_eV,
+            charge=charge,
+            anomalous_moment=anomalous_moment,
+        )
 
     # --- derived kinematics --------------------------------------------------
     @property

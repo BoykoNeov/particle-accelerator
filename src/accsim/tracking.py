@@ -238,6 +238,30 @@ class Tracker:
             state = elem.track(state, self.lattice.ref, radiation=radiation, rng=rng)
         return state
 
+    def track_once_with_spin(
+        self,
+        state: np.ndarray,
+        spin: np.ndarray,
+        radiation: str = "off",
+        rng: np.random.Generator | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """:meth:`track_once`, carrying a spin alongside — returns ``(state, spin)``.
+
+        ``spin`` is a ``(3,)`` unit vector, or a ``(3, n)`` array matching a ``(6, n)``
+        bunch. The returned state is **bit-for-bit** :meth:`track_once`'s: a spin does
+        not act back on the orbit, so nothing about the 6D motion changes by carrying
+        one. See :mod:`accsim.spin` for the map and for what it deliberately omits
+        (thin elements do not precess, so a thin-lens ring has no spin dynamics at all).
+
+        There is no linear path: a spin rotation is not a 6x6, so there is nothing to
+        hoist out of the turn loop, and the element-by-element walk is the only route.
+        """
+        for elem in self.lattice.elements:
+            state, spin = elem.track_with_spin(
+                state, spin, self.lattice.ref, radiation=radiation, rng=rng
+            )
+        return state, spin
+
     def _track_once(self, state: np.ndarray) -> np.ndarray:
         """Backwards-compatible alias for :meth:`track_once` without radiation."""
         return self.track_once(state)

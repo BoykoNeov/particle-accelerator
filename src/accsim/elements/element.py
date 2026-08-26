@@ -294,23 +294,87 @@ class Element(abc.ABC):
         ``rng`` is required by (and only by) the stochastic radiation models — see
         :data:`accsim.radiation_kick.STOCHASTIC_MODELS`.
         """
+        out, _ = self._track_impl(state, ref, radiation, rng, None)
+        return out
+
+    def track_with_spin(
+        self,
+        state: np.ndarray,
+        spin: np.ndarray,
+        ref: ReferenceParticle,
+        radiation: str = "off",
+        rng: np.random.Generator | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """:meth:`track`, carrying a spin alongside — returns ``(state, spin)``.
+
+        ``spin`` is a ``(3,)`` unit vector, or a ``(3, n)`` array matching a ``(6, n)``
+        bunch, in the same ``(x, y, s)`` axes the state uses. The 6D half is
+        **bit-for-bit** what :meth:`track` returns: a spin does not act back on the
+        orbit, which is why this axis re-baselines nothing. See :mod:`accsim.spin` for
+        the map, and for the two things it deliberately does not do (thin elements do
+        not precess; a rolled *bend* raises).
+
+        A roll rotates the spin into and out of the element's body frame, exactly as it
+        does the transverse coordinates — a rolled quadrupole precesses a spin like the
+        skew quadrupole it is.
+        """
+        return self._track_impl(state, ref, radiation, rng, spin)
+
+    def _track_impl(
+        self,
+        state: np.ndarray,
+        ref: ReferenceParticle,
+        radiation: str,
+        rng: np.random.Generator | None,
+        spin: np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """The shared body of :meth:`track` and :meth:`track_with_spin`.
+
+        One code path, so the two can never disagree about which body-frame states the
+        radiation and the precession are evaluated on. With ``spin=None`` it is
+        :meth:`track` unchanged, down to which arrays get allocated.
+        """
+        from ..spin import rotate_about_s
+
         if not self.is_misaligned:
             out = self._track_body(state, ref)
-            return self._radiate(state, out, ref, radiation, rng)
+            return self._radiate(state, out, ref, radiation, rng), self._precess(
+                state, out, ref, spin
+            )
         state = np.asarray(state, dtype=float)
         if self.roll == 0.0:  # K1: a translation, and nothing to rotate
             d = self.offset()
             d = d if state.ndim == 1 else d[:, None]
             body_in = state - d
             body_out = self._track_body(body_in, ref)
-            return self._radiate(body_in, body_out, ref, radiation, rng) + d
+            return (
+                self._radiate(body_in, body_out, ref, radiation, rng) + d,
+                self._precess(body_in, body_out, ref, spin),
+            )
         M_in, k_in = self._alignment_entry(ref)
         M_out, k_out = self._alignment_exit(ref)
         if state.ndim != 1:
             k_in, k_out = k_in[:, None], k_out[:, None]
         body_in = M_in @ state + k_in
         body_out = self._track_body(body_in, ref)
-        return M_out @ self._radiate(body_in, body_out, ref, radiation, rng) + k_out
+        spin_out = self._precess(
+            body_in, body_out, ref, rotate_about_s(spin, self.roll) if spin is not None else None
+        )
+        if spin_out is not None:
+            spin_out = rotate_about_s(spin_out, -self.roll)
+        return M_out @ self._radiate(body_in, body_out, ref, radiation, rng) + k_out, spin_out
+
+    @property
+    def frame_rotation_angle(self) -> float:
+        """The angle [rad] by which this element turns the **reference frame** about ``y``.
+
+        Zero for every straight element, and :attr:`.dipole.Dipole.angle` for a bend.
+        Nothing in the 6D map needs it — the curvilinear coordinates already have the
+        turn built in — but a **spin** is a vector in that frame, so the frame's own
+        rotation is half of what a dipole does to it (:mod:`accsim.spin`). Its sign is
+        pinned by the ``G = 0`` identity, not chosen.
+        """
+        return 0.0
 
     def normalized_field(
         self, x: np.ndarray | float, y: np.ndarray | float
@@ -343,6 +407,25 @@ class Element(abc.ABC):
         from ..radiation_kick import radiation_kick
 
         return radiation_kick(self, before, after, ref, model, rng)
+
+    def _precess(
+        self,
+        before: np.ndarray,
+        after: np.ndarray,
+        ref: ReferenceParticle,
+        spin: np.ndarray | None,
+    ) -> np.ndarray | None:
+        """The spin seam: a no-op unless a tracking call is carrying a spin.
+
+        Deliberately shaped like :meth:`_radiate` and fed the same body-frame
+        ``before``/``after`` pair, because it needs exactly the same thing — the
+        element's own field along the trajectory it just mapped.
+        """
+        if spin is None:
+            return None
+        from ..spin import spin_precession
+
+        return spin_precession(self, spin, before, after, ref)
 
     def _repr_tail(self) -> str:
         """The trailing ``, name=..., dx=..., dy=..., roll=...`` every element shares.

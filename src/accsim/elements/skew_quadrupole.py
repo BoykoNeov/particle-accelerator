@@ -104,16 +104,26 @@ class SkewQuadrupole(Element):
         r"""The normal quadrupole's field, carried through the same 45 deg roll.
 
         The position is rotated *into* the body frame and the resulting field vector
-        rotated back out, exactly as :meth:`_track_body` does with the map — the same
-        magnet must not have two different fields depending on how it is spelled.
-        ``|b|^2 = k1s^2 (x^2 + y^2)`` is roll-invariant, so a skew quadrupole radiates
-        exactly as much as the normal one it is.
+        rotated back out, through exactly the rotations :meth:`_track_body` uses on the
+        map — ``s_rotation(-45)`` in, ``s_rotation(+45)`` out. ``|b|^2 = k1s^2 (x^2 +
+        y^2)`` is roll-invariant, so a skew quadrupole radiates exactly as much as the
+        normal one it is.
+
+        **This used to roll the other way**, which flipped the field *vector* while
+        leaving its magnitude alone. Nothing could see it: :mod:`accsim.radiation_kick`
+        is the only consumer a field had, and it takes ``|b_perp|``. N1's spin
+        precession is the first thing in the package that needs a field's *direction*,
+        and it found the mismatch immediately — a rolled :class:`.quadrupole.Quadrupole`
+        and this class disagreed on which way a spin turned while agreeing on the orbit
+        to the last bit. ``tests/analytic/test_spin.py`` now gates every straight
+        magnet's field against its own momentum kick, which is the check that was
+        missing rather than the symptom that was found.
         """
         c, s_ = math.cos(_SKEW_ROLL), math.sin(_SKEW_ROLL)
         xa, ya = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
-        xb, yb = c * xa + s_ * ya, -s_ * xa + c * ya  # into the body frame
+        xb, yb = c * xa - s_ * ya, s_ * xa + c * ya  # s_rotation(-45): into the body
         bx_b, by_b = self.k1s * yb, self.k1s * xb
-        return c * bx_b - s_ * by_b, s_ * bx_b + c * by_b
+        return c * bx_b + s_ * by_b, -s_ * bx_b + c * by_b  # s_rotation(+45): back out
 
     def __repr__(self) -> str:
         return f"SkewQuadrupole(length={self.length}, k1s={self.k1s}{self._repr_tail()})"

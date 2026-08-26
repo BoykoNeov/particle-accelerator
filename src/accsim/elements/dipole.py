@@ -581,6 +581,17 @@ class Dipole(Element):
         self.e2 = float(e2)
 
     @property
+    def frame_rotation_angle(self) -> float:
+        """The bend angle — this is the one element that turns the reference frame.
+
+        The 6D map never needs it (curvilinear coordinates have the turn built in), but
+        a **spin** is a vector in that frame, and the frame's own rotation is what turns
+        the BMT rotation ``-(1 + G gamma) theta`` into a net ``-G gamma theta`` — the
+        spin tune. See :mod:`accsim.spin`.
+        """
+        return self.angle
+
+    @property
     def curvature(self) -> float:
         """Curvature ``h = 1/rho = theta/L`` [m^-1] (0 for a straight dipole)."""
         return self.angle / self.length if self.length > 0.0 else 0.0
