@@ -3213,7 +3213,13 @@ Two properties worth stating before the milestones, because they set the axis's 
     the tilt term grows as its square.
 
   Gates: `tests/analytic/test_polarization.py` (21),
-  `tests/reference/test_polarization_xtrack.py` (6).
+  `tests/reference/test_polarization_xtrack.py` (6). The full analytic suite is
+  **1190 passed**, against 1169 after N2 — the whole difference is this milestone's own
+  file, so nothing on axes A–M or in N1/N2 moved. That total also answers the only way
+  this milestone could have reached beyond itself: it added `coords` and
+  `elements.element` imports to `radiation.py`, which already imports `twiss`, and an
+  import cycle there would have surfaced in whichever test imported first rather than in
+  N3's own.
 
 - **N4 (candidate) — depolarization, and the resonance N2 turned out not to be about.**
   What N3 deliberately did not build: the `(11/18) ∮ kappa^3 |dn/ddelta|^2` term that
