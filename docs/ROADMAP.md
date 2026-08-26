@@ -557,15 +557,18 @@ moving the orbit rather than its spin being wrong, and a real sign typo in xtrac
 `direction_of_motion` — asserted with the exponent the mechanism predicts rather than
 dodged.
 
-**N2 and N3 shipped the same day too, and the axis has settled into one shape.** Every
-milestone on it has a headline number that is *degenerate on any ring the package would
-casually build* — N1's spin tune, N2's `n_0 = (0,1,0)`, N3's `P_inf = 8/(5 sqrt3)` — and
-in each case the milestone's real weight moved onto a lattice built to break the
-degeneracy: N2's closed vertical bump, which N3 then reused because it is still the only
-construction in the package that tilts `n_0` at all. The axis's remaining open question,
-the intrinsic resonance `nu_0 = k ± Q_y`, is **N4**: it is a property of the invariant
-spin field of a particle with vertical betatron amplitude, not of `n_0` (N2), and it is
-the same object depolarization is computed from (N3).
+**N2, N3 and N4 shipped the same day too, and the axis closed on the shape it had from
+N1.** Every milestone on it has a headline number that is *degenerate on any ring the
+package would casually build* — N1's spin tune, N2's `n_0 = (0,1,0)`, N3's
+`P_inf = 8/(5 sqrt3)`, N4's `dn/ddelta = 0` — and in each case the milestone's real weight
+moved onto a lattice built to break the degeneracy: N2's closed vertical bump, which N3
+and then N4 reused because it is still the only construction in the package that tilts
+`n_0` at all. The axis's open question through N1–N3, the intrinsic resonance
+`nu_0 = k ± Q_y`, was answered by **N4**: it is not a property of `n_0`, which rides the
+closed orbit and can only resonate at integers, but of the invariant spin *field* around
+it — and it is the same object depolarization is computed from. With it the axis is
+**complete**: the map (N1), the closed solution (N2), the polarization radiation builds
+(N3), and the field and the resonance that destroy it (N4).
 
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
@@ -3221,28 +3224,105 @@ Two properties worth stating before the milestones, because they set the axis's 
   import cycle there would have surfaced in whichever test imported first rather than in
   N3's own.
 
-- **N4 (candidate) — depolarization, and the resonance N2 turned out not to be about.**
-  What N3 deliberately did not build: the `(11/18) ∮ kappa^3 |dn/ddelta|^2` term that
-  fights the buildup, and with it the whole **invariant spin field**. `nu_0 = k ± Q_y` is
-  the *intrinsic* resonance — a property of a particle with vertical betatron
-  **amplitude**, not of `n_0`, which lives on the closed orbit and sees only integer
-  harmonics (see N2, where this was moved rather than quietly dropped). Reaching it means
-  the spin-orbit coupling matrix `∂n/∂(x, px, y, py, zeta, delta)`, whose resonant
-  denominator is `lambda_i I - A` with `lambda_i = e^{2 pi i Q_y}` an orbital eigenvalue.
-  That is the same object depolarization is computed from, and `xtrack` exposes it as
-  `spin_n_matrix`, `spin_eigenvectors` and `spin_dn_ddelta_*` — so the arbiter is in
-  place, `spin_polarization_eq` / `spin_t_pol_buildup_s` are the fields to compare
-  against (N3 deliberately compares against the `_co` / `_component` ones instead), and
-  the gate is again an integer-indexed *location*, now shifted by `Q_y`, separably from a
-  coefficient. Effort **M**.
+- **N4 — the invariant spin field, the intrinsic resonance, and the depolarization it
+  drives.** ✅ **SHIPPED (2026-08-26)** — `spin_orbit_coupling`,
+  `propagate_spin_orbit_coupling`, `SpinOrbitCoupling`, `SpinResonanceError` in
+  `accsim.spin`; `depolarization_integrals`, `derbenev_kondratenko_polarization`,
+  `polarization_time`, `DepolarizationIntegrals` in `accsim.radiation`. What N3
+  deliberately did not build: the `(11/18) ∮ kappa^3 |dn/ddelta|^2` term that fights the
+  buildup, and with it the whole invariant spin field `n(x) = n_0 + N x`. The off-momentum
+  closed spin solution came along the way — `closed_spin_solution(lattice, delta=...)`,
+  because it is what checks the field without using the field's own machinery.
 
-  One thing N3 found that this milestone inherits: **xtrack cannot run its polarization
-  analysis in `method="4d"` on an exactly flat ring.** It inverts `lambda_i I - A` per
-  orbital eigenvector, `4d` leaves an orbital eigenvalue at exactly `1`, and a flat ring's
-  spin matrix `A` is an exact rotation about `y` — so `I - A` has an exactly zero row and
-  `np.linalg.inv` raises `LinAlgError: Singular matrix`. A tilted ring survives only
-  because the same matrix is merely ill-conditioned rather than exactly singular. The
-  degeneracy this axis keeps meeting, arriving once more, this time in the arbiter.
+  - **The whole matrix at once, as a Sylvester equation, and that is the design decision
+    the milestone turns on.** `n_0 + N x` must map to itself under one turn, so
+    `A N - N R = -D` — eighteen linear equations in `N`, solved with
+    `scipy.linalg.solve_sylvester` rather than mode by mode as `xtrack` does. Two
+    reductions, both forced: `n` is a unit vector, so `n_0 . N = 0` *exactly* and the solve
+    happens in the plane perpendicular to `n_0`; the row that drops out is the consistency
+    condition `n_0 . D = 0`, which holds to the `1e-10` differencing accuracy for the same
+    reason. `A` is N2's exact rotation; `R` and `D` are central differences of **one
+    shared** tracked turn, so they cannot disagree about which orbit they were taken on.
+
+  - **That reduction is why accsim can do a flat ring, and it turns N3's observation into
+    a mechanism.** N3 recorded that xtrack cannot twiss an exactly flat ring: it inverts
+    `lambda_i I - A` per orbital eigenvector and `4d` leaves an eigenvalue at exactly `1`.
+    That is not a fact about flat rings — `A n_0 = n_0` by definition, so `I - A` is
+    singular for **every** ring. A tilted ring survives only because xtrack's
+    finite-differenced `A` misses the zero by round-off. Perpendicular to `n_0` the
+    eigenvalue does not exist and there is nothing to invert.
+
+  - **The resonances are the two spectra, and there is nothing else in the equation for
+    them to be.** `A`'s reduced eigenvalues are `exp(∓2 pi i nu_0)`, `R`'s are the
+    betatron/synchrotron ones plus `1`. A Sylvester equation is solvable exactly when the
+    spectra are disjoint, so `N` diverges at `nu_0 = k` (integer — N2's imperfection
+    resonance, via the eigenvalue `1`) and at `nu_0 = k ± Q_x, k ± Q_y, k ± Q_s` (the
+    intrinsic ones). **The roadmap's long-standing `k ± Q_y` lands here, and the milestone
+    gates it as a location**, which is the same shape N2's gate had, shifted by `Q_y`:
+    `1/|N E_y|` is linear near the pole and extrapolates to `Q_y` within `2e-6`, a quarter
+    of a unit from the nearest integer. The residue `|N E_y| · 2|sin(pi (nu_0 - Q_y))|` is
+    constant to 1.5% while `|N E_y|` itself runs over a factor of thirty, and **both**
+    alternative denominators — `sin(pi nu_0)` and `sin(pi (nu_0 + Q_y))` — are asserted
+    excluded at a factor of twenty. The separation from N2 is asserted too: across that
+    scan `n_0`'s tilt is *monotone* (a pole cannot be) and the spin tune tracks what it was
+    set to.
+
+  - **A fourth degeneracy, and it is exact.** A flat ring has no vertical orbit, so nothing
+    on it ever makes a horizontal field, so every rotation is about `y` — and a `delta`
+    perturbation only changes how *fast* a spin turns about the axis it already lies along.
+    `dn/ddelta = 0` identically, both new integrals are `0.0`, and `P_eq == P_inf` bit for
+    bit. Asserted with `==`, because a milestone whose gate ring were accidentally flat
+    would otherwise pass everything by returning N3's answers.
+
+  - **The one gate that does not use the solve, and it is the primary one.** Without RF,
+    `delta` is exactly conserved, so `R`'s eigenvalue-`1` direction *is* the dispersion and
+    a particle on it sits on the closed orbit of a different momentum. Hence
+    `N (D, 0, 1) = d/ddelta [n_0 closed at delta]`, whose right-hand side is reached by
+    closing an orbit at `±ddelta` — no `A`, no `D`, no Sylvester solve. accsim satisfies it
+    to `5e-9`. It also refuses to be a tautology: `N[:, DELTA]` is the partial derivative at
+    *fixed transverse coordinates* (a photon emission is instantaneous and moves `delta`
+    alone), a different vector by more than a factor of two, and using one for the other
+    would pass every shape gate here.
+
+  - **The same identity then arbitrates the arbiter, which is new on this axis.** The two
+    codes' `dn/ddelta` differ by `2e-6` *absolute* while every other column of `N` agrees to
+    `1e-8` relative. The identity says whose: accsim `5e-9`, xtrack `1e-4` — four orders
+    apart, on a quantity neither code's spin-field machinery computes. The cause is the
+    `inv(I - A)` above: entries of order `1e11`, the unphysical `n_0` component subtracted
+    afterwards, and `1e11 × 1e-16 ~ 1e-5` of cancellation debris left behind. Because the
+    debris is absolute, the agreement is **best nearest the resonance**, which is the
+    reverse of the usual arrangement and is why the integrals are compared there.
+
+  - **A silent switch on the reference side that was ours, not xtrack's.** N3's `_build`
+    hard-coded `p0c` at 5 GeV. Harmless there; silently fatal here, because N4's only knob
+    *is* the beam energy — it compared a resonance-tuned accsim ring against a 5 GeV xtrack
+    one, and the two then agreed to nine digits on everything except the quantity the
+    milestone is about. `_build` now reads the energy off `lattice.ref`. Five silent
+    switches on this axis, and the fifth was in the project's own fixture.
+
+  - **The headline, and it is not a control.** `P_eq` falls from `-0.92` to `-0.02` as the
+    spin tune closes to `1e-5` of `Q_y`, while N3's `P_inf` drifts only in its ninth digit
+    (its own `1/(G gamma)` energy dependence, asserted at that measured size). The
+    depolarization grows as the **inverse square** of the tune distance — gated on the
+    order, and *measured close in*, because at `d = 1e-3` a non-resonant background is still
+    worth 32% and the fitted exponent comes out `-1.89`. Reporting that as agreement would
+    have been the easy mistake; the residue `d^2 × integral` is asserted flat as well.
+
+  - **Costs and scope, stated.** Eight sub-slices per dipole suffice where N3 needed 64:
+    `|dn/ddelta|^2` is a squared *modulus* of a vector rotating about `n_0`, and a modulus
+    is blind to the rotation. The oscillating `dn/ddelta . b` term is the one
+    quadrature-limited quantity here, and it is a hundred times smaller. `N[:, ZETA]` is
+    **exactly** zero because nothing reads `zeta` — which is what makes accsim's six-column
+    equation and xtrack's five-column one the same object, and stops being true the moment
+    an RF cavity enters. N3's quadrature walk was factored into
+    `radiation._quadrature_nodes` and is now shared, so the two routes' `alpha_*_co` agree
+    bit for bit rather than to a tolerance.
+
+  Gates: `tests/analytic/test_depolarization.py` (20),
+  `tests/reference/test_depolarization_xtrack.py` (9). The full analytic suite is
+  **1210 passed**, against 1190 after N3 — the whole difference is this milestone's own
+  file, so nothing on axes A–M or in N1–N3 moved, including the two files N4 edited
+  (`radiation.py`'s shared quadrature and `spin.py`'s new `delta` keyword).
 
 
 ## Out of scope (unless a milestone explicitly calls for it)

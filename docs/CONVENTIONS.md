@@ -5957,7 +5957,141 @@ N2's finite-differenced `n_0` would suggest, because both integrals are dominate
 Compare against `spin_t_pol_component_s` and `spin_polarization_inf_no_depol`, **never**
 `spin_t_pol_buildup_s` / `spin_polarization_eq`: those carry the `(11/18) ∮ kappa^3
 |dn/ddelta|^2` depolarization term accsim defers to N4, and would show up as a plausible
-few-percent miss rather than as a disagreement.
+few-percent miss rather than as a disagreement. **N4 reverses this instruction** for its
+own comparisons — see *Invariant spin field & depolarization* below.
+
+## Invariant spin field & depolarization (N4 — implemented)
+
+What N3 deliberately left out: the term that *fights* the Sokolov-Ternov buildup. A
+particle off the closed orbit has its own periodic spin direction — the **invariant spin
+field** `n(x) = n_0 + N x` — and a photon emission jumps its `delta`, and with it its `n`.
+Lives in `accsim.spin` (the field) and `accsim.radiation` (the integrals), matching the
+N2/N3 split.
+
+### The equation: a Sylvester equation, not a mode-by-mode inverse
+
+A particle displaced by `x` carries the spin `n_0 + N x`. One turn later its deviation is
+`R x` and its spin `A (n_0 + N x) + D x`. For `n` to be a *field* those must agree, so
+
+    A N - N R = -D                       (`accsim.spin.spin_orbit_coupling`)
+
+with `A` = N2's exact one-turn spin rotation, `R` = the 6×6 one-turn Jacobian about the
+closed orbit, `D = d(spin out)/d(orbit in)` with the spin started along `n_0`. `R` and `D`
+are central differences of **one shared tracked turn** (step `1e-6`, flat between `1e-7`
+and `1e-5`); `A` is exact. Solved with `scipy.linalg.solve_sylvester`.
+
+**Reduce to the plane perpendicular to `n_0`.** `n` is a unit vector, so `n_0 · N = 0`
+exactly — the parallel component is meaningless, not small. The corresponding row of the
+full equation is the consistency condition `n_0 · D = 0`, which holds to the differencing
+accuracy (`1e-10`).
+
+That reduction is **why accsim can do a flat ring and xtrack cannot**. Solved mode by
+mode, the eigenvalue-`1` orbital mode (`delta`, in a lattice with no RF) needs
+`inv(I - A)` — and `I - A` is singular for *every* ring, because `A n_0 = n_0`. N3 recorded
+this as a fact about flat rings; it is a fact about all of them, and a tilted ring survives
+in xtrack only because its finite-differenced `A` misses the zero by round-off.
+
+### Sign / index conventions
+
+- `N` is `(3, 6)`, columns ordered `(x, px, y, py, zeta, delta)` — `xtrack`'s
+  `spin_n_matrix` on the same convention, comparable entry for entry.
+- `dn_ddelta = N[:, DELTA]` is the **partial** derivative at fixed transverse coordinates,
+  *not* the derivative along the dispersion orbit. That is the physics, not a choice: a
+  photon emission is instantaneous, so it moves `delta` and nothing else. The two differ by
+  `N[:, :4] D` and on N4's gate ring they differ by more than a factor of two.
+- `N[:, ZETA]` is **exactly** `0.0` for any lattice with no RF, because nothing reads
+  `zeta`. That is what makes accsim's six-column equation and xtrack's five-column
+  (`zeta`-deleted) formulation the same object. **It stops being true when an RF cavity
+  enters.**
+
+### The resonances are the spectra, and `k ± Q_y` finally lands here
+
+In the reduced plane `A`'s eigenvalues are `exp(∓2πi ν_0)`; `R`'s are `exp(±2πi Q_x)`,
+`exp(±2πi Q_y)`, `exp(±2πi Q_s)`, plus `1` twice with no RF. A Sylvester equation is
+solvable exactly when the two spectra are disjoint, so `N` diverges at
+
+    ν_0 = k                 — integer: N2's *imperfection* resonance (via the eigenvalue 1),
+    ν_0 = k ± Q_x, k ± Q_y, k ± Q_s   — the **intrinsic** resonances,
+
+and at nothing else. `ν_0 = k ± Q_y` is what N2 was written expecting and did not find:
+`n_0` rides the closed orbit and sees only one-turn-periodic drive, so it can only resonate
+at integers. `SpinResonanceError` (a subclass of N2's `SpinSolutionError`) is raised within
+`1e-8` in tune of one. `n_0` is still perfectly well defined there — it is the field
+*around* `n_0` that does not close.
+
+**Gating a resonance is gating a location.** `1/|N E_y|` is linear in `ν_0` near the pole
+and extrapolates to `Q_y` within `2e-6`, a quarter of a unit from the nearest integer; and
+the residue `|N E_y| · 2|sin(π(ν_0 − Q_y))|` is constant to 1.5% while `|N E_y|` itself
+varies thirtyfold. Both alternative denominators (`sin(π ν_0)`, `sin(π(ν_0 + Q_y))`) vary
+by a factor of 20+ and are asserted excluded. The energy is the only knob — `ν_0 = G γ`,
+and normalized strengths keep `Q_y` frozen to `1e-12` across the scan.
+
+Identify the orbital modes by **eigenvector content**, never by position in
+`numpy.linalg.eig`'s output.
+
+### The Derbenev-Kondratenko integrals
+
+    alpha_plus  = alpha_plus_co  + (11/18)(1/C) ∮ kappa^3 |dn/ddelta|^2 ds
+    alpha_minus = alpha_minus_co -        (1/C) ∮ kappa^3 (dn/ddelta · b) ds
+
+`derbenev_kondratenko_polarization` = `8/(5√3) alpha_minus/alpha_plus` (xtrack's
+`spin_polarization_eq`); `polarization_time` is `polarization_buildup_time`'s expression
+with the corrected `alpha_plus` (xtrack's `spin_t_pol_buildup_s`). The first correction is
+an average of a **square**, so it can only ever lower the polarization and shorten the
+time — a fast-polarizing ring is not a well-polarized one.
+
+Computed in **one walk** sharing N3's quadrature (`radiation._quadrature_nodes`), carrying
+the `(6, 13)` differencing bundle launched *on* the field instead of a single closed-orbit
+particle: `N(s)` then falls out of its central differences at every node. `alpha_plus_co` /
+`alpha_minus_co` come back **bit-for-bit** equal to `polarization_integrals`'.
+
+**Eight sub-slices suffice, where N3 needed 64.** `|dn/ddelta|^2` is the squared *modulus*
+of a vector rotating about `n_0`, and a modulus is blind to the rotation — converged to
+twelve digits at 8 slices. The oscillating `dn/ddelta · b` term is quadrature-limited but a
+hundred times smaller.
+
+### The flat ring is degenerate here too — exactly
+
+No vertical orbit ⇒ no horizontal field anywhere on it ⇒ every rotation is about `y` ⇒ a
+`delta` perturbation only changes how fast a spin turns about the axis it already lies
+along. `dn/ddelta = 0` identically, both new integrals are `0.0`, and `P_eq == P_inf` **to
+the last bit**. The axis's degeneracy for the fourth time (after `n_0`, `P_inf`, and the
+arbiter itself).
+
+### The collapse, and the one scaling law
+
+`|dn/ddelta|^2 ~ 1/(ν_0 − Q_y)^2`, so `P_eq` falls from `-0.92` to `-0.02` as the spin tune
+closes to `1e-5` of `Q_y`, while N3's `P_inf` drifts only in its ninth digit (its own
+`1/(G γ)` energy dependence). Fit the power **close in**: at `d = 1e-3` a non-resonant
+background is still worth 32% and the fitted exponent comes out `-1.89`; by `1e-4` it is
+worth 3% and the residue `d^2 × integral` is flat to 1%.
+
+### Reference comparison — and the field names are the reverse of N3's
+
+Compare against `spin_polarization_eq` / `spin_t_pol_buildup_s` / `spin_n_matrix` /
+`spin_dn_ddelta_*`, **never** the `_co` / `_component` / `no_depol` ones N3 uses. On the
+resonant ring the two differ by a factor of **46**, so the trap is unmissable here where it
+was a quiet few percent in N3 — but it is asserted rather than left to memory.
+
+**`_build` must read the energy off `lattice.ref`.** N3's version hard-coded `P0C` at
+5 GeV, which is harmless there and silently fatal here: N4's only knob *is* the beam
+energy, so a hard-coded `p0c` compares a resonance-tuned accsim ring against a 5 GeV xtrack
+one — agreeing to nine digits on everything except the quantity the milestone is about.
+Fixed in `tests/reference/test_polarization_xtrack.py::_build`; the fifth silent switch on
+the reference side and the first that is ours rather than xtrack's.
+
+**One real disagreement, measured and attributed.** The two `dn/ddelta` differ by `2e-6`
+*absolute* while every other column of `N` agrees to `1e-8` relative. It is xtrack's, and
+the tie is broken by a third quantity neither code's spin-field machinery computes: without
+RF, `N (D, 0, 1)` must equal the momentum derivative of the **off-momentum closed spin
+solution** (`closed_spin_solution(lattice, delta=…)`, threaded through in N4). accsim
+satisfies that identity to `5e-9`; xtrack misses it by `1e-4`. The cause is the
+`inv(I − A)` above: entries of order `1e11`, the unphysical `n_0` component subtracted
+afterwards, and `1e11 × 1e-16 ~ 1e-5` of cancellation debris left in what survives.
+
+Because the debris is **absolute**, the agreement is *best* nearest the resonance, where
+`|dn/ddelta| ~ 9`: the two codes' equilibrium polarizations agree to `7e-5` there, and the
+residual is xtrack's element-granularity rectangle rule, not the spin field.
 
 ## Toolchain / environment notes
 
