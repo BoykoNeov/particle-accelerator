@@ -12,11 +12,15 @@ What this suite establishes, in order:
    right by cancellation, but the whole ``dbeta/ddelta`` curve around the ring.
 3. **``Q''`` agrees on a bend-free ring** to seven digits — the control that proves
    the second-difference machinery itself.
-4. **``Q''`` disagrees on a bendy ring, and it is not accsim's maps.** The Dipole
-   Jacobian is shown equal to ``xt.Bend``'s to ``5e-9`` entry by entry *on the
-   off-momentum closed orbit*, and the closed orbits equal to ``1e-9``. Identical
-   maps and identical orbits cannot give different tunes, so the disagreement is
-   pinned here as a named boundary and left to M2.
+4. **``Q''`` disagrees on a bendy ring, and M2 found why: the drift model.** The
+   Dipole Jacobian is equal to ``xt.Bend``'s to ``1.2e-9`` entry by entry *on the
+   off-momentum closed orbit*, and the closed orbits are equal � but M1 inferred
+   "identical maps" from that and never checked the **drift** off-momentum, where
+   the two codes differ by ``1e-7``. accsim's ``Drift`` is exact
+   (``x += L px/pz``); xtrack's default is paraxial (``x += L px/(1+delta)``).
+   Setting ``xt.Drift(model="exact")`` collapses the whole disagreement to the two
+   codes' own truncation error, and the per-element sweep below shows the drift is
+   the only element that ever differed.
 
 The edge model matters and is asserted, not assumed: accsim's
 :class:`~accsim.Dipole` uses the **linear hard-edge** kick, which is the identity
@@ -84,27 +88,36 @@ def _accsim_lattice(*, bends: bool) -> Lattice:
     return Lattice(els, _ref())
 
 
-def _xtrack_elements(*, bends: bool) -> list:
+def _xtrack_elements(*, bends: bool, drift_model: str | None = None) -> list:
+    """``drift_model=None`` is xtrack's default (paraxial); ``"exact"`` matches accsim.
+
+    Which of the two is used is the whole subject of M2, so it is a parameter here
+    rather than a default left implicit.
+    """
+
+    def _drift(length: float):
+        return xt.Drift(length=length, model=drift_model)
+
     els: list = []
     for _ in range(N_CELLS):
-        first = xt.Bend(length=LB, angle=ANG, k0=ANG / LB) if bends else xt.Drift(length=LB)
-        second = xt.Bend(length=LB, angle=ANG, k0=ANG / LB) if bends else xt.Drift(length=LB)
+        first = xt.Bend(length=LB, angle=ANG, k0=ANG / LB) if bends else _drift(LB)
+        second = xt.Bend(length=LB, angle=ANG, k0=ANG / LB) if bends else _drift(LB)
         els += [
             xt.Quadrupole(length=LQ, k1=K1),
-            xt.Drift(length=LD),
-            xt.Drift(length=LD),
+            _drift(LD),
+            _drift(LD),
             first,
             xt.Quadrupole(length=LQ, k1=-K1),
             second,
-            xt.Drift(length=LD),
+            _drift(LD),
         ]
     return els
 
 
 @functools.cache
-def _line(bends: bool, edge: str = "suppressed"):
+def _line(bends: bool, edge: str = "suppressed", drift_model: str | None = None):
     """A built xtrack line, cached: every ``xt.Line`` build JIT-compiles a fresh kernel."""
-    line = xt.Line(elements=_xtrack_elements(bends=bends))
+    line = xt.Line(elements=_xtrack_elements(bends=bends, drift_model=drift_model))
     line.particle_ref = xt.Particles(mass0=MASS0, q0=1, gamma0=GAMMA0)
     line.configure_bend_model(core="bend-kick-bend", edge=edge)
     try:
@@ -217,15 +230,23 @@ def test_second_order_chromaticity_matches_xtrack_without_bends() -> None:
 def test_the_dipole_jacobian_equals_xtracks_on_the_off_momentum_orbit() -> None:
     r"""accsim's ``Dipole`` and ``xt.Bend`` linearise **identically** off-momentum.
 
-    This is the load-bearing evidence for the boundary named below. The Jacobian —
-    not the tracked point — is what sets the tune, so it is the Jacobian that is
-    compared, at the place the bendy ring actually samples: on the dispersion orbit
-    (``x != 0``) at a non-zero ``delta``.
+    The Jacobian — not the tracked point — is what sets the tune, so it is the
+    Jacobian that is compared, at the place the bendy ring actually samples: on the
+    dispersion orbit (``x != 0``) at a non-zero ``delta``. With xtrack's nonlinear
+    fringe suppressed the two agree to ``1.2e-9``: every momentum-dependent entry of
+    accsim's bend — its weak focusing, its dispersion generation and its path
+    lengthening — is xtrack's.
 
-    With xtrack's nonlinear fringe suppressed the two agree to ``5e-9``, which is
-    the finite-difference floor of the comparison itself. So every momentum-
-    dependent entry of accsim's bend — its weak focusing, its dispersion generation
-    and its path lengthening — is xtrack's, to the precision this test can see.
+    **What this test does not establish, and was once read as establishing.** M1
+    called ``5e-9`` "the finite-difference floor of the comparison itself" and
+    concluded from this test that the two codes' maps were identical, hence that
+    their ``Q''`` disagreement had to live somewhere else. Both halves were wrong.
+    The threshold was not a floor — M2's per-element sweep puts every dipole in this
+    ring between ``6.7e-10`` and ``1.2e-9`` — and one element was never compared
+    off-momentum at all. The **drift** differs by ``1e-7``, a hundred times larger,
+    and that is the whole of the gap. This test remains true and useful; it is the
+    *inference* drawn from it that M2 retired. See
+    ``test_the_drift_is_the_element_the_two_codes_disagreed_about`` below.
     """
     ref = _ref()
     lattice = _accsim_lattice(bends=True)
@@ -274,16 +295,22 @@ def test_the_dipole_jacobian_equals_xtracks_on_the_off_momentum_orbit() -> None:
     for j in range(6):
         theirs[:, j] = (out[:, 2 * j] - out[:, 2 * j + 1]) / (2.0 * step)
 
-    assert np.max(np.abs(np.asarray(ours) - theirs)) < 5e-9
+    assert np.max(np.abs(np.asarray(ours) - theirs)) < 2e-9
 
 
 def test_the_off_momentum_closed_orbits_agree() -> None:
-    """The two codes put the off-momentum beam in the same place, to ``1e-9``.
+    """The two codes put the off-momentum beam in nearly the same place — and why not exactly.
 
-    The other half of the evidence: identical maps would still permit different
-    tunes if the two codes linearised about different orbits. They do not — this
-    includes the second-order dispersion that separates ``x_co(+delta)`` from
-    ``-x_co(-delta)``.
+    On xtrack's default paraxial drift the two orbits agree to ``1e-9``, and that
+    residual is **not** solver tolerance: it is the drift-model difference itself,
+    displacing the orbit by ``~L px^3 / 2``. Switch xtrack to ``model="exact"`` and
+    the same comparison tightens to ``2e-15`` — asserted below, because a residual
+    that collapses by six orders of magnitude under a model change is evidence,
+    where the same residual quoted alone reads as agreement.
+
+    M1 read the ``1e-9`` as "the two codes linearise about the same orbit" and, taken
+    with the dipole Jacobian above, as "identical maps about identical orbits". The
+    orbit half of that was sound. The map half was not.
     """
     lattice = _accsim_lattice(bends=True)
     line = _line(True)
@@ -292,6 +319,13 @@ def test_the_off_momentum_closed_orbits_agree() -> None:
         tw = line.twiss(method="4d", delta0=delta)
         assert ours[0] == pytest.approx(tw.x[0], abs=1e-9)
         assert ours[1] == pytest.approx(tw.px[0], abs=1e-9)
+
+    exact_line = _line(True, "suppressed", "exact")
+    for delta in (+DELTA, -DELTA):
+        ours = closed_orbit_nonlinear(lattice, delta=delta)
+        tw = exact_line.twiss(method="4d", delta0=delta)
+        assert ours[0] == pytest.approx(tw.x[0], abs=2e-15)
+        assert ours[1] == pytest.approx(tw.px[0], abs=2e-15)
 
 
 def test_the_edge_model_difference_is_confined_to_the_vertical_block() -> None:
@@ -335,36 +369,204 @@ def test_the_edge_model_difference_is_confined_to_the_vertical_block() -> None:
     )
 
 
-def test_second_order_chromaticity_disagrees_with_bends_and_it_is_not_the_maps() -> None:
-    r"""The named boundary: with bends, the two codes' ``Q''`` differ by ~5%.
+def test_the_drift_is_the_element_the_two_codes_disagreed_about() -> None:
+    r"""M2's localisation: sweep **every** element's Jacobian, on and off momentum.
 
-    Pinned, not blessed. Two tests above establish that accsim's bend Jacobian and
-    the off-momentum closed orbit both match xtrack, and the analytic suite
-    establishes that accsim's two independent tune routes agree with each other, so
-    this cannot be located in accsim's model of the machine. MAD-X gives a *third*
-    answer (see ``test_chromatic_optics_madx.py``), which is why no reference is
-    treated as the arbiter here.
+    M1 compared one element — the dipole — and generalised. Walking the closed orbit
+    element by element and differencing accsim's tracked Jacobian against xtrack's,
+    at ``delta = 0`` and at ``delta = 1e-3``, gives a table with one outlier:
 
-    The assertion is deliberately two-sided: the gap is real (so the milestone
-    cannot be quietly declared validated) **and** bounded (so a future change that
-    made it much worse would fail).
+        Quadrupole   6.2e-11 on-momentum   5.3e-10 off
+        Dipole       6.0e-10 on-momentum   6.7e-10 .. 1.1e-9 off
+        Drift        1.0e-10 on-momentum   6.4e-08 .. 1.0e-07 off
 
-    Both sides are computed live, so nothing here can go stale against an xtrack
-    version bump. The ``0.055`` window is a property of **this ring**, not of the
-    two codes: the gap scales as the square of the bending angle, so it runs from
-    ~1% at ``angle = 0.03`` to ~11% at ``0.12`` (measured against MAD-X). The ring
-    is pinned in this module's constants — if they are ever changed, this window
-    must be re-measured rather than widened.
+    The drift is a hundred times the others and **only** off-momentum, which is the
+    signature of a model difference rather than of finite-difference noise: accsim's
+    ``Drift`` is exact, xtrack's default is paraxial, and the two coincide exactly
+    when the orbit is straight.
+
+    The whole sweep is condensed here into the one assertion that carries it: the
+    worst drift exceeds the worst non-drift by more than fifty times off-momentum,
+    while on-momentum every element agrees at the same ``1e-9`` level.
+    """
+    ref = _ref()
+    lattice = _accsim_lattice(bends=True)
+    orbit = closed_orbit_nonlinear(lattice, delta=DELTA)
+    step = 1e-7
+
+    # one xtrack line per element, built once each; the cell repeats, so seven suffice
+    cell = _xtrack_elements(bends=True)[:7]
+    lines = []
+    for element in cell:
+        ln = xt.Line(elements=[element])
+        ln.particle_ref = xt.Particles(mass0=MASS0, q0=1, gamma0=GAMMA0)
+        ln.configure_bend_model(core="bend-kick-bend", edge="suppressed")
+        try:
+            ln.build_tracker()
+        except Exception as exc:  # pragma: no cover - environment-dependent
+            pytest.skip(f"xtrack JIT compilation unavailable: {type(exc).__name__}: {exc}")
+        lines.append(ln)
+
+    def _their_jacobian(line, state: np.ndarray) -> np.ndarray:
+        coords = []
+        for j in range(6):
+            for sign in (+1.0, -1.0):
+                shifted = state.copy()
+                shifted[j] += sign * step
+                coords.append(shifted)
+        stacked = np.array(coords)
+        particles = line.build_particles(
+            x=stacked[:, 0],
+            px=stacked[:, 1],
+            y=stacked[:, 2],
+            py=stacked[:, 3],
+            zeta=stacked[:, 4],
+            delta=stacked[:, 5],
+        )
+        line.track(particles)
+        order = np.argsort(particles.particle_id)
+        out = np.stack(
+            [
+                particles.x[order],
+                particles.px[order],
+                particles.y[order],
+                particles.py[order],
+                particles.zeta[order],
+                particles.delta[order],
+            ]
+        )
+        return np.stack([(out[:, 2 * j] - out[:, 2 * j + 1]) / (2.0 * step) for j in range(6)], 1)
+
+    def _our_jacobian(element, state: np.ndarray) -> np.ndarray:
+        return np.asarray(jacobian(lambda s: element.track(s, ref), state, step=step))
+
+    off = np.array([orbit[0], orbit[1], 0.0, 0.0, 0.0, DELTA])
+    on = np.zeros(6)
+    drift_gaps, other_gaps, on_gaps = [], [], []
+    for i, element in enumerate(lattice.elements):
+        line = lines[i % 7]
+        gap_off = float(np.max(np.abs(_our_jacobian(element, off) - _their_jacobian(line, off))))
+        on_gaps.append(
+            float(np.max(np.abs(_our_jacobian(element, on) - _their_jacobian(line, on))))
+        )
+        (drift_gaps if isinstance(element, Drift) else other_gaps).append(gap_off)
+        off = element.track(off, ref)
+        on = element.track(on, ref)
+
+    assert min(drift_gaps) > 50.0 * max(other_gaps)  # the drift is the outlier, every time
+    assert max(other_gaps) < 2e-9  # and nothing else in the ring differs off-momentum
+    assert max(on_gaps) < 2e-9  # on-momentum the drift is not an outlier at all
+
+
+def test_second_order_chromaticity_agrees_with_bends_once_the_drift_models_match() -> None:
+    r"""M2's headline against xtrack: the 5% gap M1 could not place was the drift model.
+
+    The same bendy ring, the same second difference, the same xtrack — with
+    ``xt.Drift(model="exact")`` instead of the default paraxial drift:
+
+        Q''_x   accsim 0.793072   xtrack default 0.752050   xtrack exact 0.793087
+        Q''_y   accsim 0.768303   xtrack default 0.754138   xtrack exact 0.768303
+
+    Two-sided on purpose. The **default** must still disagree by ~5%, because that
+    disagreement is a real difference between two documented models and a future
+    change that quietly removed it would mean accsim had stopped being exact. The
+    **exact** model must agree, in ``y`` to nine digits; in ``x`` the two codes'
+    second differences are limited by their own closed-orbit noise at
+    ``delta = 1e-3``, so ``2e-5`` relative is the floor of the comparison, not of the
+    physics — the analytic suite gates accsim against a sixty-digit arbiter instead.
     """
     lattice = _accsim_lattice(bends=True)
-    line = _line(True)
+    ours = second_order_chromaticity(lattice, delta=DELTA)
 
-    ours = second_order_chromaticity(lattice, delta=DELTA)[0]
-    twp = line.twiss(method="4d", delta0=+DELTA)
-    tw0 = line.twiss(method="4d")
-    twm = line.twiss(method="4d", delta0=-DELTA)
-    theirs = (twp.qx - 2.0 * tw0.qx + twm.qx) / DELTA**2
+    def _their_qpp(line) -> tuple[float, float]:
+        twp = line.twiss(method="4d", delta0=+DELTA)
+        tw0 = line.twiss(method="4d")
+        twm = line.twiss(method="4d", delta0=-DELTA)
+        return tuple(
+            (getattr(twp, q) - 2.0 * getattr(tw0, q) + getattr(twm, q)) / DELTA**2
+            for q in ("qx", "qy")
+        )
 
-    # ...while Q and Q' agree, which is what makes the second-order gap specific.
-    assert ours != pytest.approx(theirs, rel=1e-3)
-    assert abs(ours / theirs - 1.0) == pytest.approx(0.055, abs=0.02)
+    default = _their_qpp(_line(True))
+    exact = _their_qpp(_line(True, "suppressed", "exact"))
+
+    # the default drift: still ~5% away, and that gap is a model difference, not a bug
+    assert abs(ours[0] / default[0] - 1.0) == pytest.approx(0.055, abs=0.02)
+
+    # the exact drift: the disagreement is gone in both planes
+    assert ours[0] == pytest.approx(exact[0], rel=5e-5)
+    assert ours[1] == pytest.approx(exact[1], rel=1e-8)
+
+
+# ---------------------------------------------------------------------------
+# 5. the minimal ring: each drift model against the number it should produce
+# ---------------------------------------------------------------------------
+
+
+@functools.cache
+def _minimal_line(drift_model: str | None):
+    """M2's five-element arbiter ring, built in xtrack."""
+    from _m2_minimal_ring import ANG as M_ANG
+    from _m2_minimal_ring import KF
+    from _m2_minimal_ring import LB as M_LB
+    from _m2_minimal_ring import LD as M_LD
+
+    line = xt.Line(
+        elements=[
+            xt.Multipole(knl=[0.0, KF]),
+            xt.Drift(length=M_LD, model=drift_model),
+            xt.Bend(length=M_LB, angle=M_ANG, k0=M_ANG / M_LB),
+            xt.Multipole(knl=[0.0, -KF]),
+            xt.Drift(length=M_LD, model=drift_model),
+        ]
+    )
+    line.particle_ref = xt.Particles(mass0=MASS0, q0=1, gamma0=GAMMA0)
+    line.configure_bend_model(core="bend-kick-bend", edge="suppressed")
+    try:
+        line.build_tracker()
+    except Exception as exc:  # pragma: no cover - environment-dependent
+        pytest.skip(f"xtrack JIT compilation unavailable: {type(exc).__name__}: {exc}")
+    return line
+
+
+def test_each_xtrack_drift_model_reproduces_its_own_arbiter_on_the_minimal_ring() -> None:
+    r"""The sharpest form of M2's result: both codes land where the geometry says they must.
+
+    ``tests/_m2_minimal_ring.py`` derives this ring's ``Q''`` from lab-frame geometry
+    at sixty digits, twice — once over the exact drift and once over the paraxial one.
+    Those two numbers are properties of the *models*, computed with neither code in
+    the room:
+
+        exact drift     Q''_x = 0.3073788909    Q''_y = 0.2985909737
+        paraxial drift  Q''_x = 0.2932235794    Q''_y = 0.2938154492
+
+    xtrack on its default drift reproduces the **paraxial** number to ``4e-6``; on
+    ``model="exact"`` it reproduces the **exact** one to ``3e-6``. Both residuals are
+    xtrack's own second-difference truncation at ``delta = 1.25e-3``, and both are
+    four thousand times smaller than the ``1.4e-2`` that separates the two models.
+
+    This is what closes the milestone. A disagreement between two codes can always be
+    argued about; a code landing on an independently derived number cannot.
+    """
+    from _m2_minimal_ring import second_order_chromaticity as arbiter
+
+    step = 1.25e-3
+
+    def _qpp(line) -> dict[str, float]:
+        twp = line.twiss(method="4d", delta0=+step)
+        tw0 = line.twiss(method="4d")
+        twm = line.twiss(method="4d", delta0=-step)
+        return {
+            p: (getattr(twp, "q" + p) - 2.0 * getattr(tw0, "q" + p) + getattr(twm, "q" + p))
+            / step**2
+            for p in ("x", "y")
+        }
+
+    for drift_model, exact_drift in ((None, False), ("exact", True)):
+        theirs = _qpp(_minimal_line(drift_model))
+        wanted = arbiter(exact_drift=exact_drift)
+        other = arbiter(exact_drift=not exact_drift)
+        for plane in ("x", "y"):
+            assert theirs[plane] == pytest.approx(wanted[plane], abs=5e-6)
+            # ...and is nowhere near the other model's number
+            assert abs(theirs[plane] - other[plane]) > 1000.0 * abs(theirs[plane] - wanted[plane])

@@ -502,10 +502,19 @@ Both are now SHIPPED — B4 on 2026-08-19, B5 on 2026-08-25. Axis B is complete 
 the derivative of the machine rather than the machine at one momentum. It was picked by
 applying the project's usual filter mechanically: every quantity xtrack's `twiss()` reports
 was diffed against what accsim reports, and the chromatic family was the one clear gap with
-*two* arbiters already wired. M1 shipped the same day — and found that accsim, xtrack and
-MAD-X give three different second-order chromaticities on a ring with bends while agreeing
-on the tune to ten digits, with accsim's element maps and closed orbits proven identical to
-xtrack's. M2 is written to settle which of the three is right.** B4 gave a radiating bunch
+*two* arbiters already wired. M1 shipped the same day — validating the chromatic functions
+element by element, and finding that accsim, xtrack and MAD-X give three different
+second-order chromaticities on a ring with bends while agreeing on the tune to ten digits.
+M1 concluded the split could not be accsim's maps; **M2 shipped 2026-08-26 and found that it
+was**. The disagreement is the **drift model** — accsim's drift is exact, xtrack's default
+and MAD-X's are paraxial — and accsim is the one that is right: on a five-element ring whose
+`Q''` is derived from lab-frame geometry at sixty digits, accsim converges onto the exact
+answer while xtrack's default converges onto the paraxial one, and switching xtrack to
+`Drift(model="exact")` collapses the whole 5% gap to nine-digit agreement. M1's inference
+was valid reasoning from a false premise: it had compared exactly one element (the dipole)
+and generalised, and the drift went unchecked because L1 had shipped it exact — which
+validated its *map*, not its agreement with a reference's *default configuration*. With M2
+closed, only M3 remains written on this axis.** B4 gave a radiating bunch
 somewhere to die — a momentum acceptance — so that Stage 4's year-old `quantum_lifetime`
 became something the tracking *produces* rather than something the design route quotes.
 Its pre-committed headline turned out to be **wrong**, and the correction is the result:
@@ -2595,22 +2604,23 @@ D3, MAD-X).
     `0.75202`, MAD-X `0.70441`, while agreeing on `Q` to **ten** digits and on `Q'`
     to seven. MAD-X is *further* from xtrack than accsim is, which rules out the
     easy reading ("two references agree, so accsim is wrong").
-  - **The split is provably not accsim's maps, and establishing that positively is
-    the milestone's real result.** accsim's `Dipole` Jacobian equals `xt.Bend`'s to
-    `5e-9` entry by entry **on the off-momentum closed orbit** — every
-    momentum-dependent entry, its weak focusing, its dispersion generation and its
-    path lengthening; the two closed orbits agree to `1e-9` including the
-    second-order dispersion that makes `x_co(+delta) != -x_co(-delta)`; and
-    accsim's two *independent* tune routes (accumulated Twiss phase, and the
-    one-turn trace) agree with each other to seven digits. Identical maps about
-    identical orbits cannot produce different tunes, so the spread lives in
-    **how each code closes an off-momentum orbit** on a dispersive ring — not in
-    phase accumulation, which the two-route agreement above rules out. No reference currently
-    arbitrates it, so the value ships pinned as a named boundary rather than
-    quoted as validated — the way L4 shipped and named L5. **M2 is the milestone
-    written to close it**, and M1 handed it a scaling law to start from: the gap is
-    **exactly zero without bends and quadratic in the bending angle**, the signature
-    of the longitudinal constraint rather than of phase extraction.
+  - ⚠️ **M1 concluded "the split is provably not accsim's maps". That conclusion was
+    wrong, and M2 (below) retired it.** What M1 actually established stands: accsim's
+    `Dipole` Jacobian equals `xt.Bend`'s to `1.2e-9` entry by entry **on the
+    off-momentum closed orbit** — weak focusing, dispersion generation and path
+    lengthening alike — and the two closed orbits agree to `1e-9`. What it inferred
+    from that does not: it generalised **one element** to "identical maps", and the
+    element it never checked off-momentum — the **drift** — differs by `1e-7`, a
+    hundred times more. accsim's `Drift` is exact, xtrack's default is paraxial, and
+    that is the entire gap. The scaling law M1 measured and attributed to "the
+    longitudinal constraint" (**exactly zero without bends, quadratic in the bending
+    angle**) is the signature of the drift model, and M2 derives it as such. Two of
+    M1's supporting numbers were also below the resolution of the effect: the tune
+    difference in question is `2e-8`, while "two tune routes agree to seven digits" is
+    `1e-7` absolute, and the `5e-9` Jacobian threshold called "the finite-difference
+    floor" has an actual floor near `7e-10`. **The milestone's real result is the one
+    it did deliver — the validated chromatic functions — plus the scaling law that let
+    M2 find the cause in one sweep.**
   - **A pre-committed expectation was wrong, and the correction is a result.** The
     sextupole's contribution to `Q''` was expected to be linear in `k2l`. It is
     **quadratic** (measured exponent `2.02`), and the reason is that the two
@@ -2634,34 +2644,82 @@ D3, MAD-X).
     is the apples-to-apples setting — and since `Q''_x` is identical under both
     settings, the edge model is **not** what explains the horizontal split.
 
-- **M2 (candidate) — the longitudinal constraint, and which code is right.** The
-  deferral M1 named, and the first milestone on this axis with a genuinely open
-  answer. The facts to explain: three codes, identical element maps (`5e-9`),
-  identical closed orbits (`1e-9`), agreement on `Q` to ten digits and on `Q'` to
-  seven, and three different `Q''` on a dispersive ring.
+- **M2 — which code is right, and why the other two are not.** ✅ **SHIPPED
+  (2026-08-26)** — the deferral M1 named, and the first milestone on this axis that
+  opened with a genuinely unknown answer. It closed by **overturning M1's own
+  conclusion**, which is the result rather than an embarrassment attached to it.
 
-  **M1 narrowed it much further than "the codes differ", and this is the hypothesis
-  M2 opens with.** Sweeping the bending angle and differencing accsim against MAD-X
-  at each shows the gap is **exactly zero at zero angle and quadratic in the angle**
-  as it turns on (`gap/angle^2` = `8.91`, `8.22` at `0.03` and `0.06` rad, tending
-  to a constant as the angle shrinks). A term that vanishes with the bending angle,
-  grows as its square, and leaves `Q` and `Q'` untouched is something proportional
-  to dispersion acting twice — and the leading suspect is **what each code holds
-  fixed longitudinally when it closes an off-momentum orbit**. accsim's
-  `closed_orbit_nonlinear` fixes `zeta = 0` and `delta` at the entrance (its own
-  docstring says so, and without RF there is no 6D fixed point to find instead);
-  path length through a bend depends on `delta` where through a drift it does not,
-  which is exactly the observed on/off switch. xtrack's
-  `twiss(delta0=, method='4d')` and MAD-X's `twiss, deltap=` each make their own
-  choice.
+  **The answer: accsim is right, and the split is the drift model.** accsim's
+  `Drift` is exact (`x += L px / sqrt((1+delta)^2 - px^2 - py^2)`, shipped in L1);
+  xtrack's default `Drift` and MAD-X's TWISS drift are paraxial
+  (`x += L px / (1+delta)`). Setting `xt.Drift(model="exact")` collapses the whole
+  5% disagreement to the two codes' own second-difference noise — `Q''_y` agrees to
+  **nine digits**, the off-momentum closed orbits to `1.4e-15` (from `2.9e-11`), and
+  the one-turn Jacobians to `5.9e-10` (from `5.2e-7`).
 
-  The gate is pre-committed and sharp: **construct a ring where the closed form is
-  known.** A single thin quadrupole plus a single sector bend has a one-turn map
-  sympy can build as an exact function of `delta` and differentiate twice, exactly
-  as M1 did for the bend-free case — the bend's exact map is a circle (L3), so
-  nothing about it is beyond sympy. Whichever code reproduces that number is right,
-  and the other two are named; and if the answer is the longitudinal constraint, the
-  fix is a documented choice rather than a map change. Effort **M**.
+  - **M1's hypothesis was wrong, and so was M1's headline.** The pre-committed
+    suspect — what each code holds fixed longitudinally when closing an off-momentum
+    orbit — is not merely unsupported, it is impossible: without RF the transverse
+    map cannot depend on `zeta` at all, in *either* code. The step that found the
+    real cause was not a derivation but a **localisation**: multiply xtrack's own
+    per-element Jacobians into a one-turn map and read its trace. That reproduced
+    xtrack's own `Q''` (`0.75210` against its `twiss` value `0.75205`), which
+    exonerated its tune extraction and proved the disagreement was in the maps —
+    the exact opposite of what M1 had asserted. Sweeping every element then took one
+    run: `Quadrupole` `5.3e-10`, `Dipole` `6.7e-10 .. 1.1e-9`, `Drift`
+    `6.4e-08 .. 1.0e-07`, all off-momentum; on-momentum every element sits at
+    `1e-10`.
+  - **Why the drift went unchecked, and the transferable lesson.** L1 had shipped the
+    drift *exact*, so it read as settled. But L1 validated the drift's **map**; it did
+    not validate that map's agreement with xtrack's **default configuration**, and
+    those are different claims. Any element whose reference offers more than one model
+    carries the same trap. M1's reasoning was valid — identical maps about identical
+    orbits cannot give different tunes — from a premise it had checked on exactly one
+    element out of three.
+  - **The scaling law was the answer all along.** M1 measured the gap as exactly zero
+    without bends and quadratic in the bending angle, and read it as dispersion acting
+    twice. It is: the exact and paraxial drifts differ by the relative factor
+    `(px^2 + py^2)/2`, they are the *same map* when the closed orbit is straight, the
+    orbit acquires `px ~ D_px delta` only when the ring bends, and `D_px` is
+    proportional to the angle. So the difference is `O(angle^2 delta^2)` — invisible in
+    `Q` and `Q'`, landing squarely on `Q''`. The analytic suite now reproduces that
+    sweep **inside the arbiter**, with neither reference code in the room.
+  - **The gate: a ring whose `Q''` is derived rather than compared.**
+    `tests/_m2_minimal_ring.py` builds `ThinQuadrupole(+0.9) Drift(0.5)
+    Dipole(1.0, 0.12) ThinQuadrupole(-0.9) Drift(0.5)` and produces its `Q''` from
+    lab-frame geometry at **sixty** decimal digits, once per drift model:
+    exact `0.3073788909 / 0.2985909737`, paraxial `0.2932235794 / 0.2938154492`.
+    accsim converges onto the exact pair at second order in `delta`; xtrack's default
+    reproduces the paraxial pair to `4e-6`; xtrack's `model="exact"` reproduces the
+    exact pair to `3e-6`. Both models are separately *confirmed* rather than merely
+    reconciled, which is a stronger statement than either code agreeing with the other.
+  - **The pre-committed ring was wrong in two ways, and saying so is part of the
+    result.** "A single thin quadrupole plus a single sector bend" cannot show the
+    effect at all — the effect lives in the **drift**, which that ring does not have —
+    and a sector bend focuses horizontally only, so one quadrupole leaves the vertical
+    plane unstable. Both are now asserted rather than assumed: the ring's stability and
+    distance from the half integer are gated before any number is measured on it.
+  - **The bend had to be re-derived, not ported.** `exact_sector_bend_map` is
+    rearranged so that no two numbers of size one are ever subtracted (a rationalised
+    `pz - 1`, an `arcsinc` for a difference of arcsines, no `1/h`); transcribing it
+    into the arbiter would have tested that rearrangement against itself. The
+    independent construction — the circle of radius `p_perp/h` meeting the exit face —
+    agrees with it to `2.9e-15` over random states, which is a genuine new
+    cross-check of L3's map as well as the arbiter's licence to be called a derivation.
+  - **MAD-X is named, not reconciled.** On the minimal ring MAD-X lands `7.0e-4` from
+    the paraxial answer horizontally and `7.3e-4` vertically — **the same residual in
+    both planes** — while the drift-model split is `1.42e-2` and `4.78e-3`. So the
+    drift accounts for 95% of MAD-X's gap in `x` and 82% in `y`, the difference being
+    the denominator rather than MAD-X behaving differently, and a leftover of one size
+    in both planes is the signature of one property of its maps. That leftover is its
+    second-order TWISS expansion; its TWISS has no exact-drift option, so agreement
+    with MAD-X on a dispersive ring is unreachable by construction rather than a bug
+    to chase — and the ring's thin quadrupoles rule out a thick quadrupole's expansion
+    order as the source of what is left.
+  - **The 5% xtrack disagreement is deliberately still asserted** in the reference
+    suite on xtrack's *default* settings. It is a real difference between two
+    documented models, and a future change that quietly removed it would mean accsim
+    had stopped being exact.
 
 - **M3 (candidate) — second-order dispersion.** `ddx`, `ddy`, `ddpx`, `ddpy`: where
   an off-momentum particle sits, past the straight-line term. A different object
@@ -2669,10 +2727,12 @@ D3, MAD-X).
   rather than of the optics about it), and it is already half-measured — M1's
   reference suite pins accsim's off-momentum closed orbit against xtrack's to `1e-9`
   at `delta = +/-1e-3`, which is precisely the finite difference `ddx` is built
-  from. `xtrack`'s `ddx` and MAD-X's `DDX` are both available as arbiters. Deferred
-  behind M2 only because a second-order quantity on a dispersive ring is exactly
-  what M2 is about, and settling that first stops M3 inheriting the same ambiguity.
-  Effort **S**.
+  from. `xtrack`'s `ddx` and MAD-X's `DDX` are both available as arbiters. It was deferred
+  behind M2 so as not to inherit that milestone's ambiguity; **M2 has now closed, and
+  closed in a way that matters here** — a second-order orbit quantity on a dispersive
+  ring is exactly what the drift model moves, so any `ddx` cross-check must set
+  `xt.Drift(model="exact")` or it will reproduce M1's disagreement in a new place.
+  M3 is now the only written candidate left on axis M. Effort **S**.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

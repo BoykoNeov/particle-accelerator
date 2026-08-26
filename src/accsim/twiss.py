@@ -1592,23 +1592,32 @@ def second_order_chromaticity(
     fractional tunes is wrong by an integer whenever two of the three sample points
     straddle a half integer.
 
-    **What is arbitrated and what is not — read this before quoting a number on a
-    ring with bends.** On a **bend-free** ring this agrees with a symbolic closed
-    form and with xtrack to seven digits. On a ring **with bends** accsim, xtrack and
-    MAD-X give three different answers (``0.7931``, ``0.7520``, ``0.7044`` on the
-    analytic suite's arc) while agreeing on ``Q`` to ten digits and on ``Q'`` to
-    seven. That spread is **not** an accsim map error, and the milestone established
-    this positively rather than assuming it: accsim's
-    :class:`~accsim.elements.dipole.Dipole` Jacobian equals ``xt.Bend``'s to
-    ``5.3e-10`` entry by entry on the off-momentum closed orbit (with xtrack's
-    nonlinear fringe suppressed, which is accsim's documented edge model), the two
-    closed orbits agree to ``2.9e-11``, and accsim's own two independent tune routes
-    — accumulated Twiss phase and the one-turn trace — agree to seven digits.
-    Identical maps and identical orbits cannot produce different tunes, so the spread
-    lives in second-order tune *extraction* on a dispersive ring, and no reference
-    currently arbitrates it. See ``docs/CONVENTIONS.md`` -> *Second-order
-    chromaticity is not arbitrated on a bendy ring*, and M2 in ``docs/ROADMAP.md``,
-    which is the milestone written to close it.
+    **This is validated, and the disagreement M1 could not place was the drift model
+    (M2).** On a **bend-free** ring it agrees with a symbolic closed form and with
+    both references. On a ring **with bends** accsim, xtrack and MAD-X give three
+    different answers (``0.7931``, ``0.7520``, ``0.7044`` on the analytic suite's arc)
+    while agreeing on ``Q`` to ten digits and on ``Q'`` to seven — and the cause is
+    that accsim's :class:`~accsim.elements.drift.Drift` is **exact**
+    (``x += L px/pz``) where xtrack's default and MAD-X's TWISS drift are **paraxial**
+    (``x += L px/(1+delta)``). The two coincide identically when the closed orbit is
+    straight, which is why the bend-free control agreed; with bends the orbit carries
+    ``px ~ D_px delta``, so they differ at ``O(delta^2)`` — landing on ``Q''`` while
+    leaving ``Q`` and ``Q'`` untouched — and proportionally to the square of the
+    bending angle.
+
+    Set ``xt.Drift(model="exact")`` and xtrack reproduces this function to ``1e-8``
+    relative in the vertical plane and to the two codes' own second-difference noise
+    in the horizontal. On a five-element ring whose ``Q''`` is derived from lab-frame
+    geometry at sixty digits, this function converges onto the **exact**-drift number
+    at second order in ``delta``, and xtrack's default converges onto the *paraxial*
+    one — so the two models are separately confirmed rather than merely reconciled.
+    MAD-X sits within ``7e-4`` of the paraxial answer there, the small remainder being
+    its own second-order TWISS maps; its drift model cannot be changed, so agreement
+    with MAD-X on a bendy ring is unreachable by construction.
+
+    See ``docs/CONVENTIONS.md`` -> *The drift model is what splits Q'' on a bendy
+    ring*, ``tests/analytic/test_chromatic_arbiter.py``, and M2 in
+    ``docs/ROADMAP.md``.
 
     ``delta`` and ``step`` are as in :func:`chromatic_functions`. A second difference
     divides by ``delta^2``, so closed-orbit noise enters as ``1/delta^2`` — twice as

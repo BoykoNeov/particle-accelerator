@@ -5132,7 +5132,7 @@ second difference) from the closed-orbit solve, so it is bounded at both ends an
 the default `1e-3` sits in the flat middle for the rings this package builds. Gates
 are written on the **convergence order**, never on a value at one step.
 
-## Second-order chromaticity is not arbitrated on a bendy ring (M1)
+## The drift model is what splits `Q''` on a bendy ring (M1 measured it, M2 named it)
 
 `second_order_chromaticity()` returns the plain second difference
 
@@ -5146,60 +5146,107 @@ so it is `d^2Q/ddelta^2` and **not** the coefficient of `delta^2` in
 of *fractional* tunes is wrong by an integer whenever two of the three sample points
 straddle a half integer.
 
-**Where it is validated:** on a **bend-free** ring, against a sympy closed form, and
-xtrack and MAD-X both agree — a three-code agreement. The closed form exists because
-a thin quadrupole carries **no** `1/(1+delta)` (its kick changes every particle's
-momentum equally, so the *angle* change is what differs) and the exact `Drift`,
-linearised at the origin, is exactly `Drift(L/(1+delta))`. A thin-lens ring's whole
-momentum dependence is therefore one substitution.
+**M1 found three codes giving three answers on a ring with bends** — accsim
+`0.79307`, xtrack `0.75202`, MAD-X `0.70441` — while all three agreed on `Q` to ten
+digits and on `Q'` to seven, and agreed with each other and with a sympy closed form
+on a **bend-free** ring. It shipped the number as an unarbitrated boundary.
 
-**Where it is not:** on a ring with bends, three codes give three answers —
+**M2 settled it. The cause is the drift model, and accsim is right.**
 
-| code   | `Q''_x`  | `Q''_y`  |
-|--------|----------|----------|
-| accsim | 0.79307  | 0.76830  |
-| xtrack | 0.75202  | 0.76269  |
-| MAD-X  | 0.70441  | 0.72625  |
+| code | drift map | `Q''_x` (M1's arc) |
+|------|-----------|--------------------|
+| accsim | exact, `x += L px / pz` | `0.79307` |
+| xtrack, `Drift(model="exact")` | exact | `0.79309` |
+| xtrack, default | paraxial, `x += L px / (1+delta)` | `0.75205` |
+| MAD-X TWISS | paraxial | `0.70441` |
 
-— while agreeing on `Q` to **ten** digits and on `Q'` to seven. MAD-X is further
-from xtrack than accsim is, so "two references agree, therefore accsim is wrong" is
-not available.
+`pz = sqrt((1+delta)^2 - px^2 - py^2)`, so the exact map is the paraxial one times
+`1 + (px^2 + py^2)/(2 (1+delta)^2) + ...`. Three consequences, and they are the whole
+of the phenomenon:
 
-**This is not an accsim map error, and that was established positively rather than
-assumed.** All three of the following are gated in the suites:
+- **At `px = py = 0` the two maps are identical at every momentum.** A ring whose
+  closed orbit is straight cannot tell them apart however far off-momentum it is
+  asked, which is why M1's bend-free control was a genuine three-code agreement and
+  not a lucky one.
+- **With bends the closed orbit carries `px ~ D_px delta`**, so the difference is
+  `O(delta^2)` — it leaves `Q` and `Q'` untouched and lands squarely on `Q''`.
+- **`D_px` is proportional to the bending angle**, so the gap is proportional to its
+  **square**. That is exactly the scaling law M1 measured against MAD-X
+  (`gap/angle^2` = `8.91`, `8.22` at `0.03` and `0.06` rad) and attributed to "the
+  longitudinal constraint". The analytic suite now reproduces the same law inside a
+  sixty-digit arbiter with neither reference code present.
 
-1. accsim's `Dipole` Jacobian equals `xt.Bend`'s to `5e-9` **entry by entry, on the
-   off-momentum closed orbit** (`x != 0`, `delta != 0`) — every momentum-dependent
-   entry included. The Jacobian is what sets a tune; comparing tracked *points*
-   would not have been enough, and initially was not.
-2. The two codes' off-momentum closed orbits agree to `1e-9`, including the
-   second-order dispersion that makes `x_co(+delta) != -x_co(-delta)`.
-3. accsim's two *independent* tune routes — accumulated Twiss phase, and the
-   one-turn map trace — agree with each other to seven digits, ruling out a bias in
-   the phase accumulation.
+### How it was found, and what M1 got wrong
 
-Identical maps about identical orbits cannot yield different tunes, so the spread
-lives in **how each code closes an off-momentum orbit** on a dispersive ring. Note
-what this is *not*: phase accumulation is ruled out by point 3 above, so "the codes
-extract tunes differently" is too loose a statement to leave standing.
+M1's inference was **valid reasoning from a false premise**. It established that
+accsim's `Dipole` Jacobian equals `xt.Bend`'s off-momentum, and generalised that to
+"identical maps"; from identical maps about identical orbits, different tunes are
+impossible, so the spread had to be in tune extraction. The premise was false because
+only *one element* was ever compared. Walking the closed orbit element by element
+gives:
 
-**And it has a scaling law**, which is the sharpest thing known about it: sweeping
-the bending angle, the accsim-vs-MAD-X gap is **exactly zero at zero angle** and
-**quadratic in the angle** as it turns on (`gap/angle^2` = `8.91`, `8.22` at `0.03`
-and `0.06` rad). A term that vanishes with the bending angle, grows as its square,
-and leaves `Q` and `Q'` untouched is something proportional to dispersion acting
-twice. The leading suspect is **what each code holds fixed longitudinally when
-closing an off-momentum orbit** — accsim's `closed_orbit_nonlinear` fixes
-`zeta = 0` and `delta` at the entrance, and path length through a bend depends on
-`delta` where through a drift it does not, which is exactly the observed on/off
-switch. That is M2's opening hypothesis.
+```
+Quadrupole   6.2e-11 on-momentum    5.3e-10 off-momentum
+Dipole       6.0e-10 on-momentum    6.7e-10 .. 1.1e-9 off-momentum
+Drift        1.0e-10 on-momentum    6.4e-08 .. 1.0e-07 off-momentum
+```
 
-The value is pinned
-in the analytic suite as a **boundary**, so it cannot drift silently, and is
-documented as unarbitrated rather than quoted as validated. **M2** in
-`docs/ROADMAP.md` is the milestone written to settle it, with a pre-committed gate:
-a one-thin-quad-plus-one-sector-bend ring whose one-turn map sympy can build as an
-exact function of `delta` and differentiate twice.
+The drift is a hundred times every other element, and **only** off-momentum. The
+reason it went unchecked is worth keeping: L1 had shipped the drift *exact*, so it
+read as settled — but L1 validated the drift's **map**, not its agreement with
+xtrack's **default configuration**, and those are different claims. The same trap is
+live for any element whose reference has more than one model.
+
+Two further numbers M1 quoted were below the resolution of the effect, and neither
+discriminated: the one-turn tune difference being explained is `2e-8`, while
+"accsim's two tune routes agree to seven digits" is `1e-7` absolute, and the `5e-9`
+dipole-Jacobian threshold was called "the finite-difference floor" when the actual
+floor is `~7e-10`.
+
+### The arbiter: a ring whose `Q''` is derived, not compared
+
+`tests/_m2_minimal_ring.py` builds
+`ThinQuadrupole(+0.9) Drift(0.5) Dipole(1.0, 0.12) ThinQuadrupole(-0.9) Drift(0.5)`
+and derives its `Q''` from lab-frame geometry — the bend as a circle of radius
+`p_perp/h` meeting the exit face — at **sixty** decimal digits, once per drift model:
+
+```
+exact drift     Q''_x = 0.3073788909    Q''_y = 0.2985909737
+paraxial drift  Q''_x = 0.2932235794    Q''_y = 0.2938154492
+```
+
+accsim converges onto the exact pair at second order in `delta` (residual `4.1e-5`,
+`1.0e-5`, `2.6e-6` as `delta` halves from `1e-2`); xtrack's default reproduces the
+paraxial pair to `4e-6`; xtrack's `model="exact"` reproduces the exact pair to
+`3e-6`; MAD-X lands `7.0e-4` (horizontal) and `7.3e-4` (vertical) from the paraxial
+pair — the same residual in both planes, against a drift-model split of `1.42e-2` and
+`4.78e-3` — so the drift explains 95% of MAD-X's gap in `x` and 82% in `y`, and the
+leftover is one property of its second-order TWISS maps rather than two unrelated
+discrepancies.
+
+Three points about the design of that ring, each of which had to be got right:
+
+- **It needs a drift.** The roadmap's pre-committed "one thin quadrupole plus one
+  sector bend" cannot show the effect at all, because the effect lives in the drift.
+- **It needs two quadrupoles.** A sector bend focuses horizontally only, so a single
+  quadrupole leaves one plane unstable.
+- **The bend must be derived, not transcribed.** `exact_sector_bend_map` is heavily
+  rearranged for numerical stability (a rationalised `pz - 1`, an `arcsinc`, no
+  `1/h`); porting that arrangement into the arbiter would test it against itself. The
+  independent geometric construction agrees with it to `2.9e-15`.
+- **mpmath, not sympy.** A second difference at `delta = 1e-12` carried at sixty
+  digits has `O(delta^2)` truncation near `1e-24` and round-off near `1e-36`. The
+  sympy route (a third-order Taylor series in five variables about the closed orbit)
+  was written and reaches the same place, but is far too slow for the analytic suite.
+
+### What is *not* claimed
+
+MAD-X's TWISS has **no** exact-drift option, so agreement with MAD-X on a dispersive
+ring is unreachable by construction, not a bug to chase. accsim's ring parameters
+appear in `tests/reference/test_chromatic_optics_xtrack.py`; the two codes' `Q''_x`
+still differ by `~5%` there **on xtrack's default settings**, and that assertion is
+deliberately kept — it is a real difference between two documented models, and a
+future change that quietly removed it would mean accsim had stopped being exact.
 
 ### Two facts found on the way, both worth keeping
 

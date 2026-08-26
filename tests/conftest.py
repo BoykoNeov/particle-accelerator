@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Iterator
 
 import pytest
+
+# tests/ is not an import package, so make shared helpers next to this file importable
+# from both tests/analytic and tests/reference (``_m2_minimal_ring``).
+sys.path.insert(0, os.path.dirname(__file__))
 
 from accsim import ELECTRON_MASS_EV, PROTON_MASS_EV, ReferenceParticle, features
 

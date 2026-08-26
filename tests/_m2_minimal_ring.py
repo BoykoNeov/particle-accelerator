@@ -1,0 +1,249 @@
+"""M2's arbiter: the minimal ring, and its ``Q''`` derived without accsim.
+
+M1 shipped a second-order chromaticity that three codes disagreed about on a ring
+with bends, and pinned it as unarbitrated. M2 arbitrates it, and this module is the
+independent side of the gate: a five-element ring small enough that its ``Q''`` can
+be produced from first principles, at a precision no finite-difference comparison
+between two codes can reach.
+
+**The ring** — ``ThinQuadrupole(+k) Drift(L) Dipole(Lb, theta) ThinQuadrupole(-k)
+Drift(L)`` — is the smallest one that exhibits the effect. The roadmap's
+pre-committed "one thin quadrupole plus one sector bend" was one element short:
+the whole disagreement lives in how a **drift** propagates a particle that has a
+transverse angle, so a ring without a drift cannot show it. Two thin quadrupoles of
+opposite sign are needed because a sector bend focuses only horizontally, so a
+single quadrupole leaves one plane unstable.
+
+**The maps are derived here, not imported.** The bend is built from lab-frame
+geometry — a circle of radius ``p_perp/h`` meeting the exit face — rather than
+transcribed from :func:`accsim.elements.dipole.exact_sector_bend_map`, which is
+heavily rearranged for numerical stability; porting that rearrangement would test it
+against itself. ``test_chromatic_arbiter.py`` asserts the two agree.
+
+**Why mpmath rather than sympy.** A second difference at ``delta = 1e-12`` carried at
+60 decimal digits has ``O(delta^2)`` truncation error near ``1e-24`` and round-off
+near ``1e-36``, so the number it returns is the closed-form answer to twenty digits.
+The sympy route (a Taylor series in ``delta`` about the closed orbit) reaches the
+same place, and was run once to confirm it, but it is far too slow to sit in the
+analytic suite — see ``docs/CONVENTIONS.md`` -> *Test-suite cost*.
+
+Every routine here is built **twice**, over the exact drift ``x += L px/pz`` and the
+paraxial drift ``x += L px/(1+delta)``, because the difference between those two is
+the milestone's entire finding.
+"""
+
+from __future__ import annotations
+
+import functools
+
+from mpmath import acos, cos, findroot, matrix, mp, mpf, pi, sin, sqrt
+
+from accsim import Dipole, Drift, Lattice, ReferenceParticle, ThinQuadrupole
+
+# The ring. Chosen so both planes are stable (|Tr| < 2) and neither tune sits near a
+# half integer, where a second difference amplifies everything — asserted, not assumed.
+KF = 0.9  # thin-quad strength [1/m]
+LD = 0.5  # drift length [m]
+LB = 1.0  # bend length [m]
+ANG = 0.12  # bending angle [rad]
+
+DPS = 60  # working precision of the arbiter
+STEP = mpf(10) ** -12  # momentum step of its second difference
+
+# Any reference particle gives the same answer: this ring's transverse map has no
+# reference-particle term at all (only ``zeta`` does, and ``zeta`` cannot feed back
+# without an RF cavity). Asserted in the analytic suite.
+MASS0 = 938.27208816e6
+GAMMA0 = 20.0
+
+
+def lattice(gamma: float = GAMMA0) -> Lattice:
+    """The minimal ring as accsim builds it."""
+    ref = ReferenceParticle.from_gamma(MASS0, gamma)
+    return Lattice(
+        [
+            ThinQuadrupole(KF),
+            Drift(LD),
+            Dipole(LB, ANG),
+            ThinQuadrupole(-KF),
+            Drift(LD),
+        ],
+        ref,
+    )
+
+
+# ---------------------------------------------------------------------------
+# the maps, derived here
+# ---------------------------------------------------------------------------
+
+
+def thin_quad_map(state: list, k1l) -> list:
+    """``px -> px - k1l x``, ``py -> py + k1l y``: no ``1/(1+delta)``.
+
+    ``k1l`` is normalised to ``P0``, so the kick a fixed gradient gives a particle in
+    *normalised* momentum is the same at every momentum. That is why a thin-lens ring
+    has no chromaticity at all, and why the bend-free control M1 could solve in closed
+    form was a control rather than a warm-up.
+    """
+    x, px, y, py, delta = state
+    return [x, px - k1l * x, y, py + k1l * y, delta]
+
+
+def drift_map(state: list, length, *, exact: bool) -> list:
+    r"""The field-free map, in the two models the milestone is about.
+
+    ``exact``   : ``x += L px / pz``, ``pz = sqrt((1+delta)^2 - px^2 - py^2)``
+    ``paraxial``: ``x += L px / (1 + delta)``
+
+    They differ at ``O(angle^2)`` relatively — the exact form is the paraxial one
+    times ``1 + (px^2 + py^2)/(2 (1+delta)^2) + ...`` — so on a ring whose closed
+    orbit is straight they are the same map, and on one with bends they are not.
+    """
+    x, px, y, py, delta = state
+    one = 1 + delta
+    inv = 1 / sqrt(one**2 - px**2 - py**2) if exact else 1 / one
+    return [x + length * px * inv, px, y + length * py * inv, py, delta]
+
+
+def bend_map(state: list, length, angle) -> list:
+    r"""The exact sector bend, from lab-frame geometry.
+
+    Take the entrance face as the plane ``Z = 0``, with the design particle entering
+    the lab origin along ``+Z`` and curving toward ``-X`` on a circle of radius
+    ``rho = 1/h``, ``h = angle/length``, centred at ``(-rho, 0)``. A particle whose
+    momentum projected into the bend plane is ``p_perp = sqrt((1+delta)^2 - py^2)``
+    rides a circle of radius ``r = p_perp/h`` — a uniform field bends normalised
+    momentum, so a stiffer particle turns on a wider circle — whose centre lies a
+    quarter turn to its left:
+
+        C = P_in + r R90(v_hat),   R90(px, pz) = (-pz, px)
+
+    Writing the point at swept angle ``phi`` as ``C + r (cos a, sin a)`` with
+    ``a = phi0 + phi`` and ``(cos phi0, sin phi0) = (pz, -px)/p_perp``, the map is
+    the ``phi`` at which that point meets the **exit face** — the line through the
+    design exit point normal to the design direction there — read out in the exit
+    local frame. ``py`` is untouched (the field is vertical) and ``y`` advances by
+    ``py phi / h``, the projected arc divided by the projected momentum.
+
+    This is a derivation, not a transcription: nothing here comes from
+    :func:`accsim.elements.dipole.exact_sector_bend_map`, whose form is rearranged so
+    that no two numbers of size one are ever subtracted.
+    """
+    x, px, y, py, delta = state
+    h = angle / length
+    rho = 1 / h
+    one = 1 + delta
+    p_perp = sqrt(one**2 - py**2)
+    pz = sqrt(one**2 - px**2 - py**2)
+    r = p_perp / h
+
+    centre_x, centre_z = x - pz / h, px / h
+    cos0, sin0 = pz / p_perp, -px / p_perp
+
+    cos_t, sin_t = cos(angle), sin(angle)
+    exit_x, exit_z = -rho * (1 - cos_t), rho * sin_t
+    dir_x, dir_z = -sin_t, cos_t  # design direction at the exit
+    loc_x, loc_z = cos_t, sin_t  # local transverse unit vector at the exit
+
+    def _angles(phi):
+        return (
+            cos0 * cos(phi) - sin0 * sin(phi),
+            sin0 * cos(phi) + cos0 * sin(phi),
+        )
+
+    def _face(phi):
+        ca, sa = _angles(phi)
+        return (centre_x + r * ca - exit_x) * dir_x + (centre_z + r * sa - exit_z) * dir_z
+
+    phi = findroot(_face, angle, tol=mpf(10) ** (-2 * mp.dps))
+    ca, sa = _angles(phi)
+    pos_x, pos_z = centre_x + r * ca, centre_z + r * sa
+
+    return [
+        (pos_x - exit_x) * loc_x + (pos_z - exit_z) * loc_z,
+        p_perp * (-sa * loc_x + ca * loc_z),
+        y + py * phi / h,
+        py,
+        delta,
+    ]
+
+
+def turn_map(state: list, *, exact_drift: bool, angle: float = ANG) -> list:
+    """One turn of the minimal ring. ``angle`` is swept by the scaling-law gate."""
+    state = thin_quad_map(state, mpf(KF))
+    state = drift_map(state, mpf(LD), exact=exact_drift)
+    # angle = 0 replaces the bend by a drift of the same length, in the *same* drift
+    # model, so the sweep's zero-angle end is a ring with no bend at all rather than a
+    # ring with one exact drift buried in it.
+    if angle:
+        state = bend_map(state, mpf(LB), mpf(angle))
+    else:
+        state = drift_map(state, mpf(LB), exact=exact_drift)
+    state = thin_quad_map(state, -mpf(KF))
+    return drift_map(state, mpf(LD), exact=exact_drift)
+
+
+# ---------------------------------------------------------------------------
+# closed orbit, tunes, and the second difference
+# ---------------------------------------------------------------------------
+
+
+def closed_orbit(delta, *, exact_drift: bool, angle: float = ANG) -> tuple:
+    """``(x, px)`` of the 4D fixed point at fixed ``delta`` — ``y = py = 0`` by symmetry."""
+
+    def residual(x, px):
+        out = turn_map([x, px, mpf(0), mpf(0), delta], exact_drift=exact_drift, angle=angle)
+        return out[0] - x, out[1] - px
+
+    root = findroot(residual, (mpf(0), mpf(0)), tol=mpf(10) ** (-2 * mp.dps))
+    return root[0], root[1]
+
+
+def one_turn_traces(delta, *, exact_drift: bool, angle: float = ANG) -> dict[str, object]:
+    """Trace of each plane's ``2x2`` one-turn Jacobian about the closed orbit."""
+    xco, pco = closed_orbit(delta, exact_drift=exact_drift, angle=angle)
+    base = [xco, pco, mpf(0), mpf(0), delta]
+    step = mpf(10) ** (-mp.dps // 3)
+    out = {}
+    for plane, idx in (("x", (0, 1)), ("y", (2, 3))):
+        block = matrix(2, 2)
+        for j, col in enumerate(idx):
+            plus, minus = list(base), list(base)
+            plus[col] += step
+            minus[col] -= step
+            fwd = turn_map(plus, exact_drift=exact_drift, angle=angle)
+            bwd = turn_map(minus, exact_drift=exact_drift, angle=angle)
+            for i, row in enumerate(idx):
+                block[i, j] = (fwd[row] - bwd[row]) / (2 * step)
+        out[plane] = block[0, 0] + block[1, 1]
+    return out
+
+
+def tunes(delta, *, exact_drift: bool, angle: float = ANG) -> dict[str, object]:
+    """Fractional tunes from the trace. Both stay well inside ``(0, 1/2)`` on this ring."""
+    traces = one_turn_traces(delta, exact_drift=exact_drift, angle=angle)
+    return {p: acos(t / 2) / (2 * pi) for p, t in traces.items()}
+
+
+@functools.lru_cache(maxsize=32)
+def second_order_chromaticity(*, exact_drift: bool, angle: float = ANG) -> dict[str, float]:
+    """``d^2Q/ddelta^2`` of the minimal ring, to twenty digits, without accsim."""
+    with mp.workdps(DPS):
+        plus = tunes(+STEP, exact_drift=exact_drift, angle=angle)
+        zero = tunes(mpf(0), exact_drift=exact_drift, angle=angle)
+        minus = tunes(-STEP, exact_drift=exact_drift, angle=angle)
+        return {p: float((plus[p] - 2 * zero[p] + minus[p]) / STEP**2) for p in ("x", "y")}
+
+
+@functools.lru_cache(maxsize=4)
+def design_tunes(*, exact_drift: bool = True) -> dict[str, float]:
+    """On-momentum fractional tunes, for the stability/half-integer guard."""
+    with mp.workdps(DPS):
+        return {p: float(v) for p, v in tunes(mpf(0), exact_drift=exact_drift).items()}
+
+
+@functools.lru_cache(maxsize=4)
+def design_traces(*, exact_drift: bool = True) -> dict[str, float]:
+    """On-momentum ``Tr M`` per plane, for the stability guard."""
+    with mp.workdps(DPS):
+        return {p: float(v) for p, v in one_turn_traces(mpf(0), exact_drift=exact_drift).items()}
