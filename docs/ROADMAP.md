@@ -550,6 +550,12 @@ independent closed forms exist for the headline numbers — so both arms of the 
 strategy are in place before a line is written. Unlike axis L it re-baselines nothing,
 because spin does not act back on the orbit; the flip side is that no existing gate
 constrains it either, which is why each milestone's weight is entirely in its gates.
+**N1 shipped the same day**, and three of its four findings were not the map: a bug in
+accsim's own `SkewQuadrupole` field that only a direction-reading consumer could see, an
+alarming-looking xtrack disagreement that turned out to be its default bend *integrator*
+moving the orbit rather than its spin being wrong, and a real sign typo in xtrack's
+`direction_of_motion` — asserted with the exponent the mechanism predicts rather than
+dodged.
 
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
@@ -2866,7 +2872,9 @@ Two properties worth stating before the milestones, because they set the axis's 
   is named here in advance rather than after being tripped over.
 
 - **N1 — the spin as a tracked quantity: the Thomas-BMT map, element by element.**
-  The map that rotates a particle's spin as it crosses a magnet, and nothing else. The
+  ✅ **SHIPPED (2026-08-26)** — `accsim.spin`, a precession seam on `Element` shaped like
+  the radiation one, `Element.track_with_spin` and `Tracker.track_once_with_spin`. The
+  map that rotates a particle's spin as it crosses a magnet, and nothing else. The
   spin obeys `dS/ds = Omega x S` with
 
       `Omega = -(1/(1+delta)) [ (1 + G gamma) b_perp + (1 + G) b_par ]`      [rad/m]
@@ -2902,13 +2910,63 @@ Two properties worth stating before the milestones, because they set the axis's 
     `b_par` is the component of a purely *transverse* field along the direction of
     motion, which is non-zero as soon as the particle has an angle; the term therefore
     enters at `O(px b_x)` rather than being dead code awaiting a longitudinal field.
-  - **Reference: element by element, gated on the convergence order.** `xtrack` does not
-    evaluate an analytic field — `magnet_estimate_field` back-derives `B` from the
-    trajectory's curvature — so accsim's midpoint-rule integral of its own analytic field
-    and xtrack's differ at `O(L^2)` by construction. The gate is therefore that slicing
-    converges the two together at the expected order, which is B2's argument
-    (`integrator='uniform', num_multipole_kicks=1`, to strip xtrack's own eight-step
-    sub-stepping first) applied to a rotation instead of an energy loss.
+  - **Reference: element by element, and the predicted gate was the wrong shape.** N1
+    expected an `O(L^2)` disagreement everywhere, since `xtrack` does not evaluate an
+    analytic field at all — `magnet_estimate_field` back-derives `B` from the
+    trajectory's curvature — while accsim samples its own field at the traversal
+    mid-point. **Two different recipes, and yet: on a bend, and on a quadrupole with only
+    one transverse plane populated, they agree to round-off at every slicing.** The
+    reason is derivable rather than lucky. In a single plane `b . i = 0` (a purely
+    horizontal field never meets a purely vertical angle), so `Omega` points along one
+    fixed Cartesian axis for the whole traversal, every rotation commutes with every
+    other, only the **scalar** `int b ds` survives — and both codes' quadratures of that
+    scalar are the same number. Populate **both** planes and the axis turns, the
+    rotations stop commuting, and the two converge to each other as `1/N^3` (a factor 8
+    per doubling, gated as that order). **The gap is non-commutativity, not the field
+    model**, and the single-plane exactness is what proves it.
+
+  What it delivered beyond the map itself:
+
+  - **A three-way agreement on the one case with a closed form.** On the design orbit a
+    sector bend rotates the spin by exactly `-G gamma theta` about `y` — the BMT rotation
+    `-(1 + G gamma) theta` plus the frame's own `+theta` — with no quadrature error,
+    because the field is constant. accsim lands on it to nine digits, and so does
+    `xtrack` once its bend is given an exact map. That is the number the spin tune is
+    built from, derived from Thomas-BMT rather than read off either code.
+  - **A bug in accsim that only this axis could see.** `SkewQuadrupole.normalized_field`
+    rolled the **opposite way from its own map**, returning the exactly sign-flipped
+    field *vector* with the correct magnitude. Nothing could catch it: `normalized_field`
+    had exactly one consumer — the radiation kick — and that takes `|b_perp|`, which is
+    roll-invariant. Spin is the first quantity in the package that reads a field's
+    *direction*, and a rolled `Quadrupole` and a `SkewQuadrupole` promptly agreed on the
+    orbit to the last bit while disagreeing on which way a spin turned. The fix is one
+    line; **the missing gate is the point**, and it now exists: every straight magnet's
+    field must agree with its own momentum kick, `(dpx, dpy)/L -> (-b_y, +b_x)`.
+  - **An apparent 1.4e-5 disagreement with xtrack that turned out not to be about spin
+    at all.** `xt.Bend`'s *default* integration is a fourth-order splitting whose
+    one-kick design orbit is not quite the axis; the spin then correctly follows that
+    slightly wrong momentum. Four measurements say so rather than one argument: the
+    residual is `O(theta^5)` (×32 per doubling of the bend angle), `O(N^-4)` in the
+    number of kicks (÷16 per doubling — the splitting's own order), **independent** of
+    both the element length and the beam energy, and equal to `theta` times the *orbit*
+    residual to three digits. M2's lesson applied unchanged: localise before deriving.
+  - **A genuine defect in `xtrack` 0.106.4, asserted with its exponents.**
+    `direction_of_motion` (`track_magnet_radiation.h:22`) computes
+    `sqrt(1 - ix*ix + iy*iy)` — a `+` where a `-` belongs — so the vector it returns is
+    not a unit vector, and it is used unnormalised for the spin precession *and* for
+    `compute_b_perp_mod`, which is what B2's radiation kick integrates. The order follows
+    from the mechanism: the error multiplies `b . i`, which for a bend is `b_y i_y` and
+    already carries one power of `py`. One from the projection, two from the botched
+    normalisation ⇒ the spin disagreement is **third order in `py`** (measured ratio 8.00
+    per doubling) and **exactly zero in `px`** (`3e-16` at `px = 4e-3`), with the orbit
+    untouched at `1e-16` throughout. Gated as both exponents rather than avoided by
+    tracking at `py = 0`.
+  - **A third silent switch on the reference side**, beyond the two named when the axis
+    opened: `xtrack` compiles spin into its kernel only if `line.configure_spin(...)` was
+    called, and without it `track()` returns the spin **bit-for-bit unchanged** — through
+    a magnet that certainly precesses it, with no error raised. A comparison written
+    without it measures nothing and reads as "accsim invented a precession xtrack does
+    not have". Asserted, so it cannot be un-set silently.
 
   Scope, stated rather than discovered:
 
@@ -2929,7 +2987,9 @@ Two properties worth stating before the milestones, because they set the axis's 
     rather than avoiding it by setting `py = 0`, which is M2's "both models separately
     confirmed" standard rather than a reconciliation.
 
-  Effort **M**.
+  Gates: `tests/analytic/test_spin.py` (39), `tests/reference/test_spin_xtrack.py` (18).
+  The full analytic suite is **1144 passed**, unchanged: nothing on axes A-M moved,
+  which is the structural claim the axis opened with.
 
 - **N2 (candidate) — the closed spin solution and the spin tune.** The periodic direction
   `n_0(s)` a spin must lie along to come back to itself after a turn, and the rate `nu_0`
