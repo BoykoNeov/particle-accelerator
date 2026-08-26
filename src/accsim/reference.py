@@ -124,7 +124,8 @@ class ReferenceParticle:
         )
 
     @classmethod
-    def from_gamma(cls,
+    def from_gamma(
+        cls,
         mass_eV: float,
         gamma0: float,
         charge: float = 1.0,
