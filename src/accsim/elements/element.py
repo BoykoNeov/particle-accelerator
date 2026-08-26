@@ -334,8 +334,6 @@ class Element(abc.ABC):
         radiation and the precession are evaluated on. With ``spin=None`` it is
         :meth:`track` unchanged, down to which arrays get allocated.
         """
-        from ..spin import rotate_about_s
-
         if not self.is_misaligned:
             out = self._track_body(state, ref)
             return self._radiate(state, out, ref, radiation, rng), self._precess(
@@ -357,11 +355,18 @@ class Element(abc.ABC):
             k_in, k_out = k_in[:, None], k_out[:, None]
         body_in = M_in @ state + k_in
         body_out = self._track_body(body_in, ref)
-        spin_out = self._precess(
-            body_in, body_out, ref, rotate_about_s(spin, self.roll) if spin is not None else None
-        )
-        if spin_out is not None:
-            spin_out = rotate_about_s(spin_out, -self.roll)
+        spin_out = None
+        if spin is not None:
+            # A roll carries the spin into and out of the body frame exactly as it does
+            # the transverse coordinates. Imported here rather than at the top of the
+            # method so that a plain track() never touches accsim.spin at all -- the same
+            # shape as _radiate's branch-local import.
+            from ..spin import rotate_about_s
+
+            spin_out = rotate_about_s(
+                self._precess(body_in, body_out, ref, rotate_about_s(spin, self.roll)),
+                -self.roll,
+            )
         return M_out @ self._radiate(body_in, body_out, ref, radiation, rng) + k_out, spin_out
 
     @property

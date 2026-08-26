@@ -2987,8 +2987,11 @@ Two properties worth stating before the milestones, because they set the axis's 
     rather than avoiding it by setting `py = 0`, which is M2's "both models separately
     confirmed" standard rather than a reconciliation.
 
-  Gates: `tests/analytic/test_spin.py` (39), `tests/reference/test_spin_xtrack.py` (18).
-  The full analytic suite is **1144 passed**, unchanged: nothing on axes A-M moved,
+  Gates: `tests/analytic/test_spin.py` (38), `tests/reference/test_spin_xtrack.py` (18).
+  The full analytic suite is **1143 passed**, and the arithmetic is the claim: it was
+  1144 before N1, and the one difference is a parametrisation *removed* from N1's own
+  file (the design-orbit case, where the Dirac residual is identically zero at every
+  slicing and the order-gate would have passed vacuously). **Nothing on axes A-M moved**,
   which is the structural claim the axis opened with.
 
 - **N2 (candidate) — the closed spin solution and the spin tune.** The periodic direction

@@ -5543,6 +5543,16 @@ the package that reads a field's **direction**, and it found the mismatch on the
 comparison: a rolled `Quadrupole` and a `SkewQuadrupole` agreed on the orbit to the last
 bit and disagreed on which way a spin turned.
 
+**Which of the two was wrong is settled externally, not by reading the source.** The
+map's roll sense is pinned by both references and was already: MAD-X reproduces
+`SkewQuadrupole`'s whole transverse 4x4 to `1e-13` including the off-diagonal coupling
+blocks (`test_betatron_coupling_madx.py`), and xtrack pins the sign of `R[px, y]`
+(`test_betatron_coupling_xtrack.py`) — a flipped roll would flip exactly those. So the
+map was right, the field had to be brought to it, and the direction of the fix is not a
+judgement call. Worth stating because the full analytic suite **cannot** distinguish the
+fix from the bug: radiation takes `|b_perp|`, which is roll-invariant, so the pre-fix and
+post-fix code radiate bit-identically and 1144 passing tests are no evidence either way.
+
 The fix is one line; the gate is the point. `test_a_straight_magnets_field_agrees_with_its_own_momentum_kick`
 now asserts, for every straight magnet, that `(dpx, dpy)/L -> (-b_y, +b_x)` as `L -> 0`.
 It is written against `_track_body`, not `track`, because that is where the invariant

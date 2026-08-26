@@ -107,7 +107,6 @@ def dirac_residual(n: int, state: np.ndarray) -> float:
     "state",
     [
         np.array([2e-3, 1e-3, -1.5e-3, 0.7e-3, 0.0, 1e-3]),
-        np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
         np.array([-4e-3, -2e-3, 3e-3, 1.1e-3, 1e-3, -2e-3]),
     ],
 )
@@ -115,14 +114,18 @@ def test_no_anomalous_moment_locks_the_spin_to_the_direction_of_motion(state):
     """With ``G = 0`` the spin follows the momentum, to the accuracy of the quadrature.
 
     This is the sharpest gate on the axis and the only one that needs no reference at
-    all. It is *exact* where the field is constant along the path (a drift has none; a
-    sector bend on the design orbit has one field and one direction), and second-order
-    accurate elsewhere — which is the midpoint rule's own order, and is asserted as a
-    ratio of 4 per halving rather than as a tolerance.
+    all. It is second-order accurate wherever the field varies along the path — the
+    midpoint rule's own order, asserted as a ratio of 4 per halving rather than as a
+    tolerance.
+
+    **Only off-orbit states are parametrised here, deliberately.** On the design orbit
+    the residual is identically zero at every slicing, which would make the order-gate
+    pass *vacuously* — and would go on passing if a regression made ``_precess`` return
+    its input untouched. The exact case is worth asserting and gets its own test below,
+    where "exactly zero" is the claim rather than an escape hatch.
     """
     residuals = [dirac_residual(n, state) for n in (2, 4, 8, 16)]
-    if max(residuals) < 1e-15:  # the design orbit: constant field, exact at every n
-        return
+    assert residuals[0] > 1e-8  # the sweep is measuring something
     for coarse, fine in zip(residuals, residuals[1:], strict=False):
         assert coarse / fine == pytest.approx(4.0, rel=0.02)
     assert residuals[-1] < 1e-5  # and small in absolute terms, for a unit vector

@@ -83,6 +83,19 @@ against; the gates that discriminate are:
 - *Not a phase-space map.* A rotation of a unit vector has nothing to do with
   symplecticity, and ``matrix()``/``kick()`` are untouched. The invariant that bounds
   axis L — ``matrix()`` is the exact origin Jacobian of ``track()`` — is unaffected.
+- *Radiation and precession are evaluated on the **same** un-radiated traversal, and
+  that is a choice.* With ``radiation`` on, ``Element._track_impl`` hands both this
+  function and :func:`accsim.radiation_kick.radiation_kick` the *same* ``before``/
+  ``after`` pair, so the spin is rotated using the ``delta`` the particle had **before**
+  the loss, not after. That is deliberate and consistent rather than an oversight: the
+  radiation kick itself evaluates the loss at that same ``delta`` (it is one lumped kick
+  standing in for a continuous drag along the element), so both routes describe the same
+  traversal and neither sees the other's end state. The cost is one factor of
+  ``U/E ~ 3e-7`` per magnet in the precession rate — the same over-counting B2 already
+  records for the loss, converging as ``(N-1)/N`` under slicing. It is stated here
+  because **N3 is the milestone that consumes exactly this combination**: a radiating,
+  precessing particle is what Sokolov-Ternov polarization is about, and an undocumented
+  ordering is the kind of thing M1 was caught by.
 """
 
 from __future__ import annotations
