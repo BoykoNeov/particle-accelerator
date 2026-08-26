@@ -557,6 +557,16 @@ moving the orbit rather than its spin being wrong, and a real sign typo in xtrac
 `direction_of_motion` — asserted with the exponent the mechanism predicts rather than
 dodged.
 
+**N2 and N3 shipped the same day too, and the axis has settled into one shape.** Every
+milestone on it has a headline number that is *degenerate on any ring the package would
+casually build* — N1's spin tune, N2's `n_0 = (0,1,0)`, N3's `P_inf = 8/(5 sqrt3)` — and
+in each case the milestone's real weight moved onto a lattice built to break the
+degeneracy: N2's closed vertical bump, which N3 then reused because it is still the only
+construction in the package that tilts `n_0` at all. The axis's remaining open question,
+the intrinsic resonance `nu_0 = k ± Q_y`, is **N4**: it is a property of the invariant
+spin field of a particle with vertical betatron amplitude, not of `n_0` (N2), and it is
+the same object depolarization is computed from (N3).
+
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -3108,31 +3118,126 @@ Two properties worth stating before the milestones, because they set the axis's 
   The full analytic suite is **1169 passed**, against 1143 after N1 — the whole difference
   is this milestone's own file, so nothing on axes A–M or in N1 moved.
 
-- **N3 (candidate) — Sokolov-Ternov: the polarization radiation builds, and the
-  depolarization it fights.** The spin-flip channel of the synchrotron radiation axis B
-  already has: an equilibrium polarization `P_inf = 8/(5 sqrt3) = 92.376%` and a buildup
-  time constant, both against `polarization_analysis`'s
-  `spin_polarization_inf_no_depol` and `spin_t_pol_buildup_s`. Its natural home is
-  `accsim.radiation`, alongside the integrals, since it is one more integral over the
-  same curvature.
+- **N3 — Sokolov-Ternov: the polarization the radiation builds up.** ✅ **SHIPPED
+  (2026-08-26)** — `polarization_integrals`, `sokolov_ternov_polarization`,
+  `polarization_buildup_time`, `PolarizationIntegrals`, in `accsim.radiation` rather
+  than `accsim.spin`: it is one more integral over the same curvature `I1..I5` average.
+  The spin-flip channel of axis B's synchrotron radiation — a bending electron
+  occasionally flips its own spin, the two flip directions are not equally likely, and a
+  stored beam polarizes on its own to `8/(5 sqrt3) = 92.376%` with a time constant
+  running from a second in a small strong-bending ring to hours at LEP. Two closed-orbit
+  averages carry all of it (Chao; `xtrack`'s `spin_alpha_plus_co` / `spin_alpha_minus_co`):
+  `alpha_plus = (1/C) ∮ kappa^3 (1 - (2/9)(n_0·v)^2) ds` sets the rate,
+  `alpha_minus = (1/C) ∮ kappa^3 (n_0·b) ds` sets the direction.
 
-  `P_inf = 8/(5 sqrt3)` is a good pre-commitment but is **blind by construction** — it is
-  a ratio in which any uniform mis-scale of the two spin-flip rates cancels. The
-  discriminating quantity is the **time constant's coefficient** (the `hbar`, `r_e`,
-  `gamma^5`, `rho^3` combination), which must be **derived in sympy**, not quoted: B2's
-  pre-2019 charge constant and B5's three quiet disagreements are exactly this failure
-  mode on this axis's own neighbour.
+  - **The milestone's own headline number is a control, and the gates say so.** The
+    roadmap predicted `P_inf = 8/(5 sqrt3)` would be "blind by construction", and it is
+    worse than predicted: on a flat ring `n_0` is parallel to the field everywhere the
+    ring bends, so the *ratio* is `-1` before either integral is evaluated. It returns
+    the same sixteen digits — `-0.9237604307034013` — across six rings differing in
+    focusing, cell count, size, energy and slice count, which is asserted rather than
+    remarked on. Same family as J1's blind structural gates, B5's three quiet arbiters,
+    and N1's spin tune. **What replaced it as the gate** is N2's vertical-bump ring,
+    where `n_0` tilts by `t` and the two integrals stop being each other's negative:
+    their *sum* is `t^2 (1/2 - (2/9)<cos^2>)` — second order, opposite signs, different
+    coefficients — so one assertion pins **both** weights and cannot pass on a
+    normalization coincidence, which `alpha_plus * C == I3` on its own would. Both
+    one-legged alternatives are asserted excluded. `<cos^2>` is integrated in sympy: the
+    remembered `1/2` is 0.6% wrong here, the correction falling only as `1/(G gamma)`.
 
-  **It also inherits the resonance N2 turned out not to be about.** `nu_0 = k +- Q_y` is
-  the *intrinsic* resonance — a property of the **invariant spin field** of a particle with
-  vertical betatron amplitude, not of `n_0`, which lives on the closed orbit and sees only
-  integer harmonics (see N2). Reaching it means the spin-orbit coupling matrix
-  `partial n / partial (x, px, y, py, zeta, delta)`, whose resonant denominator is
-  `lambda_i I - A` with `lambda_i = e^{2 pi i Q_y}` an orbital eigenvalue. That is the same
-  object depolarization is computed from, and `xtrack` already exposes it as
-  `spin_n_matrix`, `spin_eigenvectors` and `spin_dn_ddelta_*` — so the arbiter is in place,
-  and the gate is again an integer-indexed *location* (now shifted by `Q_y`) separably from
-  a coefficient. Effort **M**, and larger than it was.
+  - **`n_0`'s horizontal part counter-rotates against the bend**, at `-G gamma` per unit
+    bend angle. Taking that sign the other way leaves the arc average 1.5% out — which
+    reads exactly like a quadrature error, and was separated from one only by refining
+    the step and watching the residual **refuse to fall**. M2's "localise before
+    deriving" on a third axis.
+
+  - **The quadrature has to resolve the spin phase, not the optics.** `G gamma theta` is
+    4.4 radians across one gate-ring bend where the dispersion `radiation_integrals`
+    sub-steps through `theta = 0.39`, so this integral uses **Simpson** where that one
+    uses the trapezoid: fourth order, at the round-off floor by the shared default of 64
+    slices, where the trapezoid is still 1.5% short. Convergence has to be measured on
+    the `(n_0·v)^2` **term**, which is one part in `10^8` of `alpha_plus` — a convergence
+    test on `alpha_plus` reports machine precision at every slice count and sees nothing.
+
+  - **The "no bending" refusal is nearly unreachable, and that is a finding.** A lattice
+    of drifts and on-axis quadrupoles never reaches it: nothing precesses, so N2's
+    `SpinSolutionError` fires first — both integrals are weighted by an `n_0` that does
+    not exist. Exactly one construction separates the two conditions, a **quadrupole
+    traversed off-axis**: real field on the orbit, so `n_0` is unique; not a dipole, so
+    nothing in scope radiates.
+
+  - **The coefficient is the discriminating quantity, exactly as predicted, and almost
+    nothing sees it.** `P_inf` provably cannot — the constant cancels out of a ratio.
+    `gamma^5` and `rho^3` scaling catch a wrong *power* and are exact for a rate ten
+    times too fast. The analytic suite bounds the eV-to-SI bridge
+    (`hbar/m_0 = (hbar c) c/(mc^2)`, assembled from the package's own `HBAR_C_EV_M` and
+    checked against `scipy.constants`, which never passes through eV) and anchors the
+    machine scale on **LEP**: a bare ring with LEP's radius and circumference at
+    45.6 GeV gives **5.65 hours** against a published ~5.5. A wrong *factor* surviving
+    all of that is caught only by xtrack — behind the skippable `reference` marker, so a
+    green analytic suite is weaker evidence here than anywhere else on this axis.
+
+  - **A fifth silent switch on the reference side, and it is the charge.** `xt.Particles`
+    defaults **`q0 = +1`**, so a line built with an electron's `mass0` and no `q0` is a
+    positively charged particle. Everything axis N compared before N3 is *blind* to it: a
+    lattice specified by normalized strengths bends the same way whatever the charge, and
+    the BMT rotation reads the field through the same normalization, so the orbit, `n_0`,
+    the spin tune and the one-turn matrix are bit-for-bit unchanged — which is exactly why
+    N1's and N2's reference files agreed without ever setting it. The polarization
+    *direction* is the first quantity on this axis that asks what the **physical** field is,
+    and charge is what turns a curvature into a field. Left on the default, xtrack
+    cheerfully reports an electron beam polarizing *along* its guide field; and because
+    accsim would flip with it if it made the same mistake, the error never surfaces as a
+    disagreement. Pinned as a test that builds the ring both ways rather than fixed quietly
+    in the fixture: `alpha_plus` unchanged, `alpha_minus` and `P_inf` exactly negated,
+    orbit and spin tune identical.
+
+  - **The arbiter cannot see the flat ring at all.** xtrack's polarization analysis inverts
+    `lambda_i I - A` per orbital eigenvector; `method="4d"` leaves an orbital eigenvalue at
+    exactly `1`, and a flat ring's spin matrix is a rotation about `y`, so `I - A` has a
+    zero row. Its own central-differenced `A` makes that *exactly* singular — a `y`
+    component returned untouched gives `(ds-(-ds))/(2ds) = 1` exactly — so `np.linalg.inv`
+    raises rather than returning something large. Every N3 cross-check therefore runs on the
+    tilted ring, including the ones the tilt is irrelevant to. The axis's own degeneracy,
+    arriving one last time, in the arbiter.
+
+  - **What the comparison says:** both integrals agree in magnitude to `4e-15` — tighter
+    than N2's finite-differenced `n_0` would suggest, because both are dominated by the
+    `kappa^3` geometry the two codes share exactly — and the buildup time agrees with
+    `spin_t_pol_component_s`, which is the milestone's only real check on the coefficient.
+
+  - **Scope, stated and measured:** only dipoles radiate, matching `radiation_integrals`,
+    because `alpha_plus * C == I3` is a gate the two accsim routes must agree on. xtrack
+    also counts the bump's offset quadrupole; on the gate ring that is `3e-12` of
+    `alpha_plus` — negligible there, but growing as the **cube** of the orbit offset where
+    the tilt term grows as its square.
+
+  Gates: `tests/analytic/test_polarization.py` (21),
+  `tests/reference/test_polarization_xtrack.py` (6).
+
+- **N4 (candidate) — depolarization, and the resonance N2 turned out not to be about.**
+  What N3 deliberately did not build: the `(11/18) ∮ kappa^3 |dn/ddelta|^2` term that
+  fights the buildup, and with it the whole **invariant spin field**. `nu_0 = k ± Q_y` is
+  the *intrinsic* resonance — a property of a particle with vertical betatron
+  **amplitude**, not of `n_0`, which lives on the closed orbit and sees only integer
+  harmonics (see N2, where this was moved rather than quietly dropped). Reaching it means
+  the spin-orbit coupling matrix `∂n/∂(x, px, y, py, zeta, delta)`, whose resonant
+  denominator is `lambda_i I - A` with `lambda_i = e^{2 pi i Q_y}` an orbital eigenvalue.
+  That is the same object depolarization is computed from, and `xtrack` exposes it as
+  `spin_n_matrix`, `spin_eigenvectors` and `spin_dn_ddelta_*` — so the arbiter is in
+  place, `spin_polarization_eq` / `spin_t_pol_buildup_s` are the fields to compare
+  against (N3 deliberately compares against the `_co` / `_component` ones instead), and
+  the gate is again an integer-indexed *location*, now shifted by `Q_y`, separably from a
+  coefficient. Effort **M**.
+
+  One thing N3 found that this milestone inherits: **xtrack cannot run its polarization
+  analysis in `method="4d"` on an exactly flat ring.** It inverts `lambda_i I - A` per
+  orbital eigenvector, `4d` leaves an orbital eigenvalue at exactly `1`, and a flat ring's
+  spin matrix `A` is an exact rotation about `y` — so `I - A` has an exactly zero row and
+  `np.linalg.inv` raises `LinAlgError: Singular matrix`. A tilted ring survives only
+  because the same matrix is merely ill-conditioned rather than exactly singular. The
+  degeneracy this axis keeps meeting, arriving once more, this time in the arbiter.
+
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

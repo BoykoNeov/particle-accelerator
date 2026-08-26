@@ -5784,6 +5784,181 @@ product of rotations is orthogonal whatever fields it was built from — and the
 that it survives multiplying every quadrupole field by seven. It catches a broken
 Rodrigues formula and nothing else.
 
+## Sokolov-Ternov polarization (N3 — implemented)
+
+The spin-flip channel of the synchrotron radiation axis B already models. A bending
+electron radiates, a tiny fraction of that radiation flips its spin, the two flip
+directions are not equally likely, and a stored beam therefore polarizes on its own.
+`accsim.radiation` gets `polarization_integrals`, `sokolov_ternov_polarization`,
+`polarization_buildup_time` and `PolarizationIntegrals`. Its natural home is the
+radiation module and not the spin one: it is one more integral over the same curvature.
+
+### The two integrals, and where each sign lives
+
+Following Chao (the same pair `xtrack` reports as `spin_alpha_plus_co` /
+`spin_alpha_minus_co`), as arc-length averages over the ring:
+
+    alpha_plus  = (1/C) ∮ kappa^3 (1 - (2/9) (n_0 · v)^2) ds     — sets the rate
+    alpha_minus = (1/C) ∮ kappa^3 (n_0 · b) ds                   — sets the direction
+
+    P_inf  = (8 / (5 sqrt3)) alpha_minus / alpha_plus
+    1/tau  = (5 sqrt3 / 8) r_0 (hbar / m_0) gamma^5 alpha_plus
+
+`kappa` is the local orbit curvature, `b` the unit vector along the **physical** magnetic
+field, `v` the unit vector along the motion, `n_0` N2's periodic spin direction.
+
+**`alpha_minus` is signed and `alpha_plus` is not.** The size of the bend lives in
+`kappa^3`, the sense of the bend lives in `b`. A reverse bend therefore subtracts from
+`alpha_minus` and adds to `alpha_plus`, which is the physically right behaviour and would
+not survive putting the sign in `kappa^3` instead.
+
+### `normalized_field` is not the field direction — the charge's sign is missing
+
+`Element.normalized_field` returns `B / (B rho)_0`, and `(B rho)_0 = p/q` **carries the
+charge's sign**. Recovering the physical field direction means multiplying that sign back
+out (`accsim.radiation._polarization_integrand`). This is the one place in N3 where a
+mistake produces every magnitude in the milestone correctly and the direction backwards,
+and no magnitude check anywhere can see it.
+
+Consequence, and it is the textbook one: on an ordinary electron ring `n_0` is `+y` while
+the guide field points `-y`, so **`P_inf` is negative** — the beam polarizes *antiparallel*
+to the field. That is physics, not a convention this package was free to choose. It is
+anchored on two independent knobs, each of which flips it alone: swap the charge to a
+positron, or reverse every bend.
+
+### `P_inf = 8/(5 sqrt3)` is a control, not a gate
+
+It is a *ratio* of the two integrals. On any flat, unsteered ring `n_0` is parallel to the
+field everywhere the ring bends, so the ratio is `-1` before either integral is evaluated,
+and any uniform mis-scale of the pair — a wrong power of `kappa`, a wrong circumference, a
+stray factor in the accumulation — cancels out of it exactly. `tests/analytic/`
+`test_polarization.py` asserts this rather than saying it: the same sixteen digits,
+`-0.9237604307034013`, come back across six rings differing in focusing, cell count,
+size, energy and slice count. Same family as J1's blind structural gates and B5's three
+quiet arbiters.
+
+### What does gate it: the two weights pulling apart on a tilted ring
+
+N2's vertical-bump ring tilts `n_0` away from the field by `t`, and the two integrals then
+stop being each other's negative:
+
+    |alpha_minus| C / I3 = n_y = 1 - t^2/2 + O(t^4)          — the (n_0 · b) weight
+     alpha_plus   C / I3 = 1 - (2/9) t^2 <cos^2>             — the (n_0 · v)^2 weight
+
+so their **sum** is `t^2 (1/2 - (2/9) <cos^2>)`: one number carrying both weights, with
+different coefficients and *opposite signs*. That is the milestone's gate, and it is the
+form to assert — each integral checked separately against a `kappa^3` integral would pass
+on a normalization coincidence with the weights wrong. Both one-legged alternatives are
+asserted to be excluded, not merely different. `<cos^2>` is integrated in sympy; the
+remembered "average of `cos^2` is `1/2`" is 0.6% wrong here, because the correction falls
+only as `1/(G gamma)`.
+
+### `n_0`'s horizontal part counter-rotates against the bend
+
+Inside a bend the horizontal projection of `n_0` turns through **`-G gamma`** per unit bend
+angle relative to the direction of motion — the opposite way from the trajectory. Taking
+that sign the other way leaves the arc average of `cos^2` **1.5%** out, which reads exactly
+like a quadrature error and is not one; it was found by watching the residual refuse to
+converge under refinement while a genuine quadrature error would have fallen as
+`slices^-2`. **Localise before deriving**, M2's lesson, on a third axis.
+
+### The quadrature must resolve the *spin* phase, not the optics
+
+Across one bend of angle `theta` the spin phase moves by `G gamma theta` — 4.4 radians on
+N2's 5 GeV gate ring — where the dispersion `radiation_integrals` sub-steps moves by
+`theta = 0.39`. The two integrals therefore use **different rules on purpose**:
+`radiation_integrals` trapezoids, `polarization_integrals` uses **Simpson**, which
+converges as `slices^-4` and reaches the round-off floor of the `(n_0 · v)^2` term at the
+shared default of 64 slices where the trapezoid is still 1.5% short of it. At higher
+energies `G gamma theta` grows and 64 stops being obviously enough.
+
+Measure convergence on the `(n_0 · v)^2` **term**, never on `alpha_plus`: the term is one
+part in `10^8` of it, so a convergence test on `alpha_plus` reports machine precision at
+every slice count and sees nothing.
+
+### Scope: only dipoles radiate, matching the radiation integrals
+
+`polarization_integrals` counts only `Dipole`, exactly as `radiation_integrals` does, and
+deliberately the same restriction: `alpha_plus * C == I3` is a gate the two routes have to
+agree on, so they must agree about what radiates. A quadrupole traversed off-axis really
+does curve the orbit and really does radiate, and `xtrack` counts it (it reads `kappa` from
+the closed orbit element by element). On the gate ring that omission is `3e-12` of
+`alpha_plus`, negligible there against both `alpha_plus` and the `1e-8` tilt term — but it
+grows as the **cube** of the orbit offset where the tilt term grows as its square, so the
+margin closes on a badly steered ring. Lifting the restriction means lifting it in both
+places, which moves axis B's numbers, so it is a separate change.
+
+### The coefficient is the discriminating quantity, and almost nothing sees it
+
+`P_inf` provably cannot: the constant cancels out of a ratio. `gamma^5` and `rho^3` scaling
+catch a wrong *power* and are exact for a rate ten times too fast. What the analytic suite
+can do is bound the eV-to-SI bridge — `hbar / m_0 = (hbar c) c / (m c^2)` in `m^2/s`,
+assembled from the package's own `HBAR_C_EV_M` and rest energy, checked against
+`scipy.constants`, which never passes through eV — and anchor the machine-scale answer on
+LEP, where a bare ring with LEP's radius and circumference at 45.6 GeV gives **5.65 hours**
+against a published ~5.5. A wrong *factor* surviving all of that is caught only by
+`xtrack`, behind the skippable `reference` marker. **A green analytic suite is weaker
+evidence on this milestone than anywhere else on the axis**, and the test module says so.
+
+### The "no bending" refusal is nearly unreachable, and that is the finding
+
+`sokolov_ternov_polarization` and `polarization_buildup_time` refuse when `alpha_plus` is
+exactly zero, rather than reporting `0/0` as `8/(5 sqrt3)`. The obvious lattice for that —
+drifts and on-axis quadrupoles — never reaches the refusal: with no field anywhere on the
+orbit nothing precesses, the one-turn spin rotation is the identity, and N2's
+`SpinSolutionError` fires first, because both integrals are weighted by an `n_0` that does
+not exist. Exactly one construction separates the two conditions: a **quadrupole traversed
+off-axis**, whose field on the orbit is real (so `n_0` is unique) and which is not a dipole
+(so nothing in scope radiates). Both branches are asserted.
+
+### Comparing against xtrack: a fifth silent switch, and it is the **charge**
+
+N1 catalogued three silent switches on the reference side, N2 found a fourth (the drift
+model). This is the fifth, and the quietest yet: **`xt.Particles` defaults `q0 = +1`**, so
+a line built with `mass0=ELECTRON_MASS_EV` and no `q0` is a positively charged particle of
+electron mass.
+
+Everything axis N compared before N3 is **blind to it**. A lattice specified by normalized
+strengths (`k0`, `k1`) bends the same way whatever the charge, and the Thomas-BMT rotation
+reads the field through the same normalization — so the closed orbit, `n_0`, the spin tune
+and the one-turn rotation are all bit-for-bit unchanged by `q0`. That is exactly why N1's
+and N2's reference files agreed without ever setting it, and it is asserted in N3's file.
+
+The polarization **direction** is the first quantity on this axis that asks what the
+*physical* field is, and charge is what turns a curvature into a field. Run with the
+default and xtrack cheerfully reports an electron beam polarizing *along* its guide field —
+and because both codes would flip together if accsim made the same mistake, the error never
+surfaces as a disagreement. With `q0 = -1.0` set, `alpha_plus` is unchanged and
+`alpha_minus` and `P_inf` are exactly negated.
+
+### xtrack cannot run its polarization analysis on an exactly flat ring in `4d`
+
+`_get_spin_polarization` inverts `lambda_i I - A` per orbital eigenvector. With
+`method="4d"` one orbital eigenvalue is exactly `1`, and a flat ring's spin matrix `A` is a
+rotation about `y` — so `I - A` has a zero row and `np.linalg.inv` raises
+`LinAlgError: Singular matrix`. xtrack's own `A` is built by central-differencing tracked
+spins at `±ds`, and a `y` component that comes back untouched gives `(ds-(-ds))/(2ds) = 1`
+*exactly*, so its `I - A` is exactly singular rather than merely ill-conditioned. A tilted
+ring survives only because `A`'s middle row is no longer exactly `(0,1,0)`.
+
+The quantities N3 compares are not computed through that inverse — it feeds the
+`dn/ddelta` depolarization term deferred to N4 — but it aborts the whole `twiss`, so **the
+flat ring is simply unavailable as a reference comparison**. Every N3 cross-check therefore
+runs on the tilted ring, including the ones the tilt is irrelevant to. accsim's own exact
+matrix has off-diagonal `y` terms that are exactly zero and a diagonal `9e-16` from one:
+the difference between "cannot be inverted" and "raises".
+
+### What the comparison then says
+
+`alpha_plus` and `alpha_minus` agree to ~`4e-15` in magnitude — better than the `1e-9`
+N2's finite-differenced `n_0` would suggest, because both integrals are dominated by the
+`kappa^3` geometry the two codes share exactly. The **buildup time** agrees with
+`spin_t_pol_component_s`, which is the milestone's only real check on the coefficient.
+Compare against `spin_t_pol_component_s` and `spin_polarization_inf_no_depol`, **never**
+`spin_t_pol_buildup_s` / `spin_polarization_eq`: those carry the `(11/18) ∮ kappa^3
+|dn/ddelta|^2` depolarization term accsim defers to N4, and would show up as a plausible
+few-percent miss rather than as a disagreement.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,
