@@ -1462,7 +1462,8 @@ Details that are load-bearing rather than incidental:
 - `Tracker.track(nonlinear=False)` silently drops the kick, exactly as for the
   sextupole — asserted so it is documented rather than discovered. A detuning study
   run on the default path measures exactly zero, convincingly.
-- Not claimed **at J2**: sextupole (second-order) detuning, the octupole's own
+- Not claimed **at J2**: sextupole (second-order) detuning (**delivered by O3** —
+  `sextupole_detuning`, and `total_detuning` for the sum), the octupole's own
   second-order term, octupole feed-down on a distorted orbit (**delivered by J3**),
   resonance driving terms, normal-form machinery, dynamic aperture, and octupoles as
   matching knobs.
@@ -6665,6 +6666,208 @@ around the ring, where a relative comparison is meaningless, and
 **Out of scope for O2:** the higher-order normal form (still O1's note), `W` at
 sub-element resolution, and the Ripken-parameterised beam envelope — `coupled_beam_sigma`
 already covers the 4D coupled case through `V`.
+
+## Sextupole amplitude detuning: the second-order normal form (O3 — implemented)
+
+`accsim.twiss.sextupole_detuning(lattice, slices=32)` returns the symmetric 2×2
+`[[dQx/dJx, dQx/dJy], [dQy/dJx, dQy/dJy]]` in `m⁻¹`, the same shape and units as J2's
+`amplitude_detuning`, and `total_detuning` adds the two. This is the quantity J2's
+**Scope** paragraph declared out of scope; that paragraph now points here instead.
+
+An octupole detunes at *first* order in its strength — one phase average of one
+potential. A sextupole cannot: its potential is odd in the betatron phase, the
+first-order average is exactly zero, and the tune shift only exists at **second** order,
+where the ring's sextupoles act in **pairs**. Hence a double sum, quadratic in `k2`.
+
+### The closed form, and what the symbols mean
+
+With `S_i = k2l_i`, `ψ_x = |μ_xi − μ_xj|`, `ψ_y = |μ_yi − μ_yj|`, `Φ = m_x Q_x + m_y Q_y`
+and `C(m_x, m_y) = cos(m_x ψ_x + m_y ψ_y − πΦ)/sin(πΦ)`, summing over **all ordered
+pairs** `(i, j)` with the diagonal `i = j` counted once, and
+
+    c_i = S_i βx_i^(3/2),        d_i = S_i βx_i^(1/2) βy_i,
+
+    dQx/dJx = −(1/64π) Σ c_i c_j [3 C(1,0) + C(3,0)]
+    dQx/dJy = +(1/16π) Σ c_i d_j C(1,0) + (1/32π) Σ d_i d_j [C(1,−2) − C(1,2)]
+    dQy/dJy = −(1/64π) Σ d_i d_j [4 C(1,0) + C(1,2) + C(1,−2)]
+
+The four denominators are the lines a sextupole drives: `Q_x` and `3Q_x` from the `x³`
+part of its potential, `Q_x ± 2Q_y` from the `xy²` part. That list is not remembered — it
+is forced by the monomials: `x³` carries charges `(±3,0)` and `(±1,0)`, `xy²` carries
+`(±1,0)` and `(±1,±2)`, and a Poisson bracket lands on the actions only when two charges
+cancel, so nothing else can appear.
+
+Every one of those nine coefficients is **verified as an exact symbolic identity** in
+`tests/analytic/test_sextupole_detuning.py`, not fitted to a tolerance.
+
+**Two invariances, both gated, both structural rather than cosmetic:**
+
+- Adding an integer to either tune changes nothing — numerator and denominator flip sign
+  together. So the full accumulated `μ` and the full tune (integer part included) can be
+  used, which is what the implementation does.
+- Moving the reference point around the ring changes every `μ_i` and nothing else. That
+  is what the `−πΦ` inside each cosine is for: under `ψ → 2πQ − ψ` the cosine is
+  unchanged. A formula missing that term passes every single-lattice comparison and fails
+  this one.
+
+### Angle and sign conventions, each pinned by a check before use
+
+- **The generator.** `f = −k2l (x³ − 3xy²)/6`, with the bracket
+  `[f,g] = f_x g_px − f_px g_x + (y)`. `exp(:f:)z` then reproduces `ThinSextupole.track`
+  **exactly** (the Lie series terminates), so the derivation acts on the magnet accsim
+  actually has.
+- **Conjugating a kick to the reference point** is the `+μ` substitution:
+  rotate-by-`μ`, kick, rotate-back `= exp(:f∘R(+μ):)` exactly. The `−μ` variant is off by
+  0.93 on the same test case.
+- **Composition.** Applying `exp(:a:)` then `exp(:b:)` equals `exp(:a + b + ½[a,b]:)`.
+  The `+½` is *solved for*, then re-checked against an explicitly composed two-sextupole
+  turn: residual `2.2e-16` at `+½`, `0.91` at `−½`, `0.46` at `0`.
+- **Reading the tune out** of the normal form: `2π ΔQ_u = −∂N/∂J_u`. Fixed by requiring
+  the machinery to reproduce the quadrupole's `βk1l/(4π)` and the octupole's
+  `k3l βx²/(16π)`.
+
+### The anchor that matters: two quadrupoles against the exact trace
+
+The load-bearing check is *not* the octupole (that is first order and only pins the
+read-out). It is **two thin quadrupoles**, where the second-order tune shift is available
+from linear algebra alone — expand `cos 2πQ = ½Tr(M)` of the real one-turn matrix — and
+must equal what the perturbation machinery produces. Written in the unit-modulus symbols
+`A = e^{2πiQ}` and `a = e^{iμ}` both sides are rational functions, so the agreement is
+`cancel(...) == 0`: an **identity**, not a tolerance.
+
+Run in **both beam orderings**, because a derivation that produced `cos(Δμ − πQ)` instead
+of `cos(|Δμ| − πQ)` agrees with one ordering and fails the other. This one anchor pins
+the resonance denominator, the `πQ` inside the cosine (as against `2πQ` — the commonest
+transcription error in this family, and one that survives a numeric spot check at a
+generic tune), and the sign of second order relative to first.
+
+**What it cannot reach:** a quadrupole drives no `3Q_x` line, so `C(3,0)` is not anchored
+there. It is gated instead against PTC next to the third-integer resonance.
+
+### PTC's action convention: `anhx` is `dQ/d(2J)`, half of ours
+
+Measured, not recalled — calibrated against the octupole formula both codes already
+agree on. A comparison written without the factor is wrong by exactly two and reads like
+a missing `½` in the derivation.
+
+### The exact drift detunes with no magnets at all, in both codes
+
+PTC with `exact=true` gives its drift `x += L px/pz`, which is nonlinear, so the ring
+detunes with every multipole switched off: `0.127` on the O3 fixture, against `0.542` for
+the sextupoles — a quarter of the signal, not a rounding contaminant. accsim's `Drift` is
+exact too (see the M2/M3 drift-model note) and does the same under tracking.
+
+`sextupole_detuning` reports **exactly zero** there, correctly: it is the sextupoles'
+contribution, not the ring's total anharmonicity. **Every comparison against a tracked or
+PTC number must therefore be a difference against the same ring with `k2 = 0`** — the
+shape J2's tracked gate already used for a different reason.
+
+### The agreement with PTC is exact, and a pre-committed gate had the wrong shape
+
+O3's roadmap pre-commitment named the primary gate as an exponent scan: PTC is
+all-orders, the closed form is second order, so at any fixed strength they must disagree
+and the relative residual should fall as `k2²`. **It does not, and the reason is worth
+recording rather than deleting.** PTC's `anhx(1,0,0)` *is* the coefficient of the term
+linear in the action, i.e. the quartic part of the normal form — the same object this
+package computes. Raising `no` adds higher powers of the action (`anhx(2,0,0)` and
+friends); it does not correct this one, and `no = 4, 5, 6` return bit-identical values.
+
+So once the kinematic baseline is subtracted the two agree to round-off: ratio
+`1.0000000000` on all three independent entries, on three working points. The exact
+comparison is strictly stronger than the scan, and the scan survives where all orders
+genuinely do enter — the **tracked** gate.
+
+The flip side, stated because it changes what the evidence means: both sides now compute
+the same object by the same kind of procedure, so PTC alone is not independent
+confirmation of the physics. The independent legs are the two-quadrupole exact-trace
+anchor and the tracked measurement.
+
+### The tracked residual falls as an ODD power of amplitude
+
+J2's octupole gate watches its residual fall by **16** per amplitude halving (quadratic in
+the action). This one falls by **8**, which looks impossible for a tune — a tune is even in
+the amplitude. The cause is not the formula: the prediction is evaluated at the
+**Courant-Snyder action of the launch point**, and once a sextupole is present that is not
+the particle's invariant action; it is wrong by a phase-dependent `O(k2 x³)`.
+
+Both halves are measured. At fixed Courant-Snyder action the tracked detuning varies by
+**±2.1 %** across launch phase at 2 mm and **±1.1 %** at 1 mm — the spread is *linear* in
+amplitude, as that explanation requires and as nothing else would be. Averaging over the
+launch phase restores the expected order exactly: residual ratios **16.02, 16.00, 16.00**.
+
+Practical consequence for anyone measuring `dQ/dJ` by tracking here: launch at several
+phases and average, or accept a first-order-in-amplitude error.
+
+### A thick sextupole approaches a thin one LINEARLY, not quadratically
+
+J2 gates the thick octupole's limit as `L²`. The sextupole's is `L` — measured 2.08, 2.04,
+2.02 for successive halvings — and a test written by analogy with J2 fails for a reason
+that is physics. The pair kernel carries `cos(|Δμ| − πQ)`, whose `|·|` has a **kink** at
+zero phase separation, so the mean `|Δμ|` between two slices of one body is first order in
+the body length. The octupole's contribution is a smooth single sum over `β²` and has no
+such kink.
+
+The slicing itself is the midpoint rule and converges at **second** order in the slice
+length (ratios 4.05, 4.01, 4.00, 4.00) — a different limit, and the one that says the
+slice placement is right.
+
+### The `3Q_x` term is not a small correction on a short ring
+
+The received picture is that `C(3,0)` matters only near `Q_x = n/3`. On the O3 fixture (a
+12 m ring, four cells) it is already **3.6×** the `C(1,0)` part at a generic working point,
+because the phase advances between sextupoles are a large fraction of the whole turn.
+Recorded so that a future "it's negligible away from the resonance" is checked rather than
+assumed.
+
+### Fixture degeneracies that would hide a wrong term
+
+- **`Q_x = Q_y`** makes `Q_x + 2Q_y = 3Q_x` and `Q_x − 2Q_y = −Q_x`: the two coupled lines
+  collapse onto the two uncoupled ones and a wrong cross-plane term becomes invisible. The
+  ring the PTC arbiter was first checked on had exactly this (`Q_x = Q_y = 0.126531`,
+  forced by `|kf| = |kd|` in a symmetric FODO). Every O3 fixture has `Q_x ≠ Q_y`.
+- **Weak `β` contrast.** The `β^(3/2)`-per-generator weighting is reached by moving one
+  sextupole and *predicting* the change. The first version of that gate compared positions
+  whose `β_x` differed by **4 %**, where `β²` and `β³` are indistinguishable — nearly
+  vacuous. It now runs from the `β_x` minimum to the maximum (41 % contrast, a factor 2.8
+  in the prediction) and explicitly *excludes* the neighbouring exponents.
+
+### Sextupoles and octupoles together: no measurable cross term
+
+`total_detuning` adds J2's first-order octupole matrix to O3's second-order sextupole one
+**unadjusted**, and PTC — which reports the true anharmonicity of the ring carrying both —
+agrees to nine digits. So at this order the two mechanisms do not interfere.
+
+That statement is only worth anything at strengths where both terms matter. The gate is
+run where they are comparable and where the cross entry very nearly **cancels**
+(`-2.617 + 2.346`), leaving a sum a tenth the size of either piece, so an error in either
+formula is amplified. Run instead at a strength where the octupole term is `10^4` times
+the sextupole one (the first version of this gate), the sum agrees with PTC whatever the
+sextupole formula says.
+
+### The resonance guard
+
+On one of its own driven lines the second-order normal form does not exist: the
+perturbation series has a zero denominator, and the tune of a finite-amplitude particle is
+not an analytic function of its action at all. `sextupole_detuning` raises
+`ResonantLatticeError` (a new sibling of `UnstableLatticeError` and `CoupledLatticeError`)
+rather than dividing, at `|sin πΦ| < 1e-12`. The divergence *approaching* a line is
+physical and is returned — verified against PTC at `|Q_x - 1/3| = 4.0e-3` (`Q_x =
+0.329334`), where `dQx/dJx` reaches `19.573491` in both codes (ratio `1.0000000000`)
+against `0.542` at the generic point.
+
+Do not push a near-resonance comparison closer than the codes agree on the **tune**:
+`1/sin(3πQ_x)` amplifies a tune disagreement by `1/|Q_x − 1/3|`, so the `1e-9` accsim and
+MAD-X share becomes `2.5e-7` at `4e-3` and would be `1e-3` at `1e-6`.
+
+### Out of scope for O3
+
+Second order in `k2` **exactly**, on the **design** orbit, for a transversely uncoupled
+lattice (`CoupledLatticeError` otherwise, via `closed_twiss`). Skew sextupoles are
+ignored. Not included: the octupole's own second-order term, `k2⁴`, detuning quadratic in
+the action (`d²Q/dJ²`), the kinematic detuning of the exact drift, resonance driving terms
+with phase (PTC's `gnfa`/`gnfc`/`gnfs` — a candidate O4, whose `gnfu` indexing is still
+undecoded), and dynamic aperture. Thick sextupoles are sub-sliced, and the double sum is
+materialised, so cost and memory are `O((N·slices)²)`.
 
 ## Toolchain / environment notes
 

@@ -21,6 +21,10 @@ Release/
 *.lib
 *.pyd
 
+# MAD-X PTC scratch files, dropped in the CWD by ptc_normal (O3's reference tests)
+/fort.*
+/internal_mag_pot.txt
+
 # Testing / coverage
 .pytest_cache/
 .ruff_cache/

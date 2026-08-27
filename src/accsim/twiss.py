@@ -73,6 +73,18 @@ class CoupledLatticeError(ValueError):
     """
 
 
+class ResonantLatticeError(ValueError):
+    """Raised when a closed form asked for here sits on top of its own resonance.
+
+    :func:`sextupole_detuning` divides by ``sin(pi Phi)`` for ``Phi`` in ``{Q_x,
+    3 Q_x, Q_x + 2 Q_y, Q_x - 2 Q_y}`` — the lines a sextupole drives. On such a line
+    the second-order normal form does not exist: the perturbation series has a zero
+    denominator, and the tune of a particle at finite amplitude is not an analytic
+    function of its action at all. The divergence *approaching* the line is physical
+    and is returned; landing on it is not a number this package will invent.
+    """
+
+
 @dataclass(frozen=True)
 class Twiss:
     """Courant-Snyder parameters in both planes at one longitudinal position ``s``.
@@ -1237,12 +1249,15 @@ def amplitude_detuning(lattice: Lattice, slices: int = 64) -> np.ndarray:
 
     **Scope.** First order in ``k3l`` and octupoles only. Sextupoles also detune,
     at *second* order in ``k2`` and through a different mechanism (the second-order
-    term of perturbation theory, not the first); no closed form for it is claimed
-    anywhere in this package, and it is **not** included here. A ring carrying both
-    will therefore detune by more than this function reports — measurably so once
-    ``k2`` is large. Nor does this include the octupole's own second-order
-    contribution, so it is the tangent at zero amplitude, not the tune at large
-    amplitude.
+    term of perturbation theory, not the first), and they are **not** included here.
+    That is no longer an unclaimed gap: :func:`sextupole_detuning` (O3) computes it,
+    and :func:`total_detuning` adds the two. This function keeps its first-order
+    octupole meaning rather than changing under existing callers — the two are
+    different orders in different strengths, and fusing them into one number would
+    hide that. A ring carrying both therefore detunes by more than this reports,
+    measurably so once ``k2`` is large. Nor does this include the octupole's own
+    second-order contribution, so it is the tangent at zero amplitude, not the tune
+    at large amplitude.
     """
     from .elements.octupole import Octupole, ThinOctupole
     from .elements.quadrupole import _focusing_block
@@ -1275,6 +1290,163 @@ def amplitude_detuning(lattice: Lattice, slices: int = 64) -> np.ndarray:
         bx, ax, _ = _propagate_block(cx, bx, ax)
         by, ay, _ = _propagate_block(cy, by, ay)
     return np.array([[dxx, dxy], [dxy, dyy]])
+
+
+# ---------------------------------------------------------------------------
+# O3: the sextupole anharmonicity -- second order in k2 (J2's stated scope hole)
+# ---------------------------------------------------------------------------
+
+#: A resonance denominator this close to zero has no second-order normal form.
+_RESONANT = 1e-12
+
+
+def _sextupole_sites(
+    lattice: Lattice, slices: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """``(k2l, beta_x, beta_y, mu_x, mu_y)`` per thin sextupole and per thick slice.
+
+    A thick body is the midpoint rule: ``slices`` thin kicks of ``k2 ds`` at the slice
+    centres, with ``beta`` and the phase carried across by the body's linear map (a
+    drift). Phases accumulate from the lattice entrance; nothing downstream depends on
+    where that is (see :func:`sextupole_detuning`).
+    """
+    from .elements.quadrupole import _focusing_block
+    from .elements.sextupole import Sextupole, ThinSextupole
+
+    tw0 = closed_twiss(lattice)  # also the CoupledLatticeError guard
+    bx, ax, mux = tw0.beta_x, tw0.alpha_x, 0.0
+    by, ay, muy = tw0.beta_y, tw0.alpha_y, 0.0
+    strength: list[float] = []
+    site: list[tuple[float, float, float, float]] = []
+    for elem in lattice.elements:
+        if isinstance(elem, ThinSextupole):
+            if elem.k2l != 0.0:
+                strength.append(elem.k2l)
+                site.append((bx, by, mux, muy))
+        elif isinstance(elem, Sextupole) and elem.k2 != 0.0 and elem.length > 0.0:
+            ds = elem.length / slices
+            half = _focusing_block(0.0, 0.5 * ds)  # a sextupole's linear map is a drift
+            for step in range(2 * slices):
+                bx, ax, dmux = _propagate_block(half, bx, ax)
+                by, ay, dmuy = _propagate_block(half, by, ay)
+                mux, muy = mux + dmux, muy + dmuy
+                if step % 2 == 0:  # the slice centre
+                    strength.append(elem.k2 * ds)
+                    site.append((bx, by, mux, muy))
+            continue  # beta and phase are already across the body
+        cx, cy = _blocks(elem.matrix(lattice.ref))
+        bx, ax, dmux = _propagate_block(cx, bx, ax)
+        by, ay, dmuy = _propagate_block(cy, by, ay)
+        mux, muy = mux + dmux, muy + dmuy
+    a = np.array(site, dtype=float).reshape(-1, 4)
+    return np.array(strength, dtype=float), a[:, 0], a[:, 1], a[:, 2], a[:, 3]
+
+
+def sextupole_detuning(lattice: Lattice, slices: int = 32) -> np.ndarray:
+    r"""Second-order sextupole anharmonicity ``dQ/dJ`` as a symmetric ``2x2`` [m^-1].
+
+    Same shape and units as :func:`amplitude_detuning`
+
+        [[dQ_x/dJ_x, dQ_x/dJ_y],
+         [dQ_y/dJ_x, dQ_y/dJ_y]]
+
+    and the thing that function's **Scope** paragraph says it does not compute. An
+    octupole detunes at *first* order in its strength -- one phase average of one
+    potential. A sextupole cannot: its first-order average vanishes (the potential is
+    odd in the betatron phase), so the effect appears only at **second** order, where
+    the ring's sextupoles act in *pairs*. That is why this is a double sum rather than
+    a sum, and why it is quadratic in ``k2`` rather than linear.
+
+    Writing ``S_i = k2l_i``, ``psi_x = |mu_xi - mu_xj|``, ``psi_y = |mu_yi - mu_yj|``,
+    and ``C(m_x, m_y) = cos(m_x psi_x + m_y psi_y - pi Phi) / sin(pi Phi)`` with
+    ``Phi = m_x Q_x + m_y Q_y``, the closed form is a sum over **all ordered pairs**
+    ``(i, j)`` -- the diagonal ``i = j`` included, since a single sextupole detunes on
+    its own -- of
+
+        c_i = S_i beta_xi^(3/2),      d_i = S_i beta_xi^(1/2) beta_yi,
+
+        dQ_x/dJ_x = -(1/64 pi) sum c_i c_j [3 C(1,0) + C(3,0)],
+        dQ_x/dJ_y = +(1/16 pi) sum c_i d_j C(1,0)
+                    + (1/32 pi) sum d_i d_j [C(1,-2) - C(1,2)],
+        dQ_y/dJ_y = -(1/64 pi) sum d_i d_j [4 C(1,0) + C(1,2) + C(1,-2)].
+
+    The four denominators are the lines a sextupole drives: ``Q_x`` and ``3 Q_x`` from
+    the ``x^3`` part of its potential, ``Q_x +- 2 Q_y`` from the ``x y^2`` part. On any
+    of them this raises :class:`ResonantLatticeError`; *near* one the answer genuinely
+    diverges, and that divergence is returned rather than damped.
+
+    **Where it comes from.** The second-order normal form of the one-turn map, redone
+    from scratch in ``tests/analytic/test_sextupole_detuning.py``: each thin kick
+    becomes a Lie generator, the generators are combined into one, the cubic part is
+    removed by a canonical transformation, and the action-only part of what that
+    leaves *is* this matrix. No coefficient here is quoted from anywhere. The machinery
+    is anchored twice before it is pointed at a sextupole -- on the octupole, where it
+    must reproduce :func:`amplitude_detuning`'s shipped first-order formula, and on
+    **two thin quadrupoles**, where its second-order answer must equal the exact
+    expansion of ``cos 2 pi Q = 1/2 Tr(M)`` of the real one-turn matrix. That second
+    anchor is what pins the resonance denominator, the ``pi Q`` inside the cosine and
+    the overall sign, and it is run in both beam orderings because only the
+    ordering-symmetric form (hence the ``|mu_i - mu_j|``) can be right.
+
+    Two properties fall out of the derivation rather than being imposed, and both are
+    gated: the matrix is **symmetric** (it is a second derivative of one scalar normal
+    form), and the answer does not depend on **where the turn is started** -- moving the
+    observation point changes every ``mu`` but not the result, which is what the
+    ``- pi Phi`` in each cosine is for. It is likewise unchanged by adding an integer to
+    either tune.
+
+    **Scope.** Second order in ``k2`` exactly, on the **design** orbit, for a
+    transversely uncoupled lattice (:class:`CoupledLatticeError` otherwise). Skew
+    sextupoles are ignored. Thick sextupoles are sub-sliced by the midpoint rule, which
+    costs memory: the double sum is materialised, so it is ``O((N slices)^2)``.
+
+    **The trap this walks past.** Do not compare this against a tracked (or PTC) tune
+    shift without differencing out the sextupole-free ring first. accsim's
+    :class:`~accsim.elements.drift.Drift` is *exact*, so ``x += L px/pz`` detunes all by
+    itself with no magnet involved -- measured at ``0.127`` on a ring whose sextupole
+    term is ``0.54``. This function reports exactly zero there, correctly: it is the
+    sextupoles' contribution, not the ring's total anharmonicity.
+    """
+    k2l, bx, by, mux, muy = _sextupole_sites(lattice, slices)
+    if k2l.size == 0:
+        return np.zeros((2, 2))
+    qx, qy = tunes(lattice)
+    c = k2l * bx**1.5
+    d = k2l * np.sqrt(bx) * by
+    dmux = np.abs(mux[:, None] - mux[None, :])
+    dmuy = np.abs(muy[:, None] - muy[None, :])
+
+    def line(mx: int, my: int) -> np.ndarray:
+        phi = math.pi * (mx * qx + my * qy)
+        s = math.sin(phi)
+        if abs(s) < _RESONANT:
+            raise ResonantLatticeError(
+                f"lattice sits on the {mx} Qx {my:+d} Qy sextupole resonance "
+                f"(Qx = {qx:.9g}, Qy = {qy:.9g}): sin(pi Phi) = {s:.3g}"
+            )
+        return np.cos(mx * dmux + my * dmuy - phi) / s
+
+    c10, c30, c12, c1m2 = line(1, 0), line(3, 0), line(1, 2), line(1, -2)
+    cc, cd, dd = np.outer(c, c), np.outer(c, d), np.outer(d, d)
+    dxx = -(cc * (3.0 * c10 + c30)).sum() / (64.0 * math.pi)
+    dxy = (cd * c10).sum() / (16.0 * math.pi) + (dd * (c1m2 - c12)).sum() / (32.0 * math.pi)
+    dyy = -(dd * (4.0 * c10 + c12 + c1m2)).sum() / (64.0 * math.pi)
+    return np.array([[dxx, dxy], [dxy, dyy]])
+
+
+def total_detuning(lattice: Lattice, slices: int = 32) -> np.ndarray:
+    """``amplitude_detuning + sextupole_detuning``: every ``dQ/dJ`` this package claims.
+
+    The octupoles' first-order term plus the sextupoles' second-order one, added
+    **unadjusted** -- there is no fitted cross term between them, and the sum is
+    asserted against MAD-X PTC as a prediction rather than as a comparison. ``slices``
+    applies to thick magnets in both.
+
+    Still not the whole anharmonicity of a real ring: it is second order in ``k2``,
+    first order in ``k3``, and linear in the action, and it excludes the kinematic
+    detuning of the exact drift map (see :func:`sextupole_detuning`).
+    """
+    return amplitude_detuning(lattice, slices) + sextupole_detuning(lattice, slices)
 
 
 # ---------------------------------------------------------------------------
