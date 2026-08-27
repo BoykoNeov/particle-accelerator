@@ -3666,8 +3666,9 @@ wired (`tw.W_matrix`, element by element, plus `tw.get_normalized_coordinates`);
 Mais-Ripken cross-plane betas (`betx2`, `bety1`) and the crab dispersion (`dx_zeta`) are
 the same gap seen from two other sides, and are sequenced behind it as O2.
 
-- **O1 (candidate) — the normalising matrix `W`, the actions it makes invariant, and the
-  order at which the 6D optics leaves the 4D optics.** Effort **M**. `accsim.twiss` gains
+- **O1 — the normalising matrix `W`, the actions it makes invariant, and the
+  order at which the 6D optics leaves the 4D optics.** ✅ **SHIPPED (2026-08-27)**.
+  Effort **M**. `accsim.twiss` gains
   `normal_form(one_turn, method="6d"|"4d") -> NormalForm(W, W_inv, R, tunes)`, the pair
   `to_normalized`/`from_normalized`, and `actions(state)`, the invariants
   `J_i = (u_i^2 + p_i^2)/2` in normalised coordinates.
@@ -3752,6 +3753,57 @@ the same gap seen from two other sides, and are sequenced behind it as O2.
   `get_normalized_coordinates`, which divides by `sqrt(emitt)`) are a one-line wrapper and
   are deliberately **not** the primary API — `W_inv x` is, so that the matrix under test is
   never entangled with an emittance convention.
+
+  **SHIPPED (2026-08-27).** `accsim.normal_form`, `NormalForm`, `NormalFormError`,
+  `to_normalized`, `from_normalized`, `actions` — in `twiss.py`, ~200 lines, one new
+  dependency-free import (`scipy.optimize.linear_sum_assignment`, for a mode-to-plane
+  assignment that is always a permutation).
+
+  **Every claim above held, and the two that were framed as blind really are.**
+  `test_definition_and_symplecticity_are_blind_to_the_phase` builds `W . diag(Rot(0.7),
+  Rot(-1.3))`, shows it reconstructs the map to `1e-12` and is symplectic to `1e-12`, and
+  shows its Courant-Snyder block is wrong — so the file *demonstrates* the blindness
+  rather than asserting it in a comment. The primary gate lands at `8.9e-16` with the
+  off-diagonal blocks exactly zero; the Edwards-Teng tie at `1e-13` with no residual
+  rotation; the exponent fit at `2.00 +- 0.02` for all three quantities over a decade in
+  `Q_s`; the RF-free refusal is a `NormalFormError`, with `method="4d"` working on the
+  same ring.
+
+  **The reference pre-commitment was half right, and the wrong half is the finding.**
+  Promised: the two `W` matrices agree to `1e-12` absolute. The transverse block does, at
+  `9e-16` — four orders inside. The longitudinal columns **do not**, flooring at
+  `2.6e-11`, and the entire excess is **one entry of xtrack's own one-turn matrix**.
+  xtrack obtains `R56` by symmetric finite difference of its *exact* drift map, whose
+  `zeta(delta)` is both curved (an `h^2` truncation) and a difference of two nearly-equal
+  path lengths (a cancellation round-off going as `1/h`); accsim's `R56` is that same
+  function's exact derivative `L/gamma0^2`, derived symbolically in Stage 0. So the entry
+  has a **U-shaped** error in the step size with a minimum near `ddelta = 1e-5`. The
+  attribution is *gated*, not asserted: the minimum itself is a test (a model
+  disagreement has no minimum in a numerical step), and the residual tracks
+  `|R56_accsim - R56_xtrack|` one for one at every step, to 15%. Nothing on accsim's side
+  is involved — which is why the tolerance is split in two named constants rather than
+  loosened to one.
+
+  **Three conventions checked rather than assumed, and all three held.** `dpzeta/ddelta`
+  is `1` exactly at `delta = 0`, so xtrack's `pzeta` rows and accsim's `delta` rows are
+  the same rows and no `beta0^2` enters. Both codes put each mode's position component on
+  the positive real axis (`W[2i, 2i+1] = 0`), asserted on both matrices in the same test.
+  And `tw.get_normalized_coordinates` for a real particle reproduces `W^-1 x` once its
+  `sqrt(nemitt/(beta0 gamma0))` scaling is multiplied back in — a per-column check that a
+  whole-matrix norm can hide.
+
+  **One thing the milestone did not predict and now documents.** The 6D-versus-4D gap is
+  *dispersive*: on a bend-free ring the two are equal to `1e-12` in both codes. That is
+  what made the entry-by-entry comparison possible at all — a bendy ring would have been
+  measuring the bend model (the residual axis L and B2 own) instead of `W`, so the tight
+  comparison runs bend-free and the dispersion comparison, which needs bends to exist,
+  runs at a stated `2e-3`.
+
+  Gates: `tests/analytic/test_normal_form.py` (21),
+  `tests/reference/test_normal_form_xtrack.py` (9). The full analytic suite is
+  **1266 passed**, against 1245 after I4 — the whole difference is this milestone's own
+  file, so nothing on axes A-N moved, and the only package files touched are `twiss.py`
+  (the new section, appended) and `__init__.py` (the exports).
 
 - **O2 (candidate) — `W` along the ring, and the two quantities that only exist there.**
   Effort **S**. `propagate_normal_form`, following `propagate_twiss`'s shape:

@@ -38,11 +38,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
-from .coords import DELTA, PX, PY, ZETA, X, Y
+from .coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from .lattice import Lattice
 
 _TRANSVERSE = [X, PX, Y, PY]  # the 4D transverse subspace (x, px, y, py)
+
+#: Below this, relative to the eigenvector's own size, a mode's symplectic norm counts
+#: as zero and the map has no normal form (see :class:`NormalFormError`).
+_DEGENERATE_NORM = 1e-10
 
 
 class UnstableLatticeError(ValueError):
@@ -1762,3 +1767,255 @@ def second_order_dispersion(
             SecondOrderDispersion(s, *(float(v) for v in first[i]), *(float(v) for v in second[i]))
         )
     return out
+
+
+# ======================================================================================
+# Normalised coordinates: the linear normal form (axis O)
+# ======================================================================================
+
+
+class NormalFormError(ValueError):
+    """Raised when a one-turn map has no linear normal form.
+
+    The map is stable but **degenerate**: one mode's eigenvalue is repeated with no
+    second eigenvector, so its symplectic norm ``Re(v) . S . Im(v)`` vanishes and there
+    is no plane to rotate in. The case that actually occurs is an **RF-free ring** asked
+    for its 6D form: ``zeta`` and ``delta`` are both eigenvalue-``1`` directions of the
+    one-turn map (nothing restores the arrival time), which is the same degeneracy
+    :func:`~accsim.orbit.closed_orbit_6d` refuses and the spin axis met three times
+    before that. Use ``method="4d"`` for such a ring, or give it a cavity.
+    """
+
+
+def _unit_symplectic(dim: int) -> np.ndarray:
+    """Block-diagonal ``[[0, 1], [-1, 0]]``, the form ``W`` must preserve."""
+    S = np.zeros((dim, dim))
+    for plane in range(dim // 2):
+        S[2 * plane, 2 * plane + 1] = 1.0
+        S[2 * plane + 1, 2 * plane] = -1.0
+    return S
+
+
+@dataclass(frozen=True)
+class NormalForm:
+    r"""The change of variables that turns the one-turn map into a rotation.
+
+    ``M = W R W^-1`` with ``R = diag(Rot(2 pi Q_1), ...)`` block-diagonal in 2x2
+    rotations, so in normalised coordinates ``u = W^-1 x`` a turn moves each mode around
+    a circle of fixed radius. The radius squared over two is the mode's **action**
+    (:func:`actions`), the invariant that replaces the per-plane Courant-Snyder one when
+    the planes are coupled.
+
+    **The parameterisation is a choice and it is recorded here** (and in
+    ``docs/CONVENTIONS.md``): ``M = W R W^-1`` alone does not determine ``W`` — right
+    multiplication by anything commuting with ``R`` preserves it, which is a per-plane
+    scale *and* a per-plane rotation. Symplecticity fixes the scale; the phase is fixed
+    by rotating each eigenvector until its own plane's **position** component is real and
+    positive. That makes ``W[0, 1] = W[2, 3] = W[4, 5] = 0`` and makes the 2x2 diagonal
+    blocks the Courant-Snyder matrix ``[[sqrt(beta), 0], [-alpha/sqrt(beta),
+    1/sqrt(beta)]]`` — which is why :attr:`mode_beta` can be compared against
+    :func:`closed_twiss` at all. It is xtrack's convention too, but the agreement with
+    Stage 1's independently-derived ``beta``/``alpha`` is what justifies it here.
+
+    Columns are ``[Re v_1, Im v_1, Re v_2, Im v_2, ...]``, normalised so that
+    ``Re(v) . S . Im(v) = 1``. Modes are labelled by the plane each eigenvector lives in,
+    so mode 1 is the ``x``-like one, mode 2 the ``y``-like one and (in 6D) mode 3 the
+    longitudinal one — the same rule :func:`normal_mode_tunes` uses, and one that only
+    becomes ambiguous exactly on a coupling resonance.
+    """
+
+    w: np.ndarray
+    """The normalising matrix: ``x = W u`` takes normalised coordinates to lab ones."""
+    w_inv: np.ndarray
+    """``W^-1``: lab coordinates to normalised ones."""
+    rotation: np.ndarray
+    """``R``, block-diagonal 2x2 rotations by ``2 pi Q_i`` (``M = W R W^-1``)."""
+    tunes: tuple[float, ...]
+    """Fractional mode tunes in ``[0, 1)`` — two for ``4d``, three for ``6d``."""
+    method: str
+    """``"4d"`` (transverse block only) or ``"6d"`` (the full map)."""
+
+    @property
+    def dim(self) -> int:
+        """``4`` or ``6`` — the size of the space that was normalised."""
+        return int(self.w.shape[0])
+
+    @property
+    def mode_beta(self) -> tuple[float, ...]:
+        """Each mode's beta function, ``W[2i, 2i]^2 + W[2i, 2i+1]^2``.
+
+        For the transverse modes of an **uncoupled** lattice these are exactly
+        :func:`closed_twiss`'s ``beta_x``/``beta_y``. In ``6d`` on a ring with RF they
+        are **not**, and that is physics rather than disagreement — see
+        :attr:`dispersion`.
+        """
+        return tuple(
+            float(self.w[2 * i, 2 * i] ** 2 + self.w[2 * i, 2 * i + 1] ** 2)
+            for i in range(self.dim // 2)
+        )
+
+    @property
+    def mode_alpha(self) -> tuple[float, ...]:
+        """Each mode's alpha, ``-(W[2i,2i] W[2i+1,2i] + W[2i,2i+1] W[2i+1,2i+1])``."""
+        return tuple(
+            float(
+                -self.w[2 * i, 2 * i] * self.w[2 * i + 1, 2 * i]
+                - self.w[2 * i, 2 * i + 1] * self.w[2 * i + 1, 2 * i + 1]
+            )
+            for i in range(self.dim // 2)
+        )
+
+    @property
+    def dispersion(self) -> np.ndarray:
+        """``(D_x, D_px, D_y, D_py)`` read off the longitudinal mode. ``6d`` only.
+
+        This is the **dynamic** dispersion: the transverse excursion that accompanies a
+        momentum *oscillating at the synchrotron tune*, not the matched
+        :class:`Twiss` dispersion, which is the response to a momentum held fixed. The
+        two differ at second order in ``Q_s`` and agree in the ``Q_s -> 0`` limit; on a
+        strong-RF ring the difference is tens of percent and neither number is wrong.
+
+        The formula is the one xtrack's ``twiss`` reports as ``dx``: the mode-3 columns
+        with the ``zeta`` direction projected out.
+        """
+        if self.method != "6d":
+            raise NormalFormError("dispersion needs the 6D normal form (method='6d')")
+        w = self.w
+        den = w[5, 5] - w[5, 4] * w[4, 5] / w[4, 4]
+        return np.array([(w[i, 5] - w[i, 4] * w[4, 5] / w[4, 4]) / den for i in (X, PX, Y, PY)])
+
+
+def _paired_modes(eigvals: np.ndarray, eigvecs: np.ndarray) -> list[int]:
+    """One eigenvector index per conjugate pair, ordered by the plane it lives in.
+
+    Within a pair the representative is the one with **positive** symplectic norm, which
+    is what fixes each mode's rotation sense (and so puts its tune in ``[0, 1)`` rather
+    than in the ``acos``-ambiguous ``[0, 0.5]``). The pair-to-plane assignment maximises
+    the total per-plane weight, so it is a permutation even when two modes prefer the
+    same plane -- near a coupling resonance the labelling is arbitrary but it is never
+    two-modes-one-plane.
+    """
+    dim = len(eigvals)
+    S = _unit_symplectic(dim)
+    remaining = list(range(dim))
+    representatives: list[int] = []
+    while remaining:
+        i = remaining.pop(0)
+        j = min(remaining, key=lambda k: abs(eigvals[i] - np.conj(eigvals[k])))
+        remaining.remove(j)
+        v = eigvecs[:, i]
+        norm = float(np.real(v.real @ S @ v.imag))
+        representatives.append(i if norm > 0.0 else j)
+    weight = np.array(
+        [
+            [
+                abs(eigvecs[2 * plane, m]) ** 2 + abs(eigvecs[2 * plane + 1, m]) ** 2
+                for m in representatives
+            ]
+            for plane in range(dim // 2)
+        ]
+    )
+    planes, order = linear_sum_assignment(weight, maximize=True)
+    return [representatives[order[list(planes).index(plane)]] for plane in range(dim // 2)]
+
+
+def normal_form(one_turn: np.ndarray, *, method: str = "6d", atol: float = 1e-6) -> NormalForm:
+    r"""The linear normal form of a one-turn map: ``M = W R W^-1``.
+
+    ``method="6d"`` normalises the full map — three modes, and the longitudinal one
+    exists only if the ring has an RF cavity. ``method="4d"`` normalises the transverse
+    ``(x, px, y, py)`` block alone, which is the right form for a ring without RF and the
+    one whose modes are the Edwards-Teng modes of :func:`coupled_twiss`.
+
+    Raises :class:`UnstableLatticeError` if any eigenvalue leaves the unit circle by more
+    than ``atol`` (the motion grows without bound, so there is no rotation to conjugate
+    to), and :class:`NormalFormError` if a mode is degenerate -- in practice, a ring with
+    no cavity asked for its 6D form.
+
+    See :class:`NormalForm` for the parameterisation, which is a *choice*: the identity
+    ``M = W R W^-1`` and symplecticity together leave one free rotation angle per plane.
+    """
+    if method not in ("4d", "6d"):
+        raise ValueError(f"method must be '4d' or '6d', got {method!r}")
+    M = np.asarray(one_turn, dtype=float)
+    if method == "4d" and M.shape == (4, 4):
+        pass  # already the transverse block (what _transverse_4d would have returned)
+    elif M.shape == (DIM, DIM):
+        M = _transverse_4d(M) if method == "4d" else M
+    else:
+        raise ValueError(f"expected a {DIM}x{DIM} one-turn matrix, got shape {M.shape}")
+    dim = M.shape[0]
+    S = _unit_symplectic(dim)
+
+    eigvals, eigvecs = np.linalg.eig(M)
+    if not np.allclose(np.abs(eigvals), 1.0, atol=atol, rtol=0.0):
+        raise UnstableLatticeError(
+            f"lattice unstable: eigenvalue moduli {np.abs(eigvals)} are not all on the "
+            "unit circle, so the map is not conjugate to a rotation."
+        )
+    modes = _paired_modes(eigvals, eigvecs)
+
+    columns: list[np.ndarray] = []
+    for plane, m in enumerate(modes):
+        v = eigvecs[:, m] * np.exp(-1j * np.angle(eigvecs[2 * plane, m]))
+        a, b = np.real(v), np.imag(v)
+        norm_sq = float(a @ S @ b)
+        if norm_sq <= _DEGENERATE_NORM * float(np.linalg.norm(a) * np.linalg.norm(b) + 1e-300):
+            raise NormalFormError(
+                f"mode {plane + 1} is degenerate (symplectic norm {norm_sq:.3e}): the map "
+                "has a repeated eigenvalue with no plane of rotation. A ring with no RF "
+                "cavity has no 6D normal form -- use method='4d'."
+            )
+        scale = 1.0 / math.sqrt(norm_sq)
+        columns += [a * scale, b * scale]
+
+    w = np.array(columns).T
+    rotation = np.zeros((dim, dim))
+    tune_list: list[float] = []
+    for plane, m in enumerate(modes):
+        mu = float(np.angle(eigvals[m]))
+        c, s = math.cos(mu), math.sin(mu)
+        rotation[2 * plane : 2 * plane + 2, 2 * plane : 2 * plane + 2] = [[c, s], [-s, c]]
+        tune_list.append((mu / (2.0 * math.pi)) % 1.0)
+    return NormalForm(w, np.linalg.inv(w), rotation, tuple(tune_list), method)
+
+
+def to_normalized(form: NormalForm, state: Sequence[float] | np.ndarray) -> np.ndarray:
+    """Lab coordinates to normalised ones, ``u = W^-1 x``.
+
+    ``state`` may be a full 6D ``(x, px, y, py, zeta, delta)`` even for a ``4d`` form, in
+    which case the transverse part is taken and a length-4 vector comes back. No
+    emittance is involved: these are the coordinates in which a turn is a rotation, not
+    the sigma-scaled ones. Divide by ``sqrt(emittance)`` per mode for those.
+    """
+    x = np.asarray(state, dtype=float)
+    if x.shape == (DIM,) and form.dim == 4:
+        x = x[_TRANSVERSE]
+    if x.shape != (form.dim,):
+        raise ValueError(f"expected a length-{form.dim} state (or a 6D one), got {x.shape}")
+    return form.w_inv @ x
+
+
+def from_normalized(form: NormalForm, normalized: Sequence[float] | np.ndarray) -> np.ndarray:
+    """Normalised coordinates back to lab ones, ``x = W u``.
+
+    Returns a length-4 vector for a ``4d`` form and a length-6 one for ``6d`` -- the
+    inverse of :func:`to_normalized` on the space that was actually normalised.
+    """
+    u = np.asarray(normalized, dtype=float)
+    if u.shape != (form.dim,):
+        raise ValueError(f"expected a length-{form.dim} normalised vector, got {u.shape}")
+    return form.w @ u
+
+
+def actions(form: NormalForm, state: Sequence[float] | np.ndarray) -> tuple[float, ...]:
+    r"""The mode actions ``J_i = (u_i^2 + p_i^2)/2`` of a state.
+
+    These are the invariants of the linear motion: a turn rotates each mode's normalised
+    point about the origin, so ``J`` is unchanged to round-off however many turns are
+    tracked. For an uncoupled lattice ``2 J_x`` is exactly the Courant-Snyder invariant
+    ``(x^2 + (alpha x + beta px)^2)/beta``, and the average of ``J`` over a bunch is its
+    emittance.
+    """
+    u = to_normalized(form, state)
+    return tuple(float((u[2 * i] ** 2 + u[2 * i + 1] ** 2) / 2.0) for i in range(form.dim // 2))

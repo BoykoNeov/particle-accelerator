@@ -6359,6 +6359,122 @@ the other.
 `accelerate`'s per-turn reference, not a fixed point at all); and everything I3 listed
 apart from this.
 
+## Normalised coordinates: the linear normal form (O1 — implemented)
+
+`accsim.normal_form(one_turn, *, method="6d"|"4d")` returns a `NormalForm` carrying `W`,
+`W⁻¹`, the block-rotation `R` and the fractional mode tunes, with
+`to_normalized` / `from_normalized` / `actions` beside it. The defining identity is
+
+    M = W R W⁻¹ ,   R = diag(Rot(2π Q₁), Rot(2π Q₂), Rot(2π Q₃)) ,
+    Rot(μ) = [[cos μ, sin μ], [−sin μ, cos μ]] .
+
+### The parameterisation is a choice, and here is the choice
+
+`M = W R W⁻¹` does **not** determine `W`. Right multiplication by anything commuting with
+`R` preserves it — a per-plane rescaling *and* a per-plane rotation. Requiring `W`
+symplectic removes the rescaling and leaves **three real numbers**, one rotation angle per
+plane, completely free. So the two checks that look definitive are not:
+
+| check | pins the scale | pins the phase |
+|---|---|---|
+| `M = W R W⁻¹` | no | no |
+| `W` symplectic | yes | no |
+| the Courant-Snyder tie below | yes | **yes** |
+
+`tests/analytic/test_normal_form.py::test_definition_and_symplecticity_are_blind_to_the_phase`
+builds a deliberately mis-phased `W` and shows it passes the first two. This is the J1
+lesson (structural gates blind to the coefficient) in a new place.
+
+**The convention chosen.** Each eigenvector is multiplied by `exp(−i arg(v[2p]))` — a
+phase rotation until its **own plane's position component** is real and positive. Columns
+are then `[Re v₁, Im v₁, Re v₂, Im v₂, Re v₃, Im v₃]`, scaled so `Re(v)·S·Im(v) = 1` with
+`S` the block-diagonal `[[0,1],[−1,0]]`. Consequences, all of them testable:
+
+- `W[0,1] = W[2,3] = W[4,5] = 0` and `W[2p,2p] > 0`;
+- the 2×2 diagonal blocks *are* `[[√β, 0], [−α/√β, 1/√β]]`;
+- one turn advances the normalised angle by `2π Q` in each plane, in the −atan2 sense
+  set by `Rot`.
+
+**Why it is a choice and not a copy.** It is also xtrack's convention
+(`xtrack/linear_normal_form.py`), but that is not the justification. Under this phase and
+no other, the diagonal blocks equal the Courant-Snyder matrix built from `closed_twiss`'s
+`β`/`α` — a Stage-1 quantity obtained by matching a 2×2 block, with no eigenvector
+anywhere in its derivation. Measured: `8.9e-16`, off-diagonal blocks exactly `0`.
+
+**Mode labelling.** Each eigenvector is assigned to the plane where its weight
+`|v[2p]|² + |v[2p+1]|²` is largest, by a maximum-weight assignment (`scipy`'s
+`linear_sum_assignment`), so the labelling is always a permutation — never two modes on one
+plane. This matches `normal_mode_tunes`'s rule. xtrack instead tie-breaks on `|v[5]|` then
+`|v[2]|`; the two agree away from a coupling resonance and need not agree on one, which is
+why the entry-by-entry cross-check is run off resonance.
+
+**Rotation sense.** Within each conjugate pair the representative is the eigenvector with
+**positive** symplectic norm `Re(v)·S·Im(v)`. That is what puts each tune in `[0, 1)`
+rather than in the `arccos`-ambiguous `[0, 0.5]` — the same convention `normal_mode_tunes`
+already used.
+
+### The 6D normal form is not the 4D optics, and the difference is physics
+
+`method="6d"` and `method="4d"` on the same ring give **different** `β`, different tunes
+and a different dispersion. On the I4 ring: `β_x` 7.5% lower, `Q_x` `6.5e-3` lower, the
+dispersion 24% higher. Neither is wrong:
+
+- the **4D** quantities answer *a momentum held fixed* — the matched dispersion solves
+  `(I − M₄)D = k₄` at constant `δ`;
+- the **6D** quantities answer *a momentum oscillating at `Q_s`* — with RF on, `δ` is not
+  a parameter but a coordinate, and the ring is being driven off-resonance rather than
+  statically.
+
+The two agree in the `Q_s → 0` limit and the departure is **quadratic** in `Q_s`, not
+linear: fitted exponent `2.00` for all three quantities over a decade
+(`test_6d_departs_from_4d_quadratically_in_the_synchrotron_tune`). `NormalForm.dispersion`
+is therefore documented as the **dynamic** dispersion and is *not* interchangeable with
+`Twiss.disp_x`; its formula is the one xtrack reports as `dx`, the mode-3 columns with the
+`ζ` direction projected out.
+
+### An RF-free ring has no 6D normal form — the fifth appearance of one degeneracy
+
+Without a cavity, `ζ` and `δ` are both eigenvalue-`1` directions: the longitudinal mode's
+symplectic norm is exactly zero and there is no plane to rotate in. `normal_form` raises
+`NormalFormError` rather than dividing by it; xtrack's own routine raises `Invalid n3` on
+the same matrix. This is the same degeneracy N3 met (`twiss` unable to do a flat ring), N4
+explained (`inv(I − A)` singular for every ring), N5 hit in the spin field and I4 refused
+in the 6D orbit. `method="4d"` is the answer for such a ring, and it is the mode in which
+both closed-form ties (Courant-Snyder, Edwards-Teng) live anyway.
+
+### `δ` versus `p_ζ`: nothing to correct at linear order
+
+xtrack writes `W` in `(x, px, y, py, ζ, p_ζ)`; accsim's one-turn matrix is in `δ`. From
+`p_ζ = (E − E₀)/(β₀²E₀)` and `dE/dδ = β₀P₀`, `dp_ζ/dδ = P₀/(β₀E₀) = 1` **exactly** at
+`δ = 0`, so the two linear maps coincide and there is no `β₀²` anywhere in the comparison.
+Asserted, not assumed (`test_pzeta_and_delta_are_the_same_variable_at_linear_order`).
+
+### Emittance is deliberately not in the matrix
+
+`to_normalized` is `W⁻¹x` and nothing else. xtrack's `get_normalized_coordinates` divides
+by `√(ε_n/(β₀γ₀))` per mode; that scaling is a caller's concern, kept out so that the
+object under test is never entangled with an emittance convention. The cross-check
+multiplies it back in.
+
+### The reference residual, and why it is not ours
+
+The entry-by-entry xtrack comparison holds at `9e-16` on the transverse block — four
+orders inside the pre-committed `1e-12` — and floors at `2.6e-11` on the longitudinal
+columns. The whole excess is **one entry of xtrack's one-turn matrix**, `R56`, which it
+obtains by symmetric finite difference of its exact drift map. That map's `ζ(δ)` is curved
+(an `h²` truncation) *and* a difference of two nearly-equal path lengths (a cancellation
+round-off going as `1/h`), so the entry has a U-shaped error with a minimum near
+`ddelta = 1e-5`, where accsim's exact `L/γ₀²` and xtrack's finite difference agree to
+`3e-11`. The attribution is gated, not asserted: the residual's minimum in the step size,
+and its one-for-one tracking of `|R56_accsim − R56_xtrack|`, are both tests. A model
+disagreement would have neither. Compare **absolutely**, never relatively:
+`linear_normal_form.py` ends with `W[abs(W) < 1e-14] = 0`.
+
+**Out of scope for O1:** the higher-order (Dragt-Finn / Deprit) normal form, which would
+give amplitude-dependent tunes from the map rather than from J2's tracking; and `W` along
+the ring, with the Mais-Ripken cross-plane betas and the crab dispersion that only exist
+there (roadmap O2).
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,
