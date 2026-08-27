@@ -4199,8 +4199,9 @@ a number rather than re-expressing one.
   `tests/reference/test_resonance_driving_terms_xtrack.py` (7),
   `tests/reference/test_resonance_driving_terms_madx.py` (6). The full analytic suite is
   **1364 passed**, against 1325 before this milestone — the whole difference is this
-  milestone's own file, so nothing on axes A–N or O1–O3 moved. The reference files here
-  are run separately (they are `reference`-marked and skippable) and pass 7 and 6.
+  milestone's own file, so nothing on axes A–N or O1–O3 moved. The reference suite is
+  **263 passed**, against 250 before — again the whole difference is this milestone's own
+  two files.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
