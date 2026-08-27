@@ -6473,7 +6473,191 @@ disagreement would have neither. Compare **absolutely**, never relatively:
 **Out of scope for O1:** the higher-order (Dragt-Finn / Deprit) normal form, which would
 give amplitude-dependent tunes from the map rather than from J2's tracking; and `W` along
 the ring, with the Mais-Ripken cross-plane betas and the crab dispersion that only exist
-there (roadmap O2).
+there — **shipped as O2**, see the next section.
+
+## The normal form along the ring (O2 — implemented)
+
+`accsim.propagate_normal_form(lattice, form0, *, maps=None)` returns one
+`NormalFormPoint` per element boundary — `len(lattice) + 1` of them, the entrance then
+each exit, the same shape and alignment as `propagate_twiss`. The rule is
+
+    W(s) = M(0 -> s) W(0) . D(s),
+
+with `D(s) = diag(Rot(theta_1), Rot(theta_2), Rot(theta_3))` the per-mode rotation that
+puts the result back into O1's phase convention. `D` commutes with `R`, so every point
+normalises **its own** local one-turn map `M(0->s) M M(0->s)^-1` to the *same* `R`: the
+tunes belong to the ring, not to the point. `closed_normal_form(lattice, method=...)` is
+the `closed_twiss` counterpart that supplies `form0`.
+
+### The re-phasing angle, and the one quantity that can see it
+
+Writing `(a, b) = (A[2p, 2p], A[2p, 2p+1])` for `A = M(0->s) W(0)`, the unique rotation
+that zeroes the second entry and leaves the first positive is `theta_p = atan2(-b, a)`,
+after which `W[2p, 2p] = +sqrt(a^2 + b^2)`. The angle removed, `phi_p = -theta_p`
+accumulated continuously, **is** the mode's phase advance:
+
+    mu_p(s) = unwrap( atan2(W_raw[2p, 2p+1], W_raw[2p, 2p]) ),  in radians.
+
+Radians, to match `propagate_twiss`; xtrack reports the same thing in units of `2 pi` and
+shifted to zero at the start.
+
+**Almost nothing else in the milestone can see the re-phasing.** The Mais-Ripken tables and
+both dispersions are invariant under `W -> W D` for any such `D`: in `betx2 = |v2[x]|^2`
+and `alfx2 = -Re(v2[x] conj(v2[px]))` the phase cancels between the two factors, and the
+dispersions are ratios taken *inside* one eigenvector. So the two witnesses are the
+convention itself (`W[2p, 2p+1] = 0`, `W[2p, 2p] > 0`, asserted at every point) and `mu`.
+This is O1's blindness lesson one level worse, and
+`tests/analytic/test_normal_form_along_ring.py::test_the_new_quantities_are_blind_to_the_re_phasing`
+demonstrates it with a `W(s)` mis-phased by `(0.7, -1.3, 2.1)` radians.
+
+Because `mu` carries the whole weight, its gate is **quantised rather than a tolerance**:
+`tunes()` returns the *full* integer-plus-fractional tune, so a dropped `np.unwrap` branch
+is wrong by exactly `1` and nothing can absorb it. That needs a ring with an integer part
+— the four-cell FODO used elsewhere reaches only `0.206` — and it needs no element to
+advance the phase by more than `pi`, which is asserted separately as the localiser
+(measured worst step `0.26` rad).
+
+### Mais-Ripken: `betas[plane, mode]`
+
+`NormalFormPoint.betas`, `.alphas`, `.gammas` are `(n_modes, n_modes)` matrices,
+
+    B[p, m] = W[2p, 2m]^2 + W[2p, 2m+1]^2,
+    A[p, m] = -(W[2p, 2m] W[2p+1, 2m] + W[2p, 2m+1] W[2p+1, 2m+1]),
+    G[p, m] = W[2p+1, 2m]^2 + W[2p+1, 2m+1]^2,
+
+so `B[0,0]`, `B[0,1]`, `B[1,0]`, `B[1,1]` are xtrack's `betx1`, `betx2`, `bety1`, `bety2`.
+`mode_beta`/`mode_alpha` are the diagonals, and O1's `NormalForm` was refactored onto the
+same helpers so the entrance is not a special case.
+
+**`gammas` needed its own gates, and the reason generalises.** `betas` is tied to
+`propagate_twiss`, to Edwards-Teng and to xtrack; `alphas` likewise. `gammas` is read off
+the *momentum* row `2p+1` and had none of those: it appeared in the code, in this
+document and in the blindness test, where the only assertion is that it is **invariant**
+under the re-phasing. A wrong row index would have made it equal `betas` and passed every
+test in both files. It now has the Stage 1 tie `gamma = (1 + alpha^2)/beta` on an
+uncoupled ring, and on a coupled one the symplectic identity that binds all three matrices
+at once:
+
+    B[p,m] G[p,m] - A[p,m]^2 = det(block)^2   (Lagrange),
+    sum over planes p of det(block)           = 1   for each mode m (W symplectic),
+
+with `block = [[W[2p,2m], W[2p,2m+1]], [W[2p+1,2m], W[2p+1,2m+1]]]`. Note the per-plane
+`beta gamma - alpha^2 = 1` is the **uncoupled** special case and is false entry by entry
+once the planes mix; the sum is what survives. The general lesson worth carrying: **a
+pre-commitment is also a list of what will not be gated** — anything shipped that is not
+on it needs a tie found for it before the commit.
+
+The **off-diagonal** entries are the point: they say how much of mode 2 is carried in `x`,
+are exactly zero without coupling, and have no closed form of their own. What ties them to
+something independent is G2: on a dispersion-free coupled ring
+
+    W(s) = V(s) . diag(B_1(s), B_2(s))
+
+at **every** point, with `V` the Edwards-Teng decoupling transform that
+`propagate_coupled_twiss` obtains by re-matching the *local* one-turn map and transporting
+nothing. Measured `1e-12`, no residual per-mode rotation. The two conventions are
+compatible by construction: Edwards-Teng's `V[0,1] = V[2,3] = 0`, which is exactly what
+O1's phase convention demands.
+
+**A labelling hazard that was checked, not hoped.** `propagate_coupled_twiss` labels modes
+per point and its own docstring warns they can swap where the local
+`Delta = (Tr m - Tr q)/2` passes through zero; `propagate_normal_form` labels once at
+`s = 0` and transports. A scan of `Delta(s)` around the coupled test ring found it constant
+at `-0.30` with no sign change, so the tie can be written as an ordered comparison. On a
+ring where it does flip, compare the unordered pair.
+
+### Crab dispersion: an ordinary ring has it, and it is the dispersion's phase lag
+
+`NormalFormPoint.crab_dispersion` is `(dx_zeta, dpx_zeta, dy_zeta, dpy_zeta)`, xtrack's
+formula — the same construction as `dispersion` with the roles of `zeta` and `delta`
+exchanged. Physically it is the transverse excursion in phase with **arrival time** rather
+than with momentum: the head and the tail of a bunch sitting at different `x`.
+
+A crab cavity produces it by construction. The interesting case is that an ordinary ring
+produces it too, and the mechanism is worth stating because it also fixes the order.
+Writing `c0 = v3[x] / v3[delta]` for the transverse response to the oscillating momentum,
+
+    dx_zeta = - gamma_3 . Im(c0) / sigma_3,
+    gamma_3 = |v3[delta]|^2,   sigma_3 = Im( v3[delta] conj(v3[zeta]) ).
+
+`sigma_3` is the longitudinal share of the unit symplectic norm, order one. The other two
+each carry one power of `Q_s`:
+
+- `Im(c0)` — the **lag**. `c0 = [(lambda_3 I - M_4)^-1 m_delta]_x` with
+  `lambda_3 = exp(2 pi i Q_s)`. At `Q_s -> 0` that is the real 4D matched dispersion; at
+  finite `Q_s` the ring is driven off-resonance and the response acquires a phase, first
+  order. Fitted exponent **1.0000000000011**.
+- `gamma_3` — the mode's **momentum content**. As the cavity weakens the longitudinal
+  ellipse elongates, so the momentum amplitude falls linearly in `Q_s` at fixed norm.
+
+So `dx_zeta` is **second** order in `Q_s`, fitted **2.0011**. Both exponents and the
+identity that multiplies them are gated, which makes them one statement instead of two
+coincidences. (The first derivation of this gave `1`, having tracked only the lag; the
+numerics said `2.0011` and the missing factor was `gamma_3`. Recorded because the lag
+exponent alone is a plausible and wrong answer that a single loose gate would accept.)
+
+On a **bend-free** ring `dx_zeta` is exactly `0` — `m_delta` has no transverse rows there,
+so `c0 = 0`. Both codes return literal zero, which is the free gate that the quantity is
+dispersive rather than numerical noise.
+
+### No renormalisation, deliberately
+
+xtrack renormalises the eigenvectors at every point (`_renormalize_eigenvectors`), which it
+needs because it also propagates through radiation maps, where the symplectic norm
+genuinely decays. accsim does not: with symplectic element maps `M(0->s) W(0)` stays
+normalised exactly, so `W(s)^T S W(s) = S` at every point is a **measurement** rather than
+an assumption, and it is gated as one. If radiation maps are ever passed through `maps=`,
+that gate is where it will show up — which is the intended behaviour.
+
+### The 4D propagation is unambiguous because of the element set, not the algebra
+
+`method="4d"` transports the transverse block of the running 6x6 transfer matrix. That
+equals the product of the per-element transverse blocks only when
+`A[0:4,4] B[4,0:4] + A[0:4,5] B[5,0:4] = 0`, which holds because **no accsim element makes
+the transverse coordinates depend on `zeta`** (there is no crab cavity) and **none makes
+`delta` depend on the transverse ones** (the cavity kicks `delta` from `zeta` alone). Both
+are properties of today's element set. The residual is asserted to be exactly `0.0` on the
+bendy ring, so a future crab cavity — or a radiation map through `maps=`, which does give
+`M[5, 0:4] != 0` — fails loudly rather than drifting.
+
+### The reference residual, part two: it is transported, and it is confined
+
+O1 pinned a `2.6e-11` residual in `W`'s longitudinal columns on xtrack's
+finite-differenced `R56`. `W(s) = M(0->s) W(0)` **transports** that error, so along the
+ring it grows — to `1.35e-10` by the end. The claim gated is not that it stays small but
+that it stays **confined**: the transverse block holds at `9e-16` to `2e-15` at every
+point, four orders cleaner, which a transport bug could not manage.
+
+The same owner reaches `muzeta`, which is read off those columns: `mux`/`muy` land at
+`1.9e-16` and `3.3e-16` while `muzeta` floors at `1.8e-11`, so the phase-advance
+comparison carries **two** named constants rather than one loosened one. The sharpest of
+the three signatures that pin it: **changing xtrack's momentum differentiation step over
+three decades moves `muzeta`'s residual by five orders of magnitude and moves `mux`/`muy`
+by not one bit.** A disagreement between two codes' physics does not care what step the
+reference differentiates with, and does not stop at a plane boundary. (The other two: the
+same U with the same minimum at `ddelta = 1e-5`, and step-to-step ratios matching `R56`'s
+to `2%` above the minimum.)
+
+### A tolerance that was too loose, and why
+
+The bendy-ring comparisons were pre-committed at `5e-3` (`dx_zeta`) and `2e-3` (`dx`)
+relative, on the reasoning that a ring with bends is also comparing the two codes' *bend
+models* — the residual axis L and B2 own. They measure `1.1e-9` and `1.4e-8` **absolute**.
+The reasoning was wrong in a specific way worth recording: **B2 had already removed that
+residual**, by setting `integrator="uniform"` and one multipole kick per element on the
+reference line for exactly this purpose. A gate at `5e-3` on a quantity agreeing at `1e-9`
+would sleep through any regression worth catching, so the tolerances follow the
+measurement (roughly two orders above it) rather than the pre-commitment. O1's
+entrance-only `dx` comparison still carries the same over-loose `2e-3` for the same
+reason.
+
+Compare these **absolutely**, not relatively: `dx_zeta` and the alphas pass through zero
+around the ring, where a relative comparison is meaningless, and
+`xtrack/linear_normal_form.py` zeroes `W` entries below `1e-14` outright.
+
+**Out of scope for O2:** the higher-order normal form (still O1's note), `W` at
+sub-element resolution, and the Ripken-parameterised beam envelope — `coupled_beam_sigma`
+already covers the 4D coupled case through `V`.
 
 ## Toolchain / environment notes
 

@@ -3805,7 +3805,7 @@ the same gap seen from two other sides, and are sequenced behind it as O2.
   file, so nothing on axes A-N moved, and the only package files touched are `twiss.py`
   (the new section, appended) and `__init__.py` (the exports).
 
-- **O2 (candidate) — `W` along the ring, and the two quantities that only exist there.**
+- **O2 — `W` along the ring, and the two quantities that only exist there.** ✅ **SHIPPED (2026-08-27).**
   Effort **S**. `propagate_normal_form`, following `propagate_twiss`'s shape:
   `W(s) = M(0->s) W(0)`, re-phased to the same convention at each point. It is what makes
   the cross-plane Mais-Ripken betas (`betx2`, `bety1` — how much of mode 2 is carried in
@@ -3814,6 +3814,145 @@ the same gap seen from two other sides, and are sequenced behind it as O2.
   re-phasing must reproduce `propagate_twiss`'s `beta`/`alpha` and the phase advance
   `mu(s)` on an uncoupled ring, and `propagate_coupled_twiss` on a coupled one; arbiter
   `tw.betx2`, `tw.bety1`, `tw.dx_zeta`, element by element.
+
+  **Pre-commitment, written before the reference file was run.**
+
+  - **The re-phasing is the whole milestone, and almost nothing can see it.** `betx2`,
+    `alfx2`, `bety1` and `dx_zeta` are every one of them invariant under
+    `W -> W diag(Rot, Rot, Rot)` — the phase cancels between the two factors of each
+    product, and the crab dispersion is a ratio taken *inside* one eigenvector. Only two
+    witnesses exist: the convention itself (`W[2p, 2p+1] = 0`) and `mu(s)`. So the `mu`
+    gate is made **quantised** rather than tolerance-based: `tunes()` returns the *full*
+    integer-plus-fractional tune, and a dropped `np.unwrap` branch is wrong by exactly
+    `1`. Rings with an integer part are chosen deliberately for it, and a companion test
+    asserts no element advances the phase by more than `pi` so the reason localises.
+  - **Crab dispersion is not zero on an ordinary ring, and its two exponents are the
+    physics.** The transverse response to a momentum oscillating at `Q_s` is driven
+    off-resonance, so it *lags*: `c0 = v3[x]/v3[delta]` acquires an imaginary part first
+    order in `Q_s`. `dx_zeta` is that lag times the longitudinal mode's momentum content,
+    which is *also* first order, so `dx_zeta` is **second** order. Predicted: lag exponent
+    `1.00`, `dx_zeta` exponent `2.00`, both to `+-0.02` over a decade in `Q_s`; and
+    `dx_zeta` **exactly zero** on a bend-free ring, since the transverse rows never see
+    `delta` there.
+  - **Ties.** `mu`/`beta`/`alpha` reproduce `propagate_twiss` at `1e-13` on an uncoupled
+    ring; `W(s) = V(s) . diag(B1(s), B2(s))` reproduces G2's `propagate_coupled_twiss` at
+    `1e-12` at every point on a coupled one — the tie that gives `betx2`/`bety1`, which
+    have no closed form of their own, something independently derived to stand on.
+    `betx2` grows as the **square** of the skew strength.
+  - **Arbiter tolerances.** Element by element against `twiss()`: `mux`/`muy`/`muzeta` and
+    the transverse block of `W(s)` at `1e-12` **absolute** on the bend-free ring (O1's
+    constant, now at every point); `betx2`/`bety1`/`alfx2`/`alfy1` at `1e-9` relative on a
+    coupled bend-free ring; `dx_zeta`/`dpx_zeta` at `5e-3` relative on a bendy ring —
+    looser than the rest and stated as such, because a bendy ring is also comparing the
+    two codes' bend models, which is the residual axis L and B2 already own.
+  - **One thing expected to be missed, named in advance.** O1 localised a `2.6e-11`
+    residual in `W`'s longitudinal columns to xtrack's finite-differenced `R56`. That
+    error is *transported* by `W(s) = M(0->s) W(0)`, so it must **grow** along the ring
+    rather than stay put. The claim is that it stays confined to the longitudinal columns
+    — the transverse block must not degrade at all — and a separate constant records what
+    the longitudinal ones actually reach.
+
+  **SHIPPED (2026-08-27).** `accsim.propagate_normal_form`, `closed_normal_form`,
+  `NormalFormPoint` — in `twiss.py`, 252 lines appended, plus a refactor that moves O1's
+  `NormalForm` onto the same private `_ripken_*` / `_dispersion_from_w` helpers so the
+  entrance is not a special case. No new dependency.
+
+  **Every claim about the blindness held, and it is worse here than in O1.** `betx2`,
+  `alfx2`, `bety1`, `dx_zeta` and the dynamic dispersion are *all* invariant under
+  `W -> W diag(Rot, Rot, Rot)` — the phase cancels between the two factors of each
+  product, and the dispersions are ratios taken inside a single eigenvector.
+  `test_the_new_quantities_are_blind_to_the_re_phasing` builds a `W(s)` mis-phased by
+  `(0.7, -1.3, 2.1)` radians and shows all five come back unchanged to `1e-12`, and that
+  it is still symplectic. So the re-phasing — which is the entire operation this milestone
+  performs — has exactly two witnesses, and the gates are weighted accordingly.
+
+  **The quantised tune gate did the work it was chosen for.** `mu(C)/2 pi` matches
+  `tunes()`'s *full* integer-plus-fractional tune to `1e-12` on two rings picked for
+  having an integer part (`1.235`, and the I4 ring's `1.630`/`1.282`) — the four-cell FODO
+  used elsewhere in the file reaches only `0.206`, where the gate is vacuous and was
+  caught being so on the first run. The companion localiser measures the worst
+  per-element phase step at `0.26` rad, an order inside the `pi` the unwrap needs.
+
+  **Crab dispersion is not zero on a ring with no crab cavity, and the two exponents are
+  the finding.** The predicted lag exponent `1.00` came in at `1.0000000000011`; the
+  predicted `dx_zeta` exponent `2.00` at `2.0011`, over a decade in `Q_s`. The second one
+  had to be *corrected before* it was written: the first derivation gave `1`, missing that
+  the longitudinal mode's momentum content `|v3[delta]|^2` is itself linear in `Q_s`
+  (the ellipse elongates as the cavity weakens). The identity that multiplies the two,
+  `dx_zeta = -gamma_3 Im(c0)/sigma_3`, is asserted alongside them so the pair is one
+  statement rather than two coincidences. On a bend-free ring `dx_zeta` is exactly `0` in
+  both codes.
+
+  **The ties held at the tight end.** `mu`/`beta`/`alpha` reproduce `propagate_twiss` at
+  `1e-13` at every point; `W(s) = V(s) . diag(B1(s), B2(s))` reproduces G2's
+  `propagate_coupled_twiss` at `1e-12` at every point for `k1sl` in `{0.02, 0.1}`, with no
+  residual per-mode rotation — which is what gives `betx2`/`bety1`, quantities with no
+  closed form of their own, something independently derived to stand on. A scan of the
+  local Edwards-Teng `Delta` around that ring found no sign change, so the mode-labelling
+  hazard `propagate_coupled_twiss` documents does not bite here; it was checked rather
+  than hoped.
+
+  **`betx2`'s exponent is `2` asymptotically, and the window is stated.** Fitted `2.00` on
+  `k1sl` in `[3.1e-4, 2.5e-3]`; the fourth-order term is still worth measuring higher up
+  (`1.90` at `0.01`, `1.67` at `0.04`), so fitting where the coupling tests elsewhere sit
+  would have needed a tolerance three times as wide. The first run failed at `1.956` for
+  exactly that reason and the window moved, not the tolerance.
+
+  **The reference pre-commitment was missed once, in the place O1 already named, and was
+  five orders too *loose* four times.**
+
+  - *The miss.* `mux`/`muy` land at `1.9e-16` and `3.3e-16` — four orders inside the
+    promised `1e-12` — while `muzeta` floors at `1.8e-11`. Same owner as O1's `W`
+    residual: the longitudinal phase advance is read off the columns of `W` that carry
+    xtrack's finite-differenced `R56`. Three signatures gate the attribution rather than
+    asserting it, and the first is the sharp one: **changing xtrack's momentum step over
+    three decades moves `muzeta`'s residual by five orders of magnitude and moves
+    `mux`/`muy` by not one bit.** A disagreement between two codes' physics does not care
+    what step the reference differentiates with, and does not stop at a plane boundary.
+    The residual also traces the same U with the same minimum at `ddelta = 1e-5`, and
+    above the minimum its step-to-step ratio matches `R56`'s to `2%`. Two named constants,
+    not one loosened one.
+  - *The looseness.* `betx2`/`bety1` were promised `1e-9` relative and measure `3.9e-15`;
+    `alfx2`/`alfy1` `2.3e-15` absolute; `dx_zeta` was promised `5e-3` relative on a signal
+    of `+-0.077` and measures `1.1e-9` **absolute**; `dx` was promised `2e-3` and measures
+    `1.4e-8`. The reasoning behind the loose pair was wrong in a specific, recordable way:
+    it budgeted for the two codes' bend models disagreeing — the residual axis L and B2
+    own — but **B2 had already removed it**, by setting `integrator="uniform"` and one
+    multipole kick per element on the reference line for exactly this purpose. A gate at
+    `5e-3` on a quantity agreeing at `1e-9` would sleep through any regression worth
+    catching, so all four tolerances were tightened to roughly two orders above the
+    measurement. O1's entrance-only `dx` comparison carries the same over-loose `2e-3` for
+    the same reason.
+  - *What was predicted and did happen.* The `R56` residual is **transported** by
+    `W(s) = M(0->s) W(0)`, so it grows along the ring — `2.6e-11` at the entrance to
+    `1.35e-10` at the end. The gate is not that it stays small but that it stays
+    **confined**: the transverse block is four orders cleaner at every point, which a
+    transport bug could not manage.
+
+  **One guard that is about the element set, not the algebra.** The 4D propagation is
+  unambiguous only because `_transverse_4d(A B) = _transverse_4d(A) _transverse_4d(B)`,
+  which needs no element to make the transverse coordinates depend on `zeta` and none to
+  make `delta` depend on the transverse ones. Both hold for accsim today and are asserted
+  to hold (residual exactly `0.0` on the bendy ring), so a future crab cavity — or a
+  radiation map passed through `maps` — fails loudly instead of drifting.
+
+  **One thing that shipped ungated and was caught before the commit.** `gammas` — the
+  Ripken matrix read off the *momentum* row — was in the code, in the docs and in the
+  blindness test, and had no check of its **formula** anywhere: the blindness test only
+  asserts it is *invariant*, and the pre-commitment above listed the betas and alphas and
+  not it. Writing row `2p` where row `2p+1` belongs would have made it equal `betas` and
+  passed all 34 tests, ruff and both cross-checks. It now has two ties of its own: the
+  Stage 1 one on an uncoupled ring (`gamma = (1 + alpha^2)/beta`) and, on a coupled one,
+  the symplectic identity that binds all three matrices at once — `B G - A^2 = det^2`
+  entry by entry, with each mode's determinants summing to `1` over the planes. Plus
+  `tw.gamx1`/`gamx2`/`gamy1`/`gamy2`, which cost nothing on the fixture already built.
+  The general lesson: **a pre-commitment is also a list of what will not be gated.**
+
+  Gates: `tests/analytic/test_normal_form_along_ring.py` (26),
+  `tests/reference/test_normal_form_along_ring_xtrack.py` (11). The full analytic suite is
+  **1292 passed**, against 1266 after O1 — the whole difference is this milestone's own
+  file, so nothing on axes A-N or O1 moved; `test_normal_form.py` is still 21/21 despite
+  the shared-helper refactor. The reference suite is **240 passed**, against 229.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

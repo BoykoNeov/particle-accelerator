@@ -1849,21 +1849,12 @@ class NormalForm:
         are **not**, and that is physics rather than disagreement — see
         :attr:`dispersion`.
         """
-        return tuple(
-            float(self.w[2 * i, 2 * i] ** 2 + self.w[2 * i, 2 * i + 1] ** 2)
-            for i in range(self.dim // 2)
-        )
+        return tuple(float(v) for v in np.diag(self.betas))
 
     @property
     def mode_alpha(self) -> tuple[float, ...]:
         """Each mode's alpha, ``-(W[2i,2i] W[2i+1,2i] + W[2i,2i+1] W[2i+1,2i+1])``."""
-        return tuple(
-            float(
-                -self.w[2 * i, 2 * i] * self.w[2 * i + 1, 2 * i]
-                - self.w[2 * i, 2 * i + 1] * self.w[2 * i + 1, 2 * i + 1]
-            )
-            for i in range(self.dim // 2)
-        )
+        return tuple(float(v) for v in np.diag(self.alphas))
 
     @property
     def dispersion(self) -> np.ndarray:
@@ -1880,9 +1871,31 @@ class NormalForm:
         """
         if self.method != "6d":
             raise NormalFormError("dispersion needs the 6D normal form (method='6d')")
-        w = self.w
-        den = w[5, 5] - w[5, 4] * w[4, 5] / w[4, 4]
-        return np.array([(w[i, 5] - w[i, 4] * w[4, 5] / w[4, 4]) / den for i in (X, PX, Y, PY)])
+        return _dispersion_from_w(self.w)
+
+    @property
+    def betas(self) -> np.ndarray:
+        """Mais-Ripken ``B[plane, mode]``; see :func:`_ripken_betas`. Constant along
+        an element, so :class:`NormalFormPoint` is where it becomes interesting."""
+        return _ripken_betas(self.w)
+
+    @property
+    def alphas(self) -> np.ndarray:
+        """Mais-Ripken ``A[plane, mode]``."""
+        return _ripken_alphas(self.w)
+
+    @property
+    def gammas(self) -> np.ndarray:
+        """Mais-Ripken ``G[plane, mode]``."""
+        return _ripken_gammas(self.w)
+
+    @property
+    def crab_dispersion(self) -> np.ndarray:
+        """The crab dispersion at the entrance; see
+        :attr:`NormalFormPoint.crab_dispersion`. ``6d`` only."""
+        if self.method != "6d":
+            raise NormalFormError("crab dispersion needs the 6D normal form (method='6d')")
+        return _crab_dispersion_from_w(self.w)
 
 
 def _paired_modes(eigvals: np.ndarray, eigvecs: np.ndarray) -> list[int]:
@@ -1980,7 +1993,9 @@ def normal_form(one_turn: np.ndarray, *, method: str = "6d", atol: float = 1e-6)
     return NormalForm(w, np.linalg.inv(w), rotation, tuple(tune_list), method)
 
 
-def to_normalized(form: NormalForm, state: Sequence[float] | np.ndarray) -> np.ndarray:
+def to_normalized(
+    form: NormalForm | NormalFormPoint, state: Sequence[float] | np.ndarray
+) -> np.ndarray:
     """Lab coordinates to normalised ones, ``u = W^-1 x``.
 
     ``state`` may be a full 6D ``(x, px, y, py, zeta, delta)`` even for a ``4d`` form, in
@@ -1996,7 +2011,9 @@ def to_normalized(form: NormalForm, state: Sequence[float] | np.ndarray) -> np.n
     return form.w_inv @ x
 
 
-def from_normalized(form: NormalForm, normalized: Sequence[float] | np.ndarray) -> np.ndarray:
+def from_normalized(
+    form: NormalForm | NormalFormPoint, normalized: Sequence[float] | np.ndarray
+) -> np.ndarray:
     """Normalised coordinates back to lab ones, ``x = W u``.
 
     Returns a length-4 vector for a ``4d`` form and a length-6 one for ``6d`` -- the
@@ -2008,7 +2025,9 @@ def from_normalized(form: NormalForm, normalized: Sequence[float] | np.ndarray) 
     return form.w @ u
 
 
-def actions(form: NormalForm, state: Sequence[float] | np.ndarray) -> tuple[float, ...]:
+def actions(
+    form: NormalForm | NormalFormPoint, state: Sequence[float] | np.ndarray
+) -> tuple[float, ...]:
     r"""The mode actions ``J_i = (u_i^2 + p_i^2)/2`` of a state.
 
     These are the invariants of the linear motion: a turn rotates each mode's normalised
@@ -2019,3 +2038,255 @@ def actions(form: NormalForm, state: Sequence[float] | np.ndarray) -> tuple[floa
     """
     u = to_normalized(form, state)
     return tuple(float((u[2 * i] ** 2 + u[2 * i + 1] ** 2) / 2.0) for i in range(form.dim // 2))
+
+
+# --------------------------------------------------------------------------------------
+# The normal form along the ring (O2)
+# --------------------------------------------------------------------------------------
+
+
+def _ripken_betas(w: np.ndarray) -> np.ndarray:
+    r"""``B[plane, mode]``: how much of each mode is carried in each plane's position.
+
+    The Mais-Ripken generalisation of ``beta``. ``B[0, 0]`` is the ordinary ``beta_x``
+    (mode 1 in ``x``) and ``B[1, 1]`` the ordinary ``beta_y``; the **off-diagonal**
+    entries ``B[0, 1]`` and ``B[1, 0]`` -- xtrack's ``betx2`` and ``bety1`` -- are the
+    cross-plane ones, exactly zero without coupling and the reason this matrix exists.
+    """
+    n = w.shape[0] // 2
+    return np.array(
+        [[w[2 * p, 2 * m] ** 2 + w[2 * p, 2 * m + 1] ** 2 for m in range(n)] for p in range(n)]
+    )
+
+
+def _ripken_alphas(w: np.ndarray) -> np.ndarray:
+    """``A[plane, mode]``, the Mais-Ripken ``alpha`` (``alfx1``, ``alfx2``, ...)."""
+    n = w.shape[0] // 2
+    return np.array(
+        [
+            [
+                -w[2 * p, 2 * m] * w[2 * p + 1, 2 * m]
+                - w[2 * p, 2 * m + 1] * w[2 * p + 1, 2 * m + 1]
+                for m in range(n)
+            ]
+            for p in range(n)
+        ]
+    )
+
+
+def _ripken_gammas(w: np.ndarray) -> np.ndarray:
+    """``G[plane, mode]``, the Mais-Ripken ``gamma`` -- the same read off the momentum row."""
+    n = w.shape[0] // 2
+    return np.array(
+        [
+            [w[2 * p + 1, 2 * m] ** 2 + w[2 * p + 1, 2 * m + 1] ** 2 for m in range(n)]
+            for p in range(n)
+        ]
+    )
+
+
+def _dispersion_from_w(w: np.ndarray) -> np.ndarray:
+    """``(D_x, D_px, D_y, D_py)``: the transverse response *in phase with* ``delta``."""
+    den = w[DELTA, 5] - w[DELTA, 4] * w[ZETA, 5] / w[ZETA, 4]
+    return np.array([(w[i, 5] - w[i, 4] * w[ZETA, 5] / w[ZETA, 4]) / den for i in (X, PX, Y, PY)])
+
+
+def _crab_dispersion_from_w(w: np.ndarray) -> np.ndarray:
+    """``(dx_zeta, dpx_zeta, dy_zeta, dpy_zeta)``: the response in phase with ``zeta``.
+
+    The same construction as :func:`_dispersion_from_w` with the roles of the two
+    longitudinal coordinates exchanged -- ``delta`` projected out instead of ``zeta``.
+    """
+    den = w[ZETA, 4] - w[ZETA, 5] * w[DELTA, 4] / w[DELTA, 5]
+    return np.array([(w[i, 4] - w[i, 5] * w[DELTA, 4] / w[DELTA, 5]) / den for i in (X, PX, Y, PY)])
+
+
+@dataclass(frozen=True)
+class NormalFormPoint:
+    r"""The normal form at one point around the ring: ``W(s)``, and the phase to get there.
+
+    :func:`propagate_normal_form` returns one of these per element boundary. ``W(s)`` is
+    ``M(0 -> s) W(0)`` put back into :class:`NormalForm`'s phase convention, so it
+    normalises the one-turn map **starting at s** -- a different matrix from the one at
+    the entrance, conjugate to the same rotation ``R``.
+
+    **Almost nothing here can see the re-phasing that produced it.** :attr:`betas`,
+    :attr:`alphas`, :attr:`gammas`, :attr:`dispersion` and :attr:`crab_dispersion` are all
+    invariant under ``W -> W diag(Rot, Rot, Rot)``: in each product the phase cancels
+    between the two factors, and the dispersions are ratios taken inside a single
+    eigenvector. Only two things are not blind -- the convention itself
+    (``w[2p, 2p+1] = 0``) and :attr:`mu`. That is why the analytic gates for this
+    milestone are so heavily weighted toward ``mu``.
+    """
+
+    s: float
+    """Path length from the start of the lattice [m]."""
+    w: np.ndarray
+    """``W(s)``, in :class:`NormalForm`'s phase convention."""
+    w_inv: np.ndarray
+    """``W(s)^-1``: lab coordinates at ``s`` to normalised ones."""
+    mu: tuple[float, ...]
+    """Accumulated phase advance per mode [rad], continuous and starting at ``0``.
+
+    Over one turn this is ``2 pi Q`` with ``Q`` the **full** integer-plus-fractional tune,
+    not the fractional part the one-turn matrix gives. It is obtained by unwrapping the
+    re-phasing angle, which is safe exactly while no single element advances the phase by
+    more than ``pi``.
+    """
+    method: str
+    """``"4d"`` or ``"6d"``, inherited from the :class:`NormalForm` this came from."""
+
+    @property
+    def dim(self) -> int:
+        """``4`` or ``6``."""
+        return int(self.w.shape[0])
+
+    @property
+    def betas(self) -> np.ndarray:
+        """Mais-Ripken ``B[plane, mode]``; see :func:`_ripken_betas`."""
+        return _ripken_betas(self.w)
+
+    @property
+    def alphas(self) -> np.ndarray:
+        """Mais-Ripken ``A[plane, mode]``."""
+        return _ripken_alphas(self.w)
+
+    @property
+    def gammas(self) -> np.ndarray:
+        """Mais-Ripken ``G[plane, mode]``."""
+        return _ripken_gammas(self.w)
+
+    @property
+    def mode_beta(self) -> tuple[float, ...]:
+        """Each mode's beta in its own plane -- the diagonal of :attr:`betas`."""
+        return tuple(float(v) for v in np.diag(self.betas))
+
+    @property
+    def mode_alpha(self) -> tuple[float, ...]:
+        """Each mode's alpha in its own plane -- the diagonal of :attr:`alphas`."""
+        return tuple(float(v) for v in np.diag(self.alphas))
+
+    @property
+    def dispersion(self) -> np.ndarray:
+        """The **dynamic** dispersion at ``s``; see :attr:`NormalForm.dispersion`."""
+        if self.method != "6d":
+            raise NormalFormError("dispersion needs the 6D normal form (method='6d')")
+        return _dispersion_from_w(self.w)
+
+    @property
+    def crab_dispersion(self) -> np.ndarray:
+        r"""``(dx_zeta, dpx_zeta, dy_zeta, dpy_zeta)`` -- the orbit's dependence on arrival time.
+
+        Where :attr:`dispersion` is the transverse excursion in phase with ``delta``, this
+        is the part in phase with ``zeta``: the head and the tail of a bunch sitting at
+        different ``x``. A ring with a crab cavity has it by construction, but an
+        **ordinary** ring has it too, and small rather than zero for an interesting
+        reason: the transverse response to a momentum oscillating at ``Q_s`` is driven
+        off-resonance, so it *lags* the drive. The lag is first order in ``Q_s`` and the
+        longitudinal mode's momentum content is another, so ``dx_zeta`` itself is
+        **second** order -- and exactly zero on a ring with no bends, where the transverse
+        rows never see ``delta`` at all.
+
+        ``6d`` only.
+        """
+        if self.method != "6d":
+            raise NormalFormError("crab dispersion needs the 6D normal form (method='6d')")
+        return _crab_dispersion_from_w(self.w)
+
+
+def closed_normal_form(lattice: Lattice, *, method: str = "6d") -> NormalForm:
+    """The matched normal form at the entrance of a periodic ``lattice``.
+
+    :func:`normal_form` of the one-turn matrix -- the normal-form counterpart of
+    :func:`closed_twiss` and :func:`coupled_twiss`.
+    """
+    return normal_form(lattice.one_turn_matrix(), method=method)
+
+
+def _rephase(a: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Put ``a`` back into the phase convention; return ``(W, phi)``.
+
+    Right-multiplying by ``diag(Rot(theta_p))`` commutes with ``R``, so it leaves
+    ``a R a^-1`` alone and keeps ``a`` symplectic. ``theta_p = atan2(-b, a)`` with
+    ``(a, b) = (A[2p, 2p], A[2p, 2p+1])`` is the unique choice that zeroes the second
+    entry and leaves the first at ``+sqrt(a^2 + b^2)``. The angle removed, ``phi =
+    -theta``, is the mode's phase advance from the start of the lattice, modulo ``2 pi``.
+    """
+    dim = a.shape[0]
+    w = a.copy()
+    phi = np.zeros(dim // 2)
+    for p in range(dim // 2):
+        c, s = float(a[2 * p, 2 * p]), float(a[2 * p, 2 * p + 1])
+        r = math.hypot(c, s)
+        if r <= _DEGENERATE_NORM * float(np.abs(a[:, 2 * p : 2 * p + 2]).max() + 1e-300):
+            raise NormalFormError(
+                f"mode {p + 1} carries no position in its own plane at this point "
+                f"(|W[{2 * p}, {2 * p}:{2 * p + 2}]| = {r:.3e}): the phase convention has "
+                "nothing to rotate onto the real axis."
+            )
+        phi[p] = math.atan2(s, c)
+        cos_t, sin_t = c / r, -s / r
+        block = a[:, 2 * p : 2 * p + 2]
+        w[:, 2 * p] = block[:, 0] * cos_t - block[:, 1] * sin_t
+        w[:, 2 * p + 1] = block[:, 0] * sin_t + block[:, 1] * cos_t
+    return w, phi
+
+
+def propagate_normal_form(
+    lattice: Lattice, form0: NormalForm, *, maps: Sequence[np.ndarray] | None = None
+) -> list[NormalFormPoint]:
+    r"""The normal form at every element boundary, starting from ``form0``.
+
+    Returns ``len(lattice) + 1`` points: the entrance, then the exit of each element in
+    order -- the same shape and alignment as :func:`propagate_twiss`. The rule is
+
+        W(s) = M(0 -> s) W(0) . D(s),
+
+    with ``D(s)`` the per-mode rotation that puts the result back into
+    :class:`NormalForm`'s phase convention. ``D`` commutes with ``R``, so every point
+    normalises its own local one-turn map ``M(0->s) M M(0->s)^-1`` to the *same* rotation:
+    the tunes belong to the ring, not to the point. The angle ``D`` removes, accumulated
+    continuously, is :attr:`NormalFormPoint.mu`.
+
+    ``form0`` decides the dimension: pass ``closed_normal_form(lattice, method="4d")`` for
+    the transverse-only form (the right one for a ring with no cavity) or ``"6d"`` for the
+    full one. The 4D transport is the transverse block of the running 6x6 transfer
+    matrix, which for accsim's element set is also the product of the per-element blocks
+    -- a property of the element set rather than of the algebra, and asserted as such in
+    the analytic tests.
+
+    ``maps`` substitutes the transport exactly as in :func:`propagate_twiss`: one 6x6 per
+    element, in beam order, used in place of ``elem.matrix()``. ``form0`` must then have
+    been built from the matching one-turn product; nothing here re-derives it.
+
+    ``form0`` is used verbatim as the first point and is assumed to be in the convention
+    already -- which everything :func:`normal_form` returns is. ``mu`` therefore starts at
+    exactly zero, the way :func:`propagate_twiss` starts from ``twiss0.mu_x``.
+
+    **Almost nothing this returns can see the re-phasing** -- see
+    :class:`NormalFormPoint`. ``mu`` and the convention are the only witnesses, and no
+    renormalisation of the eigenvectors is done along the way, so ``W(s)`` staying
+    symplectic is a measurement rather than an assumption. (xtrack renormalises, which it
+    needs because it also propagates through radiation maps, where the symplectic norm
+    genuinely decays.)
+    """
+    if maps is not None and len(maps) != len(lattice.elements):
+        raise ValueError(
+            f"maps must have one matrix per element: got {len(maps)} for "
+            f"{len(lattice.elements)} elements"
+        )
+    n_modes = form0.dim // 2
+    transfer = np.eye(DIM)
+    mu = np.zeros(n_modes)
+    previous = np.zeros(n_modes)
+    points = [NormalFormPoint(0.0, form0.w.copy(), form0.w_inv.copy(), tuple(mu), form0.method)]
+    s = 0.0
+    for i, elem in enumerate(lattice.elements):
+        transfer = (elem.matrix(lattice.ref) if maps is None else maps[i]) @ transfer
+        s += elem.length
+        t = _transverse_4d(transfer) if form0.dim == 4 else transfer
+        w, phi = _rephase(t @ form0.w)
+        mu = mu + (phi - previous + math.pi) % (2.0 * math.pi) - math.pi
+        previous = phi
+        points.append(NormalFormPoint(s, w, np.linalg.inv(w), tuple(mu), form0.method))
+    return points
