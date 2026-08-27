@@ -3755,8 +3755,8 @@ the same gap seen from two other sides, and are sequenced behind it as O2.
   never entangled with an emittance convention.
 
   **SHIPPED (2026-08-27).** `accsim.normal_form`, `NormalForm`, `NormalFormError`,
-  `to_normalized`, `from_normalized`, `actions` — in `twiss.py`, ~200 lines, one new
-  dependency-free import (`scipy.optimize.linear_sum_assignment`, for a mode-to-plane
+  `to_normalized`, `from_normalized`, `actions` — in `twiss.py`, 259 lines appended, one
+  new import (`scipy.optimize.linear_sum_assignment`, for a mode-to-plane
   assignment that is always a permutation).
 
   **Every claim above held, and the two that were framed as blind really are.**

@@ -307,6 +307,11 @@ def test_6d_optics_is_not_the_4d_optics() -> None:
 
     Pinned so that a later "fix" that makes them agree fails here: the 4D quantities
     answer a momentum held fixed, the 6D ones a momentum oscillating at ``Q_s``.
+
+    The three numbers belong to **this ring** — they are set by its ``Q_s`` and its
+    dispersion, and they move if I4's ``RING`` voltage does. The ring-independent version
+    of the same claim is the exponent test below; a failure here after a fixture change is
+    a changed fixture, not a changed disagreement.
     """
     lat, _ = rf_ring()
     tw = closed_twiss(lat)

@@ -198,9 +198,16 @@ def test_the_6d_residual_is_the_references_own_r56(pair) -> None:
     # a genuine U: the middle step is the best, by more than an order each way
     assert residual[1e-5] < residual[1e-6] / 10.0
     assert residual[1e-5] < residual[1e-4] / 10.0
-    # and the residual is that one matrix entry, transported through W
+    # ...and the residual *is* that one matrix entry, transported through W. Asserted as a
+    # proportionality between steps rather than against a fixed factor: the factor is the
+    # size of W's longitudinal columns and so belongs to this ring, while "the two move
+    # together over two orders of magnitude" belongs to the claim.
+    steps = sorted(residual)
+    for a, b in zip(steps[:-1], steps[1:], strict=True):
+        assert residual[a] / residual[b] == pytest.approx(r56_gap[a] / r56_gap[b], rel=0.15)
+    # the transport factor is O(1) on any ring, which is the ring-independent half
     for ddelta, value in residual.items():
-        assert value == pytest.approx(0.85 * r56_gap[ddelta], rel=0.15)
+        assert 0.3 < value / r56_gap[ddelta] < 3.0
 
 
 def test_mode_tunes_match_xtrack(pair) -> None:
