@@ -585,6 +585,25 @@ hold**: xtrack's momentum column was predicted to come into line once RF removed
 singular inverse N4 blamed, and instead a larger, differently-caused disagreement appeared
 — arbitrated, this time, by a test that runs inside the reference's own tracker.
 
+**The direction chosen next, on 2026-08-27, went back to axis I and closed the one gap
+three separate milestones had named and none had built: I4, the closed orbit in all six
+coordinates.** I2 listed it as out of scope, I3 repeated it verbatim, N5 deferred it a
+fourth time *with its gate already written in closed form* — and B4, needing it, had built
+a private 25-line Newton solve inside its own test file. It shipped the same day. Its
+weight is in two places. The gate is not a tolerance but an **order**: the design-route
+radiation integral departs from the tracked loss at first order in `U_0/E` about the design
+orbit and at second order about the closed one, because the fixed point is exactly where
+the energy sag is centred (fitted 0.999 against 2.003, over a factor 512). And the
+cross-check is a **prediction rather than a comparison**: two mechanisms localised on a
+single magnet in B2 were asserted, unadjusted, on two codes' whole-ring fixed points, and
+landed at `2.29997e-8` against a predicted `2.29997e-8`. The milestone's *other*
+pre-commitment — that the 4D orbit's residual would be the whole energy bill, in `delta` —
+was **refuted**, and the refutation is the better result: the miss is largest in arrival
+time, and the momentum is short by only 0.689 of the bill, because the slip in `zeta`
+already collects a third of it back from the RF before the turn ends. One shipped claim
+was corrected on the way: `phi_s != 0` does **not** need a 6D solve in this package, only
+tracked radiation does.
+
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -1914,8 +1933,9 @@ sustained arc.
     octupoles and higher multipoles, misalignments as element attributes,
     amplitude-dependent detuning, dynamic aperture.
 
-- **I4 (candidate) — the closed orbit in all six coordinates: where the beam arrives,
-  once it has to pay for the light it emits.** Opened 2026-08-27. Effort **S**.
+- **I4 — the closed orbit in all six coordinates: where the beam arrives, once it has to
+  pay for the light it emits.** ✅ **SHIPPED (2026-08-27)** — `accsim.closed_orbit_6d`,
+  plus `closed_orbit_delta` promoted to the top-level namespace alongside it. Effort **S**.
   The one item three separate milestones have named and none has built. I2 listed "the
   6D closed orbit" as out of scope, I3 repeated it verbatim, and **N5** deferred it a
   fourth time *with its gate already written in closed form*. Meanwhile B4 needed it and
@@ -1958,9 +1978,10 @@ sustained arc.
   high at the cavity's exit and `U_0/2E` low at its entrance, and the linear-in-`delta`
   part of the loss averages away over the turn. The departure is therefore **quadratic**,
   and a gate that fits the exponent reads a wrong fixed point off directly where a
-  tolerance would not. Measured while scoping, over a factor 512 in `U_0/E`:
-  **2.003 on the closed orbit against 0.999 on the design orbit** — stated here as
-  scoping, not as a pre-commitment.
+  tolerance would not. Over a factor 512 in `U_0/E`: **2.003 on the closed orbit against
+  0.999 on the design orbit** (measured while scoping, so recorded as scoping rather than
+  as a pre-commitment). The two routes never cross — the closed orbit is better
+  everywhere, by between three and four orders of magnitude.
 
   **A shipped claim is wrong and this milestone corrects it.** `orbit.py`'s
   `closed_orbit_delta` docstring and N5's deferral paragraph both say a ring needs a 6D
@@ -1976,13 +1997,46 @@ sustained arc.
   **The pre-commitment, written before the reference arm was run.** With integration
   order matched the way B2's cross-check matches it (`integrator="uniform"`,
   `num_multipole_kicks=1` — xtrack's `twiss` finds its closed orbit by tracking the line,
-  so the element settings that govern its tracker govern this too), xtrack's 6D closed
+  so the element settings that govern its tracker govern this too — verified in
+  `twiss.py` before the number was written down), xtrack's 6D closed
   orbit should reconstruct the **same loss**, `q V [sin(phi_s - k zeta) - sin(phi_s)]`,
   as accsim's, differing by exactly B2's already-named residual — the `1.064e-8` charge-
   constant vintage plus the `2/gamma0^2` of its ultra-relativistic approximations, and
   nothing else. The comparison is deliberately made on the *loss* rather than on `zeta_co`
   itself, which carries an `arcsin` and would fold the same disagreement through a
   ring-dependent factor.
+
+  **The pre-commitment HELD, to five digits.** Predicted `2.29997e-8`, measured
+  `2.29997e-8` — agreement to `2e-6` of the residual itself, which leaves no room for a
+  third owner. Two mechanisms localised on a *single magnet* (B2) predict, without
+  adjustment, the disagreement between two codes' *whole-ring fixed points*. Both codes put
+  the arrival time at `8.887901 cm` on a 40 m ring, the momentum at `1.862083e-3` and the
+  horizontal orbit at `-5.47e-7 m`. Two details of the comparison are gated rather than
+  assumed: the `arcsin` factor `tan(k zeta)/(k zeta) = 1.0270` that would have been folded
+  in silently by comparing `zeta` instead of the loss, and — the third, independent route —
+  feeding **xtrack's own** `zeta` through accsim's closed form, which reproduces
+  `twiss.energy_loss` (xtrack's own radiation bookkeeping, computed without reference to any
+  closed orbit) to `2e-9`. The closed form belongs to neither code.
+
+  **The milestone's *other* pre-commitment was REFUTED, and that is the better finding.**
+  Written down first: the 4D orbit's one-turn residual should be dominated by `delta` and
+  equal the whole bill, `U_0/(beta0^2 E0) = 3.8e-3`. Neither half holds. The largest
+  residual is **`zeta`** — `2.72 cm` of arrival time against `2.6e-3` of momentum — and the
+  momentum is short by only **0.689** of the bill. One cause for both, and the
+  pre-commitment ignored a feedback: losing `delta` through the arc slips the orbit in
+  `zeta`, and by the time the particle reaches the cavity that slip is already large enough
+  for the RF to hand back a third of what was lost. The residual is the bill *minus what the
+  ring accidentally pays on the way*, reconstructed bit-for-bit as `collected - bill` — and
+  only with the **tracked** bill, since the design-route one is `4.4e-3` away here, which is
+  the first-order lumping error the exponent gate above is about.
+
+  **Two fixed points, and the far one is pinned rather than avoided.** `sin(k zeta) = U/V`
+  has two roots per RF period, and only the near one is an orbit a beam rides; the other is
+  the **unstable** point on the far side of the bucket. Newton does not know the difference:
+  started half a metre away it converges, cleanly and to round-off, onto
+  `k zeta = -(pi + arcsin(U/V))`, the unstable point of the *previous* bucket. Asserted
+  against that closed form. The contract therefore matches `closed_orbit_nonlinear`'s — the
+  default seed is the 4D answer and lands on the stable point; a far guess makes no claim.
 
   **Scope.** Deterministic maps only: a stochastic radiation model has no fixed point to
   find and is refused rather than iterated. The singular case is refused too and is the
@@ -1991,6 +2045,12 @@ sustained arc.
   to; N5 met it, N4 explained it, N3 first hit it. Retiring B4's and B3's private solvers
   in favour of the library one is a **separate** commit after these gates are green, so
   that the analytic count moves by this milestone's own tests and by nothing else.
+
+  Gates: `tests/analytic/test_closed_orbit_6d.py` (16),
+  `tests/reference/test_closed_orbit_6d_xtrack.py` (4). The full analytic suite is
+  **1245 passed**, against 1229 after N5 — the whole difference is this milestone's own
+  file, so nothing on axes A-N moved, including the two files I4 edited (`orbit.py`'s new
+  solve and corrected `closed_orbit_delta` docstring, and `__init__.py`'s exports).
 
 ### J. Nonlinear single-particle dynamics (core accelerator)
 
@@ -3544,14 +3604,19 @@ Two properties worth stating before the milestones, because they set the axis's 
     explicit guard rather than by solving, and it is what keeps N1–N4 exactly where they
     were.
 
-  - **Deferred, named, with its gate.** A genuine **6D closed orbit** — the fixed point in
-    all six coordinates, which a ring with `phi_s != 0` or with radiation *tracked* needs,
-    where `zeta_co != 0` because the cavity has to make up the turn's energy loss. Nothing
-    in this milestone exercises it (`phi_s = 0`, and the polarization route integrates
-    radiation analytically rather than tracking it), so building it here would have been a
-    feature no gate touches. Its gate already exists in closed form: `zeta_co` is where
-    `q V [sin(phi_s - k zeta) - sin(phi_s)] = U_0`, with `U_0` the package's own
-    `energy_loss_per_turn`, and xtrack's 6D `twiss` closed orbit as the arbiter.
+  - **Deferred, named, with its gate — and DELIVERED as I4 (2026-08-27).** A genuine
+    **6D closed orbit** — the fixed point in all six coordinates, where `zeta_co != 0`
+    because the cavity has to make up the turn's energy loss. Nothing in this milestone
+    exercises it (`phi_s = 0`, and the polarization route integrates radiation analytically
+    rather than tracking it), so building it here would have been a feature no gate touches.
+    Its gate already existed in closed form: `zeta_co` is where
+    `q V [sin(phi_s - k zeta) - sin(phi_s)] = U`, with xtrack's 6D `twiss` closed orbit as
+    the arbiter — and I4 was written on exactly that. **One half of this paragraph was
+    wrong**: it named "a ring with `phi_s != 0` **or** with radiation tracked" as needing
+    the 6D solve. `phi_s != 0` does not, in this package — the cavity kick vanishes at
+    `zeta = 0` for every `phi_s`, and the ramping reference lives inside `accelerate`, which
+    never touches the tracking path. Tracked radiation is the only thing in accsim that
+    moves `zeta_co`. I4 asserts that with `==` at three phases and corrects both documents.
 
   - **Scope, stated.** The Derbenev-Kondratenko `11/18` stays anchored where **N4**
     anchored it — on an unbunched ring, where the two codes' fields agree. N5's

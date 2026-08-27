@@ -1570,8 +1570,8 @@ Gates: `tests/analytic/test_octupole_feeddown.py` (17),
 refused; the whole on-orbit family now answers).
 
 Not claimed, unchanged from J2: the octupole's second-order detuning, `Q″`, resonance
-driving terms and normal-form machinery, decapoles and above, the 6D closed orbit, and
-misalignments as element attributes.
+driving terms and normal-form machinery, decapoles and above, the 6D closed orbit
+(**delivered by I4**) and misalignments as element attributes.
 
 ## The skew sextupole (J3 part 1 — implemented)
 
@@ -2389,7 +2389,8 @@ one gives `0.0`. **The gate that makes the rest meaningful**: I1's linear solve
 misses xtrack by `> 1e4 ×` the tolerance the nonlinear one meets — these are not
 measuring round-off.
 
-**Still out of scope:** the 6D (RF-coupled) closed orbit; feed-down from octupoles
+**Still out of scope** (as of I2): the 6D (RF-coupled) closed orbit — **delivered by
+I4**, below; feed-down from octupoles
 and higher multipoles; misalignments as element attributes; amplitude-dependent
 detuning and resonance driving terms; dynamic aperture. And explicitly —
 **`chromaticity()` is not corrected for feed-down**. It is a *design-orbit*
@@ -2587,8 +2588,8 @@ Gates: `tests/analytic/test_orbit_optics.py` (21),
 **Still out of scope:** off-axis feed-down from accsim's *linear* elements (the
 bend/quad nonlinearity above); coupled (Edwards-Teng) chromaticity on a vertically
 steered machine; thick-sextupole chromaticity on orbit; and everything I2 already
-listed — the 6D closed orbit, octupoles, amplitude-dependent detuning, dynamic
-aperture. Misalignments as element attributes were on that list until **K1**, below.
+listed — the 6D closed orbit (**delivered by I4**, below), octupoles,
+amplitude-dependent detuning, dynamic aperture. Misalignments as element attributes were on that list until **K1**, below.
 
 ## Misalignments — transverse offsets (K1 — implemented)
 
@@ -6254,6 +6255,96 @@ Consequence for scope: the Derbenev-Kondratenko `11/18` stays anchored where **N
 it — on an unbunched ring, where the two codes' fields agree. N5's polarization comparison
 inherits the field disagreement (`−0.00569` against `−0.00747`) and is recorded as such
 rather than used as a physics check.
+
+## The 6D closed orbit: where a radiating ring actually closes (I4 — implemented)
+
+`accsim.closed_orbit_6d(lattice, guess=None, *, radiation="off", ...)` — Newton on the
+**full** tracked turn, `x ← x − (J − I)⁻¹(T(x) − x)`, with `J` by central differences.
+Every other closed orbit in `orbit.py` pins `zeta = 0` and solves the transverse subspace
+at a chosen `delta`; this one does not.
+
+**What it changes, and it is exactly one thing.** With `radiation="off"` the answer *is*
+the 4D one: `zeta_co = 0` and `delta_co = closed_orbit_delta`. Switch radiation on **in
+tracking** and the ring has to pay for the light it emits, so it closes where the cavity
+hands back exactly a turn's loss:
+
+    q V [sin(φ_s − k_rf ζ_co) − sin(φ_s)] = U ,
+
+read **at the cavity**. At any other point ζ differs by the share of the loss accumulated
+in between — 10% of it on a ring with the cavity spliced mid-lattice. With the cavity last
+(a thin element, so the turn *ends* at its entrance) the lattice start and the cavity
+coincide exactly, which is why the mid-lattice ring exists in the test file.
+
+**A correction to what N5 recorded.** `closed_orbit_delta`'s docstring and ROADMAP N5 both
+said a 6D fixed point is needed when `φ_s ≠ 0` **or** radiation is tracked. Only the second
+half holds in this package: the kick `sin(φ_s − kζ) − sin(φ_s)` vanishes at `ζ = 0` for
+*every* `φ_s`, and the ramping reference that gives an accelerating bucket its meaning
+lives inside `accelerate()`, which builds its own `ReferenceParticle` per turn and never
+touches the tracking path. Asserted with `==` at three synchronous phases. **Tracked
+radiation is the only thing in accsim that moves `ζ_co`.**
+
+**The two arms, and why the second one's *order* is the gate.** `U` above is supplied
+independently by (a) the tracked loss summed element by element along the converged orbit —
+an identity, which holds to the tolerance the solve stopped at (`1.7e-5 eV` against a
+`tol`-implied budget of `6.5e-5 eV`), and (b) `energy_loss_per_turn`, a design-route
+radiation integral. (b) lands `1.7e-7` away, and that number is *not* a tolerance:
+
+| evaluated on | departure of `energy_loss_per_turn` from the tracked loss | fitted exponent in `U₀/E` |
+|---|---|---|
+| the design orbit | `4.4e-3` | **0.999** |
+| the 6D closed orbit | `1.7e-7` | **2.003** |
+
+A lumped per-element kick makes the particle poorer as it goes, so every element after the
+first radiates below the design energy — first order. On the closed orbit that error is
+gone, because the fixed point is *where the sag is centred*: the beam sits high at the
+cavity's exit and low at its entrance, and the linear-in-`delta` part of the loss averages
+away over the turn. An orbit wrong by any fraction of the sag puts the first-order term
+back and the exponent falls to 1. Fitted over a factor 512 in `U₀/E`.
+
+**The 4D orbit's residual — a refuted pre-commitment, kept because the refutation is the
+physics.** Predicted: dominated by `delta`, equal to the whole bill `U₀/(β₀²E₀) = 3.8e-3`.
+Measured: dominated by **`zeta`** (`2.72e-2 m`, ten times the momentum miss), with the
+momentum short by only `0.689` of the bill. Same cause for both — losing `delta` through
+the arc slips the orbit in `zeta`, and by the cavity that slip already collects a third of
+the loss back. Reconstructed bit-for-bit as `collected − bill` (those two are the only
+things in the ring that change `delta`), and only with the *tracked* bill: the design-route
+one is `4.4e-3` away here, which is the first-order lumping error above.
+
+**Two fixed points, and the far one is named rather than avoided.** `sin(kζ) = U/V` has two
+roots per RF period. The default seed (the 4D answer) lands on the stable one; a guess half
+a metre away converges cleanly onto `k ζ = −(π + arcsin(U/V))`, the **unstable** point of
+the previous bucket. Same contract as `closed_orbit_nonlinear`: a far guess makes no claim
+about which fixed point comes back.
+
+**Refused rather than iterated.** A ring with **no RF cavity** raises `ClosedOrbitError` —
+the fourth appearance of one degeneracy on this project (N3 hit it, N4 explained it, N5
+guarded it): with nothing reading `zeta`, both `zeta` and `delta` are eigenvalue-1
+directions of `J − I`. A **stochastic** radiation model (`"quantum"`, `"photons"`) raises
+`ValueError`: a random map has no fixed point, and Newton would converge onto whichever
+photons it happened to draw.
+
+**xtrack cross-check — a prediction, not a tolerance.** xtrack finds its 6D closed orbit by
+*tracking* the line, so B2's rule applies unchanged (`integrator="uniform"`,
+`num_multipole_kicks=1`, or the two codes integrate different maps). Written into the
+ROADMAP before the file was run: the whole disagreement should be B2's already-named
+residual — the CODATA-2014 charge in xtrack's `r0` (`1.0639e-8`) plus `2/γ₀²` — and nothing
+else. **Predicted `2.29997e-8`, measured `2.29997e-8`**, agreeing to `2e-6` of the residual
+itself. Both codes put the arrival time at `8.887901 cm` on a 40 m ring.
+
+Two details of that comparison are gated rather than assumed. It is made on the **loss**,
+not on `ζ_co`: the arcsine maps one relative error onto the other through
+`tan(kζ)/(kζ)`, which is `1.0270` here and is ring-dependent, so comparing `ζ` directly
+would fold in a factor nobody would think to divide out (the factor is asserted). And
+feeding **xtrack's own** `ζ` through accsim's closed form reproduces `twiss.energy_loss` —
+xtrack's own radiation bookkeeping, computed without reference to any closed orbit — to
+`2e-9`, so the closed form belongs to neither code.
+
+Gates: `tests/analytic/test_closed_orbit_6d.py` (16),
+`tests/reference/test_closed_orbit_6d_xtrack.py` (4, one cached `xt.Line` build).
+
+**Still out of scope:** a 6D orbit on a ring whose reference energy actually ramps (that is
+`accelerate`'s per-turn reference, not a fixed point at all); and everything I3 listed
+apart from this.
 
 ## Toolchain / environment notes
 
