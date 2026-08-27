@@ -64,6 +64,7 @@ from accsim import (
     Tracker,
     closed_twiss,
 )
+from accsim.orbit import closed_orbit_6d
 from accsim.radiation import (
     damping_times,
     energy_loss_per_turn,
@@ -146,20 +147,20 @@ def _one_turn_jacobian(tracker: Tracker, state: np.ndarray, step: float = 1e-7) 
 
 
 def _equilibrium_orbit(tracker: Tracker) -> np.ndarray:
-    """Newton on ``track_once(s) = s`` with radiation on.
+    """The ring's 6D closed orbit with radiation on -- ``accsim.closed_orbit_6d`` (I4).
 
-    Damping to the fixed point by brute-force tracking is not good enough: the
-    horizontal damping time is thousands of turns, so a "converged" orbit is still
-    drifting and the drift contaminates every rate measured against it. Newton takes
-    it to round-off in a handful of turns.
+    Newton, not tracking: the horizontal damping time is thousands of turns, so an orbit
+    "converged" by tracking is still drifting, and the drift contaminates every rate
+    measured against it. And ``"mean"``, not ``"quantum"``: Newton on a stochastic map does
+    not converge at all (the library refuses it outright).
+
+    Three files on axis B each carried the same 25-line Newton solve until **I4** put it in
+    the package; what is left here is the adapter from a :class:`~accsim.Tracker` to the
+    :class:`~accsim.Lattice` the library function takes. The seed changed with it -- the
+    library starts from the 4D closed orbit rather than from the origin -- which is a
+    different path to the same fixed point, not a different answer.
     """
-    state = np.zeros(6)
-    for _ in range(50):
-        residual = tracker.track_once(state, radiation="mean") - state
-        if np.max(np.abs(residual)) < 1e-14:
-            break
-        state = state - np.linalg.solve(_one_turn_jacobian(tracker, state) - np.eye(6), residual)
-    return state
+    return closed_orbit_6d(tracker.lattice, radiation="mean")
 
 
 def _eigen_damping_times(lat: Lattice) -> tuple[float, float, float]:

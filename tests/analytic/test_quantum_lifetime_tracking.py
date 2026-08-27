@@ -83,6 +83,7 @@ from accsim import (
     quantum_lifetime_exact,
 )
 from accsim.longitudinal import rf_bucket_height
+from accsim.orbit import closed_orbit_6d
 from accsim.radiation import (
     damping_times,
     energy_loss_per_turn,
@@ -147,23 +148,20 @@ class _OnePhoton:
 
 
 def _equilibrium_orbit(tracker: Tracker) -> np.ndarray:
-    """Newton on ``track_once(s) = s`` with radiation ``"mean"`` (B2's routine)."""
-    state = np.zeros(6)
-    for _ in range(60):
-        residual = tracker.track_once(state, radiation="mean") - state
-        if np.max(np.abs(residual)) < 1e-14:
-            break
-        jac = np.empty((6, 6))
-        for i in range(6):
-            plus, minus = state.copy(), state.copy()
-            plus[i] += 1e-7
-            minus[i] -= 1e-7
-            jac[:, i] = (
-                tracker.track_once(plus, radiation="mean")
-                - tracker.track_once(minus, radiation="mean")
-            ) / 2.0e-7
-        state = state - np.linalg.solve(jac - np.eye(6), residual)
-    return state
+    """The ring's 6D closed orbit with radiation on -- ``accsim.closed_orbit_6d`` (I4).
+
+    Newton, not tracking: the horizontal damping time is thousands of turns, so an orbit
+    "converged" by tracking is still drifting, and the drift contaminates every rate
+    measured against it. And ``"mean"``, not ``"quantum"``: Newton on a stochastic map does
+    not converge at all (the library refuses it outright).
+
+    Three files on axis B each carried the same 25-line Newton solve until **I4** put it in
+    the package; what is left here is the adapter from a :class:`~accsim.Tracker` to the
+    :class:`~accsim.Lattice` the library function takes. The seed changed with it -- the
+    library starts from the 4D closed orbit rather than from the origin -- which is a
+    different path to the same fixed point, not a different answer.
+    """
+    return closed_orbit_6d(tracker.lattice, radiation="mean")
 
 
 def _equilibrium(lattice: Lattice, step: float = 1e-7, amp: float = 1e-3):
