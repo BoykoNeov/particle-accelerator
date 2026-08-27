@@ -130,6 +130,9 @@ def _fodo(
             els.append(Drift(1.0 - done))
             s += 1.0
     placed = sum(isinstance(e, (ThinSextupole, ThinSkewQuadrupole)) for e in els)
+    # count the *requests*, not the merged dict: two sources at the same s would collapse
+    # into one key and a len(marks) comparison would call that a successful placement
+    assert len(marks) == len(sexts or {}) + len(skews or {}), "two sources share an s"
     assert placed == len(marks), (
         f"{len(marks) - placed} source(s) fell in a quadrupole rather than a drift: "
         "the free stretches of this fixture are (0.5, 1.5), (2.0, 3.0), ... "
@@ -620,12 +623,8 @@ def test_thick_sources_converge_on_the_thin_limit(ref: ReferenceParticle) -> Non
     assert all(r == pytest.approx(4.0, rel=0.15) for r in ratios), ratios
 
 
-def test_a_thick_skew_quadrupole_is_sliced_on_its_own_map(ref: ReferenceParticle) -> None:
-    """Not a drift: a skew quadrupole focuses, and the walker uses the element's matrix.
-
-    The gate is G1's, which handles a thick skew body by its own independent route: the
-    ``pi |C^-|`` tie must survive with the body in place, to the same round-off.
-    """
+def _skew_body_ring(ref: ReferenceParticle, body: list, length: float = 0.3) -> Lattice:
+    """The fixture with ``body`` (a thick skew quadrupole, or a chain) at ``s = 2.2``."""
     els: list = []
     s = 0.0
     for _ in range(4):
@@ -633,14 +632,87 @@ def test_a_thick_skew_quadrupole_is_sliced_on_its_own_map(ref: ReferenceParticle
             els.append(Quadrupole(0.5, k))
             s += 0.5
             if abs(s - 2.0) < 1e-12:
-                els += [Drift(0.2), SkewQuadrupole(0.3, 0.09), Drift(0.5)]
+                els += [Drift(0.2), *body, Drift(0.8 - length)]
             else:
                 els.append(Drift(1.0))
             s += 1.0
-    lat = Lattice(els, ref)
-    # the same ring with the body replaced *in place* by a drift, so the unperturbed
-    # optics -- which is what both sides evaluate on -- is untouched
-    bare = Lattice([Drift(e.length) if isinstance(e, SkewQuadrupole) else e for e in els], ref)
+    return Lattice(els, ref)
+
+
+def _drift_body_chain(length: float, k1s: float, n: int) -> list:
+    """The same ``n`` midpoint sources, but transported across the body by **drifts**.
+
+    Deliberately built as real elements so the comparison is a whole-lattice one: because
+    the walk runs on the coupling-off optics, a thin skew quadrupole's own map decouples
+    to the identity, so this chain differs from the thick element in exactly one respect
+    -- what carries beta and phase between the slices.
+    """
+    ds = length / n
+    out: list = [Drift(0.5 * ds)]
+    for i in range(n):
+        out.append(ThinSkewQuadrupole(k1s * ds))
+        out.append(Drift(ds if i < n - 1 else 0.5 * ds))
+    return out
+
+
+@pytest.mark.parametrize("k1s", [0.09, 2.5])
+def test_a_thick_skew_quadrupole_is_sliced_on_its_own_body_map(
+    ref: ReferenceParticle, k1s: float
+) -> None:
+    """Not a drift -- and this is the check that can tell, where the ``|C^-|`` tie cannot.
+
+    A sextupole's linear map *is* a drift; a skew quadrupole's is not. But what the walk
+    transports across the body is the **coupling-off** map, and deleting a skew
+    quadrupole's off-blocks deletes the whole of its coupling -- so it is a fair question
+    whether what is left is a drift after all. It is not: the residual is a real focusing
+    term, second order in ``k1s``, and both diagonal blocks carry it.
+
+    The obvious gate does not discriminate. Comparing against ``closest_tune_approach``
+    fails to test this at all, because G1 slices a thick skew body through the *same*
+    decoupled path and would share any error. So the gate here is a direct one: the same
+    midpoint sources, at the same positions, with the same strengths, transported by
+    plain drifts instead -- and that model is measured to be **two to four orders worse**
+    against the converged answer (1.5e-4 against 6.0e-7 at ``k1s = 0.09``; 1.0e-1 against
+    2.8e-5 at ``k1s = 2.5``). Using the element's own map is not a formality.
+    """
+    thick = _skew_body_ring(ref, [SkewQuadrupole(0.3, k1s)])
+    converged = resonance_driving_terms(thick, slices=4096)["f1001"]
+    mine = resonance_driving_terms(thick, slices=32)["f1001"]
+    drifted = resonance_driving_terms(_skew_body_ring(ref, _drift_body_chain(0.3, k1s, 32)))
+    err_mine = abs(mine - converged) / abs(converged)
+    err_drift = abs(drifted["f1001"] - converged) / abs(converged)
+    assert err_drift / err_mine > 100.0, (err_mine, err_drift)
+
+
+def test_thick_skew_slicing_converges_at_second_order(ref: ReferenceParticle) -> None:
+    """Measured for the skew quadrupole too, not inferred from the sextupole's.
+
+    The midpoint rule is second order, and the two magnets are sliced by different body
+    maps, so the exponent is a claim about each of them separately. Both strengths are run
+    because the skew body's own focusing is quadratic in ``k1s`` and only shows up in the
+    transport at the stronger one.
+    """
+    for k1s in (0.09, 2.5):
+        lat = _skew_body_ring(ref, [SkewQuadrupole(0.3, k1s)])
+        fine = resonance_driving_terms(lat, slices=4096)["f1001"]
+        errs = [
+            abs(resonance_driving_terms(lat, slices=n)["f1001"] - fine) for n in (8, 16, 32, 64)
+        ]
+        ratios = [errs[i] / errs[i + 1] for i in range(len(errs) - 1)]
+        assert all(r == pytest.approx(4.0, rel=0.05) for r in ratios), (k1s, ratios)
+
+
+def test_the_thick_skew_body_still_satisfies_the_g1_tie(ref: ReferenceParticle) -> None:
+    """A weaker gate than the one above, kept because it checks a different thing.
+
+    It cannot discriminate the body map (G1 uses the same decoupled path), but it does
+    check that the thick branch feeds the *sources* in correctly -- positions, strengths
+    and the ``ds`` weighting -- against a routine with an independent derivation.
+    """
+    lat = _skew_body_ring(ref, [SkewQuadrupole(0.3, 0.09)])
+    bare = Lattice(
+        [Drift(e.length) if isinstance(e, SkewQuadrupole) else e for e in lat.elements], ref
+    )
     qx, qy = tunes(bare)
     assert closest_tune_approach(lat) > 0.0  # the body really is in the ring
     f1001 = resonance_driving_terms(lat, slices=256)["f1001"]

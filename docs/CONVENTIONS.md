@@ -7091,6 +7091,25 @@ so a gate written as a three-source comparison was running with one. This is the
 family as O3's contrast lesson — a gate is only as good as the fixture it runs on, and
 checking the fixture is part of writing the gate.
 
+### A thick skew quadrupole is NOT sliced on a drift, and the obvious gate cannot tell
+
+A sextupole's linear map *is* a drift, so its body is transported by one. A skew
+quadrupole's is not -- but the walk transports the **coupling-off** map, and deleting a
+skew quadrupole's off-blocks deletes the whole of its coupling, so it is a fair question
+whether what remains is a drift after all. It is not: what is left is a real focusing
+term, second order in `k1s` (`M21 ~ k1s^2 L^3 / 6`), identical in both planes.
+
+The trap is that the natural gate is blind to this. Comparing a thick skew body against
+`closest_tune_approach` tests nothing about the body map, because G1 slices such a body
+through the *same* `_decoupled` path and would share any error. The discriminating gate
+is a direct one: the same midpoint sources, at the same positions, with the same
+strengths, transported by plain drifts instead. Measured against the converged answer,
+that model is **two to four orders worse** -- `1.5e-4` against `6.0e-7` at `k1s = 0.09`,
+and `1.0e-1` against `2.8e-5` at `k1s = 2.5`. Using the element's own map is not a
+formality. The `|C^-|` tie is kept anyway, because it checks something the direct gate
+does not: that the thick branch feeds the *sources* in correctly -- positions, strengths
+and the `ds` weighting -- against a routine with an independent derivation.
+
 ### The resonance guard
 
 `ResonantLatticeError` (O3's, reused) when any of the seven denominators vanishes, with
@@ -7109,9 +7128,10 @@ entrance** (roll the element list to observe elsewhere). Not computed: octupole 
 (`f4000` and friends), skew-sextupole terms, second-order RDTs, and any RDT *along* the
 ring as a returned table. An octupole or a skew sextupole in the ring leaves these seven
 numbers correct — it drives no line among them — but contributes nothing to them either.
-Thick sextupoles and thick skew quadrupoles are sub-sliced by the midpoint rule, which
-converges at second order in the slice count; a thick body approaches the thin limit at
-first order or better.
+Thick sextupoles and thick skew quadrupoles are sub-sliced by the midpoint rule, whose
+second-order convergence in the slice count is measured **for each of them separately**
+(they are transported by different body maps, so the exponent is a separate claim);
+a thick body approaches the thin limit at first order or better.
 
 ## Toolchain / environment notes
 

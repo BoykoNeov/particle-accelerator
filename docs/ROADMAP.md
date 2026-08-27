@@ -4149,6 +4149,16 @@ a number rather than re-expressing one.
     gap is cubic — because what perturbs the answer is the optics, whose own shift from
     coupling is itself quadratic. Same exponent, same cause, in both the tracked gate and
     the xtrack comparison.
+  - **The gate for a thick skew quadrupole's body map had to be replaced, because the
+    obvious one is blind.** A sextupole's linear map is a drift; a skew quadrupole's is
+    not — but the walk transports the *coupling-off* map, and deleting a skew
+    quadrupole's off-blocks deletes all of its coupling, so whether what remains is a
+    drift is a real question. It is not (a focusing term second order in `k1s`), and the
+    first gate written for it — the `|C⁻|` tie with the body in place — **cannot tell**,
+    because G1 slices such a body through the same decoupled path and would share any
+    error. Replaced with a direct comparison against the same sources transported by
+    plain drifts, which is two to four orders worse. Same shape as L4's and G1's own
+    findings: a plausible-looking slicing path quietly using the wrong body map.
   - **A fixture guard caught a vacuous gate on its first run.** The helper now asserts that
     every requested source was actually *placed*, and it immediately failed: two of three
     skew quadrupoles in one comparison ring were landing inside quadrupoles and silently
@@ -4176,7 +4186,7 @@ a number rather than re-expressing one.
   codes, all of which share the first-order formula, so a wrong coefficient common to the
   derivation and to both external codes would survive.
 
-  Gates: `tests/analytic/test_resonance_driving_terms.py` (27),
+  Gates: `tests/analytic/test_resonance_driving_terms.py` (30),
   `tests/reference/test_resonance_driving_terms_xtrack.py` (7),
   `tests/reference/test_resonance_driving_terms_madx.py` (6).
 
