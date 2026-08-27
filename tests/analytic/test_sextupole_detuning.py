@@ -66,6 +66,7 @@ import sympy as sp
 from accsim import (
     Drift,
     Lattice,
+    Octupole,
     Quadrupole,
     ReferenceParticle,
     ResonantLatticeError,
@@ -948,11 +949,23 @@ def test_a_single_sextupole_detunes_on_its_own(ref: ReferenceParticle) -> None:
 
 
 def test_total_detuning_is_the_unadjusted_sum(ref: ReferenceParticle) -> None:
-    """Octupole first order plus sextupole second order, with nothing fitted in between."""
+    """Octupole first order plus sextupole second order, with nothing fitted in between.
+
+    Also pins the ``slices`` default: this wrapper must not quietly change J2's number,
+    so its octupole half has to be exactly what ``amplitude_detuning(lattice)`` gives on
+    its own. The two functions have different defaults (``64`` and ``32``, the lower one
+    a memory concession to the double sum), and a wrapper that passed the *sextupole*
+    default to both would silently re-slice every thick octupole in the ring.
+    """
     lat = _fodo(ref, THREE, mid=[ThinOctupole(2.0e3)])
     assert total_detuning(lat) == pytest.approx(
-        amplitude_detuning(lat, 32) + sextupole_detuning(lat, 32), rel=0, abs=0.0
+        amplitude_detuning(lat) + sextupole_detuning(lat, 64), rel=0, abs=0.0
     )
+    thick = _fodo(ref, THREE, mid=[Octupole(0.4, 5.0e3)])
+    assert total_detuning(thick) == pytest.approx(
+        amplitude_detuning(thick) + sextupole_detuning(thick, 64), rel=0, abs=0.0
+    )
+    assert amplitude_detuning(thick, 32)[0, 0] != amplitude_detuning(thick)[0, 0]
     # each half is blind to the other's magnet
     assert np.array_equal(
         sextupole_detuning(_fodo(ref, mid=[ThinOctupole(2.0e3)])), np.zeros((2, 2))
@@ -1026,23 +1039,41 @@ def test_thick_sextupole_approaches_the_thin_one_only_LINEARLY(ref: ReferencePar
 # ==========================================================================
 
 
-def test_sitting_on_a_driven_line_raises_rather_than_inventing_a_number() -> None:
+def test_sitting_on_a_driven_line_raises_rather_than_inventing_a_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """On its own resonance the second-order normal form does not exist.
 
-    Checked on the formula rather than on a lattice: building a ring tuned to twelve
-    digits onto ``3 Q_x = 1`` is a matching problem, and what is being gated is that the
-    zero denominator is refused rather than divided by.
+    Each of the four driven lines is exercised, and each through the real code path:
+    matching a lattice onto ``3 Q_x = 1`` to twelve digits is a problem of its own, so
+    the tune is substituted instead and the guard inside
+    :func:`~accsim.twiss.sextupole_detuning` is left to do the refusing. The lattice is a
+    genuine one that returns a finite answer at its own tune.
     """
-    for phi in (0.0, math.pi, 2 * math.pi):
-        assert abs(math.sin(phi)) < 1e-12
-    from accsim.twiss import _RESONANT
-
-    assert _RESONANT > 0.0
     lat = _fodo(ReferenceParticle.from_gamma(MASS0, GAMMA0), THREE)
-    qx, _ = tunes(lat)
-    assert abs(math.sin(math.pi * 3 * qx)) > 1e-3  # the shipped fixture is clear of it
-    with pytest.raises(ResonantLatticeError, match="resonance"):
-        raise ResonantLatticeError("3 Qx +0 Qy sextupole resonance")
+    qx, qy = tunes(lat)
+    assert abs(math.sin(math.pi * 3 * qx)) > 1e-3  # the shipped fixture is clear of them
+    assert np.all(np.isfinite(sextupole_detuning(lat)))
+
+    on_a_line = {
+        "Qx": (1.0, 0.2),
+        "3Qx": (1.0 / 3.0, 0.2),
+        "Qx+2Qy": (0.5, 0.25),
+        "Qx-2Qy": (0.7, 0.35),
+    }
+    for name, tune in on_a_line.items():
+        with monkeypatch.context() as mp:
+            mp.setattr("accsim.twiss.tunes", lambda _lat, _t=tune: _t)
+            with pytest.raises(ResonantLatticeError, match="resonance"):
+                sextupole_detuning(lat)
+            assert name in ("Qx", "3Qx", "Qx+2Qy", "Qx-2Qy")
+
+    # ...and a tune a whisker off a line is answered, not refused: the divergence is real
+    with monkeypatch.context() as mp:
+        mp.setattr("accsim.twiss.tunes", lambda _lat: (1.0 / 3.0 + 1e-9, 0.2))
+        near = sextupole_detuning(lat)
+    assert np.all(np.isfinite(near))
+    assert abs(near[0, 0]) > 1e6 * abs(sextupole_detuning(lat)[0, 0])
 
 
 def test_near_the_third_integer_the_3Qx_term_takes_over(ref: ReferenceParticle) -> None:

@@ -1434,13 +1434,20 @@ def sextupole_detuning(lattice: Lattice, slices: int = 32) -> np.ndarray:
     return np.array([[dxx, dxy], [dxy, dyy]])
 
 
-def total_detuning(lattice: Lattice, slices: int = 32) -> np.ndarray:
+def total_detuning(lattice: Lattice, slices: int = 64) -> np.ndarray:
     """``amplitude_detuning + sextupole_detuning``: every ``dQ/dJ`` this package claims.
 
     The octupoles' first-order term plus the sextupoles' second-order one, added
-    **unadjusted** -- there is no fitted cross term between them, and the sum is
-    asserted against MAD-X PTC as a prediction rather than as a comparison. ``slices``
-    applies to thick magnets in both.
+    **unadjusted** -- there is no fitted cross term between them, and MAD-X PTC agrees
+    with the sum to nine digits, so at this order there is none to fit.
+
+    ``slices`` applies to thick magnets in both, and defaults to
+    :func:`amplitude_detuning`'s own ``64`` rather than :func:`sextupole_detuning`'s
+    ``32`` **so that the octupole half of this number is exactly what calling
+    ``amplitude_detuning(lattice)`` would give.** The lower default over there is a
+    memory concession, not a physics one: the sextupole double sum is materialised, so
+    it costs ``O((N slices)^2)``. Pass ``slices`` explicitly on a ring with many thick
+    sextupoles.
 
     Still not the whole anharmonicity of a real ring: it is second order in ``k2``,
     first order in ``k3``, and linear in the action, and it excludes the kinematic
