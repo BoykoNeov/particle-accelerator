@@ -6342,6 +6342,19 @@ xtrack's own radiation bookkeeping, computed without reference to any closed orb
 Gates: `tests/analytic/test_closed_orbit_6d.py` (16),
 `tests/reference/test_closed_orbit_6d_xtrack.py` (4, one cached `xt.Line` build).
 
+**Axis B's three private copies of this solve are retired into it** (`test_radiation_
+tracking.py`, `test_radiation_quantum.py`, `test_quantum_lifetime_tracking.py` each carried
+the same 25-line Newton), and one overlap is deliberate rather than a leftover: I4's ring is
+B4's ring, so `test_the_momentum_swings_by_exactly_the_turns_loss_across_the_cavity` (I4)
+and `test_the_radiating_closed_orbit_swings_by_two_sigma_in_momentum` (B4) make the same
+statement about the same machine. **They are not copies.** I4 owns the *identity* — the
+cavity restores exactly what the arcs took, exact by construction — and B4 owns the *shape*,
+the element-by-element sag pinned at `−0.966`/`+0.921`/`1.887` sigma, which I4 never
+measures and which is now a regression gate on `closed_orbit_6d` from outside I4's own file.
+Neither assertion became circular in the swap: `closed_orbit_6d` imports nothing from
+`radiation.py`, so B4 still puts a tracked orbit on one side and a design-route integral on
+the other.
+
 **Still out of scope:** a 6D orbit on a ring whose reference energy actually ramps (that is
 `accelerate`'s per-turn reference, not a fixed point at all); and everything I3 listed
 apart from this.

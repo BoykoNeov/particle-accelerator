@@ -539,7 +539,12 @@ def closed_orbit_6d(
     Raises :class:`ClosedOrbitError` when the ring has **no RF cavity**, which is not a
     numerical accident but the same degeneracy this project has now met four times: with
     nothing reading ``zeta``, both ``zeta`` and ``delta`` are eigenvalue-1 directions of
-    ``J - I`` and there is no isolated fixed point to find. Use :func:`closed_orbit` or
+    ``J - I`` and there is no isolated fixed point to find. That guard is deliberately the
+    *linear* test ``one_turn_matrix()[DELTA, ZETA] == 0`` — the same one
+    :func:`closed_orbit_delta` uses — even though this function is about the tracked map: a
+    lattice whose only longitudinal coupling were nonlinear would pass it and be caught one
+    step later by the conditioning check instead, with a less specific message. Nothing in
+    the package is such a lattice. Use :func:`closed_orbit` or
     :func:`closed_orbit_nonlinear` there. Also raises :class:`OrbitConvergenceError` if
     Newton runs out of budget.
     """
