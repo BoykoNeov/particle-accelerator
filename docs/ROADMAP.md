@@ -3994,8 +3994,10 @@ a number rather than re-expressing one.
 
   - **PTC's `anhx` is `dQ/d(2J)`, half of `amplitude_detuning`'s `dQ/dJ`.** Pinned against
     the octupole closed form both codes already agree on rather than recalled: the ratio
-    measured `0.500029` on all three components. A comparison written without it is wrong
-    by exactly two and reads like a missing `1/2` in the derivation.
+    measured `0.5000293` on the two diagonal components and `0.4999902` on the cross term
+    — straddling `1/2` from both sides, which is itself the tell that the remaining
+    `3e-5` is higher order and not a convention. A comparison written without the factor
+    is wrong by exactly two and reads like a missing `1/2` in the derivation.
   - **The gap is real and it is large.** On a sextupole-only FODO where
     `amplitude_detuning` returns exactly zero by construction, PTC reports `-281.8` in its
     `dQ/d(2J)` units at `k2l = 1`.
@@ -4025,6 +4027,19 @@ a number rather than re-expressing one.
     near `Q_x = n/3`. A gate run only at a generic point is blind to getting that term
     wrong, so one ring sits close to it on purpose. This is O2's vacuous-`mu` lesson
     applied in advance instead of caught on the first run.
+
+    **That ring is a PTC-only gate, and the distance is part of the pre-commitment.**
+    Approaching `n/3` costs validity at both ends: `tracked_tunes` degrades near a
+    resonance by its own documented failure (few sampled phases, and
+    `ellipse_from_trajectory` raises on a degenerate covariance), and PTC's normal form
+    carries the *same* denominator, so close enough and the arbiter stops being
+    trustworthy either. So the near-resonance ring runs the PTC comparison only, the
+    tracked cross-check runs at the two generic points, and the working point is chosen by
+    a measured criterion rather than by eye — near enough that the `3Q_x` term is at least
+    an order above the `Q_x` one (so a wrong sign or coefficient on it cannot hide), far
+    enough that PTC's own strength scan still shows the clean `k2^2` residual the first
+    gate demands. If no distance satisfies both, that is a finding to record, not a
+    tolerance to widen.
   - **The fixture must break its own symmetry, and the arbiter check's ring did not.** The
     ring PTC was verified on carried two identical sextupoles at symmetric points at
     `Q_x = Q_y = 0.1265`, which forced `anhx = anhy` exactly. That is a property of the
@@ -4041,9 +4056,11 @@ a number rather than re-expressing one.
     `dQ/dJ` by an entirely different method. xtrack's
     `Line.get_amplitude_detuning_coefficients` does the same thing but is *also* tracking
     plus NAFF and needs `nafflib`, which is **not installed** — not worth a new dependency
-    for a measurement the package can already make. J1's lesson applies to this gate: it
-    sees the *total*, so it confirms the sum and cannot separate the sextupole term from
-    the octupole one.
+    for a measurement the package can already make. **J2's** lesson applies to this gate,
+    and it is the same milestone whose scope hole this closes: the tracked tune sees the
+    *total*, detuning is linear in the action whatever produces it, so only the scaling in
+    `k2` separates the sextupole term from the octupole one — gate on the order, not on a
+    tolerance.
   - **What will not be gated.** The phase structure of the double sum is only partly
     observable — a formula reproducing the right total on three rings can still have two
     terms compensating. The `beta^(3/2)` weighting is reached by moving one sextupole to a
