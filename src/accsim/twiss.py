@@ -1457,6 +1457,195 @@ def total_detuning(lattice: Lattice, slices: int = 64) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# O4: first-order resonance driving terms -- the same normal form, read out
+#     one order earlier
+# ---------------------------------------------------------------------------
+
+#: ``key -> (m_x, m_y, p_x, p_y, coefficient, source)``.  ``(m_x, m_y) = (j - k, l - m)``
+#: is the monomial's charge, which fixes both the phase the term carries and the
+#: resonance it is divided by; ``(p_x, p_y)`` are the powers of ``beta_x``/``beta_y``;
+#: ``source`` is ``"sext"`` for a normal sextupole (strength ``k2l``) and ``"skew"`` for
+#: a skew quadrupole (``k1sl``).  Every coefficient here is derived, not quoted -- see
+#: :func:`resonance_driving_terms` and ``tests/analytic/test_resonance_driving_terms.py``.
+_RDT_TERMS: dict[str, tuple[int, int, float, float, float, str]] = {
+    "f3000": (3, 0, 1.5, 0.0, -1.0 / 48.0, "sext"),
+    "f2100": (1, 0, 1.5, 0.0, -1.0 / 16.0, "sext"),
+    "f1020": (1, 2, 0.5, 1.0, +1.0 / 16.0, "sext"),
+    "f1011": (1, 0, 0.5, 1.0, +1.0 / 8.0, "sext"),
+    "f1002": (1, -2, 0.5, 1.0, +1.0 / 16.0, "sext"),
+    "f1010": (1, 1, 0.5, 0.5, +1.0 / 4.0, "skew"),
+    "f1001": (1, -1, 0.5, 0.5, +1.0 / 4.0, "skew"),
+}
+
+_RdtSites = dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]
+
+
+def _rdt_sites(lattice: Lattice, slices: int) -> tuple[_RdtSites, float, float]:
+    """``({"sext"|"skew": (strength, beta_x, beta_y, mu_x, mu_y)}, Q_x, Q_y)`` per source.
+
+    Walked on the **coupling-off** optics, the way :func:`closest_tune_approach` does: a
+    skew quadrupole makes :func:`closed_twiss` refuse outright, and first-order
+    perturbation theory wants the unperturbed optics anyway. Thick bodies are the
+    midpoint rule -- ``slices`` thin kicks at the slice centres, with beta and phase
+    carried across by half-slices of the body's own decoupled linear map.
+    """
+    from .elements.quadrupole import _focusing_block
+    from .elements.sextupole import Sextupole, ThinSextupole
+    from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
+
+    ref = lattice.ref
+    for elem in lattice.elements:
+        if isinstance(elem, (SkewQuadrupole, ThinSkewQuadrupole)):
+            continue
+        M = elem.matrix(ref)
+        if M[np.ix_([X, PX], [Y, PY])].any() or M[np.ix_([Y, PY], [X, PX])].any():
+            raise CoupledLatticeError(
+                f"{type(elem).__name__} {elem.name!r} couples x and y without being a "
+                f"skew quadrupole (roll={elem.roll}), and this sum walks element types: "
+                "it would report f1001 = f1010 = 0 for a ring that is demonstrably "
+                "coupled. The same measured guard, for the same reason, as "
+                "closest_tune_approach"
+            )
+    decoupled = [_decoupled(elem.matrix(ref)) for elem in lattice.elements]
+    one_turn = np.eye(6)
+    for M in decoupled:
+        one_turn = M @ one_turn
+    tw0 = match_periodic(one_turn)
+    bx, ax, mux = tw0.beta_x, tw0.alpha_x, 0.0
+    by, ay, muy = tw0.beta_y, tw0.alpha_y, 0.0
+    found: dict[str, list[tuple[float, float, float, float, float]]] = {"sext": [], "skew": []}
+    for elem, M in zip(lattice.elements, decoupled, strict=True):
+        thick: tuple[str, float, float] | None = None
+        if isinstance(elem, ThinSextupole):
+            if elem.k2l != 0.0:
+                found["sext"].append((elem.k2l, bx, by, mux, muy))
+        elif isinstance(elem, ThinSkewQuadrupole):
+            if elem.k1sl != 0.0:
+                found["skew"].append((elem.k1sl, bx, by, mux, muy))
+        elif isinstance(elem, Sextupole) and elem.k2 != 0.0 and elem.length > 0.0:
+            thick = ("sext", elem.k2, elem.length)
+        elif isinstance(elem, SkewQuadrupole) and elem.k1s != 0.0 and elem.length > 0.0:
+            thick = ("skew", elem.k1s, elem.length)
+        if thick is not None:
+            kind, strength, length = thick
+            ds = length / slices
+            if kind == "sext":
+                hx = hy = _focusing_block(0.0, 0.5 * ds)  # a sextupole's own map is a drift
+            else:
+                hx, hy = _blocks(_decoupled(SkewQuadrupole(0.5 * ds, strength).matrix(ref)))
+            for step in range(2 * slices):
+                bx, ax, dmux = _propagate_block(hx, bx, ax)
+                by, ay, dmuy = _propagate_block(hy, by, ay)
+                mux, muy = mux + dmux, muy + dmuy
+                if step % 2 == 0:  # the slice centre
+                    found[kind].append((strength * ds, bx, by, mux, muy))
+            continue  # optics already advanced across the body
+        cx, cy = _blocks(M)
+        bx, ax, dmux = _propagate_block(cx, bx, ax)
+        by, ay, dmuy = _propagate_block(cy, by, ay)
+        mux, muy = mux + dmux, muy + dmuy
+    sites: _RdtSites = {}
+    for kind, rows in found.items():
+        a = np.array(rows, dtype=float).reshape(-1, 5)
+        sites[kind] = (a[:, 0], a[:, 1], a[:, 2], a[:, 3], a[:, 4])
+    return sites, mux / (2.0 * math.pi), muy / (2.0 * math.pi)
+
+
+def resonance_driving_terms(lattice: Lattice, slices: int = 32) -> dict[str, complex]:
+    r"""First-order resonance driving terms ``f_jklm`` at the lattice entrance.
+
+    Returns ``{"f3000", "f2100", "f1020", "f1011", "f1002", "f1010", "f1001"}`` as
+    complex numbers -- the five a **normal sextupole** drives and the two a **skew
+    quadrupole** drives, which between them are every first-order term those two magnets
+    produce: ``f_jklm = conj(f_kjml)``, so the ten sextupole monomials and the four
+    skew-quadrupole ones are these seven and their conjugates.
+
+    **What the number is.** :func:`sextupole_detuning` builds the normal form of the
+    one-turn map and keeps the part that depends only on the actions -- the tune shift.
+    An RDT is precisely what is *thrown away* there: the coefficient of the Lie generator
+    that removes one non-action monomial. Writing the one-turn map as ``exp(:F:)``
+    followed by the linear rotation, and expanding ``F`` in the resonance basis
+    ``h_u = u_hat + i p_hat_u`` (``u_hat = u / sqrt(beta_u)``, so
+    ``h_u = sqrt(2 J_u) e^{-i phi_u}``),
+
+        F = sum_jklm  F_jklm  h_x^j conj(h_x)^k h_y^l conj(h_y)^m,
+
+    the generator that normalises ``F`` at first order has coefficients
+
+        f_jklm = F_jklm / (exp(-2 pi i [(j - k) Q_x + (l - m) Q_y]) - 1),
+
+    and those are what this returns. Each source contributes, with
+    ``E(m_x, m_y) = exp(-i (m_x mu_x + m_y mu_y))`` at the source and ``beta``, ``mu``
+    the **unperturbed** optics there,
+
+        sextupole, S = k2l                    skew quadrupole, K = k1sl
+        F_3000 = -S bx^(3/2) E(3,0) / 48      F_1010 = +K sqrt(bx by) E(1, 1) / 4
+        F_2100 = -S bx^(3/2) E(1,0) / 16      F_1001 = +K sqrt(bx by) E(1,-1) / 4
+        F_1020 = +S sqrt(bx) by E(1, 2) / 16
+        F_1011 = +S sqrt(bx) by E(1, 0) / 8
+        F_1002 = +S sqrt(bx) by E(1,-2) / 16
+
+    None of that is quoted from anywhere: it is read off the same Lie machinery O3 uses,
+    re-derived and gated coefficient by coefficient as symbolic identities in
+    ``tests/analytic/test_resonance_driving_terms.py``.
+
+    **Which lines these are, and why that list is forced.** The charge ``(j-k, l-m)`` is
+    both the phase the term carries and the resonance it is divided by, so the driven
+    lines follow from the monomials rather than from memory: ``3 Q_x`` and ``Q_x`` from a
+    sextupole's ``x^3``, ``Q_x`` and ``Q_x +- 2 Q_y`` from its ``x y^2``, and
+    ``Q_x +- Q_y`` from a skew quadrupole's ``x y``. Sitting on one raises
+    :class:`ResonantLatticeError`; approaching one makes that term diverge, which is
+    physical and is returned.
+
+    **The reference point matters -- an RDT is covariant, not invariant.** Unlike
+    :func:`sextupole_detuning`, which is a property of the ring alone, this is a property
+    of the ring *and* the point it is observed from. Moving the start forward past a set
+    of sources, through phase advances ``(d_x, d_y)``, gives
+
+        f_new = exp(+i (m_x d_x + m_y d_y)) * (f_old + F_crossed),
+
+    with ``F_crossed`` the sum of the plain (undivided) ``F`` coefficients of just the
+    sources stepped over. So each term rotates between sources and **jumps** at them, and
+    ``|f|`` is not constant around the ring. Roll the element list to observe elsewhere.
+
+    **Convention.** The basis is ``h_u = u_hat + i p_hat_u``, which is xtrack's and
+    MAD-X's: on identical rings this function and xtrack's
+    ``rdt_first_order_perturbation`` agree to round-off on all seven terms, phase
+    included. The opposite basis ``h_u = u_hat - i p_hat_u`` -- the one O3's derivation is
+    carried out in -- gives the complex **conjugate** of every term. That relation is
+    measured, not assumed, and the physical arbiter is neither code: each term is a named
+    sideband of the turn-by-turn spectrum, and its amplitude *and* phase are gated against
+    these numbers by tracking.
+
+    **Scope.** First order in the strengths; normal sextupoles and skew quadrupoles only;
+    on the **design** orbit (no feed-down from a closed orbit or a misalignment); at the
+    lattice entrance. Octupole terms (``f4000`` and friends), skew-sextupole terms and
+    second-order RDTs are not computed. An octupole or a skew sextupole in the ring leaves
+    these seven numbers correct -- it drives no line among them -- but contributes nothing
+    to them either. An element that couples the planes *without* being a skew quadrupole
+    (a rolled quadrupole, say) would corrupt ``f1001``/``f1010``, so it is refused with
+    :class:`CoupledLatticeError` rather than silently summed as zero: the same measured
+    guard, for the same reason, as :func:`closest_tune_approach`.
+    """
+    sites, qx, qy = _rdt_sites(lattice, slices)
+    out: dict[str, complex] = {}
+    for key, (mx, my, px, py, coef, kind) in _RDT_TERMS.items():
+        den = np.exp(-2j * math.pi * (mx * qx + my * qy)) - 1.0
+        if abs(den) < _RESONANT:
+            raise ResonantLatticeError(
+                f"lattice sits on the {mx} Qx {my:+d} Qy line that {key} is divided by "
+                f"(Qx = {qx:.9g}, Qy = {qy:.9g}): |exp(-2 pi i Phi) - 1| = {abs(den):.3g}"
+            )
+        strength, bx, by, mux, muy = sites[kind]
+        if strength.size == 0:
+            out[key] = 0.0 + 0.0j
+            continue
+        term = coef * strength * bx**px * by**py * np.exp(-1j * (mx * mux + my * muy))
+        out[key] = complex(term.sum() / den)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # I3: the same optics, evaluated on the real (steered) closed orbit
 # ---------------------------------------------------------------------------
 
