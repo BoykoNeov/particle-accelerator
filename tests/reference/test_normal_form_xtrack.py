@@ -96,6 +96,14 @@ LONGITUDINAL_ATOL = 1e-10
 #: ``5.7e-11`` relative on ``dx`` and ``2.9e-11`` absolute on ``dpx``, at xtrack's default
 #: differentiation steps.
 #:
+#: **Only at the defaults, and that is a trap worth naming.** ``_BEST_STEPS`` was tuned on
+#: the *bend-free* ring; on the bendy ring here it is far worse -- ``1.94e-8`` at its
+#: ``ddelta = 1e-5``, nineteen times looser than this gate. So the test below uses
+#: ``line.twiss()`` for the comparison and ``_BEST_STEPS`` only as the *base* of a ratio
+#: scan, where the absolute level cancels. Harmonising the two, as the rest of this file's
+#: ``twiss`` calls might tempt one to do, breaks the gate for a reason that has nothing to
+#: do with accsim.
+#:
 #: **The pre-committed ``2e-3`` was seven orders too loose, and the stated reason was
 #: wrong.** It budgeted for the two codes' bend models disagreeing on a ring with bends --
 #: but ``_line()`` sets ``model="bend-kick-bend"``, ``integrator="uniform"`` and
@@ -296,6 +304,9 @@ def test_dispersion_matches_xtrack_on_a_bendy_ring() -> None:
     # two orders per decade of step, which a bend-model disagreement cannot do. (accsim's
     # ``dpx`` is ``-6.5e-16`` here, so the whole ``dpx`` gap is xtrack's own departure
     # from the zero this symmetry point has.)
+    # ``_BEST_STEPS`` is only the base here -- the absolute level it sets is irrelevant
+    # (and on this ring it is worse than the defaults; see :data:`DISPERSION_RTOL`), while
+    # the *ratio* between two of its ``ddelta`` values is the whole measurement.
     coarse = {}
     for ddelta in (1e-3, 1e-4, 1e-5):
         t = line.twiss(steps_R_matrix=dict(_BEST_STEPS, ddelta=ddelta))
