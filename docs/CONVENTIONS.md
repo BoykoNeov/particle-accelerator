@@ -6865,9 +6865,253 @@ Second order in `k2` **exactly**, on the **design** orbit, for a transversely un
 lattice (`CoupledLatticeError` otherwise, via `closed_twiss`). Skew sextupoles are
 ignored. Not included: the octupole's own second-order term, `k2⁴`, detuning quadratic in
 the action (`d²Q/dJ²`), the kinematic detuning of the exact drift, resonance driving terms
-with phase (PTC's `gnfa`/`gnfc`/`gnfs` — a candidate O4, whose `gnfu` indexing is still
-undecoded), and dynamic aperture. Thick sextupoles are sub-sliced, and the double sum is
+with phase (that gap is closed — see *Resonance driving terms* below, which also decodes
+PTC's `gnfu` indexing), and dynamic aperture. Thick sextupoles are sub-sliced, and the double sum is
 materialised, so cost and memory are `O((N·slices)²)`.
+
+## Resonance driving terms: the same normal form, one order earlier (O4 — implemented)
+
+`accsim.twiss.resonance_driving_terms(lattice, slices=32)` returns a
+`dict[str, complex]` with the seven first-order terms a **normal sextupole** and a
+**skew quadrupole** drive, keyed the way the field keys them:
+
+    f3000  f2100  f1020  f1011  f1002      (sextupole, k2l)
+    f1010  f1001                           (skew quadrupole, k1sl)
+
+Those seven are *all* of them: `F` is a real function, so `f_jklm = conj(f_kjml)`, and
+the sextupole's ten cubic monomials and the skew quadrupole's four are these seven plus
+their conjugates.
+
+### What the number is: what O3 threw away
+
+O3 built the normal form of the one-turn map and kept the part depending only on the
+actions — the tune shift. Removing each *non*-action monomial costs one Lie generator,
+and the coefficient of that generator **is** the driving term. O4 is therefore not a new
+calculation: it is the intermediate quantity `_homological` already produces inside
+`tests/analytic/test_sextupole_detuning.py`, read out instead of discarded. The O4 test
+file imports that machinery rather than restating it, which is what makes O3's four
+pinned conventions (the generator, the `+μ` conjugation, the resonance basis, the
+bracket) carry over without being re-argued.
+
+Writing the one-turn map as `exp(:F:)` then the linear rotation, and expanding `F` in the
+resonance basis,
+
+    F = Σ_jklm F_jklm h_x^j conj(h_x)^k h_y^l conj(h_y)^m ,
+
+    f_jklm = F_jklm / (exp(−2πi[(j−k)Q_x + (l−m)Q_y]) − 1) .
+
+Each source contributes, with `E(m_x,m_y) = exp(−i(m_x μ_x + m_y μ_y))` at the source and
+`β`, `μ` the **unperturbed** optics there:
+
+    sextupole, S = k2l                     skew quadrupole, K = k1sl
+    F_3000 = −S βx^(3/2) E(3, 0) / 48      F_1010 = +K √(βx βy) E(1, 1) / 4
+    F_2100 = −S βx^(3/2) E(1, 0) / 16      F_1001 = +K √(βx βy) E(1,−1) / 4
+    F_1020 = +S √βx βy   E(1, 2) / 16
+    F_1011 = +S √βx βy   E(1, 0) / 8
+    F_1002 = +S √βx βy   E(1,−2) / 16
+
+Every one of those nine numbers is verified as an **exact symbolic identity** against
+`_homological`'s own output — `cancel(...) == 0`, not a tolerance.
+
+The charge `(j−k, l−m)` is simultaneously the phase the term carries and the line it is
+divided by, so the list of driven resonances is *forced* rather than remembered: `3Q_x`
+and `Q_x` from a sextupole's `x³`, `Q_x` and `Q_x ± 2Q_y` from its `xy²`, `Q_x ± Q_y` from
+a skew quadrupole's `xy`.
+
+### The basis is `h = û + i p̂`, and tracking — not a code — decides it
+
+`h_u = û + i p̂_u` (so `h_u = √(2J_u) e^{−iφ_u}`). The opposite basis, `û − i p̂_u` — the
+one O3's derivation is carried out in — gives the **complex conjugate** of every term.
+The two agree in modulus, so *any* magnitude-only comparison is blind to the choice: a
+package could ship the mirror image of what everyone else calls `f3000` and pass every
+`abs()` gate ever written. This is O1's "the content is the PHASE" in a new costume.
+
+accsim ships the `+i` basis, which is xtrack's and MAD-X's. That is measured, not
+declared, in three places: xtrack agrees to `1e-10`, PTC agrees to `1e-14`, and — the
+one that is not a convention argument at all — the **tracked** sideband phases agree to
+`1e-4`, with the conjugate excluded by a factor of a thousand.
+
+### An RDT is covariant, not invariant — and that is the sharp gate
+
+O3's detuning is a property of the ring: move the observation point and it does not
+change at all. An RDT is a property of the ring **and the point it is read from**. Moving
+the start forward through phase advances `(d_x, d_y)`, past a set of sources,
+
+    f_new = exp(+i (m_x d_x + m_y d_y)) · (f_old + F_crossed) ,
+
+with `F_crossed` the sum of the **plain, undivided** `F` coefficients of just the sources
+stepped over. So each term rotates between sources and **jumps** at them; `|f|` is not
+constant around the ring (it varies by more than 1.5× on the O4 fixture). A wrong
+conjugation, a wrong denominator or a missing phase all reproduce a single-point
+comparison and all fail this one, so the roll test is written with shifts crossing zero,
+one, two and five sources — which separates the rotation from the jump instead of
+measuring them together.
+
+Both halves are also checked against a second code. xtrack reports RDTs along the ring;
+rolling accsim's element list to each of its observation points reproduces its column at
+`1e-8` — which incidentally establishes that both codes' rows sit at the element
+**entrance**, since a quadrupole and a drift have length and agreeing at one end excludes
+the other.
+
+### At a thin source the two codes report opposite sides of the jump
+
+Found, not expected, and it looks like a phase error if you have not seen it. An RDT is
+discontinuous at a thin source, so "the value at element *i*" needs a side, and xtrack's
+row for that element is **downstream** of the kick while rolling accsim's list so the
+source comes first observes **upstream** of it. Everywhere else in the ring the two agree
+to round-off, so a comparison written without this fails at exactly the source elements —
+three points out of twenty-two on the fixture.
+
+What makes it a gate rather than a caveat is that the step is *predicted*: crossing one
+source at zero phase advance adds precisely its plain `F` — coefficient, strength, beta
+powers, no resonance denominator. Checked on all five sextupole terms against xtrack, to
+`3e-11` absolute on steps of order one.
+
+### G1's `|C⁻|` is the one leg that shares no algebra
+
+`closest_tune_approach` has been in the package since G1 and was derived from the exact
+eigen-tune split of a single skew kick — a different route with nothing in common with
+the Lie machinery. It knows only the modulus, which makes it a magnitude leg; but the
+magnitude is exactly where a factor of two or of `2π` would hide, which is what the basis
+choice risks.
+
+    |f1001| · 4 |sin(π(Q_x − Q_y))| = π |C⁻|
+
+The prefactor was **measured before it was asserted**: computed on three rings with
+different tunes, different skew positions and different strengths (including one four
+orders weaker), checked to agree with each other first, and only then pinned. It comes
+out `π` to round-off at every strength, because both sides evaluate on the same
+unperturbed optics and neither is an approximation of the other.
+
+### The tracked sidebands, and how the launch is divided out
+
+An RDT is a named line of the turn-by-turn spectrum. Derived from the same machinery,
+not quoted: first-order perturbation gives `h = ζ − 2i ∂G/∂conj(ζ)`, so with
+`A(ν)` the complex amplitude of the `exp(−2πiνn)` component,
+
+    A_x(Q_x)   = √(2J_x) e^{−iφ₀}
+    A_x(−2Q_x) = 12 i J_x conj(f3000) e^{+2iφ₀}   ⇒  f3000 = conj[ A_x(−2Q_x) / (6i conj(A_x(Q_x))²) ]
+    A_y(Q_x)   = 2 i f1001 √(2J_x) e^{−iφ₀}        ⇒  f1001 = A_y(Q_x) / (2i A_x(Q_x))
+    A_y(−Q_x)  = 2 i conj(f1010) conj(A_x(Q_x))    ⇒  f1010 = conj[ A_y(−Q_x) / (2i conj(A_x(Q_x))) ]
+
+All three read-outs are **ratios**, so the action and the launch phase cancel and there
+is nothing about the launch that could be tuned to make the comparison work. The only
+monomial contributing at each frequency is the one named, which is why the lines are
+clean. `f1001` and `f1010` come off the **same trajectory**, on the two sidebands at
+`±Q_x`, which is also what tests the sign of `m_y`: the sum and difference resonances
+differ only in that sign, and swapping them moves each answer onto the other's line.
+They are separated by the fact that the ordering `|f1010|/|f1001|` **flips** between two
+working points (`0.17` at one, `1.8` at the other) — a check that survives no shared
+error, and one written from the measurement after the first guess about which is larger
+turned out backwards.
+
+Two residuals, separated rather than lumped: at long turn counts the `f3000` error is
+**quadratic in the launch amplitude** (the second-order RDT this milestone does not
+compute), and at fixed amplitude it falls with turn count until it reaches that floor
+(spectral leakage from the primary line, which more turns remove). Measured `7.5e-6`,
+`1.9e-6`, `5.1e-7` at `4e-4`, `2e-4`, `1e-4` m.
+
+A control matters here: the exact drift is nonlinear and detunes the ring all by itself
+(the O3 finding), but its nonlinearity is *even* in the momenta, so it reaches `2Q_x` and
+`4Q_x` and **not** the third integer. On a sextupole-free ring the `−2Q_x` line is below
+`1e-6` of the primary — which is what stops the tracked gate from reading the lattice
+instead of the sextupoles.
+
+### The residual against a coupled reference is CUBIC in the skew strength
+
+Measured, and one power better than the obvious guess. `f1001` is *linear* in `k1sl`, so
+a naive reading expects the first correction at the square. It is not: the **relative**
+gap to a coupled reference falls by four for every halving of the strength, i.e. the
+absolute gap is cubic. The cause is what actually perturbs the answer — accsim evaluates
+first-order theory on the *unperturbed* optics, and the optics' own shift from coupling
+is itself quadratic. The same exponent, from the same cause, appears in both the tracked
+gate and the xtrack comparison (`5.3e-2` relative at full strength on the O4 fixture,
+`4.00` per halving).
+
+### First order in `k2` is EXACT here, unlike O3's detuning
+
+The natural expectation after O3 — an all-orders code against a first-order formula must
+disagree somewhere, and the gap should grow with strength — is **wrong**, and the reason
+is structural. The bracket of two cubic generators is *quartic*, so a sextupole's
+second-order contribution lands on the amplitude detuning O3 computes and never returns
+to these cubic coefficients. PTC agrees at `1e-14` with the sextupoles at `0.3×`, `1×` and
+`3×` strength, and `no = 4` and `no = 6` return bit-identical values.
+
+This is the mirror image of O3, and worth keeping the pair in mind: a sextupole's
+*detuning* does not exist at first order at all, while its *cubic driving terms* are
+complete at first order.
+
+### PTC's `gnfu` indexing, decoded — and why it looked impossible
+
+The O3 session found `gnfa`/`gnfc`/`gnfs` and could not say which RDT each was; the O4
+candidate recorded the indexing as undecoded and "a session of its own". The difficulty
+was two things at once, neither of them physics:
+
+- `select_ptc_normal, gnfu=...` takes **four** indices and `normal_results` carries
+  `order1` … **`order4`**. Reading only the first three drops the last index, which makes
+  the returned keys look unrelated to the request.
+- PTC returns a handful of **empty rows whose keys were never requested and are not even
+  cubic** (`(0,0,2,0)`, `(1,0,0,0)`, `(2,0,0,0)` on this fixture), interleaved with the
+  real ones. Truncated keys plus junk-keyed blanks is exactly the reported "five entries
+  keyed `(1,0,0)`, `(1,0,1)`, `(1,0,2)`, `(2,1,0)`, `(3,0,0)` for three requests".
+
+With the fourth column read and blanks recognised by their **value** rather than their
+key, the mapping is trivial — PTC's key is `(j, k, l, m)`, accsim's own indices — and the
+only remaining difference is a factorial:
+
+    gnfc(j,k,l,m) + i · gnfs(j,k,l,m)  =  j! k! l! m! · f_jklm ,   gnfa = its modulus.
+
+That is measured from the *pattern*, not from one number: the five terms carry the four
+distinct weights `6, 2, 2, 1`, which a single wrong overall constant cannot reproduce.
+
+Two traps for the next person: PTC returns **far fewer rows than were requested**, so
+absence from the table is not evidence a term is zero; and a row must be recognised by
+its value rather than by trusting its key.
+
+### Which optics: unperturbed, and why the guard is G1's
+
+First-order perturbation theory is evaluated on the **coupling-off** optics, the way
+`closest_tune_approach` does — a skew quadrupole makes `closed_twiss` refuse outright,
+and the theory wants the unperturbed optics anyway. That is also what makes the `|C⁻|`
+tie exact rather than asymptotic.
+
+The sum walks element *types*, so it inherits G1's hazard and G1's guard: an element that
+couples the planes **without being a skew quadrupole** — a rolled quadrupole, say — would
+make this report `f1001 = f1010 = 0` for a ring that is demonstrably coupled. It is
+refused with `CoupledLatticeError`, and the test is **measured** (does this element's own
+matrix have a nonzero transverse off-block?) rather than by type.
+
+### Fixtures: a placement guard that immediately caught a vacuous gate
+
+The O4 fixture places thin sources at a given `s` in a FODO cell, and only the drift
+stretches are available. The `_fodo` helper now **asserts that every requested source was
+actually placed**, and that assertion failed on its first run: two of the three skew
+quadrupoles in one comparison ring were silently landing inside quadrupoles and vanishing,
+so a gate written as a three-source comparison was running with one. This is the same
+family as O3's contrast lesson — a gate is only as good as the fixture it runs on, and
+checking the fixture is part of writing the gate.
+
+### The resonance guard
+
+`ResonantLatticeError` (O3's, reused) when any of the seven denominators vanishes, with
+the offending line named in the message. *Approaching* a line the term genuinely diverges
+and that divergence is returned: near `Q_x = 1/3`, `f3000` grows as `1/|sin 3πQ_x|` (a
+factor-four step in the distance gives a factor-four step in the divergence, gated) while
+`f2100` and `f1011` — which carry `Q_x`, not `3Q_x` — barely move. That per-term
+fingerprint is what checks each coefficient was divided by *its own* line, which no
+single-ring comparison can see.
+
+### Out of scope for O4
+
+First order in the strengths; normal sextupoles and skew quadrupoles only; on the
+**design** orbit (no feed-down from a closed orbit or a misalignment); at the **lattice
+entrance** (roll the element list to observe elsewhere). Not computed: octupole terms
+(`f4000` and friends), skew-sextupole terms, second-order RDTs, and any RDT *along* the
+ring as a returned table. An octupole or a skew sextupole in the ring leaves these seven
+numbers correct — it drives no line among them — but contributes nothing to them either.
+Thick sextupoles and thick skew quadrupoles are sub-sliced by the midpoint rule, which
+converges at second order in the slice count; a thick body approaches the thin limit at
+first order or better.
 
 ## Toolchain / environment notes
 

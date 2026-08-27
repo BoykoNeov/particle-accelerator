@@ -752,35 +752,74 @@ def test_tracking_a_ring_without_sextupoles_has_no_such_sideband(ref: ReferenceP
     assert abs(_line(h, -2.0 * qx)) / abs(_line(h, qx)) < 1e-6
 
 
-def test_tracked_f1001_matches_and_the_residual_is_higher_order(ref: ReferenceParticle) -> None:
-    r"""``f1001`` off the ``Q_x`` line of ``h_y``, and the error is **cubic** in ``k1sl``.
+def test_tracked_skew_terms_match_and_the_residual_is_higher_order(ref: ReferenceParticle) -> None:
+    r"""``f1001`` and ``f1010`` off the two ``+-Q_x`` lines of ``h_y``, phase included.
 
-    Same derivation as ``f3000``'s: the only monomial putting a bare ``zeta_x`` into
-    ``h_y`` is ``(1,0,0,1)``, so ``A_y(Q_x) / A_x(Q_x) = 2 i f1001`` -- again independent
-    of the action and the launch phase.
+    Same derivation as ``f3000``'s. The only monomial putting a bare ``zeta_x`` into
+    ``h_y`` is ``(1,0,0,1)`` and the only one putting ``conj(zeta_x)`` there is
+    ``(0,1,0,1)``, so the two coupling terms sit on the two sidebands at ``+-Q_x`` and
+
+        f1001 = A_y(Q_x) / (2 i A_x(Q_x)),
+        f1010 = conj[ A_y(-Q_x) / (2 i conj(A_x(Q_x))) ] .
+
+    Both are **ratios**, so the action and the launch phase cancel; nothing about the
+    launch can be tuned to make them agree. Reading them off the *same* trajectory is
+    also what makes the pair a real test of the sign of ``m_y``: the difference and sum
+    resonances differ only in that sign, and swapping them would move each answer onto
+    the other's line.
 
     The residual's order was **measured, not predicted**, and it is one power better than
-    the obvious guess. ``f1001`` is linear in the skew strength, so a naive reading
+    the obvious guess. These terms are linear in the skew strength, so a naive reading
     expects the first correction at the square. It is not: the relative error falls by
-    four for every halving of the strength, i.e. the absolute error is **cubic**. That is
-    consistent with what actually perturbs the answer -- the closed optics this formula
-    is evaluated on, whose shift from coupling is itself quadratic -- and it is why the
-    comparison against a fully coupled reference converges faster than it looks like it
-    should.
+    four for every halving, i.e. the absolute error is **cubic**. That is consistent with
+    what actually perturbs the answer -- the optics this formula is evaluated on, whose
+    shift from coupling is itself quadratic -- and it is why the comparison against a
+    fully coupled reference converges faster than it looks like it should.
     """
-    prev, ratios = None, []
+    prev: dict[str, float] = {}
+    ratios: dict[str, list[float]] = {"f1001": [], "f1010": []}
     for scale in (1.0, 0.5, 0.25, 0.125):
         lat = _fodo(ref, None, {p: scale * w for p, w in SKEWS.items()})
         bare = _bare(lat)
         tw, qx = closed_twiss(bare), tunes(bare)[0]
         traj = _turns(lat, 1.0e-4)
-        got = _line(_h(traj, tw, "y"), qx) / (2j * _line(_h(traj, tw, "x"), qx))
-        pred = resonance_driving_terms(lat)["f1001"]
-        rel = abs(got - pred) / abs(pred)
-        if scale == 1.0:
-            assert rel < 1e-2  # already close at full strength
-            assert np.angle(got) == pytest.approx(np.angle(pred), abs=1e-2)
-        if prev is not None:
-            ratios.append(prev / rel)
-        prev = rel
-    assert all(r == pytest.approx(4.0, rel=0.1) for r in ratios), ratios
+        hx, hy = _h(traj, tw, "x"), _h(traj, tw, "y")
+        ax = _line(hx, qx)
+        got = {
+            "f1001": _line(hy, qx) / (2j * ax),
+            "f1010": np.conj(_line(hy, -qx) / (2j * np.conj(ax))),
+        }
+        pred = resonance_driving_terms(lat)
+        for key in ("f1001", "f1010"):
+            rel = abs(got[key] - pred[key]) / abs(pred[key])
+            if scale == 1.0:
+                assert rel < 1e-2, key  # already close at full strength
+                assert np.angle(got[key]) == pytest.approx(np.angle(pred[key]), abs=1e-2), key
+                # the mirror basis agrees in modulus and is decisively wrong in phase
+                assert abs(got[key] - np.conj(pred[key])) / abs(pred[key]) > 0.1, key
+            if key in prev:
+                ratios[key].append(prev[key] / rel)
+            prev[key] = rel
+    for key, seen in ratios.items():
+        assert all(r == pytest.approx(4.0, rel=0.1) for r in seen), (key, seen)
+
+
+def test_the_two_coupling_terms_are_not_the_same_number(ref: ReferenceParticle) -> None:
+    """The sum and difference resonances differ only in the sign of ``m_y``.
+
+    A gate that measured one of them twice, or that had the sign of ``m_y`` wrong in both
+    places consistently, would pass everything above. The separation is not asserted from
+    a guess about which is bigger -- that guess was wrong the first time -- but from the
+    fact that **the ordering flips** between two working points: at ``Q_x < Q_y`` low in
+    the cell the ratio ``|f1010|/|f1001|`` measures ``0.17``, and at a higher-tune point
+    it measures ``1.8``. The same number computed twice cannot do that, and neither can a
+    formula that has ``m_y``'s sign wrong in the same way in both terms.
+    """
+    low = resonance_driving_terms(_fodo(ref, None, SKEWS))
+    high = resonance_driving_terms(_fodo(ref, None, SKEWS, 1.05, -1.15))
+    assert abs(low["f1010"]) / abs(low["f1001"]) < 0.5
+    assert abs(high["f1010"]) / abs(high["f1001"]) > 1.5
+    # Modulus is the separation that survives; the *phases* need not differ, and on the
+    # high ring they happen to be nearly parallel (|f1001 - f1010| is only 0.45 of the
+    # larger), which is why the flip above is the gate rather than a difference bound.
+    assert abs(low["f1001"] - low["f1010"]) > 0.5 * abs(low["f1001"])
