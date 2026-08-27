@@ -604,6 +604,18 @@ already collects a third of it back from the RF before the turn ends. One shippe
 was corrected on the way: `phi_s != 0` does **not** need a 6D solve in this package, only
 tracked radiation does.
 
+**With I4 shipped, every written milestone on axes A-N was delivered and the only
+candidate left standing was again L5. The direction chosen next, on 2026-08-27, opened
+axis O — normalised coordinates** — on the same mechanical filter that chose axis M: every
+field `xtrack`'s `twiss()` returns, diffed against `accsim`'s exports. The matrix `W` that
+turns the one-turn map into a plain rotation was the largest remaining gap with an arbiter
+already wired, and it is the object every optics quantity on axes A-N is secretly a
+parameter of. Two things were known before the candidate was written: the two structural
+checks (`M = W R W^-1`, and `W` symplectic) are **blind** to the three per-plane phases
+that are the whole content of the parameterisation, so the primary gate has to be the tie
+to Stage 1's `beta`/`alpha`; and the 6D normal form does not reproduce the 4D optics at
+all, departing from it quadratically in the synchrotron tune.
+
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -3631,6 +3643,125 @@ Two properties worth stating before the milestones, because they set the axis's 
   file, so nothing on axes A–M or in N1–N4 moved, including the three files N5 edited
   (`orbit.py`'s new solve, `spin.py`'s `delta = None` default, and `rfcavity.py`'s
   corrected docstring).
+
+### O. Normalised coordinates — the machine as a rotation (core accelerator)
+
+Every optics quantity on axes A-N describes the machine in **laboratory** coordinates:
+`beta` and `alpha` per plane, Edwards-Teng's mixing per mode, dispersion per momentum.
+Axis O adds the change of variables those quantities are really parameters *of*: the
+symplectic matrix `W` for which the one-turn map is a **plain rotation**,
+
+    M = W R W^-1,   R = diag(Rot(2 pi Q1), Rot(2 pi Q2), Rot(2 pi Q3)),
+
+so a particle's position becomes a point on a circle whose radius does not change and
+whose angle advances by the tune every turn. Opened 2026-08-27 as a new axis rather than
+an extension because it is not a new element, a new effect, or a new derivative — it is
+the whole 6x6 map re-expressed, and every existing optics function turns out to be one
+entry of it.
+
+The direction was chosen on the project's usual filter, applied mechanically: every field
+`xtrack`'s `twiss()` returns was listed and diffed against `accsim`'s exports. `W_matrix`
+and the normalised coordinates built from it were the largest gap with an arbiter already
+wired (`tw.W_matrix`, element by element, plus `tw.get_normalized_coordinates`); the
+Mais-Ripken cross-plane betas (`betx2`, `bety1`) and the crab dispersion (`dx_zeta`) are
+the same gap seen from two other sides, and are sequenced behind it as O2.
+
+- **O1 (candidate) — the normalising matrix `W`, the actions it makes invariant, and the
+  order at which the 6D optics leaves the 4D optics.** Effort **M**. `accsim.twiss` gains
+  `normal_form(one_turn, method="6d"|"4d") -> NormalForm(W, W_inv, R, tunes)`, the pair
+  `to_normalized`/`from_normalized`, and `actions(state)`, the invariants
+  `J_i = (u_i^2 + p_i^2)/2` in normalised coordinates.
+
+  **The parameterisation is the entire content, and two of the obvious gates cannot see
+  it.** `M = W R W^-1` does **not** determine `W`: any `W D` with `D` commuting with `R`
+  works too, so that identity is blind to both a per-plane phase and a per-plane scale.
+  Requiring `W` symplectic pins the scale and leaves the phases — exactly three real
+  numbers, one rotation angle per plane, entirely free. So the definition-plus-symplecticity
+  pair is a **structural** check of the same family J1 found blind to its kick coefficient,
+  and it is labelled as such rather than counted. What pins the three angles is the
+  convention chosen here, in the shape xtrack's `linear_normal_form.py` uses: each
+  eigenvector is phase-rotated until its own plane's *position* component is real and
+  positive, which forces `W[0,1] = W[2,3] = W[4,5] = 0`; columns are then
+  `[Re v1, Im v1, Re v2, Im v2, Re v3, Im v3]`, normalised by `Re . S . Im = 1`, with the
+  modes ordered by which plane each eigenvector lives in.
+
+  **The primary gate, and it is the reason the convention is a choice rather than a copy.**
+  Under exactly that phase convention the 2x2 diagonal blocks of `W` must *be* the
+  Courant-Snyder matrix `[[sqrt(beta), 0], [-alpha/sqrt(beta), 1/sqrt(beta)]]` built from
+  the `beta`/`alpha` `closed_twiss` has reported since Stage 1 — a quantity derived on a
+  completely different route (a matched 2x2 block, not an eigenvector). Measured while
+  scoping on a FODO ring: `8.9e-16`, with the off-diagonal blocks *exactly* zero, and the
+  mode tunes equal to `tunes()` to `1e-16`. That agreement is independent evidence the
+  convention is the Courant-Snyder one; it is not obtainable by rotating until xtrack
+  agrees, which is the move this project forbids.
+
+  **The second tie pins the mixing, and it is exact.** On a coupled, dispersion-free ring
+  (skew quadrupole, no bends) the 4D `W` must equal `V . diag(B1, B2)` — G2's Edwards-Teng
+  decoupling transformation times each mode's Courant-Snyder block. Measured while scoping
+  at two coupling strengths: `2.1e-15` and `2.7e-15`, with the residual per-mode rotation
+  **zero to `1e-15`**, so the two parameterisations coincide rather than agreeing up to a
+  block rotation. The mode tunes match `normal_mode_tunes` to `1e-16` on the same rings.
+  Stated where dispersion vanishes on purpose: with bends present the betatron eigenvectors
+  acquire longitudinal components and the upper-left 4x4 is no longer `V . diag(B)`.
+
+  **The discriminating content is an exponent, not a tolerance — and it is a statement
+  about what "the optics" means once the RF is on.** The 6D normal form does **not**
+  reproduce the 4D optics. On the I4 ring its `beta_x` is 7.5% *lower* than
+  `closed_twiss`'s, its horizontal tune is `6.5e-3` lower than `tunes()`, and the
+  dispersion read off `W` by xtrack's own formula is 24% *higher* than the matched
+  `disp_x`. None of that is an error in either: the 4D quantities are the response to a
+  momentum held **fixed**, and the 6D ones are the response to a momentum **oscillating at
+  the synchrotron tune** — the ring driven off-resonance rather than statically. The
+  milestone's claim, pre-committed here: all three departures vanish **quadratically in
+  `Q_s`**, so the 6D optics reduces to the 4D optics in the `Q_s -> 0` limit at second
+  order and not first. Scoped over a factor 32 in `Q_s` (voltage `9e7` down to `8.8e4`):
+  the successive ratios go `4.65, 4.14, 4.04, 4.01, 4.00` for the dispersion,
+  `4.87, 4.19, 4.05, 4.01, 4.00` for `beta_x` and `4.79, 4.17, 4.04, 4.01, 4.00` for the
+  tune, against the `4` a halved `Q_s` predicts. The gate fits the exponent and requires
+  `2.00 +- 0.02`, which reads a wrong normalisation off directly where a tolerance on any
+  one voltage would not. (Measured while scoping, so recorded as scoping rather than as a
+  pre-commitment; the *pre-commitment* is that the fitted exponent is 2 and that the same
+  three quantities are the ones that move.)
+
+  **A refusal, and it is the fifth appearance of one degeneracy.** An RF-free ring has no
+  6D normal form at all: `zeta` and `delta` are a repeated unit eigenvalue, the third
+  mode's symplectic norm is exactly zero, and xtrack's own routine raises `Invalid n3` on
+  it. N3 met this first (its `twiss` could not do a flat ring), N4 explained it
+  (`inv(I - A)` singular for every ring), N5 hit it in the spin field and I4 in the 6D
+  orbit; here it is a named error rather than a division by zero. Since most rings in the
+  suite are RF-free, `method="4d"` is part of **this** milestone rather than deferred: it
+  normalises the 4x4 block, which is where the two closed-form ties above live anyway.
+
+  **Comparing against xtrack.** `tw.W_matrix[0]` entry by entry at the ring start.
+  Pre-commitment, written before the reference arm is run: the two matrices agree to
+  `1e-12` **absolute** on a weakly-coupled, non-radiating ring with the integration
+  settings matched the way B2 and I4 match them. Absolute, not relative, because
+  `linear_normal_form.py` ends with `W[abs(W) < 1e-14] = 0` and a relative comparison
+  against an entry xtrack has zeroed is a spurious failure. Weakly coupled, because
+  xtrack's `sort_modes` tie-breaks on `|v[5]|` then `|v[2]|` while accsim's existing
+  `normal_mode_tunes` labels by total per-plane weight — rules that agree away from the
+  difference resonance and need not agree on it. And one thing checked rather than
+  assumed: xtrack's `W` is written in `(x, px, y, py, zeta, pzeta)` where accsim's map is
+  in `delta`, but `dpzeta/ddelta = 1` **exactly** at `delta = 0` (from
+  `pzeta = (E - E0)/(beta0^2 E0)` and `dE/ddelta = beta0 P0`), so the two linear maps
+  coincide and there is no `beta0^2` to chase. This is asserted, not assumed.
+
+  **Scope.** Linear normal form only: the higher-order (Deprit/Dragt-Finn) normal form
+  that would give amplitude-dependent tunes *from the map* rather than from J2's tracking
+  is not in it. Emittance-scaled normalised coordinates (xtrack's
+  `get_normalized_coordinates`, which divides by `sqrt(emitt)`) are a one-line wrapper and
+  are deliberately **not** the primary API — `W_inv x` is, so that the matrix under test is
+  never entangled with an emittance convention.
+
+- **O2 (candidate) — `W` along the ring, and the two quantities that only exist there.**
+  Effort **S**. `propagate_normal_form`, following `propagate_twiss`'s shape:
+  `W(s) = M(0->s) W(0)`, re-phased to the same convention at each point. It is what makes
+  the cross-plane Mais-Ripken betas (`betx2`, `bety1` — how much of mode 2 is carried in
+  `x`) and the crab dispersion (`dx_zeta`, the transverse orbit's dependence on arrival
+  time) computable at all; both are `twiss()` fields accsim has no analogue for. Gate: the
+  re-phasing must reproduce `propagate_twiss`'s `beta`/`alpha` and the phase advance
+  `mu(s)` on an uncoupled ring, and `propagate_coupled_twiss` on a coupled one; arbiter
+  `tw.betx2`, `tw.bety1`, `tw.dx_zeta`, element by element.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
