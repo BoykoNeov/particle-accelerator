@@ -40,9 +40,11 @@ disagreement has no such minimum.
 
 **The entry-by-entry rings are deliberately bend-free.** xtrack builds its ``R`` matrix by
 finite-differencing its *tracked* map, so on a ring with bends the two codes' one-turn
-matrices differ by the bend model itself (the residual axis L and B2 already own) and the
-comparison would be measuring that instead of ``W``. On a drift/quad ring xtrack's
-tracking is exactly linear and the finite difference is exact.
+matrices differ by the bend model itself (the residual axis L and B2 already own) unless
+the line is built to B2's settings, and the comparison would be measuring that instead of
+``W``. On a drift/quad ring xtrack's tracking is exactly linear and the finite difference
+is exact. (The one bendy test here, on dispersion, *does* use a B2-settings line, which is
+why its tolerance is a measurement and not a budget -- see :data:`DISPERSION_RTOL`.)
 :func:`test_dispersion_matches_xtrack_on_a_bendy_ring` then does use a bendy ring — for
 the one quantity that needs dispersion to exist at all — at a tolerance that says so.
 """
@@ -89,6 +91,21 @@ W_ATOL = 1e-12
 #: What the longitudinal columns *can* reach, set by the reference's own finite-difference
 #: error in ``R56`` and by nothing on accsim's side. Measured ``2.6e-11``.
 LONGITUDINAL_ATOL = 1e-10
+
+#: The dynamic dispersion against xtrack's ``dx``/``dpx`` on the *bendy* I4 ring. Measured
+#: ``5.7e-11`` relative on ``dx`` and ``2.9e-11`` absolute on ``dpx``, at xtrack's default
+#: differentiation steps.
+#:
+#: **The pre-committed ``2e-3`` was seven orders too loose, and the stated reason was
+#: wrong.** It budgeted for the two codes' bend models disagreeing on a ring with bends --
+#: but ``_line()`` sets ``model="bend-kick-bend"``, ``integrator="uniform"`` and
+#: ``num_multipole_kicks=1`` on every bend, which is B2's fix for exactly that, so the
+#: residual it budgeted for is not there. What is left is the reference's own
+#: differentiation, and :func:`test_dispersion_matches_xtrack_on_a_bendy_ring` gates that
+#: attribution by scanning the step rather than asserting it. Same defect and same fix as
+#: ``CRAB_ATOL`` in ``test_normal_form_along_ring_xtrack.py``.
+DISPERSION_RTOL = 1e-9
+DISPERSION_ATOL = 1e-9
 
 #: xtrack's default ``ddelta`` step is ``1e-6``, which for this ring sits on the
 #: cancellation side of the ``R56`` U-curve; ``1e-5`` is its minimum. Chosen by scanning
@@ -250,11 +267,19 @@ def test_bend_free_6d_optics_is_the_4d_optics(pair) -> None:
 def test_dispersion_matches_xtrack_on_a_bendy_ring() -> None:
     """The dynamic dispersion read off ``W`` is what xtrack reports as ``dx``.
 
-    Needs a ring with bends, so the two codes' one-turn matrices differ by the bend model
-    itself — the residual axis L owns — and the tolerance is loose *and stated* rather
-    than tuned. What is being checked is that accsim's :attr:`NormalForm.dispersion`
-    means the same thing xtrack's ``dx`` does, on a ring where it is 24% away from the
-    matched :class:`Twiss` dispersion. The tight number is the bend-free comparison above.
+    Needs a ring with bends, so this is also where a bend-model disagreement *would* show
+    up — except that ``_line()`` already integrates the bends the way accsim does (B2), so
+    it does not. What is left agrees at ``5.7e-11`` relative, and the tolerance follows
+    that measurement rather than the bend model it used to budget for; see
+    :data:`DISPERSION_RTOL`. What is being checked is that accsim's
+    :attr:`NormalForm.dispersion` means the same thing xtrack's ``dx`` does, on a ring
+    where it is 24% away from the matched :class:`Twiss` dispersion.
+
+    **The residual is gated, not asserted.** Scaling xtrack's ``ddelta`` by ten scales the
+    disagreement by a hundred, over two decades and in both components — the signature of
+    a symmetric finite difference's ``h^2`` truncation, and of nothing else. A model
+    disagreement is flat in the reference's step size. Same argument as
+    :func:`test_the_6d_residual_is_the_references_own_r56`, on a different quantity.
     """
     from test_closed_orbit_6d import ring  # noqa: PLC0415
     from test_closed_orbit_6d_xtrack import _line  # noqa: PLC0415
@@ -264,8 +289,24 @@ def test_dispersion_matches_xtrack_on_a_bendy_ring() -> None:
     line["cav"].frequency = lattice.elements[-1].frequency
     tw = line.twiss()
     nf = normal_form(lattice.one_turn_matrix(), method="6d")
-    assert nf.dispersion[0] == pytest.approx(float(tw.dx[0]), rel=2e-3)
-    assert nf.dispersion[1] == pytest.approx(float(tw.dpx[0]), abs=2e-3)
+    assert nf.dispersion[0] == pytest.approx(float(tw.dx[0]), rel=DISPERSION_RTOL)
+    assert nf.dispersion[1] == pytest.approx(float(tw.dpx[0]), abs=DISPERSION_ATOL)
+
+    # ...and the residual that is left is the reference's own differentiation: it falls
+    # two orders per decade of step, which a bend-model disagreement cannot do. (accsim's
+    # ``dpx`` is ``-6.5e-16`` here, so the whole ``dpx`` gap is xtrack's own departure
+    # from the zero this symmetry point has.)
+    coarse = {}
+    for ddelta in (1e-3, 1e-4, 1e-5):
+        t = line.twiss(steps_R_matrix=dict(_BEST_STEPS, ddelta=ddelta))
+        coarse[ddelta] = (
+            abs(nf.dispersion[0] / float(t.dx[0]) - 1.0),
+            abs(nf.dispersion[1] - float(t.dpx[0])),
+        )
+    for finer, coarser in ((1e-4, 1e-3), (1e-5, 1e-4)):
+        for component in (0, 1):
+            ratio = coarse[coarser][component] / coarse[finer][component]
+            assert 50.0 < ratio < 200.0, (finer, coarser, component, ratio)
     # ...and it is genuinely not the matched dispersion, in xtrack's number as in ours.
     assert nf.dispersion[0] / closed_twiss(lattice).disp_x == pytest.approx(1.239, abs=0.01)
 

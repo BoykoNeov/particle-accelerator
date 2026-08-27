@@ -3797,7 +3797,18 @@ the same gap seen from two other sides, and are sequenced behind it as O2.
   what made the entry-by-entry comparison possible at all — a bendy ring would have been
   measuring the bend model (the residual axis L and B2 own) instead of `W`, so the tight
   comparison runs bend-free and the dispersion comparison, which needs bends to exist,
-  runs at a stated `2e-3`.
+  runs on the one bendy ring whose reference line is already built to B2's settings.
+
+  **Tightened after O2 (2026-08-27).** That dispersion comparison was pre-committed at
+  `2e-3` on the same wrong reasoning O2 caught in itself — budgeting for a bend-model
+  disagreement that B2 had already removed. It measures `5.7e-11` relative on `dx` and
+  `2.9e-11` absolute on `dpx`, so the gate is now `DISPERSION_RTOL`/`DISPERSION_ATOL` at
+  `1e-9`, seven orders tighter. The attribution is *gated, not asserted*, in the same test:
+  scaling xtrack's `ddelta` by ten scales the disagreement by a hundred over two decades
+  and in both components (`1.95e-4` -> `1.95e-6` -> `1.94e-8`), which is a symmetric finite
+  difference's `h^2` truncation and nothing else — a model disagreement is flat in the
+  reference's step. accsim's `dpx` is `-6.5e-16` at this symmetry point, so the whole `dpx`
+  gap is xtrack's own departure from zero. No test was added; the file is still 9.
 
   Gates: `tests/analytic/test_normal_form.py` (21),
   `tests/reference/test_normal_form_xtrack.py` (9). The full analytic suite is
@@ -3921,8 +3932,9 @@ the same gap seen from two other sides, and are sequenced behind it as O2.
     multipole kick per element on the reference line for exactly this purpose. A gate at
     `5e-3` on a quantity agreeing at `1e-9` would sleep through any regression worth
     catching, so all four tolerances were tightened to roughly two orders above the
-    measurement. O1's entrance-only `dx` comparison carries the same over-loose `2e-3` for
-    the same reason.
+    measurement. O1's entrance-only `dx` comparison carried the same over-loose `2e-3` for
+    the same reason, and was tightened to `1e-9` the same day — see O1's *Tightened after
+    O2* note.
   - *What was predicted and did happen.* The `R56` residual is **transported** by
     `W(s) = M(0->s) W(0)`, so it grows along the ring — `2.6e-11` at the entrance to
     `1.35e-10` at the end. The gate is not that it stays small but that it stays

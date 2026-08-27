@@ -6647,9 +6647,16 @@ The reasoning was wrong in a specific way worth recording: **B2 had already remo
 residual**, by setting `integrator="uniform"` and one multipole kick per element on the
 reference line for exactly this purpose. A gate at `5e-3` on a quantity agreeing at `1e-9`
 would sleep through any regression worth catching, so the tolerances follow the
-measurement (roughly two orders above it) rather than the pre-commitment. O1's
-entrance-only `dx` comparison still carries the same over-loose `2e-3` for the same
-reason.
+measurement (roughly two orders above it) rather than the pre-commitment.
+
+O1's entrance-only `dx` comparison carried the same over-loose `2e-3` for the same reason,
+and was tightened the same day: it measures `5.7e-11` relative on `dx` and `2.9e-11`
+absolute on `dpx`, and is now gated at `1e-9` on both. **Its attribution is gated in the
+same test rather than asserted, and the signature is cheap enough to reuse anywhere:**
+scale the reference's `ddelta` by ten and the disagreement scales by a hundred, over two
+decades and in both components — a symmetric finite difference's `h^2` truncation, and a
+physics disagreement is flat in the reference's step size. (accsim's `dpx` is `-6.5e-16`
+at that symmetry point, so the entire `dpx` gap is xtrack's own departure from the zero.)
 
 Compare these **absolutely**, not relatively: `dx_zeta` and the alphas pass through zero
 around the ring, where a relative comparison is meaningless, and
