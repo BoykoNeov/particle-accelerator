@@ -102,6 +102,7 @@ from .coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements.corrector import Corrector
 from .elements.element import Element
 from .lattice import Lattice
+from .radiation_kick import STOCHASTIC_MODELS
 from .reference import ReferenceParticle
 from .symplectic import jacobian
 
@@ -387,7 +388,7 @@ def closed_orbit_nonlinear(
     )
 
 
-def _tracked_turn_6d(lattice: Lattice, state: np.ndarray) -> np.ndarray:
+def _tracked_turn_6d(lattice: Lattice, state: np.ndarray, radiation: str = "off") -> np.ndarray:
     """One turn of the real map on a **full 6D** state, ``zeta`` and all.
 
     :func:`_tracked_turn` deliberately throws the longitudinal coordinates away and
@@ -396,7 +397,7 @@ def _tracked_turn_6d(lattice: Lattice, state: np.ndarray) -> np.ndarray:
     """
     out = np.asarray(state, dtype=float)
     for elem in lattice.elements:
-        out = elem.track(out, lattice.ref)
+        out = elem.track(out, lattice.ref, radiation=radiation)
     return out
 
 
@@ -425,9 +426,12 @@ def closed_orbit_delta(lattice: Lattice, *, tol: float = 1e-15, max_iter: int = 
     ``zeta_co`` is not returned because on a ``phi_s = 0`` cavity it is exactly ``0``: the
     kick is ``sin(phi_s - k zeta) - sin(phi_s)``, so the synchronous particle sits at the
     zero crossing whatever the RF frequency is. A ring that must make up a real energy loss
-    every turn — ``phi_s != 0``, or radiation switched on in tracking — has ``zeta_co != 0``
-    and needs a genuine 6D fixed point; that is deliberately deferred (``docs/ROADMAP.md``
-    → N5).
+    every turn has ``zeta_co != 0`` and needs the genuine 6D fixed point of
+    :func:`closed_orbit_6d` (I4). **This paragraph used to name ``phi_s != 0`` as a second
+    cause and that was wrong**: the kick above vanishes at ``zeta = 0`` for *every*
+    ``phi_s``, and the ramping reference that gives an accelerating bucket its meaning
+    lives inside :func:`accsim.accelerate`, which never touches the tracking path. Tracked
+    radiation is the only thing in accsim that moves ``zeta_co``.
 
     **Returns ``0.0`` exactly on an unbunched ring, and that is a boundary rather than a
     shortcut.** Without a cavity nothing couples ``zeta`` into ``delta``: *every* momentum
@@ -474,6 +478,132 @@ def closed_orbit_delta(lattice: Lattice, *, tol: float = 1e-15, max_iter: int = 
         "either unstable longitudinally (check phi_s against transition and the voltage) "
         "or its orbit distortion is large enough that the path length is no longer "
         "quadratic in it"
+    )
+
+
+def closed_orbit_6d(
+    lattice: Lattice,
+    guess: np.ndarray | None = None,
+    *,
+    radiation: str = "off",
+    tol: float = 1e-14,
+    max_iter: int = 50,
+    step: float = 1e-8,
+) -> np.ndarray:
+    r"""The closed orbit in **all six** coordinates ``(x, px, y, py, zeta, delta)`` (I4).
+
+    Every other closed orbit in this module is a fixed point of the *transverse* map at a
+    ``delta`` the caller chooses, with ``zeta`` pinned to zero: :func:`closed_orbit` solves
+    ``(I - M4) x = k4``, :func:`closed_orbit_nonlinear` Newtons on the same 4D subspace,
+    and :func:`closed_orbit_delta` adds the one scalar that makes ``zeta`` close on a
+    bunched ring. This function drops the pin and Newtons on the whole state,
+
+        ``x <- x - (J - I)^-1 (T(x) - x)``,
+
+    with ``T`` the tracked turn and ``J`` its Jacobian by central differences.
+
+    **What it buys, and it is exactly one thing.** With ``radiation="off"`` the answer is
+    the one the 4D route already gives -- ``zeta_co = 0`` and
+    ``delta_co = closed_orbit_delta``, because accsim's cavity kick
+    ``sin(phi_s - k_rf zeta) - sin(phi_s)`` vanishes at ``zeta = 0`` whatever ``phi_s``
+    is. Switch radiation **on in tracking** and it does not: the ring now loses ``U`` per
+    turn and the only way to close is to arrive far enough up the RF wave that the cavity
+    hands ``U`` back,
+
+        ``q V [sin(phi_s - k_rf zeta_co) - sin(phi_s)] = U``,
+
+    with ``zeta_co`` read at the **cavity** -- at any other point it differs by the share
+    of the loss accumulated in between. That closed form is the analytic gate in
+    ``tests/analytic/test_closed_orbit_6d.py``; like :func:`closed_orbit_delta` this
+    function deliberately does not compute it, so that the two stay independent.
+
+    **A correction to what this module used to say.** :func:`closed_orbit_delta` claimed a
+    6D fixed point is needed when ``phi_s != 0`` *or* radiation is tracked. Only the
+    second half is true here: an accelerating bucket means something only against a
+    *ramping* reference, and that ramp lives entirely inside :func:`accsim.accelerate`,
+    which builds its own :class:`~accsim.reference.ReferenceParticle` per turn and never
+    touches the tracking path this function uses. Tracked radiation is the only thing in
+    accsim that moves ``zeta_co``.
+
+    ``guess`` defaults to the 4D answer embedded at :func:`closed_orbit_delta`'s momentum
+    -- the correct orbit in the no-radiation limit -- so the iteration starts one order in
+    and typically converges in three or four steps.
+
+    ``radiation`` is passed through to :meth:`~accsim.elements.element.Element.track`;
+    with it on the map is dissipative, so ``J`` is not symplectic and ``J - I`` is not the
+    ``M - I`` of the linear theory. That is a property of the map, not a problem for the
+    solve: the fixed point is what a damped ring settles onto. **Stochastic models are
+    refused** -- a random map has no fixed point, and Newton on one would converge to
+    whatever it happened to draw.
+
+    Raises :class:`ClosedOrbitError` when the ring has **no RF cavity**, which is not a
+    numerical accident but the same degeneracy this project has now met four times: with
+    nothing reading ``zeta``, both ``zeta`` and ``delta`` are eigenvalue-1 directions of
+    ``J - I`` and there is no isolated fixed point to find. Use :func:`closed_orbit` or
+    :func:`closed_orbit_nonlinear` there. Also raises :class:`OrbitConvergenceError` if
+    Newton runs out of budget.
+    """
+    if tol <= 0.0:
+        raise ValueError(f"tol must be > 0, got {tol}")
+    if max_iter < 1:
+        raise ValueError(f"max_iter must be >= 1, got {max_iter}")
+    if step <= 0.0:
+        raise ValueError(f"step must be > 0, got {step}")
+    if radiation in STOCHASTIC_MODELS:
+        raise ValueError(
+            f"radiation={radiation!r} is stochastic, and a random map has no fixed "
+            "point: Newton would converge onto whichever photons it happened to draw. "
+            "Use radiation='mean' for the deterministic map the closed orbit is "
+            "defined on"
+        )
+    if lattice.one_turn_matrix()[DELTA, ZETA] == 0.0:
+        raise ClosedOrbitError(
+            "no 6D closed orbit: this ring has no RF cavity, so nothing reads zeta and "
+            "both zeta and delta are eigenvalue-1 directions of (J - I) -- every "
+            "momentum closes transversally and none closes longitudinally. Use "
+            "closed_orbit() or closed_orbit_nonlinear() for the 4D fixed point (and "
+            "closed_orbit_delta() for the momentum a bunched ring sits at)"
+        )
+
+    if guess is None:
+        x = _embed(closed_orbit_nonlinear(lattice), closed_orbit_delta(lattice))
+    else:
+        x = np.asarray(guess, dtype=float)
+        if x.shape != (DIM,):
+            raise ValueError(f"guess must be a length-{DIM} 6D state, got {x.shape}")
+        x = x.copy()
+
+    def turn(state: np.ndarray) -> np.ndarray:
+        return _tracked_turn_6d(lattice, state, radiation)
+
+    residual = turn(x) - x
+    for _ in range(max_iter):
+        if np.max(np.abs(residual)) < tol:
+            return x
+        jac = np.empty((DIM, DIM))
+        for i in range(DIM):
+            plus, minus = x.copy(), x.copy()
+            plus[i] += step
+            minus[i] -= step
+            jac[:, i] = (turn(plus) - turn(minus)) / (2.0 * step)
+        A = jac - np.eye(DIM)
+        cond = float(np.linalg.cond(A))
+        if not np.isfinite(cond) or cond > _COND_LIMIT:
+            raise ClosedOrbitError(
+                "no 6D closed orbit: the tracked map's (J - I) is singular to working "
+                f"precision (condition number {cond:.3g}) at the current iterate -- the "
+                "machine sits on an integer tune in one of its three planes, the "
+                "longitudinal one included (check phi_s against transition)"
+            )
+        x = x - np.linalg.solve(A, residual)
+        residual = turn(x) - x
+    if np.max(np.abs(residual)) < tol:
+        return x
+    raise OrbitConvergenceError(
+        f"the 6D closed orbit did not converge in {max_iter} Newton steps: max residual "
+        f"{np.max(np.abs(residual)):.3g} > tol {tol:.3g}. Either the ring is losing a "
+        "large enough fraction of its energy per turn that the arrival time is outside "
+        "the RF bucket, or the transverse excursion has reached the nonlinear regime"
     )
 
 

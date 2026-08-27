@@ -69,6 +69,8 @@ from .orbit import (
     OrbitCorrectionError,
     OrbitStatistics,
     closed_orbit,
+    closed_orbit_6d,
+    closed_orbit_delta,
     closed_orbit_nonlinear,
     correct_orbit,
     linearised_element_maps,
@@ -293,6 +295,9 @@ __all__ = [
     # sextupole feed-down on a distorted orbit (I2)
     "OrbitConvergenceError",
     "closed_orbit_nonlinear",
+    # the 6D closed orbit (I4)
+    "closed_orbit_6d",
+    "closed_orbit_delta",
     "propagate_orbit_nonlinear",
     "linearised_element_maps",
     "linearised_one_turn_map",

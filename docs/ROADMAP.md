@@ -1914,6 +1914,84 @@ sustained arc.
     octupoles and higher multipoles, misalignments as element attributes,
     amplitude-dependent detuning, dynamic aperture.
 
+- **I4 (candidate) — the closed orbit in all six coordinates: where the beam arrives,
+  once it has to pay for the light it emits.** Opened 2026-08-27. Effort **S**.
+  The one item three separate milestones have named and none has built. I2 listed "the
+  6D closed orbit" as out of scope, I3 repeated it verbatim, and **N5** deferred it a
+  fourth time *with its gate already written in closed form*. Meanwhile B4 needed it and
+  built a private 25-line Newton solve inside its own test file
+  (`tests/analytic/test_quantum_lifetime_tracking.py::_equilibrium_orbit`), which is the
+  strongest evidence a candidate on this project can have: the function exists, it is
+  just not in the package.
+
+  **What is missing, precisely.** Every closed orbit in `orbit.py` is a fixed point of
+  the *transverse* map at a `delta` the caller chooses — `closed_orbit` solves
+  `(I - M4) x = k4`, `closed_orbit_nonlinear` Newtons on the same 4D subspace, and N5's
+  `closed_orbit_delta` adds the one scalar `delta_co` that makes `zeta` close on a
+  bunched ring. All three hold `zeta = 0`. That is exact for a ring whose cavity has
+  nothing to make up, and it is *wrong* the moment the beam radiates in tracking: a ring
+  that loses `U_0` per turn must arrive off the zero crossing of the RF wave, far enough
+  up it that the cavity hands back exactly `U_0`.
+
+  **The gate, in closed form, from N5's own deferral note.** `zeta_co` is where the
+  cavity's kick equals the turn's loss,
+
+      `q V [sin(phi_s - k_rf zeta_co) - sin(phi_s)] = U_turn`,
+
+  read **at the cavity**, not at the lattice start — the two differ by whatever fraction
+  of the loss is accumulated upstream of it, so a ring with the cavity spliced mid-lattice
+  gates the distinction on its own. Two independent routes supply `U_turn`, and the
+  milestone asserts both:
+
+  - the **tracked** loss, summed element by element around the converged orbit, which
+    must satisfy the equation at round-off (this is an identity, and it is what makes the
+    solve testable without a second model); and
+  - the package's own `energy_loss_per_turn`, the design-route radiation integral, which
+    is an *independent* number and must therefore land nearby but not exactly.
+
+  **The discriminating content is the order of that second departure, and it is a
+  statement about the fixed point rather than about the radiation.** On the *design*
+  orbit the integral and the tracked sum differ at **first** order in `U_0/E`: a lumped
+  per-element kick makes the particle poorer as it goes, so every element after the first
+  radiates at less than the design energy. On the *closed* orbit that error is gone,
+  because the fixed point is precisely where the sag is centred — the beam sits `U_0/2E`
+  high at the cavity's exit and `U_0/2E` low at its entrance, and the linear-in-`delta`
+  part of the loss averages away over the turn. The departure is therefore **quadratic**,
+  and a gate that fits the exponent reads a wrong fixed point off directly where a
+  tolerance would not. Measured while scoping, over a factor 512 in `U_0/E`:
+  **2.003 on the closed orbit against 0.999 on the design orbit** — stated here as
+  scoping, not as a pre-commitment.
+
+  **A shipped claim is wrong and this milestone corrects it.** `orbit.py`'s
+  `closed_orbit_delta` docstring and N5's deferral paragraph both say a ring needs a 6D
+  fixed point when "`phi_s != 0`, **or** radiation switched on in tracking". The first
+  half does not hold in this package. `energy_kick_delta` is
+  `sin(phi_s - k zeta) - sin(phi_s)`, which vanishes at `zeta = 0` for **every** `phi_s`,
+  and the reference energy ramp that would make an accelerating bucket mean something
+  lives entirely inside `accelerate` (which builds its own `ref` per turn) and never
+  touches the tracking path. Verified at three synchronous phases: `zeta_co` and
+  `delta_co` come back **exactly** `0.0`. Tracked radiation is the only thing in accsim
+  that moves `zeta_co`, and the two docs are corrected to say so.
+
+  **The pre-commitment, written before the reference arm was run.** With integration
+  order matched the way B2's cross-check matches it (`integrator="uniform"`,
+  `num_multipole_kicks=1` — xtrack's `twiss` finds its closed orbit by tracking the line,
+  so the element settings that govern its tracker govern this too), xtrack's 6D closed
+  orbit should reconstruct the **same loss**, `q V [sin(phi_s - k zeta) - sin(phi_s)]`,
+  as accsim's, differing by exactly B2's already-named residual — the `1.064e-8` charge-
+  constant vintage plus the `2/gamma0^2` of its ultra-relativistic approximations, and
+  nothing else. The comparison is deliberately made on the *loss* rather than on `zeta_co`
+  itself, which carries an `arcsin` and would fold the same disagreement through a
+  ring-dependent factor.
+
+  **Scope.** Deterministic maps only: a stochastic radiation model has no fixed point to
+  find and is refused rather than iterated. The singular case is refused too and is the
+  fourth appearance of one degeneracy on this project — without an RF cavity `zeta` and
+  `delta` are both eigenvalue-`1` directions of `J - I`, so there is nothing to converge
+  to; N5 met it, N4 explained it, N3 first hit it. Retiring B4's and B3's private solvers
+  in favour of the library one is a **separate** commit after these gates are green, so
+  that the analytic count moves by this milestone's own tests and by nothing else.
+
 ### J. Nonlinear single-particle dynamics (core accelerator)
 
 - **J1 — the thin nonlinear kick becomes real.** ✅ **DONE (2026-08-10)** — every
