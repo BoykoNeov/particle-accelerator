@@ -560,6 +560,51 @@ def test_sitting_on_a_driven_line_raises_rather_than_inventing_a_number(
         resonance_driving_terms(lat)
 
 
+def _one_source_ring(ref: ReferenceParticle, source) -> Lattice:
+    """The fixture with a single ``source`` element dropped into the cell at ``s = 2.4``."""
+    els: list = []
+    s = 0.0
+    for _ in range(4):
+        for k in (KF, KD):
+            els.append(Quadrupole(0.5, k))
+            s += 0.5
+            if abs(s - 2.0) < 1e-12:
+                els += [Drift(0.4), source, Drift(0.6 - source.length)]
+            else:
+                els.append(Drift(1.0))
+            s += 1.0
+    return Lattice(els, ref)
+
+
+@pytest.mark.parametrize(
+    ("cls", "args"),
+    [(ThinSextupole, (1.0,)), (ThinSkewQuadrupole, (0.02,)), (Sextupole, (0.3, 3.0))],
+)
+@pytest.mark.parametrize("misalignment", [{"roll": 0.1}, {"dx": 1.0e-3}, {"dy": -2.0e-3}])
+def test_a_misaligned_source_is_refused_by_its_own_check(
+    ref: ReferenceParticle, cls, args, misalignment
+) -> None:
+    """And the check is explicit, because the coupling guard catches this by accident.
+
+    A **rolled sextupole is a skew sextupole** -- exactly, at -30 degrees -- so only
+    ``k2l cos(3 roll)`` of it is normal and the remainder drives lines that are not in
+    this list. A type-walking sum would count the whole ``k2l`` as normal, which is a
+    *wrong* number rather than a missing one. An offset source feeds down to a quadrupole
+    and a dipole kick, which this milestone does not model.
+
+    The reason this needs a check of its own rather than leaning on the coupling guard
+    beside it: a sextupole's linear map **is a drift**, so rolling it leaves transverse
+    off-blocks of order ``1e-18``. That guard does fire -- on floating-point round-off, at
+    an angle that happens not to cancel -- which is not a decision about the physics; and
+    for an *offset* it would not fire at all.
+    """
+    with pytest.raises(CoupledLatticeError, match="misaligned"):
+        resonance_driving_terms(_one_source_ring(ref, cls(*args, **misalignment)))
+    # the same ring with the same element aligned is fine, so it is the misalignment that
+    # refuses and not the fixture
+    assert resonance_driving_terms(_one_source_ring(ref, cls(*args)))["f3000"] is not None
+
+
 def test_a_coupling_source_this_sum_cannot_see_is_refused(ref: ReferenceParticle) -> None:
     """G1's guard, inherited: a rolled quadrupole would silently zero f1001/f1010.
 

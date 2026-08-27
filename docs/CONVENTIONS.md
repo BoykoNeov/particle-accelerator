@@ -7081,6 +7081,16 @@ make this report `f1001 = f1010 = 0` for a ring that is demonstrably coupled. It
 refused with `CoupledLatticeError`, and the test is **measured** (does this element's own
 matrix have a nonzero transverse off-block?) rather than by type.
 
+A **misaligned source** is refused too, and by a check of its own rather than that one.
+The reason it needs one: a **rolled sextupole is a skew sextupole** (exactly, at −30°), so
+only `k2l cos(3·roll)` of it is normal and the rest drives lines that are not in this
+list — a type-walking sum would count the whole `k2l` as normal, which is a *wrong* number
+rather than a missing one. Leaning on the coupling guard would not do. A sextupole's
+linear map **is a drift**, so rolling it leaves transverse off-blocks of order `1e-18`;
+that guard does fire, but on floating-point round-off at an angle that happens not to
+cancel, which is not a decision about the physics — and for an *offset* source, which
+feeds down, it would not fire at all.
+
 ### Fixtures: a placement guard that immediately caught a vacuous gate
 
 The O4 fixture places thin sources at a given `s` in a FODO cell, and only the drift

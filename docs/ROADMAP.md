@@ -4159,6 +4159,15 @@ a number rather than re-expressing one.
     error. Replaced with a direct comparison against the same sources transported by
     plain drifts, which is two to four orders worse. Same shape as L4's and G1's own
     findings: a plausible-looking slicing path quietly using the wrong body map.
+  - **A rolled sextupole was being summed as a normal one at full strength, and the
+    guard that appeared to catch it was catching round-off.** A rolled sextupole *is* a
+    skew sextupole (exactly, at −30°), so only `k2l cos(3·roll)` of it is normal — a
+    type-walking sum reads a *wrong* number, not a missing one. It looked covered,
+    because the inherited coupling guard did refuse such a ring; but a sextupole's linear
+    map is a drift, so what that guard was firing on was a `1e-18` off-block left by the
+    rotation, at an angle that happened not to cancel. An *offset* source, which feeds
+    down, was not refused at all. Both now have an explicit check, and the difference
+    between "it refuses" and "it refuses for the right reason" is the whole finding.
   - **A fixture guard caught a vacuous gate on its first run.** The helper now asserts that
     every requested source was actually *placed*, and it immediately failed: two of three
     skew quadrupoles in one comparison ring were landing inside quadrupoles and silently
@@ -4186,7 +4195,7 @@ a number rather than re-expressing one.
   codes, all of which share the first-order formula, so a wrong coefficient common to the
   derivation and to both external codes would survive.
 
-  Gates: `tests/analytic/test_resonance_driving_terms.py` (30),
+  Gates: `tests/analytic/test_resonance_driving_terms.py` (39),
   `tests/reference/test_resonance_driving_terms_xtrack.py` (7),
   `tests/reference/test_resonance_driving_terms_madx.py` (6).
 

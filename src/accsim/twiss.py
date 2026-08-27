@@ -1494,6 +1494,22 @@ def _rdt_sites(lattice: Lattice, slices: int) -> tuple[_RdtSites, float, float]:
     from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
 
     ref = lattice.ref
+    sources = (Sextupole, ThinSextupole, SkewQuadrupole, ThinSkewQuadrupole)
+    for elem in lattice.elements:
+        if isinstance(elem, sources) and elem.is_misaligned:
+            # Explicit, because the coupling check below would catch a rolled sextupole
+            # only by accident: a sextupole's linear map is a drift, so rolling it leaves
+            # off-blocks of order 1e-18 and that guard fires on round-off rather than on
+            # the physics. What is actually wrong is the *strength* -- a rolled sextupole
+            # is a skew sextupole (exactly, at -30 degrees), so only k2l cos(3 roll) of it
+            # is normal -- and an offset source is not caught by that guard at all.
+            raise CoupledLatticeError(
+                f"{type(elem).__name__} {elem.name!r} is a driving-term source and is "
+                f"misaligned (dx={elem.dx}, dy={elem.dy}, roll={elem.roll}); this sum "
+                "reads a source's kind and strength from its type, so it would count a "
+                "rolled sextupole as a normal one at full strength. Roll and feed-down "
+                "are out of scope for resonance_driving_terms"
+            )
     for elem in lattice.elements:
         if isinstance(elem, (SkewQuadrupole, ThinSkewQuadrupole)):
             continue
@@ -1609,10 +1625,15 @@ def resonance_driving_terms(lattice: Lattice, slices: int = 32) -> dict[str, com
     ``|f|`` is not constant around the ring. Roll the element list to observe elsewhere.
 
     **Convention.** The basis is ``h_u = u_hat + i p_hat_u``, which is xtrack's and
-    MAD-X's: on identical rings this function and xtrack's
-    ``rdt_first_order_perturbation`` agree to round-off on all seven terms, phase
-    included. The opposite basis ``h_u = u_hat - i p_hat_u`` -- the one O3's derivation is
-    carried out in -- gives the complex **conjugate** of every term. That relation is
+    MAD-X's: on an identical sextupole ring this function agrees with xtrack's
+    ``rdt_first_order_perturbation`` to ``1e-10`` and with MAD-X PTC's ``gnfa``/``gnfc``/
+    ``gnfs`` to ``1e-14``, phase included. (With skew quadrupoles the agreement is looser
+    and *should* be: those codes evaluate the same formula on the **coupled** twiss they
+    are handed, this one on the unperturbed optics that first-order theory calls for, and
+    the gap falls as the cube of the skew strength.)
+
+    The opposite basis ``h_u = u_hat - i p_hat_u`` -- the one O3's derivation is carried
+    out in -- gives the complex **conjugate** of every term. That relation is
     measured, not assumed, and the physical arbiter is neither code: each term is a named
     sideband of the turn-by-turn spectrum, and its amplitude *and* phase are gated against
     these numbers by tracking.
@@ -1625,7 +1646,10 @@ def resonance_driving_terms(lattice: Lattice, slices: int = 32) -> dict[str, com
     to them either. An element that couples the planes *without* being a skew quadrupole
     (a rolled quadrupole, say) would corrupt ``f1001``/``f1010``, so it is refused with
     :class:`CoupledLatticeError` rather than silently summed as zero: the same measured
-    guard, for the same reason, as :func:`closest_tune_approach`.
+    guard, for the same reason, as :func:`closest_tune_approach`. A **misaligned source**
+    is refused too, by its own explicit check rather than that one -- a rolled sextupole
+    *is* a skew sextupole, so only ``k2l cos(3 roll)`` of it is normal and the rest drives
+    lines that are not in this list, and an offset one feeds down.
     """
     sites, qx, qy = _rdt_sites(lattice, slices)
     out: dict[str, complex] = {}
