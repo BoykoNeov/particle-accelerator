@@ -791,12 +791,21 @@ def _measured_qx(hx) -> float:
 def _measure_f4000(lat, tw, amp: float, n: int = N_TURNS) -> tuple[complex, float]:
     r"""``f4000`` off the ``-3 Q_x`` sideband of ``h_x``, and the tune it was read at.
 
-    The same derivation as O4's ``f3000``, one power further. First-order perturbation
-    puts ``-2i dG/dconj(zeta_x)`` into ``h_x``; the only monomial contributing
-    ``conj(zeta_x)^3`` is ``(0,4,0,0)``, whose multiplier is its own exponent ``4`` where
-    ``f3000``'s was ``3``. So where O4 divides by ``6i`` this divides by ``8i``:
+    First-order perturbation puts ``-2i dG/dconj(zeta_x)`` into ``h_x``, and the only
+    monomial contributing ``conj(zeta_x)^3`` is ``(0,4,0,0)``. What multiplies it is that
+    monomial's own exponent, which gives ``8i`` here where O4's ``f3000`` had ``6i``:
 
         A(-3 Q_x) / conj(A(Q_x))^3 = 8 i conj(f4000).
+
+    **How the constant was fixed, stated plainly.** Deriving it from scratch ran into a
+    conjugation the author could not reconcile with O4's shipped read-outs, so it was
+    instead *extrapolated* from O4's two measured cases -- ``6i`` for ``f3000`` (exponent
+    ``3``) and ``2i`` for ``f1001`` (exponent ``1``) -- as "the multiplier is the
+    monomial's own exponent". That extrapolation is then **validated by the measurement
+    rather than assumed**: a wrong constant here is a pure scale factor, so it would show
+    up as a fixed offset that no amount of lowering the launch amplitude removes. What is
+    observed instead is agreement improving as the action falls (``3.8%``, ``0.98%``,
+    ``0.25%``), which a wrong constant cannot produce.
 
     A ratio, so neither the action nor the launch phase survives into the comparison.
     """
@@ -849,8 +858,9 @@ def test_tracked_f4000_matches_in_magnitude_and_phase(tracked_f4000) -> None:
 
     O1's lesson, restated at quartic order -- a magnitude-only comparison passes with the
     wrong conjugation, and the sign of a measured sideband's phase is not a naming choice.
-    Measured at a launch of ``1 mm``: ``1.0%`` in magnitude and ``5 * 10^-4`` radians in
-    phase, with the conjugate basis wrong by ``74%``.
+    Measured at a launch of ``1 mm``: ``0.98%`` in magnitude and ``5 * 10^-4`` radians in
+    phase. The conjugate basis is excluded by more than a factor of two, which is the
+    point of gating the phase at all.
     """
     lat, tw, _qx_linear, pred = tracked_f4000
     got, _ = _measure_f4000(lat, tw, 1.0e-3)
