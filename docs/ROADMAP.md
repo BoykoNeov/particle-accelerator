@@ -616,8 +616,9 @@ that are the whole content of the parameterisation, so the primary gate has to b
 to Stage 1's `beta`/`alpha`; and the 6D normal form does not reproduce the 4D optics at
 all, departing from it quadratically in the synchrotron tune.
 
-**O1-O5 all shipped, and the direction chosen on 2026-08-31 stays on the axis: O6, the
-driving terms of a machine that is actually steered and actually misaligned.** It was
+**O1-O6 all shipped. The direction chosen on 2026-08-31 stayed on the axis and was
+delivered the same day: O6, the driving terms of a machine that is actually steered and
+actually misaligned.** It was
 picked by running three candidate arbiters rather than reading them — O5's own upgrade to
 the filter — and it is the only one of the three with **two** independent reference codes:
 feed-down is `feed_down=True` in `xtrack`'s routine and it is what PTC's normal form about
@@ -4377,8 +4378,8 @@ a machine that is actually steered and actually misaligned.
   milestone's own two files, and every one of the 280 ran rather than skipping, so
   the clang-cl JIT fix-up and the bundled MAD-X both held for the new files too.
 
-- **O6 (candidate) — feed-down into the driving terms: the RDTs of the machine as it is
-  actually built and actually steered.** Effort **M**.
+- **O6 — feed-down into the driving terms: the RDTs of the machine as it is
+  actually built and actually steered.** ✅ **SHIPPED (2026-08-31)**. Effort **M**.
 
   O4 and O5 built twenty first-order driving terms and evaluated all twenty on the
   **design** orbit, with every source perfectly placed. Both restrictions are enforced by
@@ -4505,6 +4506,85 @@ a machine that is actually steered and actually misaligned.
   reference leg, as measured above) and decapoles and above; second-order RDTs; an RDT
   returned as a table *along* the ring rather than at the entrance; and the rolled
   *quadrupole*, which stays refused.
+
+  **SHIPPED (2026-08-31).** `resonance_driving_terms_on_orbit`, a **sibling** of the
+  design-orbit function rather than a change to it — `closed_twiss_on_orbit`'s
+  relationship to `closed_twiss`, deliberately, so that O4's `1e-14` PTC agreement is
+  not disturbed by a walk that necessarily carries a finite-difference floor. Full
+  detail in `docs/CONVENTIONS.md` → *Feed-down into the driving terms*.
+
+  **Every pre-committed gate was met, and the headline survived its own test.** The
+  primary gate is the power of the orbit, fitted term by term: on the probe's own
+  fixture (octupoles, no sextupole) the five normal-sextupole lines are **exactly** zero
+  on the flat orbit and rise as `x_co^1`; the five skew-sextupole lines as `y_co^1`; the
+  two skew-quadrupole lines are exactly zero unless **both** planes are steered, then
+  linear in each — the product `k3l x_co y_co`, which is the sharpest single sign that
+  the model is the complex expansion rather than two real ones. Both reference legs
+  landed, the symbolic leg was anchored on two already-shipped tables, and the tracked
+  leg needed no tolerance for its primary claim.
+
+  - **The model is one line, and its offset half was pinned for free.** With
+    `K_n = k_nl + i k_nsl` and `z_0 = exp(-i psi) (z_co - d)`,
+    `K_m_eff = exp(-i (m+1) psi) sum_{n>=m} K_n z_0^(n-m)/(n-m)!`. That single statement
+    reproduces **J3's** six real octupole feed-down terms and **I2's** three sextupole
+    ones entry by entry — two anchors already in the tree, two orders rather than one,
+    because a single anchor can be reproduced by a formula wrong in the `1/(n-m)!`.
+  - **The roll exponent is `-(n+1)`, and the sign is the half no anchor could give.**
+    J3 and I2 are both pure offsets, so the roll was **fitted** off the shipped elements'
+    own `track()` over a spread of angles and only then compared. It is **minus**; the
+    package's own "a rolled sextupole is a skew sextupole at -30 degrees" is
+    corroboration, and a remembered "+30" would have got it backwards.
+  - **The headline held and was measured three independent ways.** The optics really do
+    move: `0.013%` of `beta_x` on a `0.6 mm` bump, `0.21%` on `2.5 mm`. Against xtrack,
+    a rival model built explicitly — right strengths, blueprint optics — misses by more
+    than **100x** what the shipped one passes at. And against PTC, quartering the
+    octupoles does not quarter the terms: the *strengths* are exactly linear in `k3l`,
+    the terms miss linearity by `~0.1%`, and PTC's all-orders normal form tracks the
+    non-linear answer.
+  - **Matching the drift model came first, and it is axis M's finding arriving again.**
+    On a *steered* orbit accsim's exact drift and xtrack's default paraxial one differ by
+    `8.7e-8` in the tune **on a ring holding no nonlinear magnet at all** — a gap that
+    would have been charged to feed-down had it not been isolated by removing the
+    octupoles. `configure_drift_model("exact")` collapses it to `1.5e-12`. M2's
+    three-code `Q''` split, in a new place, with the same lesson: match the model, never
+    widen a tolerance around it.
+  - **The two arbiters cover different halves, and that is why the milestone needed
+    both.** PTC is the *sharper* leg (`3e-7`, composing exact maps rather than
+    differentiating) and the *narrower*: it exposes no odd-vertical-charge row at cubic
+    order either, so the five skew-sextupole lines have xtrack as their only external
+    check — O5's scope fact **re-measured** one degree down rather than inherited. xtrack
+    is the *broader*: it alone consumes `shift_x`/`shift_y`, so it alone arbitrates the
+    misalignment half. Neither file may be read as covering the milestone.
+  - **The guard surgery was narrower than "lift the misalignment guard", and the
+    over-lift hazard arrived from an unnamed direction.** A rolled *sextupole* is now
+    modelled and a rolled *quadrupole* still refused, as pre-committed. But the coupling
+    guard could not simply be re-pointed at the source kinds: a sextupole's map is a
+    **drift**, so rolling it leaves `1e-18` off-blocks and that guard tests *exact*
+    nonzero — it would fire on arithmetic noise. The fix is structural (skip the kinds
+    that have a model), not a tolerance. A rolled **octupole** is refused outright, since
+    its skew half is the one-legged scope this milestone was chosen over.
+  - **The decoupling premise is now priced from both sides.** Internally the fed-down
+    skew strength grows linearly in `y_co` while the coupling it makes grows
+    quadratically; externally, against a code that does not make the approximation, the
+    disagreement on a two-plane displacement scales as the **square** of the ring's own
+    coupling (fitted `1.94`). What it costs vanishes faster than the physics it buys.
+  - **The tracked leg's primary claim needs no tolerance at all.** The fixture holds no
+    sextupole, so the design-orbit function returns `f3000` = *exactly* `0j`, while a
+    real trajectory carries the sideband and the on-orbit sum predicts it to `5.3e-5`.
+    Two things differ from O4's and O5's tracked legs because the beam circulates about
+    a bump: the launch is the closed orbit plus an amplitude with that orbit taken back
+    off, and O5's measured-tune trap has **two** independent causes here rather than one
+    (amplitude detuning *and* the bump moving the linear tune).
+  - **One test was written wrong and the fixture corrected it**, which is the kind of
+    thing worth keeping: "the terms are exactly linear in `k3l`" was asserted and failed
+    at `0.12%`. The miss is the optics half — the milestone's own headline — so the gate
+    is now two-sided: near-linear, but *provably not* linear.
+
+  **Coverage is uneven and is stated rather than averaged.** The skew-sextupole lines and
+  the whole misalignment half have one external arbiter; the tracked leg covers **one**
+  term; and the displacement-sign convention `z_0 = z_co - d` is gated **only**
+  internally, on purpose — both external codes share it, so neither could catch an error
+  in it.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

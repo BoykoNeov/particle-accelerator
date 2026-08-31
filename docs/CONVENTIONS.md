@@ -7390,6 +7390,187 @@ the action (`3.8%`, `0.98%`, `0.25%`), which a wrong constant cannot produce. So
 gates the coefficient's *scaling* unconditionally and its *magnitude* only via that
 argument.
 
+## Feed-down into the driving terms (O6 — implemented)
+
+`resonance_driving_terms_on_orbit` returns the **same twenty** terms as
+`resonance_driving_terms`, for a machine that is actually steered and actually
+misaligned. It is a **sibling**, not a changed default — exactly as `closed_twiss_on_orbit`
+is to `closed_twiss` — and the design-orbit function is byte-for-byte untouched.
+
+Why a sibling: the on-orbit walk takes its optics from `linearised_element_maps`, which
+differentiates `track()` by finite differences and so carries a `~1e-11` floor. O4 pins the
+design path's agreement with MAD-X PTC at `1e-14`, four orders inside that. Re-pointing the
+existing function would have moved shipped numbers for no gain.
+
+### The model is one complex strength per order
+
+Write every transverse multipole kick with one complex coefficient,
+
+    Delta px − i Delta py = − sum_n K_n z^n / n!,    K_n = k_nl + i k_nsl,   z = x + iy,
+
+then a magnet the beam misses the centre of is a *shift of that polynomial's argument*:
+
+    K_m_eff = exp(−i (m+1) psi) * sum_{n>=m} K_n z_0^(n−m) / (n−m)!,
+    z_0 = exp(−i psi) (z_co − d).
+
+`Re(K_m_eff)` is the normal strength of order `m` and `Im(K_m_eff)` the skew one, which is
+why one line replaces J3's six real terms and I2's three.
+
+**Displacement and orbit are ONE variable, `z_co − d`.** A magnet moved by `+d` is exactly a
+centred magnet the beam passes at `−d`. This is gated internally, because both external
+codes would share a sign error here and so neither could arbitrate it.
+
+**The roll exponent is `−(n+1)`, and the sign was measured, not transcribed.** J3 and I2 are
+both pure *offsets*, so neither anchor constrains a roll at all. The exponent is obtained by
+regression against the shipped rolled elements' own `track()` over a spread of angles, then
+compared with `−(n+1)`; it holds to `1e-6` for the quadrupole, sextupole and octupole. The
+package's own “a rolled sextupole is a skew sextupole at −30 degrees” comment is
+corroboration, not the source — the minus sign is exactly what a remembered `+30` would get
+backwards.
+
+**Anchored on two shipped tables rather than believed.** The expansion reproduces J3's six
+real octupole feed-down terms and I2's three sextupole ones, entry by entry. Two orders and
+not one, because a single anchor can be reproduced by a formula that is wrong in the
+`1/(n−m)!`.
+
+### Two halves of the expansion deliberately reach no term, and both matter
+
+- **`Re(K_1)` is a normal quadrupole**, and the table has no `f2000`/`f1100`/`f0011`/`f0020`
+  row, so it drives nothing. It is not discarded: it moves `beta` and the phases, and
+  reaches the answer through the **optics**. See the headline below.
+- **`Im(K_3)` is a skew octupole**, driving eight terms this table has no row for. It cannot
+  arise from feed-down (nothing above an octupole exists) and a rolled octupole is refused,
+  so reaching it **raises** rather than silently returning a wrong number.
+
+### The headline: it is a change to the OPTICS, not only to the strengths
+
+Recomputing each source's effective strength at its orbit offset is the leading effect and
+creates these terms from nothing — with the orbit on axis every fed-down term is *exactly*
+zero, in accsim, in xtrack with `feed_down=False`, and in PTC. But feed-down also reaches
+the **quadrupole** order (`k1l_eff = k3l x_co^2 / 2`), so the optics the first-order formula
+is evaluated at move as well. Measured: `0.013%` of `beta_x` on a `0.6 mm` bump and `0.21%`
+on `2.5 mm` — hundreds of times the `1e-6` the reference legs are gated at. **Neither
+arbiter announces it**: xtrack's `twiss` linearises about the closed orbit and PTC's
+`closed_orbit` flag does the same. So the walk uses `linearised_element_maps` — I3's
+argument arriving at the driving terms.
+
+The same fact seen a third way: quartering the octupoles does **not** quarter the terms. The
+fed-down *strengths* are exactly linear in `k3l`; the terms miss linearity by `~0.1%`,
+because the optics move with the strength too. PTC, whose normal form is all-orders, tracks
+the non-linear answer.
+
+### Guard surgery: narrower than “lift the misalignment guard”
+
+`_rdt_sites` refuses twice and only the first refusal is replaced by a model.
+
+- **Modelled now:** an offset magnet of any kind; a rolled *sextupole*, *skew sextupole* or
+  *skew quadrupole* (both parities of those orders are rows in the table).
+- **Still refused:** a rolled **octupole** (its skew half drives eight absent rows — and
+  skew octupoles are the scope O6 was chosen *over*, having one reference leg), and any
+  element that couples `x` and `y` without being a modelled kind — a rolled **quadrupole**
+  above all, which corrupts `f1001`/`f1010` and gets no model here.
+
+**The coupling guard could not simply be re-pointed at the source kinds**, and the reason is
+a trap worth recording: a sextupole's linear map is a **drift**, so rolling it leaves
+off-blocks of `1e-18` round-off, and that guard tests *exact* nonzero. It would fire on
+arithmetic noise. The fix is structural — skip elements whose kind has a feed-down model,
+apply the guard unchanged to everything else — not a tolerance.
+
+### The coupling-off premise now has a price, and it is paid one order down
+
+First-order perturbation theory asks for the *unperturbed* optics, so the walk decouples
+every element map. On a **vertical** orbit that stops being free: a sextupole at `y_co` *is*
+a skew quadrupole (`k1sl_eff = k2l y_co`). Measured both ways:
+
+- internally, the fed-down skew strength grows **linearly** in `y_co` while the coupling it
+  produces (`1 − gamma_c`) grows **quadratically**;
+- externally, against xtrack — which does not make the approximation — the disagreement on a
+  two-plane displacement scales as the **square** of the ring's own coupling (fitted slope
+  `1.94` over an order of magnitude in coupling).
+
+So what the premise costs vanishes faster than the physics it buys. A *first*-power scaling
+would instead have meant the decoupling was corrupting the terms directly.
+
+### Thick bodies: the body is no longer a drift
+
+A thick source is midpoint quadrature — `slices` virtual thin sources at the slice centres
+while the real body carries the optics — and that is *not* expressible as a sliced lattice
+(a thick skew quadrupole is the counter-example). So the orbit is stepped on the same
+half-slice grid as the optics. On a steered orbit the half-slice block is **not** a plain
+drift: the body's own feed-down gradient acts inside it. Convergence is `1/slices^2`,
+gated on the **order** (gap ratios of `4`), because a walk that dropped the body's gradient
+would still converge, just to a different number.
+
+### The two reference legs cover DIFFERENT halves, and neither covers the milestone
+
+This is the point of having chosen feed-down: it is the only candidate with two independent
+arbiters. They are not redundant.
+
+| | xtrack `rdt_first_order_perturbation` | MAD-X PTC `gnfu` |
+|---|---|---|
+| normal-sextupole lines (horizontal orbit) | yes | yes |
+| skew-sextupole lines (vertical orbit) | yes | **no** — no odd-vertical-charge row |
+| misaligned magnet (`shift_x`/`shift_y`) | yes | no — not separated from the orbit |
+| agreement reached | `1e-6` | `3e-7` |
+
+PTC's is the sharper leg (it composes exact maps rather than differentiating) and the
+narrower; xtrack's is the broader. O5's scope fact — PTC exposes no odd-vertical-charge
+generating-function row — was **re-measured** here one degree down rather than inherited.
+
+### Matching the drift model came first, and it is axis M's finding again
+
+On a **steered** orbit accsim and xtrack disagree about the drift: accsim's is exact,
+xtrack's is the expanded/paraxial one by default. On a ring holding **no nonlinear magnet at
+all**, that is an `8.7e-8` tune difference — which would have been charged to feed-down had
+it not been isolated by removing the octupoles. `line.configure_drift_model("exact")`
+collapses it to `1.5e-12`. This is M2's three-code `Q''` split (accsim exact, xtrack default
+and MAD-X paraxial) arriving in a new place, and the lesson carried forward is the same: the
+fix is to match the model, never to widen a tolerance around it.
+
+### Why xtrack's floor is `1e-6` here and PTC's is `3e-7`
+
+With the models matched, the residual against xtrack grows as the **square** of the octupole
+strength at fixed orbit (`x4` per doubling over a factor of eight in `k3l`), while *both*
+codes evaluate formulas that are **first** order in it. So it is content neither formula
+claims: O5's finite-difference twiss leak, worse here for a reason that is itself the
+milestone — a displaced octupole *is* a strong sextupole. The bump amplitude is chosen so
+this sits below `1e-6`, and the scaling that justifies the choice is gated, not asserted.
+
+### The tracked leg needs no tolerance for its primary claim
+
+The fixture holds **no sextupole**, so `resonance_driving_terms` returns `f3000` = *exactly*
+`0j`. A tracked particle nevertheless carries a `−2 Q_x` sideband, and the on-orbit sum
+predicts it:
+
+    on-orbit prediction   6.65310179e-02 − 6.43607133e-02j
+    tracked (amp 1e-4)    6.65298097e-02 − 6.43654712e-02j    rel 5.3e-05
+
+No conjugation or scale factor can make a zero agree with a measurement. Magnitude and phase
+are gated separately (`2.6e-5`, `4.6e-5`), per O1's lesson that a magnitude-only check passes
+with the conjugate convention. The residual falls with launch amplitude (`3.30e-4`,
+`1.07e-4`, `5.30e-5`), which a wrong coefficient — a pure scale factor — could not produce.
+
+Two things differ from O4's and O5's tracked legs because the beam now circulates about a
+bump: the launch is the closed orbit *plus* an amplitude with that orbit taken back off (a
+trajectory is no longer its own betatron motion, and a DC offset lands on every sideband at
+once); and **O5's trap has two independent causes** rather than one — the measured tune
+differs from the lattice's because the octupoles detune with amplitude *and* because the
+bump moves the linear tune through feed-down.
+
+### What is not gated
+
+Per O2's rule that a pre-commitment is also a list of what is refused. **Second order in the
+orbit** (the feed-down of feed-down) is not computed — though note the expansion itself is
+*exact* and terminates, so this means only that the optics are taken at first order. Also
+absent: skew octupoles, decapoles and above, second-order RDTs, an RDT returned as a table
+*along* the ring, and the rolled quadrupole.
+
+Coverage is uneven and deliberately stated so. The five **skew-sextupole** lines (vertical
+orbit) and the whole **misalignment** half have `xtrack` as their only external arbiter,
+since PTC supplies neither. The tracked leg covers **one** term, `f3000`. The
+displacement-sign convention `z_0 = z_co − d` is gated *only* internally, on purpose: both
+external codes share the convention, so neither could catch an error in it.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,
