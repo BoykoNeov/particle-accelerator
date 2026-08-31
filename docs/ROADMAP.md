@@ -616,6 +616,21 @@ that are the whole content of the parameterisation, so the primary gate has to b
 to Stage 1's `beta`/`alpha`; and the 6D normal form does not reproduce the 4D optics at
 all, departing from it quadratically in the synchrotron tune.
 
+**O1-O5 all shipped, and the direction chosen on 2026-08-31 stays on the axis: O6, the
+driving terms of a machine that is actually steered and actually misaligned.** It was
+picked by running three candidate arbiters rather than reading them — O5's own upgrade to
+the filter — and it is the only one of the three with **two** independent reference codes:
+feed-down is `feed_down=True` in `xtrack`'s routine and it is what PTC's normal form about
+the closed orbit already contains, while skew octupoles (PTC exposes no odd-vertical-charge
+term, measured again one degree up) and second-order RDTs (`xtrack`'s routine is first
+order by construction) each have one. It is also the follow-up O5 named and refused, and
+the refusal was the sharp kind: feed-down lands on terms the function already returns,
+which is the one shape of wrongness a caller cannot detect from the output. The probes
+also settled the milestone's headline before it was written — the effect is **not** a
+keyword on the sum, because a displaced quartic source feeds down to the *quadrupole*
+order too, so the optics the first-order formula is evaluated on move as well (`5.9e-5` in
+`Q_x`, `0.05%` in `beta_x` on the probe ring, against O5's `1e-6` tolerances).
+
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -3667,7 +3682,10 @@ Mais-Ripken cross-plane betas (`betx2`, `bety1`) and the crab dispersion (`dx_ze
 the same gap seen from two other sides, and are sequenced behind it as O2. O3, written
 2026-08-27 after its arbiter had been verified by running it, leaves the representation
 alone: it is the *second-order* normal form, and the first entry on the axis that changes
-a number rather than re-expressing one.
+a number rather than re-expressing one. O6, written 2026-08-31 the same way — all three
+candidate arbiters run before a word of the entry — is the first entry that changes the
+**ring** the terms are computed for rather than the terms themselves: the driving terms of
+a machine that is actually steered and actually misaligned.
 
 - **O1 — the normalising matrix `W`, the actions it makes invariant, and the
   order at which the 6D optics leaves the 4D optics.** ✅ **SHIPPED (2026-08-27)**.
@@ -4355,6 +4373,128 @@ a number rather than re-expressing one.
   suite is **280 passed**, against 263 before — again the whole difference is this
   milestone's own two files, and every one of the 280 ran rather than skipping, so
   the clang-cl JIT fix-up and the bundled MAD-X both held for the new files too.
+
+- **O6 (candidate) — feed-down into the driving terms: the RDTs of the machine as it is
+  actually built and actually steered.** Effort **M**.
+
+  O4 and O5 built twenty first-order driving terms and evaluated all twenty on the
+  **design** orbit, with every source perfectly placed. Both restrictions are enforced by
+  a refusal rather than modelled, and O5's write-up named the second one as the follow-up
+  it was deliberately not doing. O6 removes them: a source that sits off the beam — because
+  the beam is steered away from it, or because the magnet is not where the lattice says it
+  is — acts *partly like every lower multipole*, and those lower multipoles are source
+  kinds in this very sum. That is why it matters more than an ordinary extension: the error
+  a missing feed-down makes does not land on lines outside the returned list, it lands on
+  **terms the function already returns**, which is the one shape of wrongness a caller
+  cannot detect from the output. O5 said exactly this and refused; O6 is the model that
+  makes the refusal unnecessary.
+
+  **Chosen on the project's usual filter, and the filter was applied by running both
+  candidate arbiters on 2026-08-31 before the candidate was written** — O5's procedure,
+  which is what separates a candidate from L5. It was chosen over two alternatives probed
+  at the same time that lost on the same criterion, and both probes are worth keeping
+  because they close questions rather than merely ranking options:
+
+  - **Skew octupoles — the remaining eight quartic terms — have one reference leg, and
+    that is now measured rather than expected.** Asked for all thirty-five quartic `gnfu`
+    keys at `no = 5` on a ring whose only sources are *skew* octupoles, PTC returns the
+    same eight even-vertical-charge rows it returns on any ring, and every one of them is
+    **bit-identical** with and without those magnets; the control — the same magnets made
+    normal — moves all eight. This is O5's cubic-order scope fact reproduced one degree up,
+    so a skew-octupole block would repeat O5's one-legged weakness eight more times.
+    `xtrack`'s routine, by contrast, is generic in multipole order *and* parity and returns
+    them all (exactly zero with the sources removed), so the leg it does have is real.
+  - **Second-order RDTs have one leg too, and the other way round.** On a ring with normal
+    sextupoles and no quartic magnet at all, PTC's eight quartic rows move with sextupole
+    strength as `k2^2` — the ratio from `1x` to `2x` measured `4.000` on seven of eight and
+    `4.003` on the last — three to four orders above the bare lattice's own contribution.
+    So PTC arbitrates it and `rdt_first_order_perturbation` cannot, by construction.
+  - **Feed-down has *two*.** PTC's normal form is built about the actual closed orbit: on a
+    ring carrying octupoles and **no sextupole**, its five cubic rows are exactly zero on
+    the flat orbit and `0.13` to `0.69` on a bumped one. `xtrack`'s routine takes
+    `feed_down=True` plus an orbit table and consumes `shift_x`, `shift_y` and
+    `rot_s_rad` as well, so it arbitrates the *misalignment* half too; on a `1.03 mm`
+    closed-orbit bump it gives the same five terms nonzero and exactly zero with the flag
+    off. The raw magnitudes of the two codes land within 10-15% of each other on two
+    deliberately different probe rings, so a matched fixture compares directly.
+
+  **The headline pre-commitment, and it was measured before it was written: this is not a
+  keyword on the sum, it is a change to the optics the sum walks.** The obvious reading of
+  the milestone — recompute each source's effective strength at its orbit offset and feed
+  the existing twenty-term table — is *half* the effect, and the half it leaves out is the
+  larger one. Feed-down from a quartic source reaches the **quadrupole** order as well
+  (`k1l = k3l x_co^2 / 2`), so the beta functions and phases the first-order formula is
+  evaluated at move too. Both arbiters already include this and neither says so: `twiss`
+  linearises about the closed orbit, and PTC's `closed_orbit` flag does the same. On the
+  probe ring the bump moved `Q_x` by `5.9e-5` and `beta_x` by `0.05%` peak — against O5's
+  `1e-6` reference tolerances, so it is the dominant term and not a correction.
+  Consequently `_rdt_sites` must walk `linearised_element_maps` (I1/I3's primitive, which
+  differentiates `track()` rather than reading element types) instead of each element's
+  on-axis `matrix()`. That is the milestone's real work, and I3 already did the same
+  surgery one level down for the Twiss functions — O6 is `closed_twiss_on_orbit`'s
+  argument arriving at the driving terms.
+
+  **The guard surgery is narrower than "lift the misalignment guard", and over-lifting
+  reintroduces the exact failure the other guard exists for.** `_rdt_sites` refuses twice.
+  The first refusal — a *source* that is misaligned — is what O6 replaces with a model.
+  The second — an element that couples `x` and `y` without being a skew quadrupole — must
+  **stay**: a rolled quadrupole still corrupts `f1001`/`f1010` and O6 gives it no model, so
+  a rolled *sextupole* comes into scope and a rolled *quadrupole* does not. Both checks
+  live in the same loop, which is precisely how an over-lift happens.
+
+  **And the walk's coupling-off premise stops being a convenience and becomes an
+  approximation with a size.** A *vertical* orbit at a sextupole **is** a skew quadrupole
+  (`k1sl = k2l y_co`), so a machine with a vertical orbit through its sextupoles is
+  genuinely coupled, while first-order perturbation theory asks for the unperturbed optics
+  and the existing walk decouples every element map. That residual must be **measured and
+  named** — the same treatment `resonance_driving_terms` already gives the skew-quadrupole
+  case, whose gap falls as the cube of the skew strength — rather than left unowned.
+
+  **Pre-commitment — the gates, written before any of them is run.**
+
+  - **The primary gate is a *power of the orbit*, fitted term by term, and never in
+    aggregate.** "Does it match xtrack" cannot be the discriminator here, because the
+    fed-down contribution lands on terms the function already returns and is therefore
+    added to a direct contribution the milestone is not changing. Scaling the **orbit** at
+    fixed magnet strength separates them: an octupole reaching the normal-sextupole lines
+    goes as `x_co^1`, an octupole reaching the *skew*-sextupole lines as `y_co^1`, a
+    sextupole reaching the skew-quadrupole lines as `y_co^1`, and the direct terms do not
+    move with the orbit at all. **Each power is fitted separately**, because J3's lesson is
+    exactly that a cubic kick lands on three quantities at three powers of the orbit and a
+    uniform mis-scale is invisible to all three — an aggregate fit passes with a wrong
+    common factor.
+  - **A displaced magnet on a centred orbit must equal a centred magnet on an equally
+    displaced orbit.** Purely internal, sharp, and it catches a sign error in the
+    displacement convention that both external codes would share and therefore could not
+    arbitrate.
+  - **The equivalent-element identity is *measured before it is asserted*.** An octupole at
+    offset `x_0` should contribute what a sextupole of `k3l x_0` at the same place
+    contributes — but this project has already been caught once on precisely that identity:
+    I2 recorded that the expansion's coefficient is **not** the equivalent element's kick,
+    and that signs flip between them. So it is established by measurement and then
+    asserted, never quoted.
+  - **The two reference legs, on a matched fixture.** `xtrack` with `feed_down=True` and
+    the orbit table it computes itself; MAD-X PTC's `gnfu` about the closed orbit, with the
+    `no = 5` decoding O4 established and O5 re-ran. The tolerance against `xtrack` cannot
+    be tighter than O5's `1e-6`, for O5's reason — its `twiss` obtains the map by finite
+    differences, so a nonlinear magnet leaks into the tune it reports, and an RDT divides
+    by a resonance denominator that converts a tune error into a term error roughly in
+    proportion to the charge.
+  - **The symbolic leg.** The effective-strength expansion (complex strength
+    `K_n = k_nl + i k_nsl`, complex offset `z_0 = x_0 + i y_0`, and a roll `psi` entering
+    as `K_n e^{i (n+1) psi}`) is **derived in sympy against the Taylor expansion of the
+    multipole kick itself**, not transcribed — the working agreement's rule, and G2's and
+    O3's lesson.
+  - **A tracked leg on at least one fed-down term**, read as a named sideband the way O4
+    and O5 read theirs, with O5's trap carried forward: the tune the projection window uses
+    is **measured from the trajectory**, never taken from the lattice, because the sources
+    move it.
+
+  **What will not be gated,** per O2's rule that a pre-commitment is also a list of what is
+  refused. Second order in the orbit (the feed-down of feed-down); skew octupoles (one
+  reference leg, as measured above) and decapoles and above; second-order RDTs; an RDT
+  returned as a table *along* the ring rather than at the entrance; and the rolled
+  *quadrupole*, which stays refused.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
