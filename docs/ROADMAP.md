@@ -4338,7 +4338,9 @@ a number rather than re-expressing one.
 
   Gates: `tests/analytic/test_octupole_driving_terms.py` (48),
   `tests/reference/test_octupole_driving_terms_xtrack.py` (8),
-  `tests/reference/test_octupole_driving_terms_madx.py` (9).
+  `tests/reference/test_octupole_driving_terms_madx.py` (9). The full analytic suite
+  is **1412 passed**, against 1364 before this milestone — the whole difference is
+  this milestone's own file, so nothing on axes A–N or O1–O4 moved.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
