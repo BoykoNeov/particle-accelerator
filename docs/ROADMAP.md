@@ -4659,12 +4659,12 @@ was executed on a probe ring before a word of this entry was written. What the r
   **The three arbiters are ranked by method, not counted.** All three were run on
   2026-08-31 and all three agree; what differs is what each can prove.
 
-  - **MAD-X PTC — `ptc_twiss, icase=5, no=3, closed_orbit, maptable`** is the sharpest and
+  - **MAD-X PTC — `ptc_twiss, icase=6, no=3, closed_orbit, maptable`** is the sharpest and
     the most independent: differential algebra composing exact maps, no finite difference
-    anywhere. It produces table `map_table`, 105 rows at order 3, each row named
-    `c<i>_<exponents>` with columns `coef, order, nx, nxp, ny, nyp, ndeltap, nt`, the
-    exponent string ordered `(x, px, y, py, deltap, t)`. It is also the only leg that
-    reaches **third** order — which is why third order is a *follow-up* and not this
+    anywhere. It produces table `map_table` — 131 rows at order 3 with
+    `icase=6`, 105 with `icase=5` — each row named `c<i>_<exponents>` with columns
+    `coef, order, nx, nxp, ny, nyp, ndeltap, nt`, the exponent string ordered
+    `(x, px, y, py, deltap, t)`. It is also the only leg that reaches **third** order — which is why third order is a *follow-up* and not this
     milestone (see the refusals).
   - **MAD-X `TWISS, sectormap, sectortable=`** is the second independent implementation and
     the one that matches accsim's own granularity: a 260-column table, `r11..r66` plus
@@ -4717,17 +4717,35 @@ was executed on a probe ring before a word of this entry was written. What the r
     first-order transform is reused. Whether `zeta = beta0 T` stays exact at second order
     is the matching question on the other longitudinal coordinate and is gated, not
     assumed.
+  - **And PTC — the leg that would otherwise check that transform — is the leg that does
+    not reach it.** `icase=5` means *five* variables: measured 2026-08-31, it returns 105
+    rows over output coordinates `c1..c5` with the `nt` exponent identically zero, so it
+    arbitrates the transverse and momentum entries and says nothing about the arrival-time
+    row or column. `icase=6` was then run rather than assumed: it gives 131 rows and
+    `c1..c6`, so the sixth row *is* exposed — but on a cavity-free fixture exactly **one**
+    row carries a non-zero `t` exponent, because without RF nothing depends on arrival
+    time. So the momentum-indexed entries, where the `M`/`Minv` correction above does its
+    work, have PTC as an arbiter only at `icase=6`, and the `t` *column* is only exercised
+    once a cavity is in the ring. The fixture has to be chosen for that, not inherited.
 
   **Analytic gates, all closed-form and all derivable rather than recalled.**
 
   - The thin sextupole is exact and is the anchor for the convention above:
     `T_211 = -k2l/2`, `T_233 = +k2l/2`, `T_413 = T_431 = +k2l/2`, everything else zero.
     Measured on the arbiters as `-6, +6, +6, +6` for `k2l = 12`.
-  - The drift's second-order entries come from expanding its exact map, and MAD-X's
-    expanded drift already shows the shape: on a 1 m drift at `gamma0 = 20`,
-    `t126 = t162 = t522 = t544 = t364 = t346 = -0.50062587` and `t566 = -0.00376227`.
-    The `-L/2` scaled by `1/beta0^2` is visible in that number, which is also a second
-    reason the longitudinal transform above has to be right before anything is compared.
+  - **The drift's second-order entries are the place where the three legs are not
+    expanding the same map, and the entry says which is which before a test is written.**
+    accsim's drift is *exact* (L1), `xtrack`'s default is the paraxial one and must be
+    switched with `configure_drift_model("exact")` — M2's finding, which O6 had to apply
+    again on a steered orbit — and **MAD-X's `sectormap` gives the expanded drift with no
+    switch at all.** The measured `t126 = t162 = t522 = t544 = t364 = t346 = -0.50062587`
+    and `t566 = -0.00376227` on a 1 m drift at `gamma0 = 20` are therefore the *paraxial*
+    numbers: `-L/2` scaled by `1/beta0^2`. They are a gate on the **expanded** map, not on
+    accsim's. So the drift gate is two-sided by construction: accsim's exact `T` against
+    its own symbolic expansion, and accsim's *paraxial* `T` — the same code path with the
+    drift model switched — against these MAD-X entries. Comparing the exact map to this
+    number and widening a tolerance around the miss is the failure mode M2 and O6 both
+    already paid for, and it is refused here in advance.
   - The **composition rule** is the milestone's own structural content and is exact:
     `T^BA_ijk = sum_a R^B_ia T^A_ajk + sum_{a,b} T^B_iab R^A_aj R^A_bk`. A ring built
     element by element must reproduce the one-turn `T` to round-off, and that test is
@@ -4735,11 +4753,25 @@ was executed on a probe ring before a word of this entry was written. What the r
   - **Symplecticity at second order is a set of exact identities on `T`, not a tolerance.**
     This is the gate with teeth and it costs nothing to run.
 
-  **Two internal anchors are already in the tree, which is O6's "two anchors, never one"
-  rule satisfied before the milestone starts.** O4's first-order driving terms and O3's
-  detuning are both functions of the one-turn second-order map, so `T` must reproduce
-  numbers already shipped and validated against PTC at `1e-14`. A formula wrong in a
-  `1/(n-m)!` cannot reproduce two independent shipped tables at once.
+  **Internal anchors already in the tree, which is O6's "two anchors, never one" rule
+  satisfied before the milestone starts — but only after one candidate anchor was struck
+  out.** Three shipped quantities are projections of the one-turn second-order map and must
+  be reproduced by it:
+
+  - **O4's first-order driving terms**, which are built from `k2l` and phases — second-order
+    map content, and already agreeing with PTC at `1e-14`.
+  - **Chromaticity** (F2, H1, M1). `dQ/ddelta` is the momentum derivative of `R`, and in the
+    symmetric convention `dR_ij/ddelta = 2 T_ij5` exactly — so the mixed momentum entries of
+    `T` are a quantity this package has shipped and cross-checked for four milestones.
+  - **M3's second-order dispersion.** The off-momentum fixed point expanded to second order
+    is a function of `k`, `R` and the `T_i55` column; `second_order_dispersion` is shipped
+    and MAD-X-validated, so that column is anchored too.
+
+  **`amplitude_detuning`/`sextupole_detuning` (O3) is *not* an anchor and must not be
+  claimed as one.** Sextupole amplitude detuning is second order **in `k2`**, which is the
+  same fourth-order-line content refused below — it lives in the third-order term, not in
+  `T`. An entry that refuses that content in one paragraph and leans on it in another is
+  the kind of self-inconsistency this roadmap exists to prevent.
 
   **What will not be gated, stated as a refusal in the manner O2 established.**
 
@@ -4750,9 +4782,9 @@ was executed on a probe ring before a word of this entry was written. What the r
     third-order term). Anyone reading `T` as "the nonlinear map" will be wrong about
     octupoles, and the entry says so.
   - **The third-order follow-up has one leg, and that is why it is not P1.** PTC reaches
-    `no=3` (verified: 105 rows); `xtrack`'s routine and MAD-X's `sectormap` both stop at
-    second order. One arbiter is exactly the condition under which O6 was chosen over its
-    two rivals, and the same rule applies to its own successor.
+    `no=3` (verified: 131 rows at `icase=6`); `xtrack`'s routine and MAD-X's
+    `sectormap` both stop at second order. One arbiter is exactly the condition under
+    which O6 was chosen over its two rivals, and the same rule applies to its own successor.
   - Misaligned and rolled sources beyond what O6 already models; `T` along the ring as a
     table at every element rather than per element plus the turn; and the tune footprint,
     IBS and `survey` items measured above.
