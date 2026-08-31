@@ -81,6 +81,8 @@ from accsim.orbit import (
     linearised_one_turn_map,
     propagate_orbit_nonlinear,
 )
+from accsim.tracking import Particle, Tracker
+from accsim.tune import naff
 from accsim.twiss import (
     _RDT_TERMS,
     CoupledLatticeError,
@@ -697,7 +699,7 @@ def test_a_thick_source_on_a_steered_orbit_converges_at_second_order(
         abs(resonance_driving_terms_on_orbit(lat, slices=n)["f3000"]) for n in (16, 32, 64, 128)
     ]
     gaps = [abs(values[i] - values[i + 1]) for i in range(3)]
-    for a, b in zip(gaps, gaps[1:]):
+    for a, b in zip(gaps, gaps[1:], strict=False):
         assert a / b == pytest.approx(4.0, rel=0.1), f"gaps {gaps} are not second order"
 
 
@@ -820,3 +822,145 @@ def test_the_decoupling_premise_costs_one_order_more_than_the_terms_it_buys(
         orbits.append(_orbit_extent(lat, Y))
     assert _fit_power(orbits, strengths) == pytest.approx(1.0, abs=0.02)
     assert _fit_power(orbits, couplings) == pytest.approx(2.0, abs=0.05)
+
+
+# ==========================================================================
+# 11. Tracking: the leg that shares no algebra with the expansion or the sum
+# ==========================================================================
+
+N_TURNS = 8192
+
+
+def _betatron_turns(lat: Lattice, amp: float, n: int = N_TURNS) -> tuple[np.ndarray, np.ndarray]:
+    """Turn-by-turn deviation **from the closed orbit**, and the orbit it was taken about.
+
+    The whole difference from O4's and O5's tracked legs, and it is the milestone: there
+    the closed orbit was the axis, so a trajectory *was* its own betatron motion. Here the
+    beam circulates about a bump, so the launch has to be the closed orbit plus an
+    amplitude and the record has to have that same orbit taken back off — otherwise the
+    "betatron" coordinate carries a DC offset, which lands on every sideband at once.
+    """
+    co = closed_orbit_nonlinear(lat)
+    p = Particle(x=co[0] + amp, px=co[1], y=co[2], py=co[3])
+    traj = Tracker(lat).track_turns(p, n, nonlinear=True)[:n]
+    out = np.array(traj, dtype=float, copy=True)
+    out[:, :4] -= co
+    return out, co
+
+
+def _hx(traj: np.ndarray, tw) -> np.ndarray:
+    """``h_x = x_hat + i p_hat_x`` in the shipped basis, from the **on-orbit** optics."""
+    x, px = traj[:, 0], traj[:, 1]
+    return x / math.sqrt(tw.beta_x) + 1j * (
+        tw.alpha_x * x / math.sqrt(tw.beta_x) + math.sqrt(tw.beta_x) * px
+    )
+
+
+def _line(h: np.ndarray, nu: float) -> complex:
+    """Complex amplitude of the ``exp(-2 pi i nu n)`` component, Hann-windowed."""
+    n = np.arange(h.size)
+    w = 0.5 - 0.5 * np.cos(2.0 * math.pi * (n + 0.5) / h.size)
+    return complex((w * h * np.exp(2j * math.pi * nu * n)).sum() / w.sum())
+
+
+def _tracked_f3000(lat: Lattice, tw, amp: float, n: int = N_TURNS) -> tuple[complex, float]:
+    r"""``f3000`` off the ``-2 Q_x`` sideband, with ``Q_x`` taken from the trajectory.
+
+    O4's read-out, unchanged — ``A(-2 Q_x) / conj(A(Q_x))^2 = 6 i conj(f3000)``, free of
+    both the action and the launch phase — applied to a ring in which **no sextupole
+    exists**. Every bit of what it measures is fed down from the octupoles by the orbit.
+
+    The tune is measured from the trajectory rather than taken from the lattice, which is
+    O5's trap carried forward and is doubly required here: the octupoles detune with
+    amplitude (O5's reason) *and* the bump moves the linear tune (this milestone's own
+    headline). Reading the sideband at the design tune would put it in the wrong place by
+    both errors at once.
+    """
+    traj, _ = _betatron_turns(lat, amp, n)
+    h = _hx(traj, tw)
+    qx = 1.0 - naff(h)
+    return complex(np.conj(_line(h, -2.0 * qx) / (6j * np.conj(_line(h, qx)) ** 2))), qx
+
+
+@pytest.fixture(scope="module")
+def tracked(ref_module: ReferenceParticle):
+    """A steered octupole ring, its on-orbit optics, and the term the sum predicts."""
+    base = o5._fodo(ref_module, octs=o5.OCTS)
+    lat = Lattice([Corrector(kick_x=2.0e-4)] + list(base.elements), ref_module)
+    return lat, closed_twiss_on_orbit(lat), resonance_driving_terms_on_orbit(lat)["f3000"]
+
+
+@pytest.fixture(scope="module")
+def ref_module() -> ReferenceParticle:
+    return ReferenceParticle.from_gamma(MASS0, GAMMA0)
+
+
+def test_tracking_sees_a_term_the_design_orbit_function_says_does_not_exist(tracked) -> None:
+    """The sharpest discriminator available for this milestone, and it needs no tolerance.
+
+    This ring holds no sextupole, so :func:`resonance_driving_terms` returns ``f3000``
+    **exactly zero** — not small. A real trajectory nevertheless carries a ``-2 Q_x``
+    sideband whose amplitude is the fed-down term, so the two functions are separated
+    here by everything rather than by a fraction of a percent. No conjugation, scale
+    factor or convention can make a zero agree with a measurement.
+    """
+    lat, tw, pred = tracked
+    assert resonance_driving_terms(lat)["f3000"] == 0.0
+    assert abs(pred) > 1e-2
+    got, _ = _tracked_f3000(lat, tw, 2.0e-4)
+    assert abs(got) > 1e-2
+    # Measured 1.07e-4 at this amplitude and turn count; gated an order above it, not at
+    # the round number a loose gate would take, so the assertion can actually fail.
+    assert abs(got - pred) / abs(pred) < 1e-3
+
+
+def test_the_tracked_term_matches_in_magnitude_and_phase(tracked) -> None:
+    """Both halves, because the phase is where a wrong conjugation would hide.
+
+    O1's lesson, which O4 and O5 both had to apply: a magnitude-only comparison passes
+    with the conjugate convention. The sign of a measured sideband's phase is not a naming
+    choice, so tracking is what decides it — and here it decides it for a term whose whole
+    existence comes from the feed-down expansion's complex arithmetic.
+    """
+    lat, tw, pred = tracked
+    got, _ = _tracked_f3000(lat, tw, 1.0e-4, n=16384)
+    # Measured 2.6e-5 in magnitude and 4.6e-5 in phase; both gated an order above.
+    assert abs(got) == pytest.approx(abs(pred), rel=3e-4)
+    assert np.angle(got) == pytest.approx(np.angle(pred), abs=3e-4)
+    assert abs(got - np.conj(pred)) / abs(pred) > 1.0
+
+
+def test_the_tracked_residual_falls_with_the_launch_amplitude(tracked) -> None:
+    """What "first order" has to mean: the miss is the next order, not a fixed offset.
+
+    A wrong constant in the read-out, or a wrong coefficient in the feed-down expansion,
+    would be a pure **scale factor** — a fixed relative offset no launch amplitude
+    removes. What is required instead is a residual that shrinks as the action does,
+    which is the signature of the second-order content this milestone does not compute.
+    """
+    lat, tw, pred = tracked
+    errs = [
+        abs(_tracked_f3000(lat, tw, a, 16384)[0] - pred) / abs(pred) for a in (4e-4, 2e-4, 1e-4)
+    ]
+    assert errs[0] > errs[1] > errs[2], errs
+    assert errs[0] / errs[2] > 3.0, errs
+
+
+def test_the_tune_the_window_uses_is_measured_not_taken_from_the_lattice(tracked) -> None:
+    """O5's trap, and on a steered ring it has two independent causes rather than one.
+
+    The tracked tune differs from the design lattice's because the octupoles detune with
+    amplitude **and** because the bump moves the linear tune through feed-down. Both are
+    checked to matter: reading the sideband at the design tune degrades the answer badly,
+    which is what makes measuring it a requirement rather than a refinement.
+    """
+    lat, tw, pred = tracked
+    got, qx_measured = _tracked_f3000(lat, tw, 2.0e-4)
+    qx_design = tunes(lat)[0]
+    assert qx_measured != pytest.approx(qx_design, abs=1e-6)
+    traj, _ = _betatron_turns(lat, 2.0e-4)
+    h = _hx(traj, tw)
+    at_design = complex(
+        np.conj(_line(h, -2.0 * qx_design) / (6j * np.conj(_line(h, qx_design)) ** 2))
+    )
+    assert abs(got - pred) / abs(pred) < abs(at_design - pred) / abs(pred)
