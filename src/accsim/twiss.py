@@ -1844,6 +1844,11 @@ def _fed_down(n: int, K: complex, z0: complex, roll: float) -> dict[int, complex
 def _record_site(found: dict[str, list], eff: dict[int, complex], optics: tuple) -> None:
     """File one source's effective strengths onto the four kinds :data:`_RDT_TERMS` uses.
 
+    **Every source contributes exactly one row to every kind, in lattice order**, so the
+    four arrays are parallel and a caller may pair them with the sources it walked. Rows
+    are frequently zero -- a normal octupole reaches the skew-sextupole kind only through
+    a *vertical* orbit -- and are kept anyway; see the comment on the loop below.
+
     The mapping is the whole reason the complex strength is the right object: the real
     part of ``K_2`` is a normal sextupole and its imaginary part a skew one, and the same
     at every order. Two halves deliberately go nowhere:
@@ -1869,8 +1874,15 @@ def _record_site(found: dict[str, list], eff: dict[int, complex], optics: tuple)
         ("skewsext", eff[2].imag),
         ("oct", eff[3].real),
     ):
-        if value != 0.0:
-            found[kind].append((value, *optics))
+        # Filed UNCONDITIONALLY, zeros included, and that is the contract rather than an
+        # oversight. The design-orbit walk selects rows by the *element's* own strength,
+        # which is orbit-independent, so its table is one row per source by construction.
+        # An effective strength is a computed quantity that can pass through zero -- a
+        # source sitting exactly on the axis in one plane -- so filtering on it would make
+        # the row count depend on the orbit, and any caller reading these arrays
+        # positionally would silently mis-pair sources with optics on such a ring. A zero
+        # row costs the sum exactly nothing.
+        found[kind].append((value, *optics))
 
 
 def _thin_quad_blocks(k1l: float) -> tuple[np.ndarray, np.ndarray]:

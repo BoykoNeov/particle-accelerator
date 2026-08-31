@@ -676,6 +676,34 @@ def test_the_effective_strengths_are_the_derived_expansion(octs_only) -> None:
         assert skewsext == pytest.approx(k3l * z0.imag, rel=1e-6)
 
 
+def test_the_per_source_table_stays_parallel_whatever_the_orbit(octs_only) -> None:
+    """One row per source per kind, in lattice order — including the rows that are zero.
+
+    The four arrays :func:`_rdt_sites_on_orbit` returns are indexed in parallel, and the
+    design-orbit walk gets that invariant for free because it selects rows by the
+    *element's* own strength, which no orbit can change. An **effective** strength is a
+    computed quantity that passes through zero whenever a source sits on the axis in one
+    plane — a purely horizontal bump puts every skew row at exactly zero — so dropping
+    zero rows would make the row count depend on the orbit and silently mis-pair sources
+    with their optics on precisely the rings this milestone exists for.
+
+    Gated on three orbits, one of which (horizontal only) has an entire kind at zero.
+    """
+    n_sources = 3
+    for kick_x, kick_y in ((3e-4, 0.0), (0.0, 3e-4), (3e-4, 2e-4)):
+        lat = octs_only(kick_x=kick_x, kick_y=kick_y)
+        assert sum(isinstance(e, ThinOctupole) for e in lat.elements) == n_sources
+        sites, _, _ = _rdt_sites_on_orbit(lat, 32, None, 0.0, 1e-7)
+        for kind in ("sext", "skewsext", "skew", "oct"):
+            assert sites[kind][0].size == n_sources, (kind, kick_x, kick_y)
+    # On a purely horizontal orbit the skew rows are present *and* identically zero,
+    # which is the case a value-based filter would have removed from the table.
+    sites, _, _ = _rdt_sites_on_orbit(octs_only(kick_x=3e-4), 32, None, 0.0, 1e-7)
+    assert np.all(sites["skewsext"][0] == 0.0)
+    assert np.all(sites["skew"][0] == 0.0)
+    assert np.all(sites["sext"][0] != 0.0)
+
+
 # ==========================================================================
 # 8. Thick bodies, where the body is no longer a drift
 # ==========================================================================
