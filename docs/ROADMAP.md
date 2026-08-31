@@ -626,10 +626,13 @@ term, measured again one degree up) and second-order RDTs (`xtrack`'s routine is
 order by construction) each have one. It is also the follow-up O5 named and refused, and
 the refusal was the sharp kind: feed-down lands on terms the function already returns,
 which is the one shape of wrongness a caller cannot detect from the output. The probes
-also settled the milestone's headline before it was written — the effect is **not** a
-keyword on the sum, because a displaced quartic source feeds down to the *quadrupole*
-order too, so the optics the first-order formula is evaluated on move as well (`5.9e-5` in
-`Q_x`, `0.05%` in `beta_x` on the probe ring, against O5's `1e-6` tolerances).
+also settled the milestone's shape before it was written. Recomputing each source's
+strength at its orbit offset is the leading effect and creates these terms from nothing,
+but it is **not the whole of it**: a displaced quartic source feeds down to the
+*quadrupole* order too, so the optics the first-order formula is evaluated on move as well
+— `5.9e-5` in `Q_x` and `0.05%` in `beta_x` on the probe ring, worth about `0.1%` on the
+terms. That is a correction rather than a rival, but it is 500 times O5's `1e-6` reference
+tolerance, so neither arbiter can be matched without it and neither announces it.
 
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
@@ -4407,32 +4410,39 @@ a machine that is actually steered and actually misaligned.
   - **Second-order RDTs have one leg too, and the other way round.** On a ring with normal
     sextupoles and no quartic magnet at all, PTC's eight quartic rows move with sextupole
     strength as `k2^2` — the ratio from `1x` to `2x` measured `4.000` on seven of eight and
-    `4.003` on the last — three to four orders above the bare lattice's own contribution.
-    So PTC arbitrates it and `rdt_first_order_perturbation` cannot, by construction.
+    `4.003` on the last — between two and four orders above the bare lattice's own
+    contribution (`545x` to `18350x`). So PTC arbitrates it and
+    `rdt_first_order_perturbation` cannot, by construction.
   - **Feed-down has *two*.** PTC's normal form is built about the actual closed orbit: on a
     ring carrying octupoles and **no sextupole**, its five cubic rows are exactly zero on
     the flat orbit and `0.13` to `0.69` on a bumped one. `xtrack`'s routine takes
     `feed_down=True` plus an orbit table and consumes `shift_x`, `shift_y` and
     `rot_s_rad` as well, so it arbitrates the *misalignment* half too; on a `1.03 mm`
     closed-orbit bump it gives the same five terms nonzero and exactly zero with the flag
-    off. The raw magnitudes of the two codes land within 10-15% of each other on two
-    deliberately different probe rings, so a matched fixture compares directly.
+    off. **No cross-code number is claimed from the probes**: the two rings were steered
+    differently on purpose (a MAD-X `hkicker` mid-cell against a thin `Multipole` at the
+    end), so the `9-18%` spread between their raw magnitudes measures the two fixtures and
+    nothing else. Matching the fixture is part of the milestone, not a result of the probe.
 
   **The headline pre-commitment, and it was measured before it was written: this is not a
-  keyword on the sum, it is a change to the optics the sum walks.** The obvious reading of
-  the milestone — recompute each source's effective strength at its orbit offset and feed
-  the existing twenty-term table — is *half* the effect, and the half it leaves out is the
-  larger one. Feed-down from a quartic source reaches the **quadrupole** order as well
+  keyword on the sum, it is also a change to the optics the sum walks — and the reason is
+  *tolerance*, not magnitude.** The obvious reading of the milestone — recompute each
+  source's effective strength at its orbit offset and feed the existing twenty-term table —
+  is the **leading** effect, and the probe says so unambiguously: with `feed_down=False` on
+  a bumped ring `xtrack` returns **exactly zero** on all five cubic terms, and both runs had
+  already been handed the on-orbit optics, so on-orbit optics with design strengths produce
+  nothing at all. But feed-down from a quartic source also reaches the **quadrupole** order
   (`k1l = k3l x_co^2 / 2`), so the beta functions and phases the first-order formula is
-  evaluated at move too. Both arbiters already include this and neither says so: `twiss`
-  linearises about the closed orbit, and PTC's `closed_orbit` flag does the same. On the
-  probe ring the bump moved `Q_x` by `5.9e-5` and `beta_x` by `0.05%` peak — against O5's
-  `1e-6` reference tolerances, so it is the dominant term and not a correction.
-  Consequently `_rdt_sites` must walk `linearised_element_maps` (I1/I3's primitive, which
-  differentiates `track()` rather than reading element types) instead of each element's
-  on-axis `matrix()`. That is the milestone's real work, and I3 already did the same
-  surgery one level down for the Twiss functions — O6 is `closed_twiss_on_orbit`'s
-  argument arriving at the driving terms.
+  evaluated at move as well: on the probe ring the bump moved `Q_x` by `5.9e-5` and
+  `beta_x` by `0.05%` peak, which the terms carry as `beta^{3/2}` to `beta^2` — of order
+  `0.1%`, a correction on top of the strengths rather than a rival to them, and **500 times
+  above the `1e-6` the reference legs are gated at**. So the milestone cannot match either
+  arbiter without it, and neither arbiter announces that it is doing it: `twiss` linearises
+  about the closed orbit, and PTC's `closed_orbit` flag does the same. Consequently
+  `_rdt_sites` must walk `linearised_element_maps` (I1/I3's primitive, which differentiates
+  `track()` rather than reading element types) instead of each element's on-axis
+  `matrix()`. I3 already did the same surgery one level down for the Twiss functions — O6
+  is `closed_twiss_on_orbit`'s argument arriving at the driving terms.
 
   **The guard surgery is narrower than "lift the misalignment guard", and over-lifting
   reintroduces the exact failure the other guard exists for.** `_rdt_sites` refuses twice.
