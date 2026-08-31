@@ -4580,6 +4580,11 @@ a machine that is actually steered and actually misaligned.
     at `0.12%`. The miss is the optics half — the milestone's own headline — so the gate
     is now two-sided: near-linear, but *provably not* linear.
 
+  **Suite totals.** **1457** analytic tests pass, against **1412** before this milestone
+  — the whole difference is O6's own file, so nothing on axes A–N or O1–O5 moved. The
+  reference suite is **302**, all passing, adding the fourteen xtrack cross-checks and the
+  eight MAD-X PTC ones.
+
   **Coverage is uneven and is stated rather than averaged.** The skew-sextupole lines and
   the whole misalignment half have one external arbiter; the tracked leg covers **one**
   term; and the displacement-sign convention `z_0 = z_co - d` is gated **only**
