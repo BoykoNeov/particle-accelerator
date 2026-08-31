@@ -92,7 +92,11 @@ SEXTS = {5.5: 1.0, 8.4: -0.7, 11.6: 0.45}
 #: Three skew quadrupoles, likewise.
 SKEWS = {2.4: 0.02, 6.8: -0.014, 9.9: 0.031}
 
-KEYS = tuple(_RDT_TERMS)
+#: The cubic pair this file is about. Selected **by source kind** rather than written
+#: out, so that a later milestone adding a source (O5 added the octupole and the skew
+#: sextupole) neither drags its terms into these gates nor silently stops covering a
+#: term this milestone shipped.
+KEYS = tuple(k for k, v in _RDT_TERMS.items() if v[5] in ("sext", "skew"))
 
 
 @pytest.fixture

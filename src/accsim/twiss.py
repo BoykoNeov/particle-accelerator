@@ -1464,9 +1464,18 @@ def total_detuning(lattice: Lattice, slices: int = 64) -> np.ndarray:
 #: ``key -> (m_x, m_y, p_x, p_y, coefficient, source)``.  ``(m_x, m_y) = (j - k, l - m)``
 #: is the monomial's charge, which fixes both the phase the term carries and the
 #: resonance it is divided by; ``(p_x, p_y)`` are the powers of ``beta_x``/``beta_y``;
-#: ``source`` is ``"sext"`` for a normal sextupole (strength ``k2l``) and ``"skew"`` for
-#: a skew quadrupole (``k1sl``).  Every coefficient here is derived, not quoted -- see
-#: :func:`resonance_driving_terms` and ``tests/analytic/test_resonance_driving_terms.py``.
+#: ``source`` names the magnet -- ``"sext"`` a normal sextupole (strength ``k2l``),
+#: ``"skew"`` a skew quadrupole (``k1sl``), ``"oct"`` a normal octupole (``k3l``) and
+#: ``"skewsext"`` a skew sextupole (``k2sl``).  Every coefficient here is derived, not
+#: quoted -- see :func:`resonance_driving_terms`,
+#: ``tests/analytic/test_resonance_driving_terms.py`` (the cubic pair) and
+#: ``tests/analytic/test_octupole_driving_terms.py`` (the quartic pair).
+#:
+#: No key takes a contribution from more than one magnet kind: a term's total degree
+#: ``j + k + l + m`` is the multipole's order, and its vertical charge ``m_y`` is even for
+#: a normal magnet and odd for a skew one, so the four source kinds land on four disjoint
+#: sets of monomials.  That is why one flat table suffices and why a ring holding all four
+#: needs no cross term.
 _RDT_TERMS: dict[str, tuple[int, int, float, float, float, str]] = {
     "f3000": (3, 0, 1.5, 0.0, -1.0 / 48.0, "sext"),
     "f2100": (1, 0, 1.5, 0.0, -1.0 / 16.0, "sext"),
@@ -1475,13 +1484,29 @@ _RDT_TERMS: dict[str, tuple[int, int, float, float, float, str]] = {
     "f1002": (1, -2, 0.5, 1.0, +1.0 / 16.0, "sext"),
     "f1010": (1, 1, 0.5, 0.5, +1.0 / 4.0, "skew"),
     "f1001": (1, -1, 0.5, 0.5, +1.0 / 4.0, "skew"),
+    "f4000": (4, 0, 2.0, 0.0, -1.0 / 384.0, "oct"),
+    "f3100": (2, 0, 2.0, 0.0, -1.0 / 96.0, "oct"),
+    "f2020": (2, 2, 1.0, 1.0, +1.0 / 64.0, "oct"),
+    "f2011": (2, 0, 1.0, 1.0, +1.0 / 32.0, "oct"),
+    "f2002": (2, -2, 1.0, 1.0, +1.0 / 64.0, "oct"),
+    "f1120": (0, 2, 1.0, 1.0, +1.0 / 32.0, "oct"),
+    "f0031": (0, 2, 0.0, 2.0, -1.0 / 96.0, "oct"),
+    "f0040": (0, 4, 0.0, 2.0, -1.0 / 384.0, "oct"),
+    "f2010": (2, 1, 1.0, 0.5, +1.0 / 16.0, "skewsext"),
+    "f2001": (2, -1, 1.0, 0.5, +1.0 / 16.0, "skewsext"),
+    "f1110": (0, 1, 1.0, 0.5, +1.0 / 8.0, "skewsext"),
+    "f0021": (0, 1, 0.0, 1.5, -1.0 / 16.0, "skewsext"),
+    "f0030": (0, 3, 0.0, 1.5, -1.0 / 48.0, "skewsext"),
 }
 
 _RdtSites = dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]
 
 
 def _rdt_sites(lattice: Lattice, slices: int) -> tuple[_RdtSites, float, float]:
-    """``({"sext"|"skew": (strength, beta_x, beta_y, mu_x, mu_y)}, Q_x, Q_y)`` per source.
+    """``({kind: (strength, beta_x, beta_y, mu_x, mu_y)}, Q_x, Q_y)`` per source.
+
+    ``kind`` is one of ``"sext"``, ``"skew"``, ``"oct"``, ``"skewsext"``; a kind with no
+    sources in the ring comes back with empty arrays rather than being absent.
 
     Walked on the **coupling-off** optics, the way :func:`closest_tune_approach` does: a
     skew quadrupole makes :func:`closed_twiss` refuse outright, and first-order
@@ -1489,12 +1514,21 @@ def _rdt_sites(lattice: Lattice, slices: int) -> tuple[_RdtSites, float, float]:
     midpoint rule -- ``slices`` thin kicks at the slice centres, with beta and phase
     carried across by half-slices of the body's own decoupled linear map.
     """
+    from .elements.octupole import Octupole, ThinOctupole
     from .elements.quadrupole import _focusing_block
-    from .elements.sextupole import Sextupole, ThinSextupole
+    from .elements.sextupole import Sextupole, ThinSextupole, ThinSkewSextupole
     from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
 
     ref = lattice.ref
-    sources = (Sextupole, ThinSextupole, SkewQuadrupole, ThinSkewQuadrupole)
+    sources = (
+        Sextupole,
+        ThinSextupole,
+        SkewQuadrupole,
+        ThinSkewQuadrupole,
+        Octupole,
+        ThinOctupole,
+        ThinSkewSextupole,
+    )
     for elem in lattice.elements:
         if isinstance(elem, sources) and elem.is_misaligned:
             # Explicit, because the coupling check below would catch a rolled sextupole
@@ -1503,12 +1537,20 @@ def _rdt_sites(lattice: Lattice, slices: int) -> tuple[_RdtSites, float, float]:
             # the physics. What is actually wrong is the *strength* -- a rolled sextupole
             # is a skew sextupole (exactly, at -30 degrees), so only k2l cos(3 roll) of it
             # is normal -- and an offset source is not caught by that guard at all.
+            #
+            # With the quartic sources live the offset case is worse, not merely
+            # unmodelled: an octupole displaced by (x_co, y_co) feeds down to a normal
+            # sextupole (k2l = k3l x_co) *and* a skew one (k2sl = k3l y_co), and both of
+            # those are now source kinds in this very sum. The error would therefore land
+            # on terms this function returns rather than on lines outside its list, which
+            # is the one shape of wrongness a caller cannot detect from the output.
             raise CoupledLatticeError(
                 f"{type(elem).__name__} {elem.name!r} is a driving-term source and is "
                 f"misaligned (dx={elem.dx}, dy={elem.dy}, roll={elem.roll}); this sum "
                 "reads a source's kind and strength from its type, so it would count a "
-                "rolled sextupole as a normal one at full strength. Roll and feed-down "
-                "are out of scope for resonance_driving_terms"
+                "rolled magnet as a normal one at full strength, and an offset one feeds "
+                "down onto the lower-order terms this same sum reports. Roll and "
+                "feed-down are out of scope for resonance_driving_terms"
             )
     for elem in lattice.elements:
         if isinstance(elem, (SkewQuadrupole, ThinSkewQuadrupole)):
@@ -1529,24 +1571,38 @@ def _rdt_sites(lattice: Lattice, slices: int) -> tuple[_RdtSites, float, float]:
     tw0 = match_periodic(one_turn)
     bx, ax, mux = tw0.beta_x, tw0.alpha_x, 0.0
     by, ay, muy = tw0.beta_y, tw0.alpha_y, 0.0
-    found: dict[str, list[tuple[float, float, float, float, float]]] = {"sext": [], "skew": []}
+    found: dict[str, list[tuple[float, float, float, float, float]]] = {
+        "sext": [],
+        "skew": [],
+        "oct": [],
+        "skewsext": [],
+    }
     for elem, M in zip(lattice.elements, decoupled, strict=True):
         thick: tuple[str, float, float] | None = None
         if isinstance(elem, ThinSextupole):
             if elem.k2l != 0.0:
                 found["sext"].append((elem.k2l, bx, by, mux, muy))
+        elif isinstance(elem, ThinSkewSextupole):
+            if elem.k2sl != 0.0:
+                found["skewsext"].append((elem.k2sl, bx, by, mux, muy))
         elif isinstance(elem, ThinSkewQuadrupole):
             if elem.k1sl != 0.0:
                 found["skew"].append((elem.k1sl, bx, by, mux, muy))
+        elif isinstance(elem, ThinOctupole):
+            if elem.k3l != 0.0:
+                found["oct"].append((elem.k3l, bx, by, mux, muy))
         elif isinstance(elem, Sextupole) and elem.k2 != 0.0 and elem.length > 0.0:
             thick = ("sext", elem.k2, elem.length)
+        elif isinstance(elem, Octupole) and elem.k3 != 0.0 and elem.length > 0.0:
+            thick = ("oct", elem.k3, elem.length)
         elif isinstance(elem, SkewQuadrupole) and elem.k1s != 0.0 and elem.length > 0.0:
             thick = ("skew", elem.k1s, elem.length)
         if thick is not None:
             kind, strength, length = thick
             ds = length / slices
-            if kind == "sext":
-                hx = hy = _focusing_block(0.0, 0.5 * ds)  # a sextupole's own map is a drift
+            if kind in ("sext", "oct"):
+                # a sextupole's and an octupole's own maps are both drifts
+                hx = hy = _focusing_block(0.0, 0.5 * ds)
             else:
                 hx, hy = _blocks(_decoupled(SkewQuadrupole(0.5 * ds, strength).matrix(ref)))
             for step in range(2 * slices):
@@ -1570,11 +1626,23 @@ def _rdt_sites(lattice: Lattice, slices: int) -> tuple[_RdtSites, float, float]:
 def resonance_driving_terms(lattice: Lattice, slices: int = 32) -> dict[str, complex]:
     r"""First-order resonance driving terms ``f_jklm`` at the lattice entrance.
 
-    Returns ``{"f3000", "f2100", "f1020", "f1011", "f1002", "f1010", "f1001"}`` as
-    complex numbers -- the five a **normal sextupole** drives and the two a **skew
-    quadrupole** drives, which between them are every first-order term those two magnets
-    produce: ``f_jklm = conj(f_kjml)``, so the ten sextupole monomials and the four
-    skew-quadrupole ones are these seven and their conjugates.
+    Returns twenty terms as complex numbers -- every first-order term the package's four
+    non-linear source kinds drive, ``f_jklm = conj(f_kjml)`` having removed each
+    monomial's redundant conjugate partner:
+
+    ==================  ========================================================
+    normal sextupole    ``f3000 f2100 f1020 f1011 f1002``
+    skew quadrupole     ``f1010 f1001``
+    normal octupole     ``f4000 f3100 f2020 f2011 f2002 f1120 f0031 f0040``
+    skew sextupole      ``f2010 f2001 f1110 f0021 f0030``
+    ==================  ========================================================
+
+    **The four blocks do not overlap, and that is structural rather than lucky.** A
+    monomial's total degree ``j + k + l + m`` is the multipole's order, and its vertical
+    charge ``m_y = l - m`` is even for a normal magnet and odd for a skew one, so no term
+    in the table takes a contribution from two kinds and a ring holding all four needs no
+    cross term. The same statement read the other way is the reason a ring's octupoles
+    leave the sextupole terms exactly alone at this order.
 
     **What the number is.** :func:`sextupole_detuning` builds the normal form of the
     one-turn map and keeps the part that depends only on the actions -- the tune shift.
@@ -1601,17 +1669,39 @@ def resonance_driving_terms(lattice: Lattice, slices: int = 32) -> dict[str, com
         F_1011 = +S sqrt(bx) by E(1, 0) / 8
         F_1002 = +S sqrt(bx) by E(1,-2) / 16
 
+        octupole, O = k3l                     skew sextupole, T = k2sl
+        F_4000 = -O bx^2    E(4, 0) / 384     F_2010 = +T bx sqrt(by) E(2, 1) / 16
+        F_3100 = -O bx^2    E(2, 0) / 96      F_2001 = +T bx sqrt(by) E(2,-1) / 16
+        F_2020 = +O bx by   E(2, 2) / 64      F_1110 = +T bx sqrt(by) E(0, 1) / 8
+        F_2011 = +O bx by   E(2, 0) / 32      F_0021 = -T by^(3/2)   E(0, 1) / 16
+        F_2002 = +O bx by   E(2,-2) / 64      F_0030 = -T by^(3/2)   E(0, 3) / 48
+        F_1120 = +O bx by   E(0, 2) / 32
+        F_0031 = -O by^2    E(0, 2) / 96
+        F_0040 = -O by^2    E(0, 4) / 384
+
     None of that is quoted from anywhere: it is read off the same Lie machinery O3 uses,
     re-derived and gated coefficient by coefficient as symbolic identities in
-    ``tests/analytic/test_resonance_driving_terms.py``.
+    ``tests/analytic/test_resonance_driving_terms.py`` (the cubic pair) and
+    ``tests/analytic/test_octupole_driving_terms.py`` (the quartic pair).
 
     **Which lines these are, and why that list is forced.** The charge ``(j-k, l-m)`` is
     both the phase the term carries and the resonance it is divided by, so the driven
     lines follow from the monomials rather than from memory: ``3 Q_x`` and ``Q_x`` from a
-    sextupole's ``x^3``, ``Q_x`` and ``Q_x +- 2 Q_y`` from its ``x y^2``, and
-    ``Q_x +- Q_y`` from a skew quadrupole's ``x y``. Sitting on one raises
+    sextupole's ``x^3``, ``Q_x`` and ``Q_x +- 2 Q_y`` from its ``x y^2``,
+    ``Q_x +- Q_y`` from a skew quadrupole's ``x y``, ``4 Q_x`` and ``2 Q_x`` from an
+    octupole's ``x^4``, ``2 Q_x``, ``2 Q_x +- 2 Q_y`` and ``2 Q_y`` from its ``x^2 y^2``,
+    ``4 Q_y`` and ``2 Q_y`` from its ``y^4``, and ``2 Q_x +- Q_y``, ``Q_y`` and ``3 Q_y``
+    from a skew sextupole's ``3 x^2 y - y^3``. Sitting on one raises
     :class:`ResonantLatticeError`; approaching one makes that term diverge, which is
     physical and is returned.
+
+    **The octupole terms have a tie no reference code supplies.** The generator these are
+    read off also has an action-only part, which is what :func:`amplitude_detuning`
+    returns -- ``dQx/dJx = +k3l bx^2 / (16 pi)`` and friends, derived in J2 by a route
+    that shares no algebra with this one. So an octupole's normal form is split between
+    two shipped functions with nothing left over, and the split is gated as an identity.
+    A skew sextupole has no such tie: its generator has **no** action-only part at first
+    order, which is the same statement as "a skew sextupole does not shift the tune".
 
     **The reference point matters -- an RDT is covariant, not invariant.** Unlike
     :func:`sextupole_detuning`, which is a property of the ring alone, this is a property
@@ -1638,18 +1728,20 @@ def resonance_driving_terms(lattice: Lattice, slices: int = 32) -> dict[str, com
     sideband of the turn-by-turn spectrum, and its amplitude *and* phase are gated against
     these numbers by tracking.
 
-    **Scope.** First order in the strengths; normal sextupoles and skew quadrupoles only;
-    on the **design** orbit (no feed-down from a closed orbit or a misalignment); at the
-    lattice entrance. Octupole terms (``f4000`` and friends), skew-sextupole terms and
-    second-order RDTs are not computed. An octupole or a skew sextupole in the ring leaves
-    these seven numbers correct -- it drives no line among them -- but contributes nothing
-    to them either. An element that couples the planes *without* being a skew quadrupole
-    (a rolled quadrupole, say) would corrupt ``f1001``/``f1010``, so it is refused with
-    :class:`CoupledLatticeError` rather than silently summed as zero: the same measured
-    guard, for the same reason, as :func:`closest_tune_approach`. A **misaligned source**
-    is refused too, by its own explicit check rather than that one -- a rolled sextupole
-    *is* a skew sextupole, so only ``k2l cos(3 roll)`` of it is normal and the rest drives
-    lines that are not in this list, and an offset one feeds down.
+    **Scope.** First order in the strengths; normal sextupoles, skew quadrupoles, normal
+    octupoles and skew sextupoles; on the **design** orbit (no feed-down from a closed
+    orbit or a misalignment); at the lattice entrance. Skew octupoles, decapoles and
+    above, and second-order RDTs are not computed -- a magnet outside the four kinds
+    leaves these twenty numbers correct, because it drives no line among them, but
+    contributes nothing to them either. An element that couples the planes *without* being
+    a skew quadrupole (a rolled quadrupole, say) would corrupt ``f1001``/``f1010``, so it
+    is refused with :class:`CoupledLatticeError` rather than silently summed as zero: the
+    same measured guard, for the same reason, as :func:`closest_tune_approach`. A
+    **misaligned source** is refused too, by its own explicit check rather than that one
+    -- a rolled sextupole *is* a skew sextupole, so only ``k2l cos(3 roll)`` of it is
+    normal and the rest drives lines that are not in this list; and an offset octupole
+    feeds down into a normal *and* a skew sextupole, both of which are kinds in this very
+    sum, so that error would land on terms this function returns.
     """
     sites, qx, qy = _rdt_sites(lattice, slices)
     out: dict[str, complex] = {}
