@@ -7379,6 +7379,17 @@ by the symbolic identity, the covariance law and the reference codes, all of whi
 the first-order formula — so a wrong coefficient common to the derivation and to both
 external codes would survive.
 
+One caveat on the tracked leg itself, since “tracked” reads as the most independent check
+here: `f4000`'s read-out divides the measured sideband by a constant `8i` that was
+**extrapolated** from O4's two measured cases (`6i` at exponent `3`, `2i` at exponent
+`1`), not derived symbolically — a from-scratch derivation ran into a conjugation that
+would not reconcile with O4's shipped read-outs. What keeps the gate sharp is that a
+wrong constant there is a **pure scale factor**, so it would floor the residual at a
+fixed value no launch amplitude could reduce; the observed residual instead falls with
+the action (`3.8%`, `0.98%`, `0.25%`), which a wrong constant cannot produce. So the leg
+gates the coefficient's *scaling* unconditionally and its *magnitude* only via that
+argument.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,

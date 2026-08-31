@@ -4336,11 +4336,25 @@ a number rather than re-expressing one.
   formula — so a wrong coefficient common to the derivation and to both external codes
   would survive.
 
+  One caveat on the tracked leg itself, since “tracked” reads as the most independent
+  check here: `f4000`'s read-out divides the measured sideband by a constant `8i` that
+  was **extrapolated** from O4's two measured cases (`6i` at exponent `3`, `2i` at
+  exponent `1`), not derived symbolically — a from-scratch derivation ran into a
+  conjugation that would not reconcile with O4's shipped read-outs. What keeps the gate
+  sharp is that a wrong constant there is a **pure scale factor**, so it would floor the
+  residual at a fixed value no launch amplitude could reduce; the observed residual
+  instead falls with the action (`3.8%`, `0.98%`, `0.25%`), which a wrong constant cannot
+  produce. So the leg gates the coefficient's *scaling* unconditionally and its
+  *magnitude* only via that argument.
+
   Gates: `tests/analytic/test_octupole_driving_terms.py` (48),
   `tests/reference/test_octupole_driving_terms_xtrack.py` (8),
   `tests/reference/test_octupole_driving_terms_madx.py` (9). The full analytic suite
   is **1412 passed**, against 1364 before this milestone — the whole difference is
-  this milestone's own file, so nothing on axes A–N or O1–O4 moved.
+  this milestone's own file, so nothing on axes A–N or O1–O4 moved. The reference
+  suite is **280 passed**, against 263 before — again the whole difference is this
+  milestone's own two files, and every one of the 280 ran rather than skipping, so
+  the clang-cl JIT fix-up and the bundled MAD-X both held for the new files too.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
