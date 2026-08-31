@@ -7143,6 +7143,242 @@ second-order convergence in the slice count is measured **for each of them separ
 (they are transported by different body maps, so the exponent is a separate claim);
 a thick body approaches the thin limit at first order or better.
 
+## The octupole's and the skew sextupole's driving terms (O5 — implemented)
+
+`resonance_driving_terms` now returns **twenty** terms rather than seven: O4's cubic pair
+plus the eight a **normal octupole** drives and the five a **skew sextupole** drives.
+
+    f3000  f2100  f1020  f1011  f1002                     (normal sextupole, k2l)
+    f1010  f1001                                          (skew quadrupole,  k1sl)
+    f4000  f3100  f2020  f2011  f2002  f1120  f0031  f0040   (normal octupole, k3l)
+    f2010  f2001  f1110  f0021  f0030                     (skew sextupole,  k2sl)
+
+### The four blocks are disjoint, and that is structural
+
+A monomial's total degree `j+k+l+m` is the multipole's order, and its vertical charge
+`m_y = l−m` is **even** for a normal magnet and **odd** for a skew one. So no term takes a
+contribution from two magnet kinds, one flat table holds all twenty, and a ring carrying
+all four kinds needs no cross term — checked both as a property of the derived generators
+(no monomial appears under two kinds) and as a property of the shipped function (a ring
+with all four returns, term by term, exactly what the single-kind rings return).
+
+Read the other way, this is why a ring's octupoles leave the sextupole terms exactly alone
+at first order, and why O4's seven numbers did not move when O5 landed.
+
+### The coefficients
+
+Same shape as O4's, with `E(m_x,m_y) = exp(−i(m_x μ_x + m_y μ_y))` at the source and `β`,
+`μ` the **unperturbed** optics there:
+
+    octupole, O = k3l                      skew sextupole, T = k2sl
+    F_4000 = −O βx²   E(4, 0) / 384        F_2010 = +T βx √βy E(2, 1) / 16
+    F_3100 = −O βx²   E(2, 0) / 96         F_2001 = +T βx √βy E(2,−1) / 16
+    F_2020 = +O βx βy E(2, 2) / 64         F_1110 = +T βx √βy E(0, 1) / 8
+    F_2011 = +O βx βy E(2, 0) / 32         F_0021 = −T βy^(3/2) E(0, 1) / 16
+    F_2002 = +O βx βy E(2,−2) / 64         F_0030 = −T βy^(3/2) E(0, 3) / 48
+    F_1120 = +O βx βy E(0, 2) / 32
+    F_0031 = −O βy²   E(0, 2) / 96
+    F_0040 = −O βy²   E(0, 4) / 384
+
+All thirteen are verified as **exact symbolic identities** against `_homological`'s own
+output — `cancel(...) == 0`, no tolerance — exactly as O4's nine were, and from the same
+imported machinery, so O3's and O4's pinned conventions carry over without being re-argued.
+
+The generators themselves are pinned first, because every coefficient below them would
+otherwise be the correct normal form of the wrong magnet:
+`F_oct = −k3l (x⁴ − 6x²y² + y⁴)/24` and `F_skewsext = +k2sl (3x²y − y³)/6`, each checked to
+reproduce its shipped element map exactly (the Lie series terminates — neither generator
+depends on a momentum).
+
+The driven lines follow from the charges and are therefore forced, not remembered: `4Q_x`
+and `2Q_x` from an octupole's `x⁴`; `2Q_x`, `2Q_x ± 2Q_y` and `2Q_y` from its `x²y²`;
+`4Q_y` and `2Q_y` from its `y⁴`; `2Q_x ± Q_y`, `Q_y` and `3Q_y` from a skew sextupole's
+`3x²y − y³`.
+
+### The octupole's tie: what the RDT discards, J2 already shipped
+
+This milestone's equivalent of O4's `|C⁻|` tie, and the only leg sharing no algebra with
+the derivation. An octupole's first-order generator splits into an action-only part and
+the rest; the rest is the eight RDTs, and the action-only part is **exactly**
+`amplitude_detuning`, which J2 derived by averaging the kick over the betatron phase
+rather than by solving a homological equation:
+
+    dQx/dJx = +k3l βx²/(16π),  dQx/dJy = −k3l βx βy/(8π),  dQy/dJy = +k3l βy²/(16π)
+
+The three second derivatives are read out of O3's normal form and only then compared with
+J2's closed forms, so the relation is measured before it is asserted. Between them the two
+shipped functions account for the whole first-order generator with nothing left over.
+
+A **skew sextupole has no action-only part at all** — the same statement as "a skew
+sextupole does not shift the tune to first order" — so it gets no such tie. That is
+recorded as a gate rather than a remark, because it is half the reason those five terms
+rest on fewer legs than the other eight.
+
+### PTC exposes no odd-vertical-charge term, so five of the thirteen have one reference
+
+The scope fact that cost the milestone a leg, and it was **measured, not inferred**. Asked
+for all twenty cubic keys, MAD-X PTC returns the same five — the normal sextupole's —
+whatever the ring holds. Every one of those has even `l−m`; every skew-sextupole term has
+odd `l−m`; none of the latter is ever returned. On a ring whose only sources are skew
+sextupoles those five come back **numerically zero**, and adding skew sextupoles to an
+octupole ring leaves every PTC value bit-identical.
+
+"Not listed" is precisely the inference O4 had to unlearn (PTC returns blank rows under
+keys that were never requested), so the negative is established three ways rather than by
+one empty table. The consequence, stated plainly: the **eight octupole terms have two**
+independent reference codes (xtrack and PTC), the **five skew-sextupole terms have one**
+(xtrack) plus the tracked sidebands.
+
+### The factorial weight, re-measured one degree up
+
+PTC's `gnfu` returns `j! k! l! m!` times the RDT. The quartic block establishes that from
+**four distinct weights across eight terms** — `24` (`f4000`, `f0040`), `6` (`f3100`, `f0031`), `4`
+(`f2020`, `f2002`), `2` (`f2011`, `f1120`) — so a wrong overall normalisation would have
+to be four different numbers at once. Re-measured rather than inherited, for that reason.
+Quartic terms need `no = 5` where the cubic ones needed `no = 4`; `no = 6` is bit-identical.
+
+### Two reference disagreements, both localised, neither a loosened tolerance
+
+Both external comparisons came back *close but not round-off*, which is the shape a real
+effect makes and a convention error does not. Neither was resolved by relaxing a bound.
+
+**MAD-X PTC: the two codes are related by an identity, not by equality.** PTC runs with
+`exact=true`, so the *lattice itself* — exact drifts, and the quadrupoles' own kinematic
+terms — is nonlinear at quartic order and drives these lines with **no octupole present at
+all**. PTC reports the ring's total quartic content; accsim, like `sextupole_detuning`
+before it, reports the **magnets'** contribution and returns exactly zero for a ring of
+drifts. So the relation to check is
+
+    PTC(ring with octupoles) = accsim(octupoles) + PTC(same ring, octupoles off)
+
+which holds to `1e-12` on all eight terms in both real and imaginary part, against `1e-4`
+for the raw comparison. The right-hand side is *measured, not fitted*: the absolute gap is
+the **same number** at `0.3×`, `1×` and `3×` strength while the terms themselves change by
+a factor of ten — which is exactly what identifies it as the lattice's and not as a
+mis-scaled octupole term, since a wrong coefficient on accsim's side would be proportional
+to the octupoles.
+
+**xtrack: a nonlinear magnet leaks into its *linear* tune.** xtrack's `twiss` obtains the
+one-turn map by finite differences, so an octupole's cubic kick pollutes the tune it
+reports. Measured three ways: with no sources the two codes' tunes agree to `1e-16`; with
+the octupoles in, the gap is `8·10⁻¹⁰` and **exactly proportional to `k3l`** (a tenth of
+the strength gives a tenth of the gap); and an octupole *cannot* shift the linear tune,
+since its tune shift is proportional to the action and the action is zero on the closed
+orbit. So it is differencing, not physics.
+
+An RDT divides by `exp(−2πi(m_x Q_x + m_y Q_y)) − 1`, which turns a tune error into a term
+error roughly in proportion to the **charge**. From the measured tune gap alone that
+predicts `8.9·10⁻⁸` on `f4000` (charge 4) against `8.1·10⁻⁸` observed. Hence this
+milestone's xtrack tolerances are `1e-6` where O4's cubic ones were `1e-8`, and the
+general lesson: **a driving-term comparison against a finite-difference optics code cannot
+be tighter than the tune agreement times the charge.** O4 never met it because its own
+fixture's tune gap is `5·10⁻¹²`.
+
+### First order in `k3` is EXACT here, for O4's reason one degree up
+
+The bracket of two quartic generators is of degree six, so an octupole's second-order
+contribution cannot return to these quartic coefficients. Read off the identity above:
+once the lattice's own contribution is subtracted, what is left tracks accsim's strictly
+linear sum to `1e-11` across a factor of ten in strength.
+
+Worth keeping the pair in mind: an octupole's **detuning** is first order and large enough
+to move the tune, while its quartic **driving terms** have no second-order correction at
+all.
+
+### The trap: an octupole moves the very line its own RDT sits on
+
+The finding of this milestone, and the one O4 could not have had. An octupole's two halves
+interfere in the *measurement*: the action half is the amplitude detuning, which shifts
+`Q_x` off the lattice's linear tune, and the sideband the non-action half is read from
+moves with it — **three times as far**, since `f4000` sits at `−3Q_x`.
+
+At a 1.5 mm launch on the O5 fixture the tune shift is only `2·10⁻⁴`, but a Hann-windowed
+projection at the *linear* tune then reads leakage rather than the line: the raw `−3Q_x`
+amplitude comes out `6·10⁻⁵` of its true value and the answer built from it lands at `4.0`
+against `193` — **a factor of 48 low**. The two numbers differ because the primary line is
+mismeasured as well and the read-out is a ratio, so the errors partly cancel and
+conspicuously do not cancel completely; the survivor is far too large to read as a
+tolerance and far too small to look like a structural bug.
+
+A sextupole has **no first-order detuning**, which is exactly why O4's tracked gate could
+use `tunes(lat)` and this one cannot. The O5 tracked gates measure `Q_x` from the
+trajectory (`accsim.tune.naff`) and are gated on the difference between the two readings.
+
+### The tracked sidebands, one power up
+
+Same derivation as O4's, with the multiplier being the monomial's own exponent — `4` where
+`f3000`'s was `3`, hence `8i` where O4 divides by `6i`:
+
+    f4000 = conj[ A_x(−3Q_x) / (8i conj(A_x(Q_x))³) ]
+    f2001 = A_y(2Q_x) / (2i A_x(Q_x)²)
+    f2010 = conj[ A_y(−2Q_x) / (2i conj(A_x(Q_x))²) ]
+
+All ratios, so the action and the launch phase cancel. `f2001`/`f2010` come off the **same**
+purely horizontal trajectory on the two sidebands at `±2Q_x` — a skew sextupole puts
+vertical motion at *twice* the horizontal tune where a skew quadrupole puts it at the
+horizontal tune itself — which is what tests the sign of `m_y`; and they are separated by
+the ordering `|f2010|/|f2001|` **flipping** between working points (`0.027` low in the
+cell, `1.85` at the fixture's point).
+
+Residuals, both measured: `f4000`'s relative error is **linear in the action** (`3.8%`,
+`0.98%`, `0.25%` at `2`, `1`, `0.5` mm, and unchanged between 8192 and 16384 turns, which
+separates the physical next order from spectral leakage); the skew-sextupole terms'
+residual is **cubic in the strength** (`0.52%`, `0.13%`, `0.033%` per halving) — the same
+exponent and the same cause as O4's coupling terms, the optics the formula is evaluated on
+shifting quadratically.
+
+### The exact drift drives the `4Q_x` line too — present, and five orders down
+
+accsim's drift is exact, so its own map is nonlinear at **quartic** order,
+`−L(px²+py²)²/8`, and `px⁴` reaches the very line `f4000` sits on. O4's control could rely
+on the drift's nonlinearity being *even* in the momenta and therefore missing the third
+integer; at quartic order that escape is gone.
+
+It is **not** a defect in the reported number — like `sextupole_detuning`, this function
+reports the magnets' contribution and returns exactly zero for a ring of drifts. What had
+to be measured is the size of the floor, because the tracked gate would silently be reading
+the lattice if it were large: put through the same formula a ring of drifts and quadrupoles
+yields an apparent `|f4000|` of `1.6·10⁻³` against the octupoles' `193`, a part in `10⁵`.
+PTC measures the same quantity far more accurately and independently — it is precisely the
+offset in the identity above, `|f4000| = 2.3·10⁻³` on that fixture — so the tracked floor
+and the all-orders code agree that the lattice's own contribution is there and is tiny.
+
+### `|f|` varies around the ring very unequally, which is its own trap
+
+O4 recorded that `|f|` is not a ring invariant. O5 adds that the *size* of the variation
+differs enormously between terms on one and the same ring: `f0030` swings by `7.5×` and
+`f3100` by `3.0×`, while `f2001` moves by under one per cent. A term that happens to be
+nearly constant on one ring is **not** an invariant — it is a term whose sources sit at
+phases that nearly cancel the jump — so the gate is written on the terms that show the
+variation clearly rather than on the ones that hide it.
+
+### The misalignment guard, refused for a sharper reason than O4's
+
+`resonance_driving_terms` refuses a misaligned source, and with the quartic kinds live the
+offset case is worse than unmodelled. A rolled octupole is a mixture of a normal and a skew
+octupole, so a type-walking sum reads a *wrong* strength. An **offset** octupole feeds down
+to a normal sextupole (`k2l = k3l x_co`) **and** to a skew one (`k2sl = k3l y_co`) — and
+both of those are source kinds in this same sum, so the error would land on terms the
+function returns rather than on lines outside its list, which is the one shape of wrongness
+a caller cannot detect from the output.
+
+The inherited coupling guard is not merely weak there but **blind**: an octupole's linear
+map is a drift, so offsetting or rolling it leaves no off-block at all to fire on. Measured
+and asserted, so that "it is refused" is not confused with "it is refused for the right
+reason".
+
+### What is not gated
+
+Per O2's rule that a pre-commitment is also a list of what will not be gated. Nothing here
+covers **skew octupoles** (the remaining eight canonical quartic terms), decapoles and
+above, **second-order** RDTs, feed-down from a closed orbit or a misalignment, or an RDT
+returned as a table *along* the ring rather than at the entrance. Of the thirteen, three
+(`f4000`, `f2001`, `f2010`) have a tracked leg; the octupole block has the
+`amplitude_detuning` tie, which no reference code supplies; the remaining terms are reached
+by the symbolic identity, the covariance law and the reference codes, all of which share
+the first-order formula — so a wrong coefficient common to the derivation and to both
+external codes would survive.
+
 ## Toolchain / environment notes
 
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,
