@@ -635,6 +635,23 @@ but it is **not the whole of it**: a displaced quartic source feeds down to the
 terms. That is a correction rather than a rival, but it is 500 times O5's `1e-6` reference
 tolerance, so neither arbiter can be matched without it and neither announces it.
 
+**With O6 shipped, axis O's written candidates were exhausted and the only candidate left
+standing anywhere was L5 — which is deferred precisely because no reference code implements
+its model. So the filter was re-run on 2026-08-31, the same day, and it opened axis P: the
+transfer map beyond first order.** Every candidate arbiter was executed on a probe ring
+before the entry was written, which is what settled it: intra-beam scattering has *no*
+arbiter in this environment (`xfields` is absent), the tune footprint is a composition of
+`total_detuning`, and non-linear chromaticity is M1 already shipped — while the second-order
+map `T` is absent from `src/accsim` entirely and has three arbiters that were run and agree
+(PTC's differential algebra, MAD-X's per-element `sectormap`, and xtrack's finite-difference
+`get_T_matrix`). Two things were pinned before the candidate was written rather than
+discovered inside it: the storage convention is the **symmetric** one, `T_413 = T_431 =
+k2l/2` on a thin sextupole, with PTC's monomial `c1_110000` shown to be the *sum* of the
+symmetric pair; and the MAD-X longitudinal transform in `tests/reference/_madx.py` does
+**not** carry to second order, because `PT = beta0 delta + beta0 delta^2/(2 gamma0^2)` puts
+a `1.25e-3` relative error — 1250x the `1e-6` reference gate — on every momentum-indexed
+entry if the first-order transform is reused.
+
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
 item into scope. Ordered by proximity to what is already built, not by priority. Effort tags are rough: **S** ≈ a session, **M** ≈ a few, **L** ≈ a
@@ -4590,6 +4607,156 @@ a machine that is actually steered and actually misaligned.
   term; and the displacement-sign convention `z_0 = z_co - d` is gated **only**
   internally, on purpose — both external codes share it, so neither could catch an error
   in it.
+
+### P. The map as an object — the transfer map beyond first order (core accelerator)
+
+Every map accsim returns as a *matrix* is first order. `linearised_element_maps` and
+`linearised_one_turn_map` (I1, extended by I3 and consumed by O6) differentiate `track()`
+**once**; `Element.matrix()` is the same object read off the element type. Everything
+beyond first order is currently expressed **per effect** rather than as a map: J1's
+sextupole kick, J2's octupole kick, O3's detuning, O4-O6's driving terms. Each of those
+is a projection of one object nobody in this package has ever built — the Taylor
+expansion of the one-turn map to second order and above,
+
+    x_i(1 turn) = k_i + sum_j R_ij z_j + sum_{j,k} T_ijk z_j z_k + O(z^3),
+
+with `R` the 6x6 accsim already has and `T` a 6x6x6 it does not. Opened 2026-08-31 as a
+**new axis** rather than an extension on the roadmap's own rubric: it is not a new element
+(axis L), not a new effect, not a derivative of the optics (axis M), and not the linear map
+re-expressed as a rotation (axis O) — it is the map itself, carried one order further, and
+it is the object axes J and O keep taking projections of.
+
+**Chosen on the project's usual filter, applied the way O5 and O6 upgraded it — every
+candidate arbiter was *run*, not read.** With O1-O6 shipped, `xtrack`'s `Line` and
+`TwissTable` APIs were enumerated and diffed against `accsim`'s exports, and each survivor
+was executed on a probe ring before a word of this entry was written. What the run settled:
+
+- **`get_footprint`** is a composition of `total_detuning`, which is shipped. (It also
+  failed on the probe, but that was the *fixture* — `qx ~ 1.026` with `k2l = 12` loses
+  particles — not the tool, and that failure is not evidence for anything.)
+- **`get_non_linear_chromaticity`** returns `dqx`/`ddqx`, which M1's
+  `second_order_chromaticity` already covers; only third order would be new.
+- **Intra-beam scattering** — `get_ibs_growth_rates` raises `ImportError: Please install
+  xfields`. It has **no arbiter wired in this environment**, which is a stronger reason to
+  leave it in *Out of scope* than the label it already carries.
+- **`line.survey()`** works and returns a ring geometry (`X, Y, Z, theta, phi, psi, W`)
+  that accsim has no counterpart for anywhere. It is a real gap with two arbiters
+  (`SURVEY` in MAD-X as well), but it is **geometry, not dynamics**: no particle, no map.
+  Recorded here as a small future candidate rather than sequenced.
+- **The second-order map** was the one gap that is core, is genuinely absent
+  (`grep` finds no `T_matrix`, no Taylor map anywhere in `src/accsim`), and has more
+  external coverage than any milestone on this roadmap has had.
+
+- **P1 (candidate) — the second-order transfer map: `T` element by element, `T` for the
+  turn, and the composition rule that joins them.** Effort **M**.
+
+  `accsim.orbit` gains a second-order sibling of the first-order primitives —
+  `second_order_element_maps` and `second_order_one_turn_map`, returning `(k, R, T)` about
+  the closed orbit — plus the composition that builds the ring from the elements. It is a
+  *sibling*, in O6's sense: the first-order functions are not touched, so nothing on axes
+  A-O moves.
+
+  **The three arbiters are ranked by method, not counted.** All three were run on
+  2026-08-31 and all three agree; what differs is what each can prove.
+
+  - **MAD-X PTC — `ptc_twiss, icase=5, no=3, closed_orbit, maptable`** is the sharpest and
+    the most independent: differential algebra composing exact maps, no finite difference
+    anywhere. It produces table `map_table`, 105 rows at order 3, each row named
+    `c<i>_<exponents>` with columns `coef, order, nx, nxp, ny, nyp, ndeltap, nt`, the
+    exponent string ordered `(x, px, y, py, deltap, t)`. It is also the only leg that
+    reaches **third** order — which is why third order is a *follow-up* and not this
+    milestone (see the refusals).
+  - **MAD-X `TWISS, sectormap, sectortable=`** is the second independent implementation and
+    the one that matches accsim's own granularity: a 260-column table, `r11..r66` plus
+    `t111..t666`, **one row per element**, analytic rather than differenced. This is
+    `linearised_element_maps` one order up, element for element.
+  - **`xtrack`'s `get_T_matrix(particle_on_co=...)`** is the **weakest leg and must be
+    written down as such.** Its signature carries `steps_t_matrix`: it finite-differences.
+    If accsim builds `T` by differentiating `track()` twice — the obvious route, since the
+    first-order primitive already differentiates it once — then this leg *shares accsim's
+    method*, agrees to the difference floor, and gates **conventions, indices and
+    bookkeeping only, never the physics**. It earns its place by being the only leg that is
+    element-by-element *and* consumes `shift_x`/`shift_y`; it does not earn a claim of
+    independent confirmation. (`get_T_matrix()` without `particle_on_co` fails with
+    `could not broadcast (30,) into (1,)`; the argument is not optional in practice.)
+
+  **The storage convention is pinned in advance, on an isolated thin sextupole, because it
+  is a factor of two and this project has been bitten by exactly this shape before**
+  (O4's `gnfu` indexing, O6's roll sign). Two conventions are live for
+  `sum_{j,k} T_ijk z_j z_k`: sum over **all** `j,k` (symmetric `T`) or over `j <= k` only
+  (cross terms carrying a factor 2). The discriminating ratio is `|T_413| / |T_211|` on one
+  thin sextupole — `1` for symmetric, `2` for triangular. Measured 2026-08-31 on
+  `k2l = 12`: MAD-X gives `t211 = -6`, `t233 = +6`, `t413 = t431 = +6`, and xtrack gives
+  `T[1,0,0] = -6`, `T[1,2,2] = +6`, `T[3,0,2] = T[3,2,0] = +6`. **Both codes are
+  symmetric**, entry for entry, and the ratio is `1`. On `k2l = -9` every entry flips sign
+  and halves to `4.5`, so the numbers are `k2l/2` and not an accident of the fixture.
+  PTC is the tie-breaker that needs no convention at all, because its rows are labelled
+  **monomials**: on the whole ring `c1_200000 = 12.55192163689657` against xtrack's
+  `T[0,0,0] = 12.55192164`, while `c1_110000 = -70.8873373601427` is exactly the **sum** of
+  xtrack's symmetric pair `T[0,0,1] + T[0,1,0] = 2 x (-35.44366869)`. That is the factor of
+  two made explicit by a third code, and the decode is pre-committed here rather than
+  discovered.
+
+  **The MAD-X longitudinal transform does not survive to second order, and the correction
+  is derived here rather than met later.** `tests/reference/_madx.py` maps MAD-X's
+  `(x, px, y, py, T, PT)` to accsim's `(x, px, y, py, zeta, delta)` with
+  `M = diag(1, 1, 1, 1, beta0, 1/beta0)`, and its own docstring says both the scale and the
+  sign were pinned on **first-order** entries. Two things break at second order.
+
+  - It stops being a similarity transform. The correct statement is
+    `T'_ijk = sum_a M_ia sum_{b,c} T_abc Minv_bj Minv_ck` — **one** `M` and **two**
+    `Minv`, not `M T Minv`.
+  - `PT` is a *nonlinear* function of `delta`. Derived symbolically 2026-08-31, not
+    remembered: with `PT = sqrt((1+delta)^2 + 1/beta0^2 - 1) - 1/beta0`,
+
+        PT = beta0 delta + beta0 delta^2 / (2 gamma0^2) + O(delta^3),
+
+    so the quadratic term is `1/(2 gamma0^2)` of the linear one — **`1.25e-3` at the
+    `gamma0 = 20` these fixtures use, which is 1250x the `1e-6` the reference legs are
+    gated at.** Any `T` entry carrying a momentum index is wrong by that much if the
+    first-order transform is reused. Whether `zeta = beta0 T` stays exact at second order
+    is the matching question on the other longitudinal coordinate and is gated, not
+    assumed.
+
+  **Analytic gates, all closed-form and all derivable rather than recalled.**
+
+  - The thin sextupole is exact and is the anchor for the convention above:
+    `T_211 = -k2l/2`, `T_233 = +k2l/2`, `T_413 = T_431 = +k2l/2`, everything else zero.
+    Measured on the arbiters as `-6, +6, +6, +6` for `k2l = 12`.
+  - The drift's second-order entries come from expanding its exact map, and MAD-X's
+    expanded drift already shows the shape: on a 1 m drift at `gamma0 = 20`,
+    `t126 = t162 = t522 = t544 = t364 = t346 = -0.50062587` and `t566 = -0.00376227`.
+    The `-L/2` scaled by `1/beta0^2` is visible in that number, which is also a second
+    reason the longitudinal transform above has to be right before anything is compared.
+  - The **composition rule** is the milestone's own structural content and is exact:
+    `T^BA_ijk = sum_a R^B_ia T^A_ajk + sum_{a,b} T^B_iab R^A_aj R^A_bk`. A ring built
+    element by element must reproduce the one-turn `T` to round-off, and that test is
+    blind to no factor: a wrong `1/2` anywhere breaks it.
+  - **Symplecticity at second order is a set of exact identities on `T`, not a tolerance.**
+    This is the gate with teeth and it costs nothing to run.
+
+  **Two internal anchors are already in the tree, which is O6's "two anchors, never one"
+  rule satisfied before the milestone starts.** O4's first-order driving terms and O3's
+  detuning are both functions of the one-turn second-order map, so `T` must reproduce
+  numbers already shipped and validated against PTC at `1e-14`. A formula wrong in a
+  `1/(n-m)!` cannot reproduce two independent shipped tables at once.
+
+  **What will not be gated, stated as a refusal in the manner O2 established.**
+
+  - **Third order and above.** An octupole's cubic kick does **not appear in `T` at all** —
+    it lives in the third-order term — so this milestone touches **none** of J2, J3 or O5,
+    and it does **not** deliver the second-order driving terms O6 refused (second order in
+    `k2` lands on fourth-order lines, generated by two sextupole kicks, which is again the
+    third-order term). Anyone reading `T` as "the nonlinear map" will be wrong about
+    octupoles, and the entry says so.
+  - **The third-order follow-up has one leg, and that is why it is not P1.** PTC reaches
+    `no=3` (verified: 105 rows); `xtrack`'s routine and MAD-X's `sectormap` both stop at
+    second order. One arbiter is exactly the condition under which O6 was chosen over its
+    two rivals, and the same rule applies to its own successor.
+  - Misaligned and rolled sources beyond what O6 already models; `T` along the ring as a
+    table at every element rather than per element plus the turn; and the tune footprint,
+    IBS and `survey` items measured above.
+
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
