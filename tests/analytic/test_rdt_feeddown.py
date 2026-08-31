@@ -53,22 +53,54 @@ from __future__ import annotations
 
 import cmath
 import math
+import os
+import sys
 
 import numpy as np
 import pytest
 import sympy as sp
 
 from accsim import (
+    Corrector,
+    Lattice,
+    Octupole,
     Quadrupole,
     ReferenceParticle,
     ThinOctupole,
     ThinSextupole,
     ThinSkewQuadrupole,
     ThinSkewSextupole,
+    closed_twiss,
+    resonance_driving_terms,
+    resonance_driving_terms_on_orbit,
+    tunes,
 )
 from accsim.coords import PX, PY, X, Y
+from accsim.orbit import (
+    closed_orbit_nonlinear,
+    linearised_one_turn_map,
+    propagate_orbit_nonlinear,
+)
+from accsim.twiss import (
+    _RDT_TERMS,
+    CoupledLatticeError,
+    _rdt_sites_on_orbit,
+    closed_twiss_on_orbit,
+    match_periodic_coupled,
+)
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+import test_octupole_driving_terms as o5  # noqa: E402
 
 MASS0, GAMMA0 = 938.27208816e6, 20.0
+
+#: The three groups of terms the orbit scan separates, taken from the shipped table by
+#: source kind rather than listed by hand: a later milestone adding a source must not
+#: quietly widen or narrow these gates. O4's rule, kept.
+_CUBIC = tuple(k for k, v in _RDT_TERMS.items() if v[5] == "sext")
+_SKEWQ = tuple(k for k, v in _RDT_TERMS.items() if v[5] == "skew")
+_SKEWSEXT = tuple(k for k, v in _RDT_TERMS.items() if v[5] == "skewsext")
 
 #: Highest multipole order the package has a source for. ``n = 1`` quadrupole,
 #: ``n = 2`` sextupole, ``n = 3`` octupole; ``n = 0`` is the dipole the feed-down
@@ -414,3 +446,377 @@ def test_the_equivalent_element_identity_is_measured_before_it_is_asserted(
     # the identity a one-order check would miss.
     assert abs(oct_off[1]) > 1e-6
     assert abs(sext[1]) < 1e-12
+
+
+# ==========================================================================
+# 5. The sum on the orbit: the sibling, and the design path it must not disturb
+# ==========================================================================
+
+
+@pytest.fixture
+def octs_only(ref: ReferenceParticle):
+    """The probe's own fixture: **octupoles and no sextupole**.
+
+    Deliberately not a mixed ring. Every cubic term on this lattice is *purely* fed
+    down — an octupole drives none of them directly — so an orbit scan measures the
+    feed-down alone rather than a small correction sitting on top of a direct
+    contribution the milestone does not change. On a mixed ring the direct part would
+    not be constant either (the optics move, which is this milestone's own headline),
+    and a power fit would carry that as a residual.
+    """
+
+    def build(kick_x: float = 0.0, kick_y: float = 0.0):
+        base = o5._fodo(ref, octs=o5.OCTS)
+        return Lattice([Corrector(kick_x=kick_x, kick_y=kick_y)] + list(base.elements), ref)
+
+    return build
+
+
+def test_on_a_flat_orbit_the_two_functions_are_the_same_function(ref: ReferenceParticle) -> None:
+    """The cheapest and sharpest gate in the file, and it runs before any power fit.
+
+    A machine whose closed orbit is on axis has no feed-down, so the on-orbit sibling
+    must reproduce :func:`resonance_driving_terms` on every one of the twenty terms and
+    all four source kinds at once. It agrees to ``1e-10`` relative rather than exactly,
+    and the reason is named: the sibling takes its optics from
+    :func:`~accsim.orbit.linearised_element_maps`, which differentiates ``track()`` by
+    finite differences, so it carries that primitive's own ``~1e-12`` round-off. That is
+    precisely why the design path was left alone rather than re-pointed at the same
+    primitive — O4 pins its agreement with MAD-X PTC at ``1e-14``, four orders inside
+    this floor.
+    """
+    lat = o5._fodo(
+        ref,
+        octs=o5.OCTS,
+        skewsexts=o5.SKEWSEXTS,
+        sexts={2.7: 0.5, 7.1: -0.4},
+        skews={5.9: 0.02},
+    )
+    design = resonance_driving_terms(lat)
+    on_orbit = resonance_driving_terms_on_orbit(lat)
+    assert set(design) == set(on_orbit)
+    for key, value in design.items():
+        assert abs(value) > 1e-3, f"{key} is vacuously small on this fixture"
+        assert on_orbit[key] == pytest.approx(value, rel=1e-10)
+
+
+def test_the_design_path_is_untouched_by_the_sibling(ref: ReferenceParticle) -> None:
+    """A misaligned source still raises from :func:`resonance_driving_terms` itself.
+
+    O6 adds a model; it does not lift the old function's refusal. Keeping that explicit
+    is what makes "nothing on axes A-N or O1-O5 moved" checkable rather than asserted.
+    """
+    els = list(o5._fodo(ref, octs=o5.OCTS).elements)
+    for elem in els:
+        if isinstance(elem, ThinOctupole):
+            elem.dx = 1e-3
+    with pytest.raises(CoupledLatticeError, match="misaligned"):
+        resonance_driving_terms(Lattice(els, ref))
+
+
+# ==========================================================================
+# 6. The primary gate: a power of the orbit, fitted term by term
+# ==========================================================================
+
+
+def _fit_power(xs: list[float], ys: list[float]) -> float:
+    """``d log y / d log x`` — the exponent, by regression rather than by ratio."""
+    return float(np.polyfit(np.log(xs), np.log(ys), 1)[0])
+
+
+def _orbit_extent(lat: Lattice, plane: int) -> float:
+    """Peak ``|x|`` or ``|y|`` of the closed orbit — the variable the fit is against.
+
+    Measured from the ring rather than taken as the corrector strength: an octupole is
+    nonlinear, so the orbit it settles on is not exactly proportional to the kick that
+    made it, and fitting against the kick would smear the exponent it is meant to
+    resolve.
+    """
+    return max(abs(o[plane]) for o in propagate_orbit_nonlinear(lat, closed_orbit_nonlinear(lat)))
+
+
+def test_on_a_flat_orbit_an_octupole_drives_no_cubic_term_at_all(octs_only) -> None:
+    """The reference point the whole scan is measured against, and it is *exact*.
+
+    Not "small": an octupole reaches the sextupole lines only through feed-down, so with
+    the orbit on axis these five terms are identically zero rather than negligible. That
+    is what makes the scan below a measurement of feed-down and nothing else.
+    """
+    f = resonance_driving_terms_on_orbit(octs_only())
+    for key in _CUBIC + _SKEWQ + _SKEWSEXT:
+        assert f[key] == 0.0
+
+
+@pytest.mark.parametrize("key", _CUBIC)
+def test_a_horizontal_orbit_reaches_the_normal_sextupole_lines_at_first_power(
+    octs_only, key: str
+) -> None:
+    """``k2l_eff = k3l x_co``: five terms, each fitted **separately**.
+
+    Never in aggregate, and that is J3's lesson rather than a stylistic choice: a cubic
+    kick lands on three quantities at three different powers of the orbit, and a uniform
+    mis-scale is invisible to all three at once. An aggregate fit passes with a wrong
+    common factor; five separate fits do not.
+    """
+    scan = [(t, octs_only(kick_x=1e-4 * t)) for t in (1.0, 2.0, 4.0)]
+    xs = [_orbit_extent(lat, X) for _, lat in scan]
+    ys = [abs(resonance_driving_terms_on_orbit(lat)[key]) for _, lat in scan]
+    assert _fit_power(xs, ys) == pytest.approx(1.0, abs=0.02)
+
+
+@pytest.mark.parametrize("key", _SKEWSEXT)
+def test_a_vertical_orbit_reaches_the_skew_sextupole_lines_at_first_power(
+    octs_only, key: str
+) -> None:
+    """``k2sl_eff = k3l y_co`` — the *other* half of the same complex coefficient.
+
+    The two halves are what make the complex strength the right object: one real
+    displacement reaches the normal lines and one vertical displacement the skew ones,
+    from a single ``K_3 z_0``. A model that fed down only in ``x`` would pass the test
+    above and fail this one.
+    """
+    scan = [(t, octs_only(kick_y=1e-4 * t)) for t in (1.0, 2.0, 4.0)]
+    ys_orbit = [_orbit_extent(lat, Y) for _, lat in scan]
+    ys = [abs(resonance_driving_terms_on_orbit(lat)[key]) for _, lat in scan]
+    assert _fit_power(ys_orbit, ys) == pytest.approx(1.0, abs=0.02)
+
+
+def test_the_skew_quadrupole_lines_need_both_planes_at_once(octs_only) -> None:
+    """``k1sl_eff = k3l x_co y_co`` — a *product*, not a sum, and exactly zero otherwise.
+
+    The sharpest single check that the feed-down is the complex expansion rather than
+    two independent real ones: a purely horizontal orbit and a purely vertical orbit each
+    leave ``f1001``/``f1010`` identically zero, and only both together switch them on --
+    then linearly in whichever plane is scanned.
+    """
+    for key in _SKEWQ:
+        assert resonance_driving_terms_on_orbit(octs_only(kick_x=2e-4))[key] == 0.0
+        assert resonance_driving_terms_on_orbit(octs_only(kick_y=2e-4))[key] == 0.0
+    both = resonance_driving_terms_on_orbit(octs_only(kick_x=1e-4, kick_y=1e-4))
+    twice_x = resonance_driving_terms_on_orbit(octs_only(kick_x=2e-4, kick_y=1e-4))
+    twice_y = resonance_driving_terms_on_orbit(octs_only(kick_x=1e-4, kick_y=2e-4))
+    for key in _SKEWQ:
+        assert abs(both[key]) > 1e-6
+        assert abs(twice_x[key]) == pytest.approx(2.0 * abs(both[key]), rel=0.02)
+        assert abs(twice_y[key]) == pytest.approx(2.0 * abs(both[key]), rel=0.02)
+
+
+# ==========================================================================
+# 7. The half that is not the strengths: the optics move too
+# ==========================================================================
+
+
+def test_the_on_orbit_optics_move_by_far_more_than_the_reference_tolerance(octs_only) -> None:
+    """The milestone's headline, and the reason it is a *correction* rather than a rival.
+
+    Feed-down from a quartic source reaches the **quadrupole** order as well
+    (``k1l_eff = k3l x_co^2 / 2``), so the ``beta`` and phases the first-order formula is
+    evaluated at move. The effect is small against the strengths — which go from nothing
+    to everything — but it is not small against the tolerance the reference legs are
+    gated at: measured here at ``0.01%`` to ``0.2%`` of ``beta_x``, i.e. hundreds of
+    times ``1e-6``. Neither arbiter announces it (``xtrack``'s ``twiss`` linearises about
+    the closed orbit and PTC's normal form is built about it), so a model that fed down
+    only into the strengths would miss both by a margin they could not explain.
+    """
+    beats = []
+    for kick in (1e-4, 4e-4):
+        lat = octs_only(kick_x=kick)
+        beats.append(abs(closed_twiss_on_orbit(lat).beta_x / closed_twiss(lat).beta_x - 1.0))
+    assert beats[0] > 1e-4, "the beta beat is too small on this fixture to be the point"
+    assert beats[1] > 100 * 1e-6, "below the reference tolerance, so the headline is wrong"
+    # ...and it is genuinely quadratic in the orbit, which is what k3l x_co^2 / 2 says.
+    assert beats[1] / beats[0] == pytest.approx(16.0, rel=0.15)
+
+
+def test_the_sum_divides_by_the_steered_machines_tunes_not_the_blueprints(octs_only) -> None:
+    """The tunes the sum divides by are the *steered* machine's, not the design lattice's.
+
+    An RDT is divided by ``exp(-2 pi i [m_x Q_x + m_y Q_y]) - 1``, so a tune taken from
+    the design lattice would put a wrong resonance denominator under every one of the
+    twenty terms, the error growing with how close the working point sits to a driven
+    line. The shift is tiny in absolute terms and that is exactly why it needs a gate:
+    it is the kind of difference a comparison against another code would absorb into a
+    loosened tolerance rather than localise.
+    """
+    lat = octs_only(kick_x=4e-4)
+    _, qx, qy = _rdt_sites_on_orbit(lat, 32, None, 0.0, 1e-7)
+    design_qx, design_qy = tunes(lat)
+    assert qx != pytest.approx(design_qx, abs=1e-9)
+    assert qy != pytest.approx(design_qy, abs=1e-9)
+    assert (qx, qy) == pytest.approx((design_qx, design_qy), abs=1e-3)
+
+
+def test_the_effective_strengths_are_the_derived_expansion(octs_only) -> None:
+    """The intermediate, gated directly rather than through the twenty-term sum.
+
+    Three of this milestone's pre-committed checks are statements about ``z_0`` and
+    ``K_m_eff``, not about the sum; asserting them on the sum would mean inverting twenty
+    superposed contributions to localise a sign. :func:`_rdt_sites_on_orbit` exposes the
+    per-source strengths it filed, so they are checked where they are made — and against
+    the orbit read independently off
+    :func:`~accsim.orbit.propagate_orbit_nonlinear`, not off the walk itself.
+    """
+    lat = octs_only(kick_x=3e-4, kick_y=2e-4)
+    sites, _, _ = _rdt_sites_on_orbit(lat, 32, None, 0.0, 1e-7)
+    # propagate_orbit_nonlinear returns len(elements) + 1 boundary points; the orbit a
+    # thin source sees is the one at its ENTRANCE, so drop the ring's closing point.
+    orbit = propagate_orbit_nonlinear(lat, closed_orbit_nonlinear(lat))[:-1]
+    at_octs = [
+        complex(o[X], o[Y])
+        for o, e in zip(orbit, lat.elements, strict=True)
+        if isinstance(e, ThinOctupole)
+    ]
+    k3ls = [e.k3l for e in lat.elements if isinstance(e, ThinOctupole)]
+    assert len(at_octs) == len(o5.OCTS)
+    rows = zip(at_octs, k3ls, sites["sext"][0], sites["skewsext"][0], strict=True)
+    for z0, k3l, sext, skewsext in rows:
+        assert sext == pytest.approx(k3l * z0.real, rel=1e-6)
+        assert skewsext == pytest.approx(k3l * z0.imag, rel=1e-6)
+
+
+# ==========================================================================
+# 8. Thick bodies, where the body is no longer a drift
+# ==========================================================================
+
+
+def test_a_thick_source_on_a_steered_orbit_converges_at_second_order(
+    ref: ReferenceParticle,
+) -> None:
+    """``slices`` is midpoint quadrature, and it converges as ``1/slices^2``.
+
+    The gate that a thick body's own feed-down is carried rather than dropped. On a
+    steered orbit the half-slice block is *not* a plain drift any more — the gradient
+    ``k1l_eff = K_2 z_0`` acts inside the body — and a walk that kept the design path's
+    drift block would still converge, just to a different number. What pins it is the
+    **order**: a first-order error would show gap ratios of 2 rather than 4.
+    """
+    base = list(o5._fodo(ref).elements)
+    base.insert(1, Octupole(0.4, 400.0 / 0.4))
+    lat = Lattice([Corrector(kick_x=3e-4)] + base, ref)
+    values = [
+        abs(resonance_driving_terms_on_orbit(lat, slices=n)["f3000"]) for n in (16, 32, 64, 128)
+    ]
+    gaps = [abs(values[i] - values[i + 1]) for i in range(3)]
+    for a, b in zip(gaps, gaps[1:]):
+        assert a / b == pytest.approx(4.0, rel=0.1), f"gaps {gaps} are not second order"
+
+
+# ==========================================================================
+# 9. What the model covers, and what stays refused
+# ==========================================================================
+
+
+def test_an_offset_source_is_modelled_where_the_design_path_refuses_it(
+    ref: ReferenceParticle,
+) -> None:
+    """The refusal O6 exists to remove — and it must produce physics, not merely not raise."""
+    els = list(o5._fodo(ref, octs=o5.OCTS).elements)
+    for elem in els:
+        if isinstance(elem, ThinOctupole):
+            elem.dx = 1.0e-3
+    f = resonance_driving_terms_on_orbit(Lattice(els, ref))
+    for key in _CUBIC:
+        assert abs(f[key]) > 1e-3, f"{key} should be driven by a displaced octupole"
+
+
+def test_a_rolled_octupole_stays_refused_and_says_why(ref: ReferenceParticle) -> None:
+    """The one recognised kind whose rolled half has no model.
+
+    ``Im(K_3 exp(-4 i psi)) = -k3l sin 4 psi`` is a **skew octupole**, which drives eight
+    terms this table has no row for. Letting it through would smuggle in exactly the
+    scope O6 was chosen *over*: the probes measured that MAD-X PTC exposes no
+    odd-vertical-charge quartic row at all, so a skew-octupole block would have one
+    reference leg where feed-down has two. An *offset* octupole is modelled; only the
+    roll is refused, and the message says which.
+    """
+    els = list(o5._fodo(ref, octs=o5.OCTS).elements)
+    for elem in els:
+        if isinstance(elem, ThinOctupole):
+            elem.roll = 0.1
+    with pytest.raises(CoupledLatticeError, match="skew octupole"):
+        resonance_driving_terms_on_orbit(Lattice(els, ref))
+
+
+def test_a_rolled_quadrupole_stays_refused_by_the_measured_coupling_guard(
+    ref: ReferenceParticle,
+) -> None:
+    """The refusal that must **survive** the surgery, and the reason over-lifting is easy.
+
+    Both refusals live in the same loop, so widening the misalignment one is the natural
+    way to delete this one by accident. A rolled quadrupole corrupts ``f1001``/``f1010``
+    and O6 gives it no model, so it stays refused — by the *measured* guard on the
+    element's own matrix, exactly as :func:`closest_tune_approach` does it.
+    """
+    els = list(o5._fodo(ref, octs=o5.OCTS).elements)
+    for elem in els:
+        if isinstance(elem, Quadrupole):
+            elem.roll = 0.05
+            break
+    with pytest.raises(CoupledLatticeError, match="couples x and y"):
+        resonance_driving_terms_on_orbit(Lattice(els, ref))
+
+
+def test_a_rolled_sextupole_comes_into_scope_rather_than_tripping_the_guard(
+    ref: ReferenceParticle,
+) -> None:
+    """The other side of that surgery, and it is not symmetrical with the quadrupole.
+
+    A rolled sextupole *is* a skew sextupole — the complex strength says so exactly, and
+    section 3 measured the angle — and both parities are rows in the table, so it is
+    modelled rather than refused. It also demonstrates why the coupling guard could not
+    simply be re-pointed at these elements: a sextupole's map is a **drift**, so rolling
+    it leaves off-blocks of ``1e-18`` round-off, and that guard tests exact nonzero. It
+    would fire on arithmetic noise rather than on physics.
+    """
+    sexts = {2.4: 3.0, 6.8: -2.1}
+    els = list(o5._fodo(ref, sexts=sexts).elements)
+    for elem in els:
+        if isinstance(elem, ThinSextupole):
+            elem.roll = -math.pi / 6
+    got = resonance_driving_terms_on_orbit(Lattice(els, ref))
+    want = resonance_driving_terms_on_orbit(
+        Lattice(
+            [
+                ThinSkewSextupole(e.k2l) if isinstance(e, ThinSextupole) else e
+                for e in o5._fodo(ref, sexts=sexts).elements
+            ],
+            ref,
+        )
+    )
+    for key in _SKEWSEXT:
+        assert abs(want[key]) > 1e-3
+        assert got[key] == pytest.approx(want[key], rel=1e-8)
+    for key in _CUBIC:
+        assert abs(got[key]) < 1e-9
+
+
+# ==========================================================================
+# 10. The approximation that stops being free, measured and named
+# ==========================================================================
+
+
+def test_the_decoupling_premise_costs_one_order_more_than_the_terms_it_buys(
+    ref: ReferenceParticle,
+) -> None:
+    """A vertical orbit through a sextupole **is** a skew quadrupole, so the ring couples.
+
+    First-order perturbation theory asks for the unperturbed optics, so this walk
+    decouples every element map — as :func:`resonance_driving_terms` and
+    :func:`closest_tune_approach` do. On a vertical orbit that stops being a convenience
+    and becomes an approximation with a size, so the size is measured rather than left
+    unowned: the fed-down skew strength the sum actually uses grows **linearly** in
+    ``y_co``, while the coupling it genuinely produces grows **quadratically** (read as
+    ``1 - gamma_c``, Edwards-Teng's mixing). The neglected coupling is therefore one
+    order down on the terms it is neglected in favour of, and it vanishes with the orbit
+    rather than sitting at a fixed size.
+    """
+    strengths, couplings, orbits = [], [], []
+    for kick in (1e-4, 2e-4, 4e-4):
+        base = o5._fodo(ref, sexts={2.4: 3.0, 6.8: -2.1, 9.9: 4.5})
+        lat = Lattice([Corrector(kick_y=kick)] + list(base.elements), ref)
+        sites, _, _ = _rdt_sites_on_orbit(lat, 32, None, 0.0, 1e-7)
+        strengths.append(float(np.abs(sites["skew"][0]).sum()))
+        couplings.append(abs(1.0 - match_periodic_coupled(linearised_one_turn_map(lat)).gamma_c))
+        orbits.append(_orbit_extent(lat, Y))
+    assert _fit_power(orbits, strengths) == pytest.approx(1.0, abs=0.02)
+    assert _fit_power(orbits, couplings) == pytest.approx(2.0, abs=0.05)

@@ -33,6 +33,7 @@ Conventions (see ``docs/CONVENTIONS.md``):
 
 from __future__ import annotations
 
+import cmath
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -1743,7 +1744,16 @@ def resonance_driving_terms(lattice: Lattice, slices: int = 32) -> dict[str, com
     feeds down into a normal *and* a skew sextupole, both of which are kinds in this very
     sum, so that error would land on terms this function returns.
     """
-    sites, qx, qy = _rdt_sites(lattice, slices)
+    return _rdt_sum(*_rdt_sites(lattice, slices))
+
+
+def _rdt_sum(sites: _RdtSites, qx: float, qy: float) -> dict[str, complex]:
+    """The twenty-term sum itself, given the per-source table and the tunes.
+
+    Shared verbatim by :func:`resonance_driving_terms` and its on-orbit sibling: the
+    milestone that added the second one changes *which sources and optics go in*, never
+    the sum, so writing it once is what keeps the two from drifting apart.
+    """
     out: dict[str, complex] = {}
     for key, (mx, my, px, py, coef, kind) in _RDT_TERMS.items():
         den = np.exp(-2j * math.pi * (mx * qx + my * qy)) - 1.0
@@ -1759,6 +1769,338 @@ def resonance_driving_terms(lattice: Lattice, slices: int = 32) -> dict[str, com
         term = coef * strength * bx**px * by**py * np.exp(-1j * (mx * mux + my * muy))
         out[key] = complex(term.sum() / den)
     return out
+
+
+# ---------------------------------------------------------------------------
+# O6: the same driving terms, on the orbit the machine is actually steered onto
+# ---------------------------------------------------------------------------
+
+#: Highest multipole order this package has a source for (3 = octupole). The feed-down
+#: sum runs down from here to ``m = 1``; ``m = 0`` is the dipole part, which has already
+#: done its work in placing the orbit these terms are evaluated on.
+_MAX_MULTIPOLE = 3
+
+
+def _source_strength(elem) -> tuple[int, complex] | None:
+    r"""``(n, K_n)`` — multipole order and complex strength in the element's **own** frame.
+
+    ``K_n = k_nl + i k_nsl``, the one object that says what a magnet of order ``n`` does:
+    ``Delta px - i Delta py = -sum_n K_n z^n / n!`` with ``z = x + i y``. Integrated over
+    the whole body for a thick element (the caller divides by the slice count).
+    ``None`` for anything that is not one of the four source kinds — including a normal
+    quadrupole, which has no order above it to feed down *from* and drives no term in
+    :data:`_RDT_TERMS` itself.
+
+    Derived and measured against every shipped ``track()`` in
+    ``tests/analytic/test_rdt_feeddown.py``; the roll is **not** applied here, because
+    working in the body frame is what makes a thick body's slice loop one line shorter.
+    """
+    from .elements.octupole import Octupole, ThinOctupole
+    from .elements.sextupole import Sextupole, ThinSextupole, ThinSkewSextupole
+    from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
+
+    if isinstance(elem, ThinSextupole):
+        return (2, complex(elem.k2l))
+    if isinstance(elem, Sextupole):
+        return (2, complex(elem.k2 * elem.length))
+    if isinstance(elem, ThinSkewSextupole):
+        return (2, 1j * elem.k2sl)
+    if isinstance(elem, ThinOctupole):
+        return (3, complex(elem.k3l))
+    if isinstance(elem, Octupole):
+        return (3, complex(elem.k3 * elem.length))
+    if isinstance(elem, ThinSkewQuadrupole):
+        return (1, 1j * elem.k1sl)
+    if isinstance(elem, SkewQuadrupole):
+        return (1, 1j * elem.k1s * elem.length)
+    return None
+
+
+def _fed_down(n: int, K: complex, z0: complex, roll: float) -> dict[int, complex]:
+    r"""``{m: K_m_eff}`` for ``m = 1..3``: what a magnet at body offset ``z_0`` acts like.
+
+    One binomial shift of the kick polynomial's argument, plus the frame rotation:
+
+        K_m_eff = exp(-i (m + 1) psi) * K_n z_0^(n - m) / (n - m)!,
+
+    with ``z_0`` the orbit's position **in the magnet's own frame** — i.e.
+    ``exp(-i psi) (z_co - d)`` for a magnet displaced by ``d`` and rolled by ``psi``, so
+    displacement and orbit reach the physics as one variable and not two.
+
+    Every part of this is established in ``tests/analytic/test_rdt_feeddown.py`` rather
+    than quoted: the expansion against J3's and I2's shipped feed-down tables, and the
+    roll exponent by regression against the shipped rolled elements' own ``track()``.
+    """
+    out: dict[int, complex] = {}
+    for m in range(1, _MAX_MULTIPOLE + 1):
+        if m > n:
+            out[m] = 0.0 + 0.0j
+            continue
+        val = K * z0 ** (n - m) / math.factorial(n - m)
+        out[m] = val if roll == 0.0 else val * cmath.exp(-1j * (m + 1) * roll)
+    return out
+
+
+def _record_site(found: dict[str, list], eff: dict[int, complex], optics: tuple) -> None:
+    """File one source's effective strengths onto the four kinds :data:`_RDT_TERMS` uses.
+
+    The mapping is the whole reason the complex strength is the right object: the real
+    part of ``K_2`` is a normal sextupole and its imaginary part a skew one, and the same
+    at every order. Two halves deliberately go nowhere:
+
+    * ``Re(K_1)`` is a **normal quadrupole**, which drives no term in the table -- there
+      is no ``f2000``/``f1100``/``f0011``/``f0020`` row. It is not discarded physics: it
+      moves ``beta`` and the phases, and it reaches the answer through the optics walk
+      rather than through the sum. That is this milestone's headline correction.
+    * ``Im(K_3)`` is a **skew octupole**, which drives eight terms that are not in the
+      table. It cannot arise from feed-down (nothing above an octupole exists here) and a
+      rolled octupole is refused up front, so reaching it means an unmodelled source got
+      through -- hence a raise rather than a silent zero.
+    """
+    if abs(eff[3].imag) > 1e-12 * max(1.0, abs(eff[3])):
+        raise CoupledLatticeError(
+            f"a skew octupole component of {eff[3].imag:.6g} m^-3 reached the driving-term "
+            "sum, which has no row for the eight terms it drives; skew octupoles are out "
+            "of scope for resonance_driving_terms_on_orbit"
+        )
+    for kind, value in (
+        ("skew", eff[1].imag),
+        ("sext", eff[2].real),
+        ("skewsext", eff[2].imag),
+        ("oct", eff[3].real),
+    ):
+        if value != 0.0:
+            found[kind].append((value, *optics))
+
+
+def _thin_quad_blocks(k1l: float) -> tuple[np.ndarray, np.ndarray]:
+    """The ``(x, y)`` 2x2 blocks of a thin normal quadrupole ``px -> px - k1l x``."""
+    return np.array([[1.0, 0.0], [-k1l, 1.0]]), np.array([[1.0, 0.0], [k1l, 1.0]])
+
+
+def _rdt_steps_on_orbit(
+    lattice: Lattice, slices: int, orbit: np.ndarray, delta: float, step: float
+):
+    """``[(site_or_None, Cx, Cy)]`` — the walk, resolved once, seed-independent.
+
+    Each entry says "a source sits here, with these effective strengths" and then "step
+    the optics by these two blocks". Building the list before propagating any ``beta`` is
+    what lets the one-turn product be accumulated from *exactly* the blocks the sites are
+    then read at, which a thick body's midpoint quadrature would otherwise break.
+    """
+    from .elements.drift import Drift
+    from .elements.skew_quadrupole import SkewQuadrupole
+    from .orbit import _embed, linearised_element_maps
+
+    ref = lattice.ref
+    maps = linearised_element_maps(lattice, orbit, delta=delta, step=step)
+    state = _embed(orbit, delta)
+    steps: list[tuple[tuple | None, np.ndarray, np.ndarray]] = []
+    for elem, M in zip(lattice.elements, maps, strict=True):
+        src = _source_strength(elem)
+        if src is None or src[1] == 0.0:
+            cx, cy = _blocks(_decoupled(M))
+            steps.append((None, cx, cy))
+            state = elem.track(state, ref)
+            continue
+        n, K = src
+        if elem.length == 0.0:
+            # A thin source: its own feed-down gradient is already inside the
+            # linearised map, which differentiates track() at this very orbit.
+            z0 = cmath.exp(-1j * elem.roll) * complex(state[X] - elem.dx, state[Y] - elem.dy)
+            cx, cy = _blocks(_decoupled(M))
+            steps.append((_fed_down(n, K, z0, elem.roll), cx, cy))
+            state = elem.track(state, ref)
+            continue
+        # A thick source is midpoint quadrature, not a lattice: `slices` virtual thin
+        # sources at the slice centres while the real body carries the optics. On a
+        # steered orbit the body is no longer a plain drift -- its own feed-down gradient
+        # acts inside it -- so the half-slice block is built here rather than taken from
+        # `_focusing_block(0, ds/2)` as the design-orbit walk can afford to.
+        M_in, k_in = elem._alignment_entry(ref)
+        M_out, k_out = elem._alignment_exit(ref)
+        body = M_in @ state + k_in
+        ds = elem.length / slices
+        K_slice = K / slices
+        if isinstance(elem, SkewQuadrupole):
+            half = SkewQuadrupole(0.5 * ds, elem.k1s).matrix(ref)
+        else:  # a sextupole's and an octupole's own bodies are drifts
+            half = Drift(0.5 * ds).matrix(ref)
+        hx, hy = _blocks(_decoupled(half))
+        for _ in range(slices):
+            body = half @ body
+            z0 = complex(body[X], body[Y])
+            eff = _fed_down(n, K_slice, z0, elem.roll)
+            fx, fy = _thin_quad_blocks(eff[1].real)
+            steps.append((None, hx, hy))
+            steps.append((eff, fx, fy))
+            body = _kick_in_body(elem, body, K_slice, ref)
+            body = half @ body
+            steps.append((None, hx, hy))
+        state = M_out @ body + k_out
+    return steps
+
+
+def _kick_in_body(elem, body: np.ndarray, K_slice: complex, ref) -> np.ndarray:
+    """Apply one slice's nonlinear kick to the orbit, in the element's own frame.
+
+    A skew quadrupole is linear and its whole map is already in the half-body blocks, so
+    it kicks nothing extra here; a sextupole and an octupole apply their own thin kick,
+    the same drift-kick-drift the element's own ``track`` uses.
+    """
+    from .elements.octupole import Octupole, ThinOctupole
+    from .elements.octupole import _apply_kick as _oct_kick
+    from .elements.sextupole import Sextupole, ThinSextupole
+    from .elements.sextupole import _apply_kick as _sext_kick
+
+    out = np.array(body, dtype=float, copy=True)
+    if isinstance(elem, (Sextupole, ThinSextupole)):
+        return _sext_kick(out, K_slice.real)
+    if isinstance(elem, (Octupole, ThinOctupole)):
+        return _oct_kick(out, K_slice.real)
+    return out
+
+
+def _rdt_sites_on_orbit(
+    lattice: Lattice, slices: int, orbit0, delta: float, step: float
+) -> tuple[_RdtSites, float, float]:
+    """:func:`_rdt_sites`, with the orbit and the misalignments modelled instead of refused.
+
+    Two things change and no third. The **strengths** become effective strengths at each
+    source's own offset (:func:`_fed_down`), so a magnet the beam misses the centre of
+    acts partly like every lower multipole. And the **optics** the sum is evaluated on
+    become the on-orbit optics, because that same feed-down reaches the quadrupole order
+    and moves ``beta`` and the phases — a correction of order ``0.1%`` on a millimetre
+    bump, small against the strengths but hundreds of times the tolerance the reference
+    legs are gated at, so it is not optional.
+    """
+    ref = lattice.ref
+    from .orbit import closed_orbit_nonlinear
+
+    for elem in lattice.elements:
+        src = _source_strength(elem)
+        if src is not None:
+            # A modelled kind: the complex strength covers its roll and its offset, so
+            # the coupling guard below must not see it -- a rolled sextupole's map is a
+            # rolled *drift*, whose off-blocks are 1e-18 of round-off, and that guard
+            # tests exact nonzero. The one exception is an octupole, whose rolled skew
+            # half drives eight terms this table does not have.
+            if src[0] == 3 and elem.roll != 0.0:
+                raise CoupledLatticeError(
+                    f"{type(elem).__name__} {elem.name!r} is rolled (roll={elem.roll}), and a "
+                    "rolled octupole is partly a skew octupole (k3sl = k3l sin 4 roll), which "
+                    "drives eight terms this sum has no row for; skew octupoles are out of "
+                    "scope. An offset octupole is modelled -- only the roll is refused"
+                )
+            continue
+        M = elem.matrix(ref)
+        if M[np.ix_([X, PX], [Y, PY])].any() or M[np.ix_([Y, PY], [X, PX])].any():
+            raise CoupledLatticeError(
+                f"{type(elem).__name__} {elem.name!r} couples x and y without being one of "
+                f"the modelled source kinds (roll={elem.roll}), and this sum walks element "
+                "types: it would report f1001 = f1010 = 0 for a ring that is demonstrably "
+                "coupled. The same measured guard, for the same reason, as "
+                "closest_tune_approach -- a rolled quadrupole stays refused because O6 "
+                "gives it no model"
+            )
+    orbit = (
+        closed_orbit_nonlinear(lattice, delta=delta)
+        if orbit0 is None
+        else np.asarray(orbit0, dtype=float)
+    )
+    steps = _rdt_steps_on_orbit(lattice, slices, orbit, delta, step)
+    Cx, Cy = np.eye(2), np.eye(2)
+    for _, cx, cy in steps:
+        Cx, Cy = cx @ Cx, cy @ Cy
+    # Matched from *exactly* the blocks the walk steps through, not from the lattice's
+    # own one-turn map: a thick body here is midpoint quadrature rather than a lattice,
+    # so the two differ at O(1/slices^2) and seeding from the wrong one would report
+    # optics for a ring this function does not sum over.
+    bx, ax = _matched_block(Cx)
+    by, ay = _matched_block(Cy)
+    mux = muy = 0.0
+    found: dict[str, list] = {"sext": [], "skew": [], "oct": [], "skewsext": []}
+    for eff, cx, cy in steps:
+        if eff is not None:
+            _record_site(found, eff, (bx, by, mux, muy))
+        bx, ax, dmux = _propagate_block(cx, bx, ax)
+        by, ay, dmuy = _propagate_block(cy, by, ay)
+        mux, muy = mux + dmux, muy + dmuy
+    sites: _RdtSites = {}
+    for kind, rows in found.items():
+        a = np.array(rows, dtype=float).reshape(-1, 5)
+        sites[kind] = (a[:, 0], a[:, 1], a[:, 2], a[:, 3], a[:, 4])
+    return sites, mux / (2.0 * math.pi), muy / (2.0 * math.pi)
+
+
+def resonance_driving_terms_on_orbit(
+    lattice: Lattice,
+    slices: int = 32,
+    *,
+    orbit0: np.ndarray | None = None,
+    delta: float = 0.0,
+    step: float = 1e-7,
+) -> dict[str, complex]:
+    r"""The twenty first-order driving terms of the machine **as it is actually steered**.
+
+    :func:`resonance_driving_terms` evaluates its sum on the design orbit with every
+    source perfectly placed, and *refuses* a lattice that violates either assumption.
+    This is the same twenty terms with both assumptions modelled: it is to that function
+    what :func:`closed_twiss_on_orbit` is to :func:`closed_twiss`, and on a machine whose
+    closed orbit is on axis the two agree to round-off.
+
+    **Why this is not an ordinary extension.** A source the beam does not pass through
+    the centre of acts partly like *every lower multipole* — and those lower multipoles
+    are source kinds in this very sum. An octupole displaced by ``(x_0, y_0)`` feeds down
+    to a normal sextupole ``k3l x_0`` **and** a skew sextupole ``k3l y_0``, both of which
+    drive terms the function already returns. Missing it therefore does not leave lines
+    outside the returned list wrong; it leaves the returned numbers wrong, which is the
+    one shape of error a caller cannot detect from the output.
+
+    **The model is one line.** With the complex strength ``K_n = k_nl + i k_nsl`` and the
+    orbit's position in the magnet's own frame ``z_0 = exp(-i psi) (z_co - d)``,
+
+        K_m_eff = exp(-i (m + 1) psi) * sum_{n >= m} K_n z_0^(n - m) / (n - m)!,
+
+    whose real and imaginary parts are the normal and skew strengths of order ``m``.
+    Displacement and orbit enter as one variable, ``z_co - d``, which is why a magnet
+    moved by ``+d`` is exactly a centred magnet the beam passes at ``-d``. All of it is
+    derived and measured in ``tests/analytic/test_rdt_feeddown.py``, against J3's and
+    I2's already-shipped feed-down tables and against the shipped elements' ``track()``.
+
+    **The strengths are the leading effect but not the whole of it.** Feed-down from a
+    quartic source also reaches the **quadrupole** order (``k1l_eff = k3l x_0^2 / 2``),
+    so the ``beta`` and the phases the first-order formula is evaluated at move as well.
+    That correction is small — of order ``0.1%`` on a millimetre bump, against strengths
+    that go from nothing to everything — but it is hundreds of times the tolerance the
+    reference cross-checks are gated at, and neither reference code announces that it is
+    doing it (``xtrack``'s ``twiss`` linearises about the closed orbit; MAD-X PTC's
+    normal form is built about it). So the walk takes its optics from
+    :func:`~accsim.orbit.linearised_element_maps`, which differentiates ``track()``
+    rather than reading element types, exactly as I3 did one level down for the Twiss
+    functions.
+
+    **The coupling-off premise is now an approximation with a size.** First-order
+    perturbation theory asks for the *unperturbed* optics, so this walk decouples every
+    element map — as :func:`resonance_driving_terms` and :func:`closest_tune_approach`
+    do. On a **vertical** orbit that is no longer free: a sextupole at ``y_co`` *is* a
+    skew quadrupole (``k1sl_eff = k2l y_co``), so the machine is genuinely coupled and
+    the decoupled optics are wrong at second order in that strength. The residual is
+    measured rather than assumed — the same treatment the skew-quadrupole case already
+    gets, whose gap falls as the cube of the skew strength.
+
+    ``orbit0`` overrides the closed-orbit solve with a 4D ``(x, px, y, py)`` vector;
+    ``delta`` evaluates at another momentum; ``step`` is the linearisation increment.
+
+    **Scope, and what is still refused.** First order in the strengths and *first* order
+    in the orbit's effect on them is not a restriction — the expansion above is exact,
+    and it terminates. What is refused is a **rolled octupole**, whose skew half drives
+    eight terms this table has no row for, and any element that couples ``x`` and ``y``
+    without being a modelled kind — a **rolled quadrupole** above all, which corrupts
+    ``f1001``/``f1010`` and which O6 gives no model. An offset magnet of any kind, and a
+    rolled sextupole, skew sextupole or skew quadrupole, are all modelled.
+    """
+    return _rdt_sum(*_rdt_sites_on_orbit(lattice, slices, orbit0, delta, step))
 
 
 # ---------------------------------------------------------------------------
