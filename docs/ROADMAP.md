@@ -4885,7 +4885,10 @@ was executed on a probe ring before a word of this entry was written. What the r
     about a point with an orbit angle (`5.6e-5` at `px_co = 6.6e-5`, zero on axis).
     These are the candidates axis P and axis L inherit — see the new entries below.
 
-  **Suite totals.** See the end of this axis.
+  **Suite totals.** **1481** analytic tests pass, against **1458** before this milestone
+  — the whole difference is P1's own file (23 tests), so nothing on axes A–O moved. The
+  reference suite is **333**, all passing, adding the eighteen MAD-X `sectormap`/PTC
+  cross-checks and the thirteen xtrack `get_T_matrix` ones.
 
   **Coverage is uneven and is stated rather than averaged.** The arrival-time row has
   MAD-X's `sectormap` and PTC's `icase=6` as arbiters and xtrack in a different frame; the
