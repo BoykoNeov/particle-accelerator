@@ -1,0 +1,552 @@
+r"""P1 against MAD-X: ``sectormap`` element by element, and PTC's ``maptable`` for the turn.
+
+Two of the three arbiters, ranked by method as the roadmap did. ``TWISS, sectormap`` is an
+independent *analytic* second-order map, one row per element, at exactly accsim's
+granularity. ``ptc_twiss, maptable`` is differential algebra composing exact maps about
+the closed orbit, labelled by monomial — the leg that needs no storage convention and
+the only one that reaches the ``t`` column with a cavity in the ring (``icase=6``).
+
+**The frame change is the milestone's own composition rule, applied to a coordinate
+map.** ``PT`` is a nonlinear function of ``delta`` and ``M R M^-1`` does not carry to
+second order; ``_madx.to_accsim_frame_second_order`` builds the conversion as
+``Phi^-1 . g . Phi`` with :func:`accsim.taylor.compose`. The drift is the gate on that:
+its ``T`` is derived symbolically in the analytic suite, and MAD-X's ``t566 =
+-3L/(2 beta0^3 gamma0^2)`` becomes accsim's ``-L (2 + beta0^2)/(2 gamma0^2)`` only when
+``PT``'s quadratic term is carried — with the first-order transform reused it misses by
+``1.25e-3`` relative, a control asserted below rather than remembered.
+
+**What each leg covers, stated.** The ``sectormap`` leg gates every entry of every
+element on a design-orbit ring — drift, thick quadrupole, sector bend, thin sextupole,
+thin octupole — and pins the *gap* on the thick sextupole (its sliced body is the linear
+drift, so it lacks the drift's own ``T``; the residual is asserted to *be* that ``T``).
+The PTC leg gates the composed one-turn map on the same ring, then on a bunched ring
+(the ``t`` column), then about a **steered** closed orbit. The sign of PTC's sixth
+variable is pinned on ``R56`` before anything at second order is read.
+"""
+
+from __future__ import annotations
+
+import os
+
+import numpy as np
+import pytest
+from _madx import (
+    beam_beta0,
+    frame_maps,
+    madx_session,
+    ptc_maptable,
+    sectormap_rows,
+    to_accsim_frame_second_order,
+)
+
+from accsim import (
+    Corrector,
+    Dipole,
+    Drift,
+    Lattice,
+    Quadrupole,
+    ReferenceParticle,
+    RFCavity,
+    Sextupole,
+    TaylorMap,
+    ThinOctupole,
+    ThinQuadrupole,
+    ThinSextupole,
+    closed_orbit_6d,
+    closed_orbit_nonlinear,
+    second_order_element_maps,
+    second_order_one_turn_map,
+    taylor_expand,
+)
+from accsim.coords import DELTA, DIM, PX, PY, ZETA, X, Y
+
+pytestmark = pytest.mark.reference
+
+MASS0, GAMMA0 = 938.27208816e6, 20.0
+
+#: The design-orbit ring: every element kind with a second-order map, explicit drifts so
+#: that MAD-X's sectormap has one row per accsim element.
+KF, KD = 1.2, -1.2
+LQ, LB, ANGLE = 0.3, 1.0, 0.1
+K2L, K3L = 2.0, 300.0
+L_SEXT, K2_THICK = 0.2, 40.0
+
+#: Measured floors (2026-09-02). Per-element sectormap agreement after the frame change is
+#: ``2e-12`` on the drift, ``4e-11`` on the quadrupole and bend, i.e. accsim's own
+#: differencing floor; the composed one-turn map against PTC lands at ``1.0e-10`` on
+#: entries up to ``~600`` at ``step = 2.5e-4`` (``1.2e-9`` at ``1e-3``: the fourth-order
+#: truncation of 36 thick elements, which is why the PTC gates pass the step explicitly).
+#: Gates carry 10-100x headroom and no more.
+ELEMENT_ATOL = 1e-9
+TURN_ATOL = 1e-8
+
+#: MAD-X and PTC apply the **hard-edge dipole fringe field** at second order by default —
+#: a physical end-field effect accsim's :class:`Dipole` does not model (its edges are the
+#: linear pole-face matrices of F1). Killed on the ring fixtures so the body maps are
+#: compared like with like; the gap itself is measured and pinned in
+#: :func:`test_the_bend_gap_is_the_hard_edge_fringe_and_nothing_else`.
+NO_FRINGE = "kill_ent_fringe=true, kill_exi_fringe=true"
+
+#: The rows PTC returns at ``icase=5``: everything but the arrival time.
+FIVE = [X, PX, Y, PY, DELTA]
+
+#: Second harmonic of the 4-cell ring (``C = 14.4 m``): ``2 beta0 c / C``.
+RING_LENGTH = 4 * (LQ + 0.5 + 0.5 + LB + LQ + 0.4 + 0.6)
+RF_FREQ_HZ = 2 * ReferenceParticle.from_gamma(MASS0, GAMMA0).beta0 * 299792458.0 / RING_LENGTH
+
+
+def _elements(ref: ReferenceParticle) -> list:
+    return [
+        Quadrupole(LQ, KF, name="qf"),
+        Drift(0.5, name="d1"),
+        ThinSextupole(K2L, name="ms"),
+        Drift(0.5, name="d2"),
+        Dipole(LB, ANGLE, name="mb"),
+        Quadrupole(LQ, KD, name="qd"),
+        Drift(0.4, name="d3"),
+        ThinOctupole(K3L, name="mo"),
+        Drift(0.6, name="d4"),
+    ]
+
+
+def _madx_line(
+    *, cells: int = 4, kick: float = 0.0, cavity: bool = False, thin_quads: bool = False
+) -> str:
+    """A ``line``, not a ``sequence``: elements abut exactly and nothing is implicit.
+
+    ``thin_quads`` replaces each thick quadrupole by a thin one of the same integrated
+    strength followed by a drift of its length — the fixture for the steered-orbit gate,
+    where accsim's thick quadrupole is paraxial in the angles (L2) and PTC's is not.
+    """
+    if thin_quads:
+        quads = [
+            f"qf: multipole, knl={{0, {KF * LQ!r}}};",
+            f"qd: multipole, knl={{0, {KD * LQ!r}}};",
+            f"lq: drift, l={LQ};",
+        ]
+        cell = "cell: line = (qf, lq, d1, ms, d2, mb, qd, lq, d3, mo, d4);"
+    else:
+        quads = [
+            f"qf: quadrupole, l={LQ}, k1={KF};",
+            f"qd: quadrupole, l={LQ}, k1={KD};",
+        ]
+        cell = "cell: line = (qf, d1, ms, d2, mb, qd, d3, mo, d4);"
+    defs = quads + [
+        "d1: drift, l=0.5;",
+        "d2: drift, l=0.5;",
+        "d3: drift, l=0.4;",
+        "d4: drift, l=0.6;",
+        f"ms: multipole, knl={{0, 0, {K2L}}};",
+        f"mo: multipole, knl={{0, 0, 0, {K3L}}};",
+        f"mb: sbend, l={LB}, angle={ANGLE}, {NO_FRINGE};",
+        cell,
+    ]
+    head = []
+    if kick:
+        defs.append(f"kck: hkicker, kick={kick!r};")
+        head.append("kck")
+    if cavity:
+        # MAD-X: volt in MV, freq in MHz, lag in turns of 2 pi. The frequency must be a
+        # harmonic of the revolution frequency or PTC's fixed point walks away from
+        # ``t = 0`` (measured: ``k[t] = 4.9965`` at 30 MHz on a 14.4 m ring), and the
+        # phase must be the *stable* zero crossing above transition — ``lag = 0.5`` here,
+        # accsim's ``phi_s = pi``; at ``lag = 0`` the slope sign is the unstable one and
+        # both codes' longitudinal traces exceed 2.
+        defs.append(f"cav: rfcavity, volt=1.0, freq={RF_FREQ_HZ / 1e6!r}, lag=0.5;")
+        head.append("cav")
+    ring = ", ".join(head + [f"{cells}*cell"])
+    return f"""
+beam, particle=proton, gamma={GAMMA0!r};
+{chr(10).join(defs)}
+ring: line = ({ring});
+use, sequence=ring;
+"""
+
+
+def _accsim_ring(
+    *, cells: int = 4, kick: float = 0.0, cavity: bool = False, thin_quads: bool = False
+) -> Lattice:
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    head: list = []
+    if kick:
+        head.append(Corrector(kick_x=kick))
+    if cavity:
+        head.append(RFCavity(1.0e6, RF_FREQ_HZ, np.pi))
+    elements = _elements(ref)
+    if thin_quads:
+        thinned: list = []
+        for e in elements:
+            if isinstance(e, Quadrupole):
+                thinned += [ThinQuadrupole(e.k1 * e.length), Drift(e.length)]
+            else:
+                thinned.append(e)
+        elements = thinned
+    return Lattice(head + elements * cells, ref)
+
+
+@pytest.fixture(scope="module")
+def sectormap():
+    """``(rows, beta0)`` of one cell's sectormap on the design orbit."""
+    with madx_session() as madx:
+        madx.input(_madx_line(cells=1))
+        madx.input(
+            f'twiss, betx=1.0, bety=1.0, sectormap, sectortable=smap, sectorfile="{os.devnull}";'
+        )
+        return sectormap_rows(madx), beam_beta0(madx, "ring")
+
+
+@pytest.fixture(scope="module")
+def ring():
+    return _accsim_ring(cells=1)
+
+
+def _rows_in_beam_order(rows: dict, names: list[str]) -> list:
+    return [rows[n] for n in names]
+
+
+def test_ptc_sixth_variable_is_minus_t_and_fifth_is_pt() -> None:
+    """Pinned at first order on a bare drift before any second-order row is read.
+
+    ``c6_000010 = -L/(beta0^2 gamma0^2)`` where MAD-X's own ``R56`` is ``+``: the sixth
+    variable is ``-T``. ``c1_010010 = -L/beta0`` is the *sum* of the symmetric pair
+    ``2 x (-L/(2 beta0))`` of ``t126``: the fifth is ``PT`` and the monomial decode halves
+    it.
+    """
+    with madx_session() as madx:
+        madx.input(f"""
+        beam, particle=proton, gamma={GAMMA0!r};
+        el: drift, l=1.0;
+        seq: sequence, l=1.0; el, at=0.5; endsequence;
+        use, sequence=seq;
+        ptc_create_universe;
+        ptc_create_layout, model=2, method=6, nst=5, exact=true;
+        ptc_twiss, icase=6, no=2, betx=1, bety=1, betz=1, maptable;
+        ptc_end;
+        """)
+        k, R, T = ptc_maptable(madx)
+        beta0 = beam_beta0(madx, "seq")
+    gamma0 = GAMMA0
+    assert abs(R[ZETA, DELTA] + 1.0 / (beta0**2 * gamma0**2)) < 1e-12  # minus: -T
+    assert abs(T[X, PX, DELTA] + 0.5 / beta0) < 1e-12  # PT, and the pair halved
+    assert abs(T[ZETA, PX, PX] - 0.5 / beta0) < 1e-12  # -T flips the zeta row
+    assert np.max(np.abs(k)) < 1e-15
+
+
+def test_drift_second_order_entries_and_the_transform_that_reaches_them(sectormap, ring) -> None:
+    """MAD-X's drift entries are ``-L/(2 beta0)`` and ``-3L/(2 beta0^3 gamma0^2)``, and only
+    the nonlinear ``PT`` transform turns them into accsim's."""
+    rows, beta0 = sectormap
+    k, R, T = rows["d1"]
+    L = 0.5
+    g = GAMMA0
+    # MAD-X's own numbers, in its own frame: scale 1/beta0 (not 1/beta0^2 as an earlier
+    # roadmap note had it — corrected on measurement, 2026-09-02).
+    assert abs(T[X, PX, DELTA] + L / (2 * beta0)) < 1e-12
+    assert abs(T[ZETA, PX, PX] + L / (2 * beta0)) < 1e-12
+    assert abs(T[ZETA, DELTA, DELTA] + 1.5 * L / (beta0**3 * g**2)) < 1e-12
+    assert np.max(np.abs(k)) == 0.0
+
+    ours = second_order_element_maps(ring)[1]
+    theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0)
+    assert np.max(np.abs(theirs.T - ours.T)) < 1e-11
+    assert np.max(np.abs(theirs.R - ours.R)) < 1e-10
+    assert abs(ours.T[ZETA, DELTA, DELTA] + L * (2 + beta0**2) / (2 * g**2)) < 1e-11
+
+    # Control: the first-order transform reused at second order misses by 1/(2 gamma0^2)
+    # of the linear term on the momentum-indexed zeta entry — the roadmap's 1.25e-3.
+    m = np.diag([1.0, 1.0, 1.0, 1.0, beta0, 1.0 / beta0])
+    minv = np.linalg.inv(m)
+    naive = np.einsum("ia,abc,bj,ck->ijk", m, T, minv, minv)
+    miss = naive[ZETA, DELTA, DELTA] - ours.T[ZETA, DELTA, DELTA]
+    # The naive rule drops beta0 R56 (beta0/(2 gamma0^2)) = L/(2 gamma0^4): derived, and
+    # 8e-4 of the entry here — a thousand times the gate below.
+    assert abs(miss + L / (2 * g**4)) < 1e-12
+    assert abs(miss / ours.T[ZETA, DELTA, DELTA]) > 5e-4
+
+
+@pytest.mark.parametrize("name", ["qf", "d1", "ms", "d2", "mb", "qd", "d3", "mo", "d4"])
+def test_every_element_map_agrees_with_sectormap(sectormap, ring, name: str) -> None:
+    """All 216 entries of ``T`` (and 36 of ``R``) per element, after the frame change."""
+    rows, beta0 = sectormap
+    names = ["qf", "d1", "ms", "d2", "mb", "qd", "d3", "mo", "d4"]
+    ours = second_order_element_maps(ring)[names.index(name)]
+    k, R, T = rows[name]
+    theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0)
+    assert np.max(np.abs(theirs.R - ours.R)) < 1e-10, name
+    assert np.max(np.abs(theirs.T - ours.T)) < ELEMENT_ATOL, (
+        name,
+        np.max(np.abs(theirs.T - ours.T)),
+    )
+    if name in ("ms", "mo", "d1", "qf", "mb"):
+        assert np.max(np.abs(ours.T)) > 1e-3 or name == "mo"  # not a zero matched to a zero
+    if name == "mo":
+        assert np.max(np.abs(theirs.T)) < 1e-12  # MAD-X agrees: no octupole in T
+
+
+def test_thick_sextupole_gap_is_exactly_the_drifts_own_t() -> None:
+    """MAD-X's thick sextupole carries the drift's chromatic and path-length terms; accsim's
+    sliced body does not, and the difference is the standalone drift's ``T`` to the
+    slicing error.
+
+    Many slices, so that the ``O(k2 L^3 / n^2)`` integrator remainder (measured in
+    ``test_sextupole_kick.py``) is below the gate and the residual is the drift alone.
+    The transverse-transverse block — the sextupole's own content — agrees to the same
+    floor, so this is a *one-term* gap, named in ``docs/ROADMAP.md``.
+    """
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    with madx_session() as madx:
+        madx.input(f"""
+        beam, particle=proton, gamma={GAMMA0!r};
+        el: sextupole, l={L_SEXT}, k2={K2_THICK};
+        ring: line = (el);
+        use, sequence=ring;
+        twiss, betx=1.0, bety=1.0, sectormap, sectortable=smap, sectorfile="{os.devnull}";
+        """)
+        (k, R, T), beta0 = sectormap_rows(madx)["el"], beam_beta0(madx, "ring")
+    theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0)
+    sliced = Sextupole(L_SEXT, K2_THICK, n_slices=400)
+    ours = taylor_expand(lambda s: sliced.track(s, ref), np.zeros(DIM))
+    drift = taylor_expand(lambda s: Drift(L_SEXT).track(s, ref), np.zeros(DIM))
+    gap = theirs.T - ours.T
+    transverse = np.ix_([X, PX, Y, PY], [X, PX, Y, PY], [X, PX, Y, PY])
+    assert np.max(np.abs(gap[transverse])) < 5e-6  # the integrator remainder, n = 400
+    assert np.max(np.abs(gap - drift.T)) < 5e-6  # the whole gap is the drift's T
+    assert abs(gap[X, PX, DELTA] + L_SEXT / 2) < 5e-6  # and it is not small: -L/2
+    assert abs(T[X, PX, DELTA] + L_SEXT / (2 * beta0)) < 1e-12  # MAD-X's own entry
+
+
+def test_the_bend_gap_is_the_hard_edge_fringe_and_nothing_else() -> None:
+    r"""With MAD-X's default fringe on, the sector bend misses by ``hL/2``; killed, by ``6e-12``.
+
+    **A finding, named rather than absorbed.** Both MAD-X's TWISS and PTC (``exact=true``,
+    two integrator models) apply a hard-edge dipole fringe at each face — the second-order
+    map of the field's termination, whose entrance form is ``x += (h/2) y^2``,
+    ``py -= h y px`` and whose exit form is the reverse. Composed with the body that
+    leaves ``T[x, y, py] = T[y, px, y] = -hL/2``, ``T[py, px, py] = +hL cos(theta)/2``,
+    ``T[x, y, y] = -h (1 - cos theta)/2`` and ``T[px, y, y] = -h^2 sin(theta)/2`` — the
+    entries measured here, all of them ``y``-dependent in a magnet whose *body* field is
+    ``y``-independent. accsim's :class:`Dipole` carries F1's linear pole-face matrices and no
+    second-order fringe, and neither does ``xt.Bend`` with its default ``linear`` edge model;
+    with the fringe killed the three agree to the differencing floor. The fringe is a real
+    end-field effect and is the follow-up P1 names in ``docs/ROADMAP.md``.
+    """
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    ours = taylor_expand(lambda s: Dipole(LB, ANGLE).track(s, ref), np.zeros(DIM))
+    h = ANGLE / LB
+    gaps = {}
+    for label, flags in (("fringe", ""), ("killed", ", " + NO_FRINGE)):
+        with madx_session() as madx:
+            madx.input(f"""
+            beam, particle=proton, gamma={GAMMA0!r};
+            mb: sbend, l={LB}, angle={ANGLE}{flags};
+            ring: line = (mb);
+            use, sequence=ring;
+            twiss, betx=1.0, bety=1.0, sectormap, sectortable=smap, sectorfile="{os.devnull}";
+            """)
+            (k, R, T), beta0 = sectormap_rows(madx)["mb"], beam_beta0(madx, "ring")
+        gaps[label] = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0).T - ours.T
+    assert np.max(np.abs(gaps["killed"])) < 1e-10
+    gap = gaps["fringe"]
+    assert abs(gap[X, Y, PY] + h * LB / 2) < 1e-10
+    assert abs(gap[Y, PX, Y] + h * LB / 2) < 1e-10
+    assert abs(gap[PY, PX, PY] - h * LB * np.cos(ANGLE) / 2) < 1e-10
+    assert abs(gap[X, Y, Y] + h * (1 - np.cos(ANGLE)) / 2) < 1e-10
+    assert abs(gap[PX, Y, Y] + h * h * np.sin(ANGLE) / 2) < 1e-10
+    # And nothing in the horizontal-only block: the fringe is a y-effect at this order.
+    hx = np.ix_([X, PX], [X, PX], [X, PX])
+    assert np.max(np.abs(gap[hx])) < 1e-10
+
+
+def _ptc_turn(sequence: str, *, icase: int, closed_orbit: bool, order: int = 2, start: str = ""):
+    """PTC's one-turn ``(k, R, T)`` in its own frame, plus ``beta0``.
+
+    ``start`` is an explicit expansion point (``x=..., px=...`` in MAD-X syntax) for a map
+    about a trajectory that need not close; ``closed_orbit`` asks PTC to find the fixed
+    point itself.
+    """
+    with madx_session() as madx:
+        madx.input(sequence)
+        co = "closed_orbit," if closed_orbit else ""
+        madx.input(f"""
+        ptc_create_universe;
+        ptc_create_layout, model=2, method=6, nst=5, exact=true;
+        ptc_twiss, icase={icase}, no={order}, {co} {start} maptable;
+        ptc_end;
+        """)
+        return ptc_maptable(madx), beam_beta0(madx, "ring")
+
+
+def test_one_turn_map_agrees_with_ptc_on_the_design_orbit() -> None:
+    """The composed ring against differential algebra, ``icase=5`` (no cavity: five
+    variables, so the ``t`` column is absent and only the ``t`` row's zero is read)."""
+    lat = _accsim_ring()
+    (k, R, T), beta0 = _ptc_turn(_madx_line(), icase=5, closed_orbit=True)
+    theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0, time_sign=-1.0)
+    ours = second_order_one_turn_map(lat, step=2.5e-4)
+    # icase=5: five variables. Nothing depends on t, PTC exposes no t column — and no t
+    # *row* either (measured: no ``c6`` rows at all), so the arrival-time row is the
+    # sectormap leg's and the icase=6 test's to gate, not this one's.
+    assert np.max(np.abs(ours.T[:, :, ZETA])) < 1e-10 and np.max(np.abs(ours.T[:, ZETA, :])) < 1e-10
+    assert np.max(np.abs(theirs.R[FIVE] - ours.R[FIVE])) < 1e-9
+    diff = np.abs(theirs.T[FIVE] - ours.T[FIVE])
+    assert np.max(diff) < TURN_ATOL, np.max(diff)
+    assert np.max(np.abs(ours.T)) > 100.0
+
+
+def test_one_turn_map_agrees_with_ptc_on_a_bunched_ring() -> None:
+    r"""With a cavity, ``icase=6`` and the ``t`` column live — and one named gap.
+
+    **The cavity's kick is a momentum kick linearised in ``delta``, and PTC's is an energy
+    kick.** accsim's :class:`RFCavity` applies ``Delta delta = (qV/(beta0^2 E0)) [sin(...)
+    - sin(phi_s)]`` — exact in ``zeta``, but the conversion from the energy the cavity
+    actually gives to ``delta`` is taken at ``delta = 0``. The exact statement is
+    ``delta' = psi(PT(delta) + Delta PT(zeta))``, whose ``zeta delta`` cross term is
+
+        T[delta, zeta, delta] = -R65 / (2 gamma0^2),   R65 = d(Delta delta)/d zeta,
+
+    ``-5.83e-8`` here against accsim's ``0``, and it reaches ``T[x, delta, zeta]`` through
+    the dispersion at ``1.1e-7``. Measured on the maptable, derived from ``psi''(0) =
+    -1/(beta0^2 gamma0^2)``, and gated both ways: the uncorrected map misses PTC by
+    exactly that term, and the ring composed with the cavity's map *plus* that term lands
+    on PTC at the floor. It is ``1/(2 gamma0^2)`` of the cavity's slope — invisible on an
+    electron ring, ``1.25e-3`` here — and it is named in ``docs/ROADMAP.md`` as a
+    follow-up on the cavity, not absorbed into a tolerance.
+    """
+    lat = _accsim_ring(cavity=True)
+    (k, R, T), beta0 = _ptc_turn(_madx_line(cavity=True), icase=6, closed_orbit=True)
+    co = closed_orbit_6d(lat)
+    assert np.max(np.abs(co)) < 1e-10  # no radiation, phi_s at a zero crossing: the axis
+    z0 = np.zeros(DIM)
+    theirs = to_accsim_frame_second_order(k, R, T, z0, beta0, time_sign=-1.0)
+    maps = second_order_element_maps(lat, z0, step=2.5e-4)
+    ours = TaylorMap.identity()
+    for m in maps:
+        ours = ours.then(m)
+    lon = ours.R[np.ix_([ZETA, DELTA], [ZETA, DELTA])]
+    assert abs(np.trace(lon)) < 2.0  # longitudinally stable: the right zero crossing
+    assert np.max(np.abs(theirs.R - ours.R)) < 1e-9
+    assert np.max(np.abs(ours.T[:, ZETA, :])) > 1e-9  # the t column is live
+
+    cav = maps[0]
+    assert isinstance(lat.elements[0], RFCavity)
+    missing = -cav.R[DELTA, ZETA] / (2 * lat.ref.gamma0**2)
+    assert abs(missing) > 1e-8  # not a round-off statement
+    gap = theirs.T - ours.T
+    assert abs(gap[DELTA, ZETA, DELTA] - missing) < 1e-11
+    assert abs(gap[DELTA, DELTA, ZETA] - missing) < 1e-11
+    assert np.max(np.abs(gap)) > 1e-7  # the uncorrected map misses, decisively
+
+    T_fixed = cav.T.copy()
+    T_fixed[DELTA, ZETA, DELTA] = T_fixed[DELTA, DELTA, ZETA] = missing
+    fixed = TaylorMap(cav.origin, cav.k, cav.R, T_fixed)
+    for m in maps[1:]:
+        fixed = fixed.then(m)
+    assert np.max(np.abs(theirs.T - fixed.T)) < 1e-9
+
+
+def test_one_turn_map_agrees_with_ptc_about_a_steered_orbit() -> None:
+    """A horizontal steerer bumps the orbit through the sextupoles, and the two maps about
+    that orbit must agree — ``T`` about a displaced point, where the sextupoles' feed-down
+    moves ``R`` and the drifts' ``T`` depends on the orbit angle.
+
+    Two things were measured before this could be written as a gate. **PTC's own fixed
+    point is not sharp enough**: ``closed_orbit`` lands within ``1e-9`` of accsim's orbit
+    (accsim's Newton is at ``1e-15``), and about a map whose ``T`` reaches ``600`` a
+    ``1e-10`` orbit difference moves ``R`` by ``2 T dz ~ 1e-7``; so the expansion point is
+    handed to PTC explicitly and both codes expand about the same point. And **the thick
+    quadrupole is where the two codes part off-axis** — accsim's is paraxial in the angles
+    (L2), PTC's is exact, and about a point with an orbit angle that is a second-order
+    difference (:func:`test_the_thick_quadrupole_departs_from_ptc_off_axis_as_l2_says`).
+    The ring here therefore carries **thin** quadrupoles, so that what is compared is the
+    map and not a known approximation.
+    """
+    kick = 3.0e-4
+    lat = _accsim_ring(kick=kick, thin_quads=True)
+    orbit = closed_orbit_nonlinear(lat)
+    assert abs(orbit[0]) > 1e-4  # a real bump
+    (k_co, _, _), _ = _ptc_turn(_madx_line(kick=kick, thin_quads=True), icase=5, closed_orbit=True)
+    assert np.max(np.abs(k_co[[X, PX, Y, PY]] - orbit)) < 1e-9  # the fixed points agree
+    z0 = np.zeros(DIM)
+    z0[[X, PX, Y, PY]] = orbit
+    start = f"betx=1, bety=1, x={float(orbit[0])!r}, px={float(orbit[1])!r},"
+    (k, R, T), beta0 = _ptc_turn(
+        _madx_line(kick=kick, thin_quads=True), icase=5, closed_orbit=False, start=start
+    )
+    theirs = to_accsim_frame_second_order(k, R, T, z0, beta0, time_sign=-1.0)
+    ours = second_order_one_turn_map(lat, orbit, step=2.5e-4)
+    assert np.max(np.abs(theirs.k[[X, PX]] - ours.k[[X, PX]])) < 1e-10  # same image
+    assert np.max(np.abs(theirs.R[FIVE] - ours.R[FIVE])) < 1e-9
+    assert np.max(np.abs(theirs.T[FIVE] - ours.T[FIVE])) < TURN_ATOL
+    assert np.max(np.abs(ours.T)) > 100.0
+
+
+def _ptc_single(element: str, z: np.ndarray):
+    with madx_session() as madx:
+        madx.input(f"""
+        beam, particle=proton, gamma={GAMMA0!r};
+        el: {element};
+        ring: line = (el);
+        use, sequence=ring;
+        ptc_create_universe;
+        ptc_create_layout, model=2, method=6, nst=5, exact=true;
+        ptc_twiss, icase=5, no=2, betx=1, bety=1, x={float(z[X])!r}, px={float(z[PX])!r},
+                   maptable;
+        ptc_end;
+        """)
+        return ptc_maptable(madx), beam_beta0(madx, "ring")
+
+
+def test_the_thick_quadrupole_departs_from_ptc_off_axis_as_l2_says() -> None:
+    r"""About a point with an orbit angle, accsim's thick quadrupole misses PTC's exact one
+    at second order by an amount that grows with the angle; the bend and the drift do not.
+
+    L2 shipped the quadrupole "exact in ``delta`` and paraxial in the angles" — the
+    kinematic ``(px^2 + py^2)^2 / 8`` of the exact Hamiltonian is dropped. On the axis
+    that is invisible to ``T`` (it is quartic), which is why the design-orbit gates pass
+    at ``1e-11``. About ``px_co != 0`` its third derivative ``3 px_co`` enters ``T``:
+    measured ``4.2e-5, 5.6e-5, 8.4e-5`` on ``T[x, px, px]`` for ``px_co = 3.3e-5, 6.6e-5,
+    1.3e-4`` at ``x_co = 3.8e-4``, and ``8e-9`` on ``R``. The exact sector bend (L3) and
+    the exact drift (L1) agree about the same point to ``2e-12``. Recorded as the price of
+    L2's approximation at this order, and named in ``docs/ROADMAP.md``.
+    """
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    z0 = np.array([3.8e-4, -6.6e-5, 0.0, 0.0, 0.0, 0.0])
+    F = np.ix_(FIVE, FIVE, FIVE)
+    for element, ours_el in (
+        (f"sbend, l={LB}, angle={ANGLE}, {NO_FRINGE}", Dipole(LB, ANGLE)),
+        ("drift, l=0.5", Drift(0.5)),
+    ):
+        (k, R, T), beta0 = _ptc_single(element, z0)
+        theirs = to_accsim_frame_second_order(k, R, T, z0, beta0, time_sign=-1.0)
+        ours = taylor_expand(lambda s, e=ours_el: e.track(s, ref), z0, step=2.5e-4)
+        assert np.max(np.abs(theirs.T[F] - ours.T[F])) < 1e-10, element
+    misses = []
+    for scale in (0.5, 1.0, 2.0):
+        z = z0.copy()
+        z[PX] *= scale
+        (k, R, T), beta0 = _ptc_single(f"quadrupole, l={LQ}, k1={KF}", z)
+        theirs = to_accsim_frame_second_order(k, R, T, z, beta0, time_sign=-1.0)
+        ours = taylor_expand(lambda s: Quadrupole(LQ, KF).track(s, ref), z, step=2.5e-4)
+        misses.append(np.max(np.abs(theirs.T[F] - ours.T[F])))
+        assert np.max(np.abs(theirs.R[FIVE] - ours.R[FIVE])) < 1e-7
+    assert misses[0] < misses[1] < misses[2]  # grows with the orbit angle
+    assert 1e-5 < misses[1] < 1e-4  # and it is not the floor
+
+
+def test_frame_maps_round_trip_and_reduce_to_the_first_order_transform() -> None:
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    z0 = np.array([1e-3, -2e-4, 5e-4, 1e-4, 2e-3, 3e-3])
+    phi, phi_inv = frame_maps(z0, ref.beta0)
+    assert np.max(np.abs(phi_inv.k - z0)) < 1e-15
+    m = np.diag([1.0, 1.0, 1.0, 1.0, 1.0 / ref.beta0, ref.beta0])
+    assert np.max(np.abs(frame_maps(np.zeros(DIM), ref.beta0)[0].R - m)) < 1e-15
+    assert (
+        abs(
+            frame_maps(np.zeros(DIM), ref.beta0)[0].T[DELTA, DELTA, DELTA]
+            - ref.beta0 / (2 * ref.gamma0**2)
+        )
+        < 1e-15
+    )
+    both = phi.then(phi_inv)
+    assert np.max(np.abs(both.R - np.eye(DIM))) < 1e-13
+    assert np.max(np.abs(both.T)) < 1e-13
