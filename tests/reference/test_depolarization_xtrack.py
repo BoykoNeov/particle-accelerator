@@ -204,7 +204,7 @@ def test_the_momentum_column_agrees_only_to_the_arbiters_cancellation_floor(far)
     gap = ours[:, DELTA] - theirs[:, DELTA]
     size = float(np.linalg.norm(gap))
     assert 1e-7 < size < DEBRIS_ESTIMATE
-    assert size > 1e-6 * float(np.abs(ours).max())  # far above the other columns' agreement
+    assert size > 1e-6 * float(np.abs(ours[:, DELTA]).max())  # far above the other columns
 
     # The gap is the arbiter's own inconsistency, as a vector: what xtrack's column misses
     # of the identity is exactly what it misses of ours.
