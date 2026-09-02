@@ -30,9 +30,9 @@ Two rings, doing two different jobs:
   explained by the disagreement below.
 
 **The one disagreement, measured and attributed rather than tolerated.** The two codes'
-``dn/ddelta`` differ by ``2e-6`` in absolute terms while every other column of the matrix
-agrees to ``1e-8`` relative. It is xtrack's, and the attribution is not a matter of
-opinion: without RF, ``delta`` is exactly conserved, so ``N (D, 0, 1)`` must equal the
+``dn/ddelta`` differ by ``2e-6`` in absolute terms (Windows, clang-cl; ``1.1e-5`` on
+Linux/gcc -- see below) while every other column of the matrix agrees to ``1e-8``
+relative. It is xtrack's, and the attribution is not a matter of opinion: without RF, ``delta`` is exactly conserved, so ``N (D, 0, 1)`` must equal the
 momentum derivative of the *off-momentum closed spin solution*, which is a quantity
 neither code's spin-field machinery is involved in computing. accsim's matrix satisfies
 that identity to ``5e-9``; xtrack's misses it by ``1e-4``
@@ -52,6 +52,18 @@ fact, quantified.
 Because the debris is **absolute**, it matters least where ``dn/ddelta`` is largest. On
 the resonant ring it is ``2e-6`` of a quantity of order ``9``, and the two codes' equilibrium
 polarizations agree to ``7e-5``.
+
+**The debris is round-off, so its size is a property of the platform, not of the ring.**
+Measured 2026-09-02: ``2e-6`` on Windows (clang-cl, Python 3.14) and ``1.07e-5`` on Linux
+(gcc, Python 3.11, numpy 2.4.6) -- bit-identical on the latter across xtrack ``0.106.4``
+and ``0.111.6`` and across two accsim commits, so it is neither the arbiter's version nor
+ours. A floor asserted as a number would therefore be a statement about one compiler. The
+gates below assert the *mechanism* instead, which is platform-independent: the gap is
+xtrack's dispersion-identity miss itself (to ``6e-4`` of its norm), it lies in the plane
+perpendicular to ``n_0`` (the ``n_0`` component is what the subtraction removed), and it is
+transported round the ring as a vector (norm conserved to ``0.7%``) rather than
+accumulating. Its absolute size is bounded only by the mechanism's own estimate,
+``1e11 * eps ~ 2e-5``, which both platforms sit under.
 """
 
 from __future__ import annotations
@@ -88,6 +100,28 @@ import test_polarization_xtrack as n3  # noqa: E402
 #: How far in vertical tune each fixture sits from ``nu_0 = k + Q_y``.
 NEAR = 1e-5
 FAR = 1e-3
+
+#: The mechanism's own estimate of xtrack's cancellation debris, ``1e11 * eps``: the only
+#: absolute bound placed on the ``dn/ddelta`` gap, because its exact size is round-off.
+DEBRIS_ESTIMATE = 3e-5
+
+
+def dispersion_identity_miss(lattice, matrix: np.ndarray, step: float = 1e-6) -> np.ndarray:
+    r"""``N (D, 0, 1) - d/ddelta [n_0 closed at delta]`` for a spin-field matrix ``N``.
+
+    Without RF this vanishes for any correct matrix (see
+    :func:`test_the_dispersion_identity_says_which_code_carries_the_gap`), and the
+    right-hand side involves neither code's spin-field machinery. Returned as the vector,
+    not its norm, because the gates use its *direction* as well as its size.
+    """
+    dispersion = (
+        closed_orbit_nonlinear(lattice, delta=+step) - closed_orbit_nonlinear(lattice, delta=-step)
+    ) / (2.0 * step)
+    truth = (
+        closed_spin_solution(lattice, delta=+step).n0
+        - closed_spin_solution(lattice, delta=-step).n0
+    ) / (2.0 * step)
+    return matrix[:, [X, PX, Y, PY]] @ dispersion + matrix[:, DELTA] - truth
 
 
 def _twiss(lattice):
@@ -142,24 +176,40 @@ def test_the_orbital_columns_of_the_spin_field_agree_to_eight_digits(far):
 
 
 def test_the_momentum_column_agrees_only_to_the_arbiters_cancellation_floor(far):
-    r"""``dn/ddelta`` differs by ``2e-6`` absolute -- a thousand times worse than the rest.
+    r"""``dn/ddelta`` differs by ``1e-5`` absolute -- a thousand times worse than the rest.
 
-    The disagreement this file exists to pin down, asserted **at its size** in both
-    directions so that it can neither grow nor quietly vanish unnoticed. Every other
-    column agrees to ``1e-8`` of the matrix scale; this one is out by ``2e-5`` in relative
-    terms, and it is the only column whose orbital eigenvalue is exactly ``1``.
+    The disagreement this file exists to pin down, asserted so that it can neither grow
+    nor quietly vanish unnoticed. Every other column agrees to ``1e-8`` of the matrix
+    scale; this one is out by ``1e-4`` in relative terms, and it is the only column whose
+    orbital eigenvalue is exactly ``1``.
+
+    **Its size is not a number this test can own.** It was first measured at ``2e-6`` on
+    Windows/clang-cl and asserted at that size; the same ring on Linux/gcc gives ``1.07e-5``,
+    bit for bit across two xtrack versions and two accsim commits. The gap is round-off in
+    xtrack's near-singular ``inv(I - A)`` (the next two tests), so it is the *compiler's*
+    number, and asserting it to a factor of two would only ever pass on one box. What is
+    asserted instead is the thing that does not depend on the platform: the gap **is**
+    xtrack's dispersion-identity miss, vector for vector -- the two agree to ``6e-4`` of
+    their norm, the residue being the transverse columns' ``1e-8`` share -- and it is
+    bounded above only by the mechanism's own estimate, ``1e11 * eps``.
 
     The next two tests establish that the gap is xtrack's and explain where it comes from.
     It is stated here first, without attribution, because that is the order the evidence
     actually arrived in.
     """
     lattice, twiss = far
-    ours = spin_orbit_coupling(lattice).dn_ddelta
-    theirs = np.array(twiss.spin_n_matrix)[0][:, DELTA]
+    ours = spin_orbit_coupling(lattice).matrix
+    theirs = np.array(twiss.spin_n_matrix)[0]
 
-    gap = float(np.abs(ours - theirs).max())
-    assert 1e-7 < gap < 1e-5
-    assert gap > 1e-6 * float(np.abs(ours).max())  # far above the other columns' agreement
+    gap = ours[:, DELTA] - theirs[:, DELTA]
+    size = float(np.linalg.norm(gap))
+    assert 1e-7 < size < DEBRIS_ESTIMATE
+    assert size > 1e-6 * float(np.abs(ours).max())  # far above the other columns' agreement
+
+    # The gap is the arbiter's own inconsistency, as a vector: what xtrack's column misses
+    # of the identity is exactly what it misses of ours.
+    miss = dispersion_identity_miss(lattice, theirs)
+    assert float(np.linalg.norm(gap + miss)) < 1e-2 * size
 
 
 def test_the_dispersion_identity_says_which_code_carries_the_gap(far):
@@ -187,18 +237,14 @@ def test_the_dispersion_identity_says_which_code_carries_the_gap(far):
     """
     lattice, twiss = far
     step = 1e-6
-
-    dispersion = (
-        closed_orbit_nonlinear(lattice, delta=+step) - closed_orbit_nonlinear(lattice, delta=-step)
-    ) / (2.0 * step)
     truth = (
         closed_spin_solution(lattice, delta=+step).n0
         - closed_spin_solution(lattice, delta=-step).n0
     ) / (2.0 * step)
 
     def residual(matrix: np.ndarray) -> float:
-        predicted = matrix[:, [X, PX, Y, PY]] @ dispersion + matrix[:, DELTA]
-        return float(np.linalg.norm(predicted - truth) / np.linalg.norm(truth))
+        miss = dispersion_identity_miss(lattice, matrix, step)
+        return float(np.linalg.norm(miss) / np.linalg.norm(truth))
 
     ours = residual(spin_orbit_coupling(lattice).matrix)
     theirs = residual(np.array(twiss.spin_n_matrix)[0])
@@ -227,12 +273,18 @@ def test_the_singularity_behind_that_gap_is_the_one_n3_could_only_observe(far):
     version-dependent crash: this ring is *tilted*, and ``I - A`` is still singular to
     ``1e-16``, with a condition number above ``1e15``.
     """
-    lattice, _ = far
-    residual = np.eye(3) - spin_orbit_coupling(lattice).one_turn_matrix
+    lattice, twiss = far
+    coupling = spin_orbit_coupling(lattice)
+    residual = np.eye(3) - coupling.one_turn_matrix
 
     smallest = float(np.linalg.svd(residual, compute_uv=False)[-1])
     assert smallest < 1e-15
     assert np.linalg.cond(residual) > 1e14
+
+    # And the debris has the direction the mechanism says: what survives the subtraction
+    # of the ``n_0`` component is perpendicular to ``n_0`` (measured ``5e-4`` of its norm).
+    gap = coupling.dn_ddelta - np.array(twiss.spin_n_matrix)[0][:, DELTA]
+    assert abs(float(coupling.n0 @ gap)) < 1e-2 * float(np.linalg.norm(gap))
 
 
 def test_the_field_agrees_all_the_way_round_the_ring(far):
@@ -243,9 +295,17 @@ def test_the_field_agrees_all_the_way_round_the_ring(far):
     is the one that protects the integrals below. accsim propagates the field by tracking
     a bundle launched on it; xtrack tracks its scaled eigenvectors and re-fits the matrix
     at each element, having rephased and averaged the two signs. Two genuinely different
-    transports, agreeing element by element to the same ``2e-6`` absolute floor the
-    entrance shows --- so the floor really is a property of the ``delta`` mode and not
-    something that accumulates.
+    transports, agreeing element by element to the same absolute floor the entrance shows
+    --- so the floor really is a property of the ``delta`` mode and not something that
+    accumulates.
+
+    "Does not accumulate" is made exact by the mechanism. The debris is a vector in the
+    entrance ``dn/ddelta``; downstream, the ``delta`` column is the spin rotation applied
+    to it plus the transverse columns weighted by the orbit's dispersion, and those agree
+    to ``1e-8``. So the gap's **norm** is transported unchanged round the ring (measured:
+    ``0.7%`` spread over 81 boundaries, which is xtrack's per-element re-fit) while its
+    largest component, which is what a per-entry comparison sees, swings by ``1.3x`` as the
+    rotation turns it. Asserted on the norm, with the same mechanism bound as the entrance.
     """
     lattice, twiss = far
     ours = propagate_spin_orbit_coupling(lattice)
@@ -254,9 +314,12 @@ def test_the_field_agrees_all_the_way_round_the_ring(far):
     # xtrack's twiss table carries an ``_end_point`` row after the last element, so the
     # two sequences are boundary-for-boundary the same length: entrance, then every exit.
     assert len(ours) == len(theirs) == len(lattice.elements) + 1
-    gaps = [np.abs(ours[i][:, DELTA] - theirs[i][:, DELTA]).max() for i in range(len(theirs))]
-    assert max(gaps) < 1e-5
-    assert max(gaps) < 3.0 * gaps[0]  # it does not accumulate down the ring
+    gaps = np.array(
+        [np.linalg.norm(ours[i][:, DELTA] - theirs[i][:, DELTA]) for i in range(len(theirs))]
+    )
+    assert gaps.max() < DEBRIS_ESTIMATE
+    assert gaps.max() < 1.05 * gaps[0]  # it does not accumulate down the ring
+    assert gaps.min() > 0.95 * gaps[0]  # nor is it lost: a rotation carries it round
 
 
 # --- the integrals, and the coefficient nothing else can reach -----------------------
@@ -272,9 +335,10 @@ def test_the_two_depolarization_integrals_agree_on_the_resonant_ring(near):
 
     **The resonant ring is used because the agreement is *better* there**, which is worth
     stating plainly because it is the reverse of the usual arrangement. xtrack's
-    ``dn/ddelta`` carries an *absolute* ``2e-6`` of cancellation debris (see above), so it
-    matters in proportion to how small ``dn/ddelta`` is. A hundred-thousandth of a tune
-    from the resonance ``|dn/ddelta| ~ 9``, and the debris is worth ``2e-7`` of it.
+    ``dn/ddelta`` carries an *absolute* ``2e-6`` to ``1e-5`` of cancellation debris (see
+    above), so it matters in proportion to how small ``dn/ddelta`` is. A hundred-thousandth
+    of a tune from the resonance ``|dn/ddelta| ~ 9``, and the debris is worth ``1e-6`` of
+    it at most.
 
     The residual is bounded below by two known effects rather than by tolerance-hunting,
     exactly as N3's was:

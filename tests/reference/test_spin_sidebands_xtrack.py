@@ -4,7 +4,8 @@ Marked ``reference``: skips when xtrack or its JIT compiler is unavailable.
 
 **This file's job changed halfway through writing it, and that is the milestone's result.**
 It was written to confirm a prediction. N4 found the two codes' ``dn/ddelta`` differing by
-``2e-6`` in absolute terms where every other column agreed to ``1e-8`` relative, and
+``2e-6`` in absolute terms (``1e-5`` on Linux: it is round-off, and N4 gates the mechanism
+rather than the number) where every other column agreed to ``1e-8`` relative, and
 attributed the gap to xtrack's mode-by-mode ``inv(lambda I - A)`` on the ``delta`` mode,
 whose orbital eigenvalue is exactly ``1``: entries of order ``1e11``, and ``1e11 x 1e-16``
 of cancellation debris left in what survives. **With RF there is no eigenvalue ``1`` at
@@ -81,6 +82,7 @@ xt = pytest.importorskip("xtrack")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "analytic"))
 
 import test_depolarization as n4  # noqa: E402
+import test_depolarization_xtrack as n4_xt  # noqa: E402
 import test_polarization_xtrack as n3  # noqa: E402
 import test_spin_sidebands as gate  # noqa: E402
 
@@ -260,10 +262,12 @@ def test_the_disagreement_is_switched_on_by_the_cavity_and_grows_as_the_synchrot
 
     Deliberately run on **N4's** gate ring rather than this file's, so that the RF-off end
     of the scan is the exact comparison N4 published: there the two codes' momentum columns
-    differ by ``1.8e-6`` absolute, which is N4's number reproduced. Switching the cavity on
-    at ``Q_s = 0.005`` moves them apart by ``2.6e-4`` relative, at ``0.0158`` by ``2.6e-3``,
-    at ``0.05`` by ``2.9e-2`` -- a factor of ten per factor of ``3.16`` in ``Q_s``, which is
-    the square.
+    differ by N4's cancellation debris and nothing else -- ``1.8e-6`` absolute on
+    Windows/clang-cl, ``1.1e-5`` on Linux/gcc, and on either box equal to xtrack's own
+    dispersion-identity miss vector for vector, which is how N4's number is reproduced
+    without asserting a compiler's round-off. Switching the cavity on at ``Q_s = 0.005``
+    moves them apart by ``2.6e-4`` relative, at ``0.0158`` by ``2.6e-3``, at ``0.05`` by
+    ``2.9e-2`` -- a factor of ten per factor of ``3.16`` in ``Q_s``, which is the square.
 
     This is the test that makes the disagreement a *statement about the RF* rather than
     about this milestone's particular ring, and it is why the file does not simply widen a
@@ -274,8 +278,12 @@ def test_the_disagreement_is_switched_on_by_the_cavity_and_grows_as_the_synchrot
     base = n4.ring_at_tune_distance(1e-3)
     unbunched = n3._build(base).twiss(method="4d", spin=True, polarization_analysis=True)
     off_ours = spin_orbit_coupling(base).matrix[:, DELTA]
-    off_theirs = np.array(unbunched.spin_n_matrix)[0][:, DELTA]
-    assert np.abs(off_ours - off_theirs).max() < 3e-6  # N4's 2e-6, reproduced
+    off_theirs_matrix = np.array(unbunched.spin_n_matrix)[0]
+    off_theirs = off_theirs_matrix[:, DELTA]
+    off_gap = off_ours - off_theirs
+    assert np.linalg.norm(off_gap) < n4_xt.DEBRIS_ESTIMATE  # N4's floor, reproduced ...
+    miss = n4_xt.dispersion_identity_miss(base, off_theirs_matrix)
+    assert np.linalg.norm(off_gap + miss) < 1e-2 * np.linalg.norm(off_gap)  # ... as xtrack's
 
     tunes, gaps = [], []
     for voltage in (2.3e4, 2.3e5, 2.3e6):

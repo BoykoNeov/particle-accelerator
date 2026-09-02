@@ -6111,6 +6111,30 @@ Because the debris is **absolute**, the agreement is *best* nearest the resonanc
 `|dn/ddelta| ~ 9`: the two codes' equilibrium polarizations agree to `7e-5` there, and the
 residual is xtrack's element-granularity rectangle rule, not the spin field.
 
+**The debris is round-off, so its size belongs to the platform, not to the ring (found
+2026-09-02, the first Linux run of the reference suite).** The same `far` ring gives `2e-6`
+on Windows (clang-cl, Python 3.14) and `1.07e-5` on Linux (gcc, Python 3.11, numpy 2.4.6)
+— bit-identical on Linux across xtrack 0.106.4 and 0.111.6 and across two accsim commits,
+so it is neither the arbiter's version nor ours. Three gates had asserted the floor *as a
+number* (`< 1e-5`, `< 3e-6`) and failed on Linux. They were not widened; they were changed
+to assert the **mechanism**, which is what is actually platform-independent, and each of
+the three statements was measured before it was asserted:
+
+- the gap between the two codes' `dn/ddelta` **is** xtrack's dispersion-identity miss,
+  vector for vector — `|gap + miss| = 6e-4 |gap|`, the residue being the transverse
+  columns' `1e-8` share (`test_depolarization_xtrack.dispersion_identity_miss`);
+- it is **perpendicular to `n_0`** (`n_0 · gap = 5e-4 |gap|`) — what survives the
+  subtraction of the `n_0` component is, by construction, in the plane;
+- it is **transported round the ring as a vector**: its norm is conserved to `0.7%` over
+  81 boundaries (the spread is xtrack's per-element re-fit) while its largest component
+  swings by `1.3×` as the spin rotation turns it — so "does not accumulate" is asserted on
+  the norm, at `±5%`, rather than on a per-entry maximum at `3×`.
+
+The only absolute bound left is the mechanism's own estimate, `1e11 × eps ~ 2e-5`
+(`DEBRIS_ESTIMATE = 3e-5`), which both platforms sit under. N5's RF-off end of the `Q_s`
+scan reproduces N4's floor the same way (equal to xtrack's identity miss, not equal to
+`1.8e-6`); the scan itself is unaffected (`Q_s^2` slopes `2.01`, `2.11` on Linux).
+
 ## The bunched ring: `closed_orbit_delta` and the synchrotron sidebands (N5 — implemented)
 
 Axes N1–N4 all ran on rings with **no RF cavity**. Adding one changes nothing about the

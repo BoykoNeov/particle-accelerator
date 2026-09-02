@@ -3535,6 +3535,12 @@ Two properties worth stating before the milestones, because they set the axis's 
     afterwards, and `1e11 × 1e-16 ~ 1e-5` of cancellation debris left behind. Because the
     debris is absolute, the agreement is **best nearest the resonance**, which is the
     reverse of the usual arrangement and is why the integrals are compared there.
+    *Amended 2026-09-02:* the `2e-6` is a Windows/clang-cl number — Linux/gcc gives
+    `1.07e-5` for the same ring, bit-identical across xtrack versions and accsim commits —
+    so the three gates that had asserted the floor as a number now assert the mechanism
+    (the gap equals xtrack's identity miss vector for vector, is perpendicular to `n_0`,
+    and is carried round the ring at constant norm). See `docs/CONVENTIONS.md` → *The
+    debris is round-off*.
 
   - **A silent switch on the reference side that was ours, not xtrack's.** N3's `_build`
     hard-coded `p0c` at 5 GeV. Harmless there; silently fatal here, because N4's only knob
@@ -3650,7 +3656,8 @@ Two properties worth stating before the milestones, because they set the axis's 
   - **The pre-commitment was REFUTED, and the milestone is bigger for it.** Written down
     before measuring: with no eigenvalue `1` left, xtrack's momentum column should come
     into line at the `1e-8` its betatron columns reach. It does not. N4's `2e-6` gap is
-    unchanged (it is reproduced here at `1.8e-6` on N4's own ring), and a **new**
+    unchanged (it is reproduced here at `1.8e-6` on N4's own ring — `1.1e-5` on Linux,
+    where the RF-off gate now checks it against xtrack's identity miss instead), and a **new**
     disagreement appears that is zero without RF, grows as `Q_s^2`, and reaches **14%** on
     the gate ring — the `zeta` and `delta` columns differing by a constant factor `1.1434`,
     the horizontal ones by `1.14` through the dispersion, the vertical ones not at all.
