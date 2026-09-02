@@ -43,7 +43,6 @@ amplitude (``2.0e-4`` where the correct map is ``0``) and which the
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Sequence
 
 import numpy as np
@@ -132,7 +131,7 @@ def is_symplectic_map(
     return is_symplectic(jacobian(map_fn, state, step), atol=atol)
 
 
-def pzeta_from_delta(delta: float, ref: ReferenceParticle) -> float:
+def pzeta_from_delta(delta: float | np.ndarray, ref: ReferenceParticle) -> float | np.ndarray:
     r"""The canonical partner of ``zeta``, from the momentum deviation ``delta``.
 
     ``p_zeta = (E - E0) / (beta0^2 E0)`` — xtrack's ``pzeta``, equal to its
@@ -143,16 +142,21 @@ def pzeta_from_delta(delta: float, ref: ReferenceParticle) -> float:
     Evaluated as ``(P^2 - P0^2) / ((E + E0) beta0^2 E0)`` rather than by
     subtracting two nearly-equal energies, so small ``delta`` keeps full relative
     precision instead of losing ``~log10(delta)`` digits to cancellation.
+
+    Elementwise on an array of ``delta`` (P1 expands maps on a bunch of samples); a
+    scalar in gives a plain ``float`` out, as before.
     """
     P0, m = ref.momentum_eV, ref.mass_eV
     E0 = ref.total_energy_eV
-    P = P0 * (1.0 + delta)
-    E = math.hypot(P, m)
+    d = np.asarray(delta, dtype=float)
+    P = P0 * (1.0 + d)
+    E = np.hypot(P, m)
     # E - E0 = (P^2 - P0^2)/(E + E0), and P^2 - P0^2 = P0^2 delta (2 + delta).
-    return P0 * P0 * delta * (2.0 + delta) / ((E + E0) * ref.beta0**2 * E0)
+    out = P0 * P0 * d * (2.0 + d) / ((E + E0) * ref.beta0**2 * E0)
+    return float(out) if out.ndim == 0 else out
 
 
-def delta_from_pzeta(pzeta: float, ref: ReferenceParticle) -> float:
+def delta_from_pzeta(pzeta: float | np.ndarray, ref: ReferenceParticle) -> float | np.ndarray:
     """The momentum deviation ``delta``, from ``zeta``'s canonical partner.
 
     Exact inverse of :func:`pzeta_from_delta`. The energy *difference*
@@ -165,27 +169,32 @@ def delta_from_pzeta(pzeta: float, ref: ReferenceParticle) -> float:
         P^2 = E^2 - m^2 = P0^2 + dE (2 E0 + dE)
         delta = (P - P0)/P0 = dE (2 E0 + dE) / (P0 (P + P0))
 
-    and no step subtracts two nearly-equal numbers.
+    and no step subtracts two nearly-equal numbers. Elementwise on an array, as
+    :func:`pzeta_from_delta` is.
     """
     P0 = ref.momentum_eV
     E0 = ref.total_energy_eV
-    dE = ref.beta0**2 * E0 * pzeta
+    dE = ref.beta0**2 * E0 * np.asarray(pzeta, dtype=float)
     numerator = dE * (2.0 * E0 + dE)
-    P = math.sqrt(P0 * P0 + numerator)
-    return numerator / (P0 * (P + P0))
+    P = np.sqrt(P0 * P0 + numerator)
+    out = numerator / (P0 * (P + P0))
+    return float(out) if out.ndim == 0 else out
 
 
 def to_canonical(state: Sequence[float] | np.ndarray, ref: ReferenceParticle) -> np.ndarray:
-    """``(x, px, y, py, zeta, delta)`` -> ``(x, px, y, py, zeta, p_zeta)``."""
+    """``(x, px, y, py, zeta, delta)`` -> ``(x, px, y, py, zeta, p_zeta)``.
+
+    A ``(6,)`` state or a ``(6, n)`` bunch; the conversion is elementwise in ``delta``.
+    """
     out = np.array(state, dtype=float)
-    out[DELTA] = pzeta_from_delta(float(out[DELTA]), ref)
+    out[DELTA] = pzeta_from_delta(out[DELTA], ref)
     return out
 
 
 def from_canonical(state: Sequence[float] | np.ndarray, ref: ReferenceParticle) -> np.ndarray:
-    """``(x, px, y, py, zeta, p_zeta)`` -> ``(x, px, y, py, zeta, delta)``."""
+    """``(x, px, y, py, zeta, p_zeta)`` -> ``(x, px, y, py, zeta, delta)``, elementwise."""
     out = np.array(state, dtype=float)
-    out[DELTA] = delta_from_pzeta(float(out[DELTA]), ref)
+    out[DELTA] = delta_from_pzeta(out[DELTA], ref)
     return out
 
 

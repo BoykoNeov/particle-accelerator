@@ -119,6 +119,15 @@ from .symplectic import (
     jacobian,
     pzeta_from_delta,
 )
+from .taylor import (
+    TaylorMap,
+    canonical_map,
+    compose,
+    second_order_element_maps,
+    second_order_one_turn_map,
+    second_order_symplectic_residual,
+    taylor_expand,
+)
 from .tracking import Bunch, LossResult, Particle, Tracker
 from .tune import ellipse_from_trajectory, naff, tracked_tunes
 from .twiss import (
@@ -329,6 +338,14 @@ __all__ = [
     "propagate_orbit_nonlinear",
     "linearised_element_maps",
     "linearised_one_turn_map",
+    # the transfer map beyond first order (P1)
+    "TaylorMap",
+    "taylor_expand",
+    "compose",
+    "second_order_symplectic_residual",
+    "canonical_map",
+    "second_order_element_maps",
+    "second_order_one_turn_map",
     "linearised_lattice",
     # misalignments & the statistical orbit (K1)
     "misalignment_response",
