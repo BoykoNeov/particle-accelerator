@@ -8,6 +8,36 @@ There are two sub-projects with a clean handoff at the interaction point:
 *accelerator / beam dynamics* (gets beams to collision) and an optional *event
 physics* phase (what comes out of a collision — orchestration, not rebuilding).
 
+## Status index — start here
+
+The file below is the record; this table is the map of it. **Update it when a milestone
+ships.** A session starts by reading the open candidate's entry, not the whole file.
+
+| Axis | What it is | Shipped | Open |
+|---|---|---|---|
+| Stages 0–7 | scaffold → linear optics → lenses → longitudinal → losses → RF → collider → radiation | all ✅ | — |
+| Phase 2 | collision-event physics on Pythia8 + Delphes, opt-in | both clauses ✅ | — |
+| A | Drell-Yan angular physics | A1–A3 | — |
+| B | radiation in tracking, quantum excitation, lifetime, photons | B1–B5 | — |
+| C | collider / beam-beam deepening | C1, C2 | — |
+| D | integration, validation, teaching | D1–D5 | — |
+| E | event-physics siblings | E1, E2 | — |
+| F | combined-function magnets, pole-face edges | F1, F2 | the second-order fringe → P2 (i) |
+| G | betatron coupling, vertical emittance | G1, G2 | — |
+| H | matching | H1, H2 | — |
+| I | closed orbit, steering, feed-down, 6D orbit | I1–I4 | — |
+| J | nonlinear single-particle dynamics | J1–J3 | — |
+| K | misalignments | K1, K2 | — |
+| L | exact element maps | L1–L4 | L5 deferred (no reference); the sliced bodies and the paraxial quadrupole → P2 (ii), (iv) |
+| M | optics off-momentum | M1–M3 | — |
+| N | spin | N1–N5 | — |
+| O | normalised coordinates, driving terms | O1–O6 | — |
+| P | the map beyond first order | **P1** (2026-09-02) | **P2** — the four second-order gaps, one element each |
+
+**The open candidate is P2** (end of axis P). Its four items are independent and each is
+a session: the hard-edge dipole fringe, the sliced thick bodies on the exact drift, the
+cavity as an energy kick, and the quadrupole's kinematic term.
+
 ## Validation strategy (non-negotiable)
 
 - **`tests/analytic/`** — every physics quantity has a closed-form check. Always
@@ -651,6 +681,18 @@ symmetric pair; and the MAD-X longitudinal transform in `tests/reference/_madx.p
 **not** carry to second order, because `PT = beta0 delta + beta0 delta^2/(2 gamma0^2)` puts
 a `1.25e-3` relative error — 1250x the `1e-6` reference gate — on every momentum-indexed
 entry if the first-order transform is reused.
+
+**P1 shipped 2026-09-02**, as a new module `accsim.taylor`, with all three arbiters run
+locally (a Linux session: cpymad and xtrack install and JIT-compile there without the
+Windows fix-up). Every pre-committed gate held, two of the entry's own numbers were
+corrected (`t126` scales as `1/beta0`, and the exact and expanded drifts share `T`, so the
+anticipated two-sided drift gate had one side), and the object did what it was built for:
+it **exposed four second-order gaps** in shipped elements that no per-effect projection
+had been able to see — the hard-edge dipole fringe MAD-X and PTC apply by default, the
+linear drift inside the sliced thick sextupole and octupole, the cavity's momentum kick
+linearised in `delta`, and L2's paraxial angles off-axis. Each is pinned as a closed form
+in the reference legs and named as **P2**, the open candidate. See the *status index* at
+the top of this file.
 
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
@@ -4739,11 +4781,15 @@ was executed on a probe ring before a word of this entry was written. What the r
     switched with `configure_drift_model("exact")` — M2's finding, which O6 had to apply
     again on a steered orbit — and **MAD-X's `sectormap` gives the expanded drift with no
     switch at all.** The measured `t126 = t162 = t522 = t544 = t364 = t346 = -0.50062587`
-    and `t566 = -0.00376227` on a 1 m drift at `gamma0 = 20` are therefore the *paraxial*
-    numbers: `-L/2` scaled by `1/beta0^2`. They are a gate on the **expanded** map, not on
-    accsim's. So the drift gate is two-sided by construction: accsim's exact `T` against
-    its own symbolic expansion, and accsim's *paraxial* `T` — the same code path with the
-    drift model switched — against these MAD-X entries. Comparing the exact map to this
+    and `t566 = -0.00376411` on a 1 m drift at `gamma0 = 20` were therefore *expected* to be
+    the paraxial numbers. **Corrected on implementation (2026-09-02):** the scale is
+    `-L/(2 beta0)`, not `1/beta0^2` (an arithmetic slip in this entry, caught by the
+    reference test that asserts the closed form), `t566 = -3L/(2 beta0^3 gamma0^2)` — and
+    both are the second-order coefficients of the **exact** time of flight, so the exact
+    and expanded drifts have the *same* `T`; M2's split is a third-order affair, and the
+    two-sided drift gate anticipated here collapsed to one side, with no paraxial code path
+    needed. The entries are still a gate on the `PT` transform, which is where the factor
+    that looked like a model difference actually lives. Comparing the exact map to a
     number and widening a tolerance around the miss is the failure mode M2 and O6 both
     already paid for, and it is refused here in advance.
   - The **composition rule** is the milestone's own structural content and is exact:
@@ -4788,6 +4834,80 @@ was executed on a probe ring before a word of this entry was written. What the r
   - Misaligned and rolled sources beyond what O6 already models; `T` along the ring as a
     table at every element rather than per element plus the turn; and the tune footprint,
     IBS and `survey` items measured above.
+
+  ✅ **SHIPPED (2026-09-02).** `accsim.taylor` — a **new module** rather than a growth of
+  `accsim.orbit`, because the map algebra (`TaylorMap`, `taylor_expand`, `compose`,
+  `second_order_symplectic_residual`, `canonical_map`) is not orbit business; the two
+  lattice walkers the candidate named, `second_order_element_maps` and
+  `second_order_one_turn_map`, live there too and are siblings of I3's in O6's sense: no
+  first-order function moved. Full detail in `docs/CONVENTIONS.md` → *The second-order
+  transfer map*. Effort **M**, as estimated.
+
+  **Every pre-committed gate was met**, and two of the entry's own claims were corrected on
+  the way. The symmetric convention held on all three arbiters (`T_413 = T_431 = k2l/2`,
+  PTC's monomial the sum of the pair). The composition rule is exact on sympy-composed
+  polynomial maps, and on a real ring the directly differenced turn converges onto the
+  composed one as the **fourth power** of the direct step (`6e-4, 6e-8, 6e-10`); a wrong
+  `1/2` on one sextupole breaks it by more than `1`. The symplectic identity
+  `R^T J T_k + T_k^T J R = 0` is derived symbolically, exact on every thin kick, and — the
+  gate with teeth — **fails on the sector bend in `(zeta, delta)` by a closed form**,
+  `-(v e_δ^T - e_δ v^T)/(2 gamma0^2)` with `v = R[zeta, transverse]`, that vanishes in
+  `(zeta, p_zeta)`: the first-order caveat of `accsim.symplectic`, arriving at second order
+  with a formula. All three internal anchors landed: the chromaticity (with bends, along
+  the dispersion direction `D̂ = (D, 0, 1)`, which the plain `delta` column misses by
+  `1e-2`), M3's second-order dispersion through the fixed point of the quadratic map
+  (`1e-8`), and **all five of O4's sextupole driving terms** read off `T` through the
+  recovered generator and the normal form — ratio `-1` to `1e-10`, O4's generator being
+  `-V`.
+
+  - **The drift's two-sided gate collapsed to one side, and the collapse is the finding.**
+    The exact and expanded drifts share `T` entirely; MAD-X's `t566 = -3L/(2 beta0^3
+    gamma0^2)` *is* accsim's `-L(2 + beta0^2)/(2 gamma0^2)` once `PT`'s quadratic term is
+    carried, and the naive first-order rule drops exactly `L/(2 gamma0^4)`. The frame
+    change is built as `Phi^-1 . g . Phi` with the milestone's own `compose`. The entry's
+    `1/beta0^2` was `1/beta0`.
+  - **PTC's variables are `(x, px, y, py, PT, -T)`** — momentum-like fifth, time-like sixth,
+    sign flipped — pinned on a bare drift's first-order rows before any second-order row
+    was read; `icase=5` has no `t` row at all; its closed-orbit search stops at `1e-9`,
+    which about a `T ~ 600` map is `1e-7` in `R`, so the steered gate hands it the point.
+  - **xtrack's `get_T_matrix` is in `(zeta, p_zeta)`**, off the `(zeta, delta)` tensor by
+    exactly `-R[i, delta]/(2 gamma0^2)` on the momentum diagonal; its ranges are
+    end-exclusive; its default steps are no gate (`eps/h^2 ~ 1e-4`); its whole-turn `T`
+    converges as `h^2` (`0.30 … 3e-4`), so the sharp gate is element by element about the
+    steered orbit, where the displaced sextupole agrees to `4e-11` on all 216 entries.
+  - **Four gaps the object exposed, each pinned as a closed form and none absorbed:** the
+    **hard-edge dipole fringe** at second order (MAD-X and PTC apply it by default,
+    `T[x,y,py] = T[y,px,y] = -hL/2`, …; accsim and xtrack's default edges do not); the
+    **sliced thick sextupole/octupole bodies carry the linear drift** and so lack
+    `-L px delta` and `-L px^2/2`; **`RFCavity`'s kick is a momentum kick linearised in
+    `delta`** where the cavity gives energy (`T[delta,zeta,delta] = -R65/(2 gamma0^2)`,
+    `1.25e-3` of the slope); and **L2's paraxial-angle quadrupole** departs from PTC
+    about a point with an orbit angle (`5.6e-5` at `px_co = 6.6e-5`, zero on axis).
+    These are the candidates axis P and axis L inherit — see the new entries below.
+
+  **Suite totals.** See the end of this axis.
+
+  **Coverage is uneven and is stated rather than averaged.** The arrival-time row has
+  MAD-X's `sectormap` and PTC's `icase=6` as arbiters and xtrack in a different frame; the
+  misalignment half has xtrack only; the cavity's `t` column has PTC only; the fringe,
+  sliced-body, cavity and paraxial-quadrupole gaps are gated as *departures* with their
+  closed forms, not as agreements.
+
+- **P2 (candidate) — the four second-order gaps, each one element and one change.**
+  Effort **S** each; ordered by how much a shipped number moves.
+  (i) **The hard-edge dipole fringe** (`Dipole`, axis F's territory): the thin entrance
+  and exit maps whose composition with the body gives the five entries pinned in
+  `test_second_order_map_madx.py`; arbiters MAD-X TWISS and PTC (both default-on), and
+  xtrack's `edge_*_model="full"` as a third. Gate: the closed forms above, then the
+  fringe-on sectormap entry by entry. (ii) **The sliced bodies on the exact drift**
+  (`Sextupole`, `Octupole`): replace `_drift_matrix` halves by `Drift.track`; gate: the
+  residual against MAD-X's thick sextupole falls from the drift's `T` to the slicing
+  error, and nothing in the transverse block moves. (iii) **`RFCavity` as an energy
+  kick**: `delta' = psi(PT(delta) + Delta PT(zeta))`; gate: PTC's `icase=6` maptable with
+  no correction term, and Stage 3/5's synchrotron tune unchanged at first order.
+  (iv) **The quadrupole's kinematic term** — L2 named it, P1 measured it (`T[x,px,px]`
+  linear in `px_co`); one arbiter (PTC) and xtrack's thick quadrupole as a second if its
+  model is exact in the angles, to be run before the entry is written.
 
 
 ## Out of scope (unless a milestone explicitly calls for it)

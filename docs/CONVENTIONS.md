@@ -7571,8 +7571,186 @@ since PTC supplies neither. The tracked leg covers **one** term, `f3000`. The
 displacement-sign convention `z_0 = z_co − d` is gated *only* internally, on purpose: both
 external codes share the convention, so neither could catch an error in it.
 
+## The second-order transfer map (P1 — implemented)
+
+`accsim.taylor` carries the map one order further than a matrix: `TaylorMap(origin, k, R, T)`
+is `z_out = k + R u + T u u`, `u = z_in − origin`, with `T` a `6×6×6` array.
+`taylor_expand(map_fn, state)` builds one from any map by finite differences,
+`compose(outer, inner)` joins two, `second_order_element_maps` / `second_order_one_turn_map`
+are the lattice walkers (siblings of I3's `linearised_*`, expanded about the nonlinear
+closed orbit), `second_order_symplectic_residual(R, T)` is the exact identity, and
+`canonical_map(f, ref)` conjugates a map into `(zeta, p_zeta)`. Nothing first-order was
+touched.
+
+### The storage convention is symmetric, and it is a factor of two
+
+`sum_{jk} T_ijk u_j u_k` over **all** `j, k` with `T_ijk = T_ikj`. On a thin sextupole
+`T[px,x,x] = −k2l/2`, `T[px,y,y] = T[py,x,y] = T[py,y,x] = +k2l/2`, so the ratio
+`|T[py,x,y]| / |T[px,x,x]|` is **1** (a triangular convention would make it 2). MAD-X's
+`sectormap` (`t413 = t431`) and xtrack's `get_T_matrix` store the same convention; PTC's
+`maptable` labels **monomials**, so its mixed coefficient is the *sum* of the pair and is
+halved on reading. Pinned on the arbiters before the milestone was written and gated
+in the analytic suite since.
+
+### The composition rule, and what it is blind to
+
+    R^BA = R^B R^A,    T^BA_ijk = sum_a R^B_ia T^A_ajk + sum_ab T^B_iab R^A_aj R^A_bk,
+
+valid only when `B` is expanded about `A`'s image of its own expansion point —
+`compose` refuses otherwise, because composing maps taken about the design orbit with
+maps taken about a steered one is the silent mistake. It is gated three ways: sympy
+composes two random quadratic maps and truncates (exact); a real ring's composed map
+against the whole turn differenced at once converges as the **fourth power** of the direct
+step (`6e-4, 6e-8, 6e-10` at `1e-3, 1e-4, 3e-5` on entries up to `620`); and scaling one
+sextupole's `T` by 2 or 1/2 breaks that agreement by more than `1`.
+
+### How `T` is differenced, and the floor
+
+Fourth-order stencils (five-point on the diagonal, the `4×4` product stencil off it), 265
+samples pushed through `track()` as one `(6, 265)` bunch. Exact on polynomials to degree
+four, so every thin kick is differenced with **no** truncation term; a thick map's sixth
+derivative enters as `step^4`, round-off as `eps/step`. Default `step = 5e-4`, chosen on
+a sweep: on a 1 m drift `T[x,px,δ]` misses `−L/2` by `4e-13` there, `6e-12` at `1e-3`,
+`3e-14` at `2.5e-4`, `1.5e-9` at `4e-3` — sixteen-fold per doubling. The RF cavity is the
+one map that prefers a *larger* step, because its own `sin(φ_s − kζ) − sin φ_s`
+cancellation is the floor (`4e-10` relative on its curvature at `1e-2`, `4e-7` at the
+default); `step` accepts one value per coordinate for it. **Composed ring against PTC**:
+`1.0e-10` at `2.5e-4`, `1.2e-9` at `1e-3`, on entries near `600` — the reference legs pass
+the step explicitly where PTC is that sharp.
+
+### Symplecticity at second order is a set of identities — with the first-order caveat met one order up
+
+The truncated map's Jacobian is `M(u) = R + 2 sum_k T_k u_k`, `(T_k)_ij = T_ijk`, and
+`M^T J M = J` at every `u` requires, at first order, `R^T J T_k + T_k^T J R = 0` for every
+`k` (derived symbolically). Exact for every gradient kick; at the floor for the on-axis
+drift and quadrupole in `(zeta, delta)`. The **sector bend fails it in `(zeta, delta)`**
+by a closed form and passes in `(zeta, p_zeta)`: with `p_ζ = δ + δ²/(2γ0²) + …` the
+symplectic form in `(ζ, δ)` is `J + (δ/γ0²) J_long` to first order, and for a map that
+leaves `δ` alone the `k = δ` slice of the identity acquires
+`S_δ = −(1/(2γ0²)) (v e_δ^T − e_δ v^T)`, `v = R[ζ, transverse]` — zero unless something
+transverse couples into `ζ`, i.e. `R51`, `R52`. Measured `1.5e-4` on a 1 m, 0.12 rad
+bend against a `1e-12` floor, matching the closed form to `1e-11`, and `5e-12` after
+`canonical_map`. This is `accsim.symplectic`'s "`(ζ, δ)` is not a conjugate pair"
+arriving at second order, where it has a formula.
+
+### Three shipped quantities are projections of `T`, and all three land
+
+- **Chromaticity.** `dR/dδ = 2 T[:, :, δ]` exactly in the symmetric convention, so
+  `Q' = −tr(dR_plane)/(4π sin μ)`. On a bend-free thick FODO it agrees with I3's finite
+  difference of `linearised_one_turn_map` to `1e-8` and with F2's integral
+  `natural_chromaticity` once that is refined (`6e-6` off at 64 slices, `1.4e-9` at 4096
+  — the trapezoid's floor, not `T`'s). **With bends the derivative runs along the
+  dispersion:** `dR_co/dδ = 2 sum_m T[:, :, m] D̂_m`, `D̂ = (D_x, D_px, D_y, D_py, 0, 1)`,
+  because the off-momentum orbit moves; the plain `δ` column alone misses by `1e-2`.
+- **Second-order dispersion (M3).** `(I − R4) D = R[:4, δ]` at order `δ` and
+  `(I − R4) D2/2 = [T(D̂, D̂)]_transverse` at order `δ²`: `1e-8` against the twice-differenced
+  tracked orbit on `ddisp_x = 1.65`.
+- **First-order driving terms (O4).** For a thin kick at the entrance of a linear ring
+  `T = R G`, and a gradient kick is `G u u = J ∇V`, so `∇V = −J R⁻¹ T u u` and
+  `V = (u·∇V)/3` — recovered **curl-free** and equal to `k2l (x³/6 − x y²/2)` to `1e-10`.
+  Re-expanded in O1's `u = W w` and the basis `h = û + i p̂`, its coefficients over
+  `exp(−2πi[(j−k)Q_x + (l−m)Q_y]) − 1` reproduce all five sextupole `f_jklm` with O4's
+  generator being **`−V`** (the sign the Lie machinery attaches to a potential): ratio
+  `−1` to `1e-10` on every term.
+
+### The MAD-X frame at second order: two compositions, not a similarity transform
+
+`PT = sqrt((1+δ)² + 1/β0² − 1) − 1/β0 = β0 δ + β0 δ²/(2γ0²) + …` is nonlinear, and
+`M R M⁻¹` does not carry to `T`. `tests/reference/_madx.py` builds the change of frame as
+a `TaylorMap` pair `(Φ, Φ⁻¹)` — `Φ` about the accsim point, `Φ⁻¹` about the map's *exit*
+point in MAD-X coordinates — and converts a MAD-X `(k, R, T)` as `Φ⁻¹ ∘ g ∘ Φ` with the
+milestone's own `compose`. The drift is the gate: MAD-X's `t566 = −3L/(2 β0³ γ0²)`
+becomes accsim's `−L(2 + β0²)/(2γ0²)` (derived symbolically in the analytic suite from the
+time of flight) only when the quadratic term of `PT` is carried; the first-order rule
+reused at second order drops exactly `β0 R56 · β0/(2γ0²) = L/(2γ0⁴)`, `8e-4` of the entry.
+**Correction to an earlier roadmap note:** MAD-X's `t126 = t522 = −L/(2 β0)` — the scale is
+`1/β0`, not `1/β0²` (`−0.50062617` on a 1 m drift at `γ0 = 20`), and `t566` on that fixture
+is `−0.00376411`, the closed form above.
+
+### PTC's `maptable`, decoded
+
+- Variable order is `(x, px, y, py, PT, T')` — momentum-like fifth, time-like sixth,
+  the **reverse** of MAD-X's `(T, PT)` — and `T' = −T` (`c5` is the conserved row,
+  `c6_000010 = −L/(β0²γ0²)` where MAD-X's `R56` is `+`). `_madx.ptc_maptable` returns
+  MAD-X order; the sign is `time_sign = −1` in the frame change.
+- `icase=5` exposes **no `t` row at all** (no `c6` rows), not just no `t` column; the
+  arrival-time row is gated by `sectormap` and by `icase=6`.
+- `icase=6` needs a cavity whose frequency is a **harmonic** of the revolution frequency
+  (at 30 MHz on a 14.4 m ring PTC's fixed point walked to `t = 4.9965 m`) at the
+  **stable** zero crossing above transition (`lag = 0.5`, accsim `φ_s = π`; at `lag = 0`
+  both codes' longitudinal traces exceed 2).
+- **PTC's closed-orbit search stops at `1e-9`**, and about a map whose `T` reaches `600` a
+  `1e-10` orbit difference moves `R` by `2 T dz ~ 1e-7`. The steered-orbit gate therefore
+  hands PTC the expansion point explicitly (`ptc_twiss, x=, px=` without `closed_orbit`)
+  so both codes expand about the same point.
+
+### xtrack's `get_T_matrix` is in `(zeta, p_zeta)`
+
+Its drift lands on `T[ζ,δ,δ] = −3L/(2γ0²)` and its bend on `T[px,δ,δ] = −R26/(2γ0²)`,
+where the `(ζ, δ)` values are `−L(2+β0²)/(2γ0²)` and `0` — exactly the canonical conversion
+`T_can[i,5,5] = T[i,5,5] − R[i,5]/(2γ0²)` for anything that leaves `δ` alone. O1 recorded
+"nothing to correct at linear order"; this is the order at which there is. The xtrack leg
+compares against `canonical_map` throughout and asserts both closed forms. Two API facts
+measured rather than read: `start`/`end` are start-inclusive and end-**exclusive**
+(`start == end` is a full turn); the default differencing steps put its second differences
+at `eps/h² ~ 1e-4` (`3.9e-4` on a thick quadrupole), so steps are passed at `3e-4`
+(thin kicks `1e-10`, drift `4e-8`, bend `1e-6`). Its whole-turn `T` about a steered orbit
+converges onto accsim's composed map as `h²` (`0.30, 0.027, 0.0030, 0.00030` at
+`1e-4 … 3e-6` on entries near `700`), so the element-by-element comparison about the orbit
+is the sharp gate (`4e-11` on a displaced sextupole, all 216 entries). And
+`find_closed_orbit` on an RF-free ring solves in 6D and closes the arrival time by going
+off-momentum (`δ_co = −1.04e-3` on the fixture) — a valid fixed point accsim's 4D solve
+does not look for; `delta0=0` asks for the same one.
+
+### Four gaps the object exposed, each named and pinned rather than absorbed
+
+1. **The hard-edge dipole fringe field at second order.** MAD-X's TWISS and PTC (`exact=true`,
+   two integrator models) apply it by default at each face — entrance `x += (h/2) y²`,
+   `py −= h y px`, exit the reverse — leaving on a sector bend `T[x,y,py] = T[y,px,y] =
+   −hL/2`, `T[py,px,py] = +hL cos θ/2`, `T[x,y,y] = −h(1 − cos θ)/2`, `T[px,y,y] =
+   −h² sin θ/2`: `y`-dependence in a magnet whose *body* field has none. accsim's `Dipole`
+   carries F1's linear pole-face matrices and no second-order fringe, and so does `xt.Bend`
+   with its default `linear` edge model; with `kill_ent_fringe, kill_exi_fringe` all three
+   agree to `6e-12`. Gated as the closed form above; a real end-field effect and a
+   follow-up.
+2. **The sliced thick `Sextupole` / `Octupole` bodies use the linear drift matrix**, so at
+   second order they lack the drift's own `−L px δ` chromatic term and `−L px²/2` path
+   lengthening; MAD-X's thick sextupole carries them (`t126 = −L/(2β0)`). Gated: the
+   residual against MAD-X *is* `Drift(L)`'s `T` to the slicing error, and the transverse
+   block agrees. Predates the milestone (L1 made the standalone drift exact and left the
+   sliced bodies alone).
+3. **`RFCavity` applies a momentum kick linearised in `δ`; the cavity gives an energy kick.**
+   Exactly, `δ' = ψ(PT(δ) + ΔPT(ζ))`, whose cross term is `T[δ,ζ,δ] = −R65/(2γ0²)` —
+   `−5.8e-8` on the fixture, `1.25e-3` of the slope, invisible on an electron ring. Gated
+   both ways: the uncorrected ring misses PTC by that term (and by `R16` times it in
+   `T[x,δ,ζ]`), and with the term added to the cavity's map the ring lands on PTC at the
+   floor.
+4. **The thick `Quadrupole` is paraxial in the angles (L2)** — the kinematic
+   `(px²+py²)²/8` is dropped — which is quartic on the axis and invisible to `T` there
+   (`1e-11` agreement), but about a point with an orbit angle its third derivative enters:
+   `4.2e-5, 5.6e-5, 8.4e-5` on `T[x,px,px]` at `px_co = 3.3e-5, 6.6e-5, 1.3e-4` against
+   PTC, `8e-9` on `R`. The exact bend and drift agree about the same point to `2e-12`. The
+   steered-orbit PTC gate runs on thin quadrupoles for that reason.
+
+### What is not gated
+
+Third order and above (the octupole's whole content; the second-order-in-`k2` driving
+terms O6 refused) — one arbiter (PTC `no=3`) and refused for O6's reason. `T` as a table
+along the ring. The sliced-body, fringe, cavity and paraxial-quadrupole gaps above, which
+are pinned and not fixed. Rolled sources beyond what O6 models.
+
 ## Toolchain / environment notes
 
+- **Linux (2026-09-02, P1's session):** the reference suite runs unchanged on Ubuntu with
+  `gcc` — no fix-up needed — but two things bit that are worth knowing. (1) **xtrack
+  ≥ 0.111 refuses to JIT-compile** unless `XSUITE_ALLOW_KERNEL_COMPILATION=1` (it expects
+  the `xsuite` umbrella's prebuilt kernels, which do not build on 3.14); the reference
+  `conftest.py` now sets it by default. (2) The JIT build runs `setuptools` **in the
+  current directory**, which reads this repo's `pyproject.toml`; a `setuptools` older than
+  77 rejects the PEP 639 `license = "…"` string, and 77+ needs `packaging >= 24.2`
+  (`ImportError: Cannot import packaging.licenses`). Upgrade both, or run the reference
+  suite from outside the repo root. Also, MAD-X's `twiss, sectormap` writes a `sectormap`
+  file into the CWD unless `sectorfile=` is set — the P1 tests point it at `os.devnull`.
 - **Python 3.14** is the development interpreter. `numpy`, `scipy`, `matplotlib`,
   `sympy`, `pytest`, `ruff` all work on it.
 - **Reference code is `xtrack`, not the `xsuite` umbrella.** The `xsuite`

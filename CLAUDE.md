@@ -13,7 +13,8 @@ still produces convincing plots. Everything below defends against that.
 
 ## Working agreement
 
-- Start each session by reading the current open milestone in `docs/ROADMAP.md`.
+- Start each session at the **status index** at the top of `docs/ROADMAP.md`, then read the
+  open candidate's entry; update the index when a milestone ships.
 - **Test-first for physics.** Before implementing, write the analytic test with
   the known closed-form answer. The code is done only when it reproduces that
   number. Where a coefficient is involved, **derive it symbolically** (sympy) —
