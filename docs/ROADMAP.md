@@ -28,16 +28,17 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | I | closed orbit, steering, feed-down, 6D orbit | I1–I4 | — |
 | J | nonlinear single-particle dynamics | J1–J3 | — |
 | K | misalignments | K1, K2 | — |
-| L | exact element maps | L1–L4 | L5 deferred (no reference); the sliced bodies and the paraxial quadrupole → P2 (ii), (iv) |
+| L | exact element maps | L1–L4 | L5 deferred (no reference); the sliced bodies ✅ P2 (ii); the paraxial quadrupole → P2 (iv) |
 | M | optics off-momentum | M1–M3 | — |
 | N | spin | N1–N5 | — |
 | O | normalised coordinates, driving terms | O1–O6 | — |
-| P | the map beyond first order | **P1** (2026-09-02), **P2 (i)** the dipole fringe (2026-09-03) | **P2 (ii)–(iv)** — three second-order gaps left, one element each |
+| P | the map beyond first order | **P1** (2026-09-02), **P2 (i)** the dipole fringe, **P2 (ii)** the sliced bodies (2026-09-03) | **P2 (iii)–(iv)** — two second-order gaps left, one element each |
 
 **The open candidate is P2** (end of axis P). Its four items are independent and each is
 a session: the hard-edge dipole fringe ✅ **shipped 2026-09-03**, the sliced thick bodies
-on the exact drift, the cavity as an energy kick, and the quadrupole's kinematic term.
-**Three are left**; (ii) is the next by the "how much a shipped number moves" ordering.
+on the exact drift ✅ **shipped 2026-09-03**, the cavity as an energy kick, and the
+quadrupole's kinematic term. **Two are left**; (iii) is the next by the "how much a
+shipped number moves" ordering.
 
 ## Validation strategy (non-negotiable)
 
@@ -713,6 +714,30 @@ that reaches the arrival time at all. One measured property is recorded rather t
 the two faces undo each other only to **fourth** order, the fifth-order leftover
 (`−h²·px·py·y³/(1+δ)⁴`) being a property of the PTC/MAD-NG hard-edge form that both
 arbiters share.
+
+**P2 (ii) shipped the same day, the second of the four closed.** The thick `Sextupole`
+and `Octupole` split their bodies into `drift-kick-drift` slices, and the gaps between
+the slices were the *linear* drift matrix — so a thick multipole carried a cruder drift
+than a bare `Drift` of the same length has since L1. They call `Drift._track_body` now.
+Three things it taught. The MAD-X residual had to be gated on its **mechanism** (`x4.00`
+per doubling of the slice count) because any fixed tolerance would have accepted a map
+that was merely small-and-wrong. The zero-strength short-circuit was a **discontinuity**
+— a `k2 = 0` body returned the linear map while its own `k2 -> 0` limit is the exact one
+— and fixing it meant re-adding the affine constant part by hand. And the comparison
+against xtrack changed *shape*: J1's difference idiom existed only because the two codes
+disagreed about the drift, and with the raw residual down from `1e-8` to `2.7e-13` the
+comparison is direct, with what remains being a drift model one order higher (xtrack's
+thick multipole is paraxial where accsim is exact). One measured fact worth keeping:
+`line.configure_drift_model("exact")` does **not** reach inside a thick multipole.
+
+**The blast radius was measured rather than inferred from a green suite** — a passing
+suite alone would have been evidence of no *coverage*, not of no effect. On a ring with a
+real thick sextupole every closed-form quantity is bit-identical (`array_equal`): matrix,
+tunes, β, dispersion, chromaticity, sextupole detuning, every RDT. That is structural —
+those routines read `matrix()` and the strength and never call `track`. Only nonlinear
+*tracking* moves, and with amplitude as it should: `9.2e-11` on the tracked tunes at a
+`1e-4` launch, `2.3e-9` at `5e-4`. **1500** analytic tests pass against **1496** before
+(the whole difference is this milestone's four), and **339** reference, unchanged.
 
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
@@ -4947,10 +4972,26 @@ was executed on a probe ring before a word of this entry was written. What the r
   and natural chromaticity are bit-identical, asserted with `array_equal`. See
   `docs/CONVENTIONS.md` → *Hard-edge dipole fringe*.
 
-  (ii) **The sliced bodies on the exact drift**
-  (`Sextupole`, `Octupole`): replace `_drift_matrix` halves by `Drift.track`; gate: the
-  residual against MAD-X's thick sextupole falls from the drift's `T` to the slicing
-  error, and nothing in the transverse block moves. (iii) **`RFCavity` as an energy
+  (ii) **The sliced bodies on the exact drift** (`Sextupole`, `Octupole`) ✅ **DONE
+  (2026-09-03)** — `_drift_matrix` halves replaced by `Drift._track_body`, in two commits,
+  one element each. Every pre-committed gate held: the residual against MAD-X's thick
+  sextupole fell from the drift's whole `T` to the slicing error, and nothing in the
+  transverse block or at first order moved (`matrix`, β, tunes, dispersion, chromaticity
+  bit-identical by `array_equal`). Three things the milestone taught. The MAD-X residual
+  had to be gated on its **mechanism** — `×4.00` per doubling of `n_slices`, the
+  `O(1/n²)` of a second-order integrator — because any fixed tolerance would have
+  accepted a map that was merely small-and-wrong; the entry's "falls to the slicing
+  error" is a *scaling*, not a number. The zero-strength short-circuit turned out to be
+  a **discontinuity**: `super()._track_body` returns the linear affine map, so a
+  `k2 = 0` body would have disagreed with its own `k2 → 0` limit, and routing it to the
+  exact drift meant adding `_kick_body` back by hand to keep I1's affine contract. And
+  the whole comparison against xtrack changed shape: J1's difference idiom exists only
+  because the two codes disagreed about the drift, so with the raw residual down from
+  `1e-8` to `2.7e-13` the comparison is direct now — and what remains is a drift model
+  **one order higher**, xtrack's thick multipole being paraxial where accsim is exact
+  (`L px (px²+py²)/2`, gated as its closed form; `configure_drift_model("exact")` does
+  not reach inside a thick multipole). See `docs/CONVENTIONS.md` → *The sliced thick body
+  drifts exactly*. (iii) **`RFCavity` as an energy
   kick**: `delta' = psi(PT(delta) + Delta PT(zeta))`; gate: PTC's `icase=6` maptable with
   no correction term, and Stage 3/5's synchrotron tune unchanged at first order.
   (iv) **The quadrupole's kinematic term** — L2 named it, P1 measured it (`T[x,px,px]`

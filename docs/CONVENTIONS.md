@@ -233,10 +233,12 @@ one:
   they short-circuit on `k2 == 0` / `k3 == 0` — so for those two the paragraph stands as
   written. Checked in `elements/sextupole.py` and `elements/octupole.py`, not inherited.
 - A related fact the original paragraph did not cover: at **nonzero** strength those two
-  slice with `_drift_matrix`, the **linear** drift, not with `Drift.track`. So the
-  drift-kick-drift split has carried the pre-L1 drift since J1, and `n_slices → ∞`
-  converges onto the *paraxial* thick multipole rather than onto the exact one. That is
-  the same model boundary L2 records for the quadrupole, reached by a different route.
+  used to slice with `_drift_matrix`, the **linear** drift, not with `Drift.track`. So the
+  drift-kick-drift split carried the pre-L1 drift from J1 until **P2 (ii)**, and
+  `n_slices → ∞` converged onto the *paraxial* thick multipole rather than onto the exact
+  one. ✅ **Closed 2026-09-03** — the gaps are `Drift._track_body` now; see *The sliced
+  thick body drifts exactly* below. The quadrupole's version of the same model boundary
+  (L2) is still open, as **P2 (iv)**.
 
 **Updated again 2026-08-17 (L3)** — for one element the inconsistency is now *gone*
 rather than narrowed. The exact sector-bend map has **no division by the curvature left
@@ -1391,7 +1393,8 @@ second-order integrator. Both scalings are measured, not asserted (`L³`: ratio
 *integrated* strength `k2l` the `k2² L³` term is `k2l² L`, so shrinking `L` at fixed
 `k2l` closes the gap only **linearly** (measured ratio `0.4999` per halving). A
 genuinely thin magnet is `ThinSextupole`, not a short thick one. At `k2 = 0` the
-composition collapses onto the linear drift map identically, for any `n_slices`.
+composition collapses onto the drift identically, for any `n_slices` — the **exact** one
+since P2 (ii), bit for bit.
 
 ### The sign, by probe (G1 rule)
 
@@ -1402,22 +1405,21 @@ misses by exactly twice the kick. Established empirically rather than argued: th
 MAD-X normal/skew asymmetry already bit this package once (`Corrector`:
 `kick_x = +k` is `knl=[−k]` but `kick_y = +k` is `ksl=[+k]`).
 
-**The thick element is compared by difference, and why.** A raw `Sextupole` vs
-`xt.Sextupole` comparison leaves a `~1e-8` residual that has nothing to do with the
-sextupole: it is present **unchanged at `k2 = 0`** and equals `−L·px·δ`, the leading
+**The thick element used to be compared by difference, and why.** A raw `Sextupole` vs
+`xt.Sextupole` comparison left a `~1e-8` residual that had nothing to do with the
+sextupole: it was present **unchanged at `k2 = 0`** and equalled `−L·px·δ`, the leading
 term of xtrack's exact drift `x += L px / √((1+δ)² − px² − py²)` against accsim's
-linear `x += L px`. Toggling `k2` at fixed geometry cancels it and isolates the
-nonlinear content (`rel 1e-3`; the remainder is that same drift difference feeding
-the kick a slightly different `x`). Two further consequences are gated rather than
-tolerated: xtrack's `zeta` moves when `k2` turns on (path lengthening of a deflected
-trajectory, `−(L/2)Δ(px²+py²)/2`, predicted to `2 %`) while accsim's linear drift has
-no `px` dependence at all, so its `zeta` does not move.
+linear `x += L px`. Toggling `k2` at fixed geometry cancelled it and isolated the
+nonlinear content. **P2 (ii) ended that** — the raw residual is `2.7e-13` now and the
+comparison is made directly; see *The sliced thick body drifts exactly* below for what
+the `2.7e-13` is. The difference form is kept alongside it so that a regression in the
+drift and one in the kick cannot cancel.
 
 ⚠️ **`n_slices` does not converge accsim onto xtrack** — it converges it onto the
 *exact* map. xtrack's thick sextupole is itself a single-kick split, so
 `n_slices = 1` is its closest match and larger counts move away. That is not a bug
 in either code, and a naive "increase slices until they agree" gate would have read
-as one.
+as one. Still true after P2 (ii).
 
 ### Tracking-path consequences
 
@@ -1440,11 +1442,87 @@ as one.
 Gates: `tests/analytic/test_sextupole_kick.py` (21),
 `tests/reference/test_sextupole_kick_xtrack.py` (7).
 
-**Follow-up.** J1's kick expanded about a *closed-orbit* offset rather than a
-dispersive one is **I2** (*Sextupole feed-down on a distorted orbit*), which is
+**Follow-up.** The split's *drift* is **P2 (ii)**, immediately below. J1's kick expanded
+about a *closed-orbit* offset rather than a dispersive one is **I2** (*Sextupole feed-down on a distorted orbit*), which is
 where the dipole and skew terms — the two J1 never produced — are gated, and where
 the closed orbit becomes a fixed point. J1 was sequenced first only so its own gate
 would not be circular. The *next* multipole is **J2**, below.
+
+## The sliced thick body drifts exactly (P2 (ii) — implemented 2026-09-03)
+
+`Sextupole.track` and `Octupole.track` split the body into `n_slices` slices of
+`drift(L/2n) · kick · drift(L/2n)`. Until P2 (ii) those gaps were the **linear** drift
+*matrix* `_drift_matrix`, even though `Drift.track` has been the exact map since L1 — so
+a thick multipole carried a cruder drift than a bare drift of the same length, and
+`n_slices → ∞` converged onto the *paraxial* thick multipole rather than the exact one.
+They call `Drift._track_body` now; the geometry is not restated, because that map's
+longitudinal term is written in a deliberately rationalised form to avoid a cancellation
+(see *The drift's exact map*) and a second copy is how the two would drift apart.
+
+**What it adds, per unit length.** Three terms, all bilinear or quadratic, so no 6×6
+could have carried them — a structural change, not a tightened truncation:
+
+```
+Δx = −L·px·δ        Δy = −L·py·δ        Δζ = −L·(px² + py²)/2
+```
+
+The last is the physical statement that a **kicked** particle takes a longer path: `ζ`
+responds to `k2`/`k3` now, where before it was identically blind to them. At
+`n_slices = 1` the shift is `Δζ = −(L/4)·[(px²+py²)_after − (px²+py²)_before]` — the
+`L/2` of the second half-drift over the `2` of `pz + E/E0` — and accsim and xtrack agree
+on it to seven figures (`3.225408e-10` vs `3.225407e-10`) where accsim previously
+reported exactly zero.
+
+**Nothing at first order moves.** `_matrix_body` is still `_drift_matrix`: it is the
+exact map's Jacobian at the origin, so `matrix`, β, the tunes, dispersion and
+chromaticity are bit-identical, asserted with `array_equal`. The `k2 == 0` / `k3 == 0`
+short-circuit returns the **exact** drift in one step — bit-for-bit `Drift(L).track` at
+any slice count, rather than `n` composed slices — so a zero-strength body is continuous
+with the `k → 0` limit *and* free of the composition's rounding. Because that
+short-circuit no longer goes through the base class, `_kick_body` is added explicitly at
+the end of `_track_body`; dropping it would break I1's affine contract, which is gated.
+
+**How far the change reaches — measured, not argued.** On a ring with a real thick
+sextupole, every closed-form quantity is **bit-identical** with the old map: the one-turn
+matrix, the tunes, β, dispersion, chromaticity, the sextupole detuning and every RDT, all
+by `array_equal`. That is structural rather than lucky — those routines are built on
+`matrix()` and the element's strength and never call `track`. The one route that *does*
+move is **nonlinear tracking**, and it moves with amplitude as a second-order correction
+should: tracked tunes shift by `9.2e-11` at a `1e-4` launch amplitude and `2.3e-9` at
+`5e-4`. Nothing computes a momentum compaction or a synchrotron tune by tracking through a
+thick multipole, so the removed `ζ` blindness was not load-bearing anywhere. **Suite
+totals: 1500 analytic (from 1496 — the whole difference is this milestone's four new
+tests) and 339 reference, all passing.** The only tests that had to change are the ones
+that pinned the gap itself.
+
+⚠️ **Use the canonical symplecticity check.** With an exact map in the composition, plain
+`is_symplectic_map` (in `(ζ, δ)`) **rejects the correct map** — measured `1.2e-10` on
+`Sextupole(0.5, 12)` at a `4e-3` state, growing as the *square* of the amplitude, against
+`4.9e-13` at the differencing floor for `is_symplectic_map_canonical`. Same caveat as the
+drift's; see *Symplecticity*.
+
+### What the reference legs say now
+
+- **MAD-X `sectormap`.** P1 found the gap here and this closes it. The residual against
+  MAD-X's thick sextupole *was* the standalone drift's whole `T`, largest entry
+  `T[x,px,δ] = −L/2`; it is the **slicing error alone** now, and is gated on its mechanism
+  rather than on a number — `×4.00` per doubling of `n_slices` across 50…400
+  (`5.3e-6 → 8.3e-8`), which is drift-kick-drift's `O(1/n²)`. The witness is kept: MAD-X
+  still reports `t126 = −L/(2β0)` and accsim's bare `Drift` still expands to `−L/2`, so
+  the term moved *into* the element rather than out of the comparison.
+- **xtrack, raw rather than by difference.** The raw residual against `xt.Sextupole` is
+  `2.7e-13` (`xt.Octupole`: `2.5e-13`), from `~1e-8`. What is left is a drift model **one
+  order higher**: `xt.Sextupole` drifts with xtrack's *expanded* (paraxial) model and so
+  drops the cubic `L·px·(px²+py²)/2` that accsim's exact drift keeps — the closed form the
+  residual is gated against, not a tolerance. Confirmed by construction: the same sandwich
+  built from explicit `xt.Drift(model="exact")` agrees with accsim to `3e-17`, while the
+  **default**-drift sandwich reproduces `xt.Sextupole` bit-for-bit.
+- ⚠️ `line.configure_drift_model("exact")` does **not** reach inside a thick multipole —
+  measured, identical numbers with and without. It only reaches standalone `xt.Drift`s.
+
+Gates: `tests/analytic/test_sextupole_kick.py`, `tests/analytic/test_octupole_kick.py`,
+`tests/reference/test_sextupole_kick_xtrack.py`, `tests/reference/test_octupole_xtrack.py`,
+`tests/reference/test_second_order_map_madx.py`.
 
 ## The octupole and amplitude detuning (J2 — implemented)
 
@@ -7842,12 +7920,14 @@ does not look for; `delta0=0` asks for the same one.
    is what `xt.Bend`'s default `linear` edge model is too; with `kill_ent_fringe,
    kill_exi_fringe` the three still agree to `6e-12`, and that comparison is kept as the
    record of the default.
-2. **The sliced thick `Sextupole` / `Octupole` bodies use the linear drift matrix**, so at
-   second order they lack the drift's own `−L px δ` chromatic term and `−L px²/2` path
-   lengthening; MAD-X's thick sextupole carries them (`t126 = −L/(2β0)`). Gated: the
-   residual against MAD-X *is* `Drift(L)`'s `T` to the slicing error, and the transverse
-   block agrees. Predates the milestone (L1 made the standalone drift exact and left the
-   sliced bodies alone).
+2. **The sliced thick `Sextupole` / `Octupole` bodies used the linear drift matrix —
+   ✅ CLOSED by P2 (ii), 2026-09-03.** At second order they lacked the drift's own
+   `−L px δ` chromatic term and `−L px²/2` path lengthening, which MAD-X's thick sextupole
+   carries (`t126 = −L/(2β0)`); the residual against MAD-X *was* `Drift(L)`'s whole `T`.
+   The gaps are `Drift._track_body` now — see *The sliced thick body drifts exactly* above
+   — and what is left is the integrator, gated by its `1/n_slices²` scaling (`×4.00` per
+   doubling, `8.3e-8` at `n = 400`). Predated the milestone (L1 made the standalone drift
+   exact and left the sliced bodies alone).
 3. **`RFCavity` applies a momentum kick linearised in `δ`; the cavity gives an energy kick.**
    Exactly, `δ' = ψ(PT(δ) + ΔPT(ζ))`, whose cross term is `T[δ,ζ,δ] = −R65/(2γ0²)` —
    `−5.8e-8` on the fixture, `1.25e-3` of the slope, invisible on an electron ring. Gated
@@ -7865,8 +7945,9 @@ does not look for; `delta0=0` asks for the same one.
 
 Third order and above (the octupole's whole content; the second-order-in-`k2` driving
 terms O6 refused) — one arbiter (PTC `no=3`) and refused for O6's reason. `T` as a table
-along the ring. The sliced-body, cavity and paraxial-quadrupole gaps above, which are
-pinned and not fixed (the fringe gap is now built). Rolled sources beyond what O6 models.
+along the ring. The cavity and paraxial-quadrupole gaps above, which are pinned and not
+fixed (the fringe and sliced-body gaps are now built). Rolled sources beyond what O6
+models.
 The fringe's own third-order content — the `1/(1+δ)` factors inside Φ and the
 fifth-order face-pair leftover — has one arbiter, xtrack's `full` edge model, and is
 gated by tracking rather than by a map entry.
