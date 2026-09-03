@@ -8,6 +8,7 @@ import numpy as np
 
 from ..coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from ..reference import ReferenceParticle
+from .drift import Drift
 from .element import Element
 
 
@@ -90,8 +91,62 @@ def _path_lengthening(
     return 0.5 * (g * u0 * u0 * T - g * u0 * up0 * S * S + up0 * up0 * (L - T))
 
 
+def kinematic_drift(state: np.ndarray, length: float, ref: ReferenceParticle) -> np.ndarray:
+    r"""The flow of the **kinematic remainder** ``H_kin``, over length ``length``.
+
+    The exact Hamiltonian's kinetic term is ``-sqrt((1+delta)^2 - px^2 - py^2)``; the
+    paraxial one :func:`thick_quadrupole_map` solves in closed form is its expansion
+    ``-(1+delta) + (px^2 + py^2)/(2(1+delta))``. Their difference
+
+        H_kin = (1+delta) - sqrt((1+delta)^2 - p^2) - p^2/(2(1+delta))
+              = p^4 / (8 (1+delta)^3) + O(p^6),        p^2 = px^2 + py^2
+
+    is a function of the **momenta alone**, so ``px``, ``py`` and ``delta`` are its
+    constants of motion and its flow is explicit — a "drift" that moves ``x``, ``y``
+    and ``zeta`` by amounts cubic (``x``, ``y``) and quartic (``zeta``) in the angles.
+    That is the whole content of P2 (iv): the term L2 dropped, restored as a map that
+    can be composed with the paraxial one.
+
+    **It is the exact drift minus the paraxial drift, and it is evaluated as exactly
+    that.** Both of those are flows of momentum-only Hamiltonians over the same length,
+    so they commute and their increments simply subtract:
+    ``exact(L) = kin(L) . para(L)``. Building it from
+    :meth:`~accsim.elements.drift.Drift._track_body` and from
+    :func:`thick_quadrupole_map` at ``k1 = 0`` rather than from a fresh closed form is
+    deliberate — both are already gated element-wise against xtrack and MAD-X, and a
+    third copy of the same geometry is exactly how the three would drift apart.
+
+    The subtraction does cancel: ``L px/pz`` and ``L px/(1+delta)`` agree to a relative
+    ``p^2/2``, so the *correction* is returned with several fewer significant digits
+    than a purpose-built rationalised form would give. That costs nothing here, because
+    the absolute error is bounded by ``eps`` times the coordinates themselves — measured
+    against a 60-digit evaluation of the same flow at ``~1e-19`` on all three moved
+    coordinates, about one ulp, against a term of ``~1e-11``. Contrast the drift's *own*
+    ``zeta``, where the cancelling quantity was the coordinate rather than a correction
+    to it, and had to be rationalised away (see
+    :class:`~accsim.elements.drift.Drift`).
+
+    One consequence is worth stating because a bit-identity claim depends on it: at
+    ``px = py = 0`` the two ``zeta`` increments are the *same* quantity written with a
+    different grouping of the arithmetic, so this returns ``6.5e-19`` rather than
+    exactly zero for an on-axis particle **off** momentum. On the design orbit
+    (``delta = 0`` too) every increment is exactly ``0.0`` and the identity is exact.
+    """
+    st = np.asarray(state, dtype=float)
+    if length == 0.0:
+        return st.copy()
+    exact = Drift(length)._track_body(st, ref)
+    paraxial = thick_quadrupole_map(st, length, 0.0, ref)
+    return exact - paraxial + st
+
+
 def thick_quadrupole_map(
-    state: np.ndarray, length: float, k1: float, ref: ReferenceParticle
+    state: np.ndarray,
+    length: float,
+    k1: float,
+    ref: ReferenceParticle,
+    *,
+    kinematic_slices: int = 0,
 ) -> np.ndarray:
     r"""The thick normal quadrupole's momentum-dependent map (L2), as a free function.
 
@@ -101,11 +156,36 @@ def thick_quadrupole_map(
 
     ``state`` is a ``(6,)`` vector or a ``(6, n)`` bunch; every quantity below is
     per-particle, which is the whole reason this is not a matrix multiply.
+
+    ``kinematic_slices`` (P2 (iv), default ``0`` = off) interleaves
+    :func:`kinematic_drift` with the paraxial flow, in the symmetric composition
+
+        [ kin(h/2) . para(h) . kin(h/2) ] ^ n,      h = length / n
+
+    which is the exact quadrupole Hamiltonian split into two exactly-solvable pieces.
+    See :class:`Quadrupole` for what that buys and what it costs. At ``n = 1`` the
+    paraxial factor is **not** sliced, so :meth:`Quadrupole._matrix_body` remains the
+    origin Jacobian to the last bit rather than to the rounding of ``n`` composed
+    cos/sin blocks.
     """
     st = np.asarray(state, dtype=float)
     L = length
     if L == 0.0:
         return st.copy()
+    if kinematic_slices < 0:
+        raise ValueError(f"kinematic_slices must be >= 0, got {kinematic_slices}")
+    if kinematic_slices > 0:
+        n = kinematic_slices
+        h = L / n
+        # kin(h/2) para(h) kin(h) para(h) ... kin(h) para(h) kin(h/2): the adjacent
+        # half-steps of neighbouring slices are merged, which is why the loop applies a
+        # full-length kinematic drift between paraxial steps and a half one at each end.
+        out = kinematic_drift(st, 0.5 * h, ref)
+        for i in range(n):
+            out = thick_quadrupole_map(out, h, k1, ref)
+            if i + 1 < n:
+                out = kinematic_drift(out, h, ref)
+        return kinematic_drift(out, 0.5 * h, ref)
 
     delta = st[DELTA]
     one_plus = 1.0 + delta
@@ -209,8 +289,9 @@ class Quadrupole(Element):
     rejects the exact drift, because ``(zeta, delta)`` is not a canonical pair.
 
     ⚠️ **A zero-strength thick quadrupole is a drift in** ``matrix`` **but not,
-    quite, in** ``track``. At ``k1 = 0`` this map is the *expanded* drift
-    ``x += L px/(1+delta)``, where :class:`~accsim.elements.drift.Drift` is the
+    quite, in** ``track`` — *unless* ``kinematic_slices`` is set (see below). At
+    ``k1 = 0`` and the default ``kinematic_slices = 0`` this map is the *expanded*
+    drift ``x += L px/(1+delta)``, where :class:`~accsim.elements.drift.Drift` is the
     *exact* ``x += L px/pz``. The two differ by ``O(angle^3)`` — relatively
     ``(px^2+py^2)/2``, the same gap that separates xtrack's two drift models. L2
     narrows that inconsistency from *first* order (the old linear map differed at
@@ -219,6 +300,54 @@ class Quadrupole(Element):
     only by making the map **discontinuous in** ``k1``, so it is asserted and
     documented instead — the residual is ``O(angle^3)`` *and independent of* ``k1``,
     which is what identifies it as the paraxial expansion rather than a bug.
+
+    The kinematic term, opt in (P2 (iv))
+    ------------------------------------
+    ``kinematic_slices = n > 0`` restores the ``O(angle^3)`` the paraxial Hamiltonian
+    drops, **without** giving up the closed form. The exact Hamiltonian is split as
+
+        H_exact = H_paraxial + H_kin,
+        H_kin   = (1+delta) - sqrt((1+delta)^2 - p^2) - p^2/(2(1+delta))
+                = p^4 / (8 (1+delta)^3) + O(p^6)
+
+    and *both* halves are solved exactly: the first by the cos/sin flow above, the
+    second by :func:`kinematic_drift` (``H_kin`` is a function of the momenta alone,
+    so its flow is explicit). The composition is the symmetric
+
+        [ kin(h/2) . para(h) . kin(h/2) ] ^ n,      h = L / n.
+
+    **Why this is not the sliced family L2 refused.** ``H_kin``'s flow leaves ``px``,
+    ``py``, ``delta`` untouched and moves ``x``, ``y``, ``zeta`` by amounts *cubic* in
+    the angles, so its Jacobian at zero angle is the **identity** — at any ``delta``.
+    The origin Jacobian of the composition is therefore the paraxial one, unchanged,
+    and at ``n = 1`` the paraxial factor is not even split, so :meth:`_matrix_body`
+    stays the exact Jacobian of :meth:`track` to the last bit. Every optics quantity
+    in the package, and every design-orbit tracked particle, is bit-for-bit what it
+    was. A drift-kick-drift split of the *same* Hamiltonian (xtrack's
+    ``drift-kick-drift-exact``, PTC's ``exact``) buys the same physics and loses that.
+
+    **It closes the** ``k1 = 0`` **inconsistency above, structurally.** ``kin`` and
+    ``para`` at ``k1 = 0`` are both momentum-only flows, so they commute and
+    ``kin(L) . para(L)`` is the exact drift *identically* — at any ``n``, with no
+    ``k1 == 0`` branch and hence none of the discontinuity that made L2 refuse one.
+    ``Quadrupole(L, 0.0, kinematic_slices=n).track`` **is**
+    ``Drift(L).track``, to a few ulps.
+
+    **What it costs: the split is second order, and its error is not small.** The
+    Baker-Campbell-Hausdorff remainder is ``O(h^2)`` overall — measured as a clean
+    factor of ``4.00`` per doubling of ``n`` — but the naive hope that one slice
+    suffices *because the term is tiny* is wrong. The leading commutator
+    ``[H_para, H_kin]`` scales as ``k1 L x / p`` relative to ``H_kin``'s own effect,
+    which is order **one** for an ordinary trajectory (``x ~ p / (k1 L)``): at
+    ``n = 1`` the error is the size of the term itself. ``n`` is a real knob, not a
+    decoration; use ``n >= 8`` when the number matters, and gate on the ``1/n^2``
+    rather than on a tolerance.
+
+    Default **off**, like :class:`~accsim.elements.dipole.Dipole`'s hard-edge fringe
+    and for the same reason: it is a *model family*, not a bug fix. The shipped
+    default stays the exact flow of the paraxial Hamiltonian — MAD-X's thick map and
+    ``xt.Quadrupole(model="mat-kick-mat")``, which the reference suite pins to
+    ``1e-16`` — and the exact-Hamiltonian family is one keyword away.
 
     **On the design orbit nothing changes.** At ``delta = 0`` the transverse map is
     the linear matrix *identically*, not merely to first order, so a zero-momentum
@@ -242,12 +371,16 @@ class Quadrupole(Element):
         k1: float,
         name: str | None = None,
         *,
+        kinematic_slices: int = 0,
         dx: float = 0.0,
         dy: float = 0.0,
         roll: float = 0.0,
     ) -> None:
         super().__init__(length, name=name, dx=dx, dy=dy, roll=roll)
+        if kinematic_slices < 0:
+            raise ValueError(f"kinematic_slices must be >= 0, got {kinematic_slices}")
         self.k1 = float(k1)
+        self.kinematic_slices = int(kinematic_slices)
 
     def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         L = self.length
@@ -266,7 +399,9 @@ class Quadrupole(Element):
         bunch with a momentum spread take the same path. A zero-length quadrupole is
         the identity, matching :meth:`_matrix_body`.
         """
-        return thick_quadrupole_map(state, self.length, self.k1, ref)
+        return thick_quadrupole_map(
+            state, self.length, self.k1, ref, kinematic_slices=self.kinematic_slices
+        )
 
     def normalized_field(
         self, x: np.ndarray | float, y: np.ndarray | float
@@ -281,7 +416,8 @@ class Quadrupole(Element):
         return self.k1 * np.asarray(y, dtype=float), self.k1 * np.asarray(x, dtype=float)
 
     def __repr__(self) -> str:
-        return f"Quadrupole(length={self.length}, k1={self.k1}{self._repr_tail()})"
+        kin = f", kinematic_slices={self.kinematic_slices}" if self.kinematic_slices else ""
+        return f"Quadrupole(length={self.length}, k1={self.k1}{kin}{self._repr_tail()})"
 
 
 class ThinQuadrupole(Element):

@@ -56,12 +56,16 @@ class SkewQuadrupole(Element):
         k1s: float,
         name: str | None = None,
         *,
+        kinematic_slices: int = 0,
         dx: float = 0.0,
         dy: float = 0.0,
         roll: float = 0.0,
     ) -> None:
         super().__init__(length, name=name, dx=dx, dy=dy, roll=roll)
+        if kinematic_slices < 0:
+            raise ValueError(f"kinematic_slices must be >= 0, got {kinematic_slices}")
         self.k1s = float(k1s)
+        self.kinematic_slices = int(kinematic_slices)
 
     def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         L = self.length
@@ -93,10 +97,19 @@ class SkewQuadrupole(Element):
         :class:`ThinSkewQuadrupole` needs no such treatment, for the reason
         :class:`~accsim.elements.quadrupole.ThinQuadrupole` does not: a thin kick is
         already exact in ``delta``.
+
+        ``kinematic_slices`` (P2 (iv)) rides through the same conjugation, and it is
+        exactly consistent to do so: the kinematic remainder depends on the momenta
+        only through ``px^2 + py^2``, which the 45 degree roll leaves invariant. So the
+        rolled magnet with the term on is the unrolled one with it on, turned — the
+        same statement the map itself already had to satisfy.
         """
         st = np.asarray(state, dtype=float)
         into = s_rotation(-_SKEW_ROLL) @ st
-        return s_rotation(+_SKEW_ROLL) @ thick_quadrupole_map(into, self.length, self.k1s, ref)
+        body = thick_quadrupole_map(
+            into, self.length, self.k1s, ref, kinematic_slices=self.kinematic_slices
+        )
+        return s_rotation(+_SKEW_ROLL) @ body
 
     def normalized_field(
         self, x: np.ndarray | float, y: np.ndarray | float
@@ -126,7 +139,8 @@ class SkewQuadrupole(Element):
         return c * bx_b + s_ * by_b, -s_ * bx_b + c * by_b  # s_rotation(+45): back out
 
     def __repr__(self) -> str:
-        return f"SkewQuadrupole(length={self.length}, k1s={self.k1s}{self._repr_tail()})"
+        kin = f", kinematic_slices={self.kinematic_slices}" if self.kinematic_slices else ""
+        return f"SkewQuadrupole(length={self.length}, k1s={self.k1s}{kin}{self._repr_tail()})"
 
 
 class ThinSkewQuadrupole(Element):
