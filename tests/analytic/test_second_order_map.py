@@ -299,25 +299,42 @@ def test_thick_quadrupole_momentum_column_is_the_derivative_of_its_focusing(ref)
 
 
 def test_rf_cavity_curvature_is_the_second_derivative_of_its_sin(ref) -> None:
-    """``T[delta, zeta, zeta] = -(qV/(beta0^2 E0)) k_rf^2 sin(phi_s) / 2``.
+    r"""The cavity's whole ``T``: two live entries, and both are the same curvature.
+
+    ``T[delta, zeta, zeta] = -(qV/(beta0^2 E0)) k_rf^2 sin(phi_s)/2 - R65^2/(2 gamma0^2)``
+    and ``T[delta, zeta, delta] = T[delta, delta, zeta] = -R65/(2 gamma0^2)``.
 
     The one element that reads ``zeta`` — the reason PTC's ``icase=6`` leg needs a cavity
     in the ring. Its floor is the cavity's own ``sin(phi_s - k zeta) - sin(phi_s)``
     cancellation, which is why a *larger* zeta step is the accurate one here: measured
     ``4e-10`` relative at ``1e-2``, ``9e-8`` at ``1e-3``, ``4e-7`` at the default ``5e-4``,
     ``4e-6`` at ``1e-4``.
+
+    **The ``delta`` column is P2 (iii)'s** and did not exist when P1 shipped: the cavity
+    applies an *energy* kick, and ``delta`` is a nonlinear function of the energy with
+    curvature ``d^2 delta/d p_zeta^2 = -1/gamma0^2``. P1 measured its absence against PTC
+    and named it; the closed form and the ``1/gamma0^2`` mechanism are derived in
+    ``tests/analytic/test_rf_energy_kick.py``, and only the entries are read here. The
+    same curvature also adds ``-R65^2/(2 gamma0^2)`` to the ``zeta zeta`` entry — ``4.1e-7``
+    of it, which is above this test's own ``5e-9`` gate and so is carried explicitly.
     """
     rf = RFCavity(1e6, 3e6, 0.3)
     amp = rf.voltage / (ref.beta0**2 * ref.total_energy_eV)
     k = rf.k_rf(ref)
-    want = -amp * k * k * math.sin(0.3) / 2
+    r65 = rf.slope(ref)
+    want = -amp * k * k * math.sin(0.3) / 2 - r65 * r65 / (2 * ref.gamma0**2)
+    cross = -r65 / (2 * ref.gamma0**2)
     step = np.array([1e-3] * 4 + [1e-2, 1e-3])
     m = _expand(rf, ref, step=step)
     assert abs(m.T[DELTA, ZETA, ZETA] / want - 1) < 5e-9
+    assert abs(m.T[DELTA, ZETA, DELTA] / cross - 1) < 1e-6
+    assert abs(m.T[DELTA, DELTA, ZETA] / cross - 1) < 1e-6
     assert abs(m.R[DELTA, ZETA] - rf.matrix(ref)[DELTA, ZETA]) < 1e-15
     others = m.T.copy()
     others[DELTA, ZETA, ZETA] = 0.0
+    others[DELTA, ZETA, DELTA] = others[DELTA, DELTA, ZETA] = 0.0
     assert np.max(np.abs(others)) < 1e-12  # round-off on entries that are exactly zero
+    assert abs(cross) > 4e-9  # the new column is 4000x that floor, not round-off
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +497,7 @@ def test_identity_holds_for_thin_kicks_and_on_axis_thick_maps(ref) -> None:
     The drift and the quadrupole pass **in** ``(zeta, delta)``: on the design orbit
     neither couples anything transverse into ``zeta`` at first order, which is the
     condition under which the non-canonical pair does no harm at this order (the bend
-    test below is the case where it does).
+    and cavity tests below are the two cases where it does).
     """
     elements = [
         ThinSextupole(12.0),
@@ -489,7 +506,6 @@ def test_identity_holds_for_thin_kicks_and_on_axis_thick_maps(ref) -> None:
         Drift(1.3),
         Quadrupole(0.5, 1.2),
         Quadrupole(0.4, -0.8),
-        RFCavity(1e6, 3e6, 0.3),
     ]
     for elem in elements:
         m = _expand(elem, ref)
@@ -530,6 +546,45 @@ def test_the_bend_fails_the_identity_in_delta_by_a_closed_form_and_passes_canoni
     assert np.max(np.abs(second_order_symplectic_residual(mc.R, mc.T))) < 1e-11
     # And the linear part, for orientation: R itself is symplectic either way.
     assert np.max(np.abs(m.R.T @ J6 @ m.R - J6)) < 1e-12
+
+
+def test_the_cavity_fails_the_identity_in_delta_by_its_own_cross_term(ref) -> None:
+    r"""The bend's companion, for the other way ``delta`` fails to be conjugate to ``zeta``.
+
+    The bend above breaks the identity by coupling the *transverse* plane into ``zeta``.
+    The cavity is the opposite case and the only element that is one: it touches nothing
+    transverse, but it is the only element that *changes* ``delta``, and since P2 (iii) it
+    changes it by an energy kick — so its ``T`` carries ``c = T[delta, zeta, delta] =
+    -R65/(2 gamma0^2)``. Working the identity through for a map that is the identity
+    except for ``R[delta, zeta]`` and those entries leaves everything zero but the
+    ``k = zeta`` slice, which is
+
+        S_zeta = c (e_zeta e_delta^T - e_delta e_zeta^T)
+
+    — the ``k = delta`` slice cancels exactly. Measured ``4.016e-9``, and it is *the same
+    number* as the new ``T`` entry rather than merely of its order: the closed form above
+    is matched to ``2.0e-14``, which is this expansion's own differencing floor (every
+    other slice sits at ``4e-14``-``6e-14``, and so does the whole residual once the map is
+    rewritten in ``(zeta, p_zeta)``). Gates are set at ``1e-12``, ~50x that floor and
+    ~4000x below the signal. Before P2 (iii) the cavity passed the test above, because the
+    entry it now has was missing. Like the bend, it goes away canonically.
+    """
+    rf = RFCavity(1e6, 3e6, 0.3)
+    step = np.array([1e-3] * 4 + [1e-2, 1e-3])
+    m = _expand(rf, ref, step=step)
+    S = second_order_symplectic_residual(m.R, m.T)
+    assert np.max(np.abs(S)) > 1e-9  # decisively not the floor
+
+    c = -rf.slope(ref) / (2 * ref.gamma0**2)
+    ez, ed = np.eye(DIM)[ZETA], np.eye(DIM)[DELTA]
+    predicted = c * (np.outer(ez, ed) - np.outer(ed, ez))
+    assert np.max(np.abs(S[:, :, ZETA] - predicted)) < 1e-12
+    assert np.max(np.abs(S[:, :, DELTA])) < 1e-12  # the delta slice cancels exactly
+    others = [k for k in range(DIM) if k not in (ZETA, DELTA)]
+    assert np.max(np.abs(S[:, :, others])) < 1e-12
+
+    mc = taylor_expand(canonical_map(lambda s: rf.track(s, ref), ref), np.zeros(DIM), step=step)
+    assert np.max(np.abs(second_order_symplectic_residual(mc.R, mc.T))) < 1e-12
 
 
 # ---------------------------------------------------------------------------

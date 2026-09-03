@@ -191,11 +191,26 @@ def test_the_four_dimensional_orbit_misses_in_arrival_time_first_and_not_in_mome
     assert residual[DELTA] / bill == pytest.approx(-0.6889, rel=0.01)
     # and the missing third is the cavity kick the slipped zeta already collects: the
     # turn ends at the cavity's entrance, so that slip *is* the phase the RF sees. The
-    # reconstruction is bit-for-bit, because between them these two are the only elements
-    # of the ring that change delta at all.
+    # reconstruction closes because between them these two are the only elements of the
+    # ring that change delta at all.
     zeta_at_cavity = turn(lat, old)[ZETA]
     collected = cavity_kick_eV(lat, float(zeta_at_cavity), icav) / scale
-    assert residual[DELTA] == collected - bill
+    assert residual[DELTA] == pytest.approx(collected - bill, rel=1e-10)
+    # It was bit-for-bit until P2 (iii) and is not any more, by a **derivable** amount
+    # rather than a tolerated one. ``collected`` is the cavity's kick expressed in
+    # ``p_zeta``; the cavity now converts that into ``delta`` exactly, and
+    # ``delta = p_zeta - p_zeta^2/(2 gamma0^2)`` is nonlinear, so the delta it actually
+    # delivers falls short of ``collected`` by ``d_cav*g/gamma0^2 + g^2/(2 gamma0^2)``
+    # with ``d_cav`` the momentum arriving at the cavity and ``g = collected``. That is
+    # ``-2.4e-14``, i.e. ``9.0e-12`` of the residual -- this is a ``gamma0 = 12720``
+    # electron ring, which is exactly where the milestone said the term would be
+    # invisible. Asserted as its closed form so that a *wrong* conversion would still
+    # fail here rather than hide under a loosened equality.
+    d_cav = at_cavity(lat, old, icav)[DELTA]
+    leftover = (collected - bill) - residual[DELTA]
+    predicted = d_cav * collected / ref.gamma0**2 + collected**2 / (2 * ref.gamma0**2)
+    assert leftover == pytest.approx(predicted, rel=0.02)
+    assert abs(leftover / residual[DELTA]) == pytest.approx(9.0e-12, rel=0.05)
     # it has to be the *tracked* loss: the design-route integral is 4.4e-3 away here, the
     # first-order lumping error that only the closed orbit cancels (see the exponent gate)
     assert energy_loss_per_turn(lat) / scale / bill - 1.0 == pytest.approx(4.40e-3, rel=0.01)

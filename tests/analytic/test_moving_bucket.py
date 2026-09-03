@@ -385,6 +385,16 @@ def test_asymmetric_bucket_is_not_bounded_by_the_mirror_point() -> None:
     # midway between the true far tip and the (wrong) mirror point, on the axis
     probe = 0.5 * (far + mirror)
     traj = Tracker(lat).track_turns(Particle(zeta=probe, delta=0.0), 10_000, nonlinear=True)
-    assert np.max(np.abs(traj[:, ZETA])) > 20.0 * (hi - lo), (
+    # Same "runs away out of the model" handling as the bounded/unbounded test above, and
+    # since P2 (iii) the **cavity** is a second source of it alongside L3's exact bend: an
+    # exact energy kick cannot remove more than a particle's kinetic energy, so a runaway
+    # decelerated to ``delta = -0.99`` on this ``gamma0 = 5`` ring leaves the physical
+    # domain and the map reports NaN rather than inventing a ``delta`` below ``-1``, which
+    # is what the old momentum kick did. Measured: lost at turn 3140, by which point
+    # ``zeta`` has reached ``1127`` -- 600x the threshold asserted here.
+    finite = np.isfinite(traj).all(axis=1)
+    lost = int(np.argmin(finite)) if not finite.all() else len(traj)
+    assert lost > 1_000, f"left the model after only {lost} turns"
+    assert np.max(np.abs(traj[:lost, ZETA])) > 20.0 * (hi - lo), (
         "a point beyond the true far tip must be unbounded — the mirror point is not the bound"
     )
