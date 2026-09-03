@@ -72,11 +72,17 @@ import numpy as np
 
 from ..coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from ..reference import ReferenceParticle
+from .drift import Drift
 from .element import Element
 
 
 def _drift_matrix(length: float, ref: ReferenceParticle) -> np.ndarray:
-    """The linear drift map of ``length`` — the sextupole's whole linear content."""
+    """The linear drift map of ``length`` — the sextupole's whole linear content.
+
+    This is the *matrix* path only. Since P2 (ii) the tracking path drifts through
+    :meth:`Drift._track_body` instead, which is the exact map this matrix is the
+    origin Jacobian of; the two agree at first order and nowhere else.
+    """
     M = np.eye(DIM)
     M[X, PX] = length  # R12 (x, px)
     M[Y, PY] = length  # R34 (y, py)
@@ -143,13 +149,30 @@ class Sextupole(Element):
     ``O(1/n_slices^2)`` overall — a second-order integrator. Both scalings are
     measured in ``tests/analytic/test_sextupole_kick.py``.
 
+    **The gaps are the exact drift (P2 (ii)), not the linear one.** They were
+    ``_drift_matrix`` until then — ``x += L px``, with no ``delta`` in it and no ``px``
+    in ``zeta`` — so a thick sextupole carried a cruder drift than a bare
+    :class:`~accsim.elements.drift.Drift` of the same length has since L1. The split
+    now calls :meth:`Drift._track_body`, which adds three named terms per unit length:
+    ``-L px delta``, ``-L py delta`` and ``-L (px^2 + py^2)/2``. All three are bilinear
+    or quadratic, so no 6x6 could ever have carried them and the change is structural
+    rather than a tightened truncation. The last one is the physical statement that a
+    *kicked* particle takes a longer path: ``zeta`` now responds to ``k2``, where before
+    it was identically blind to it.
+
+    That makes the split symplectic in the sense an exact map is: check it with
+    :func:`~accsim.symplectic.is_symplectic_map_canonical`, since plain
+    :func:`~accsim.symplectic.is_symplectic_map` *rejects* this correct map — the same
+    ``(zeta, delta)`` caveat recorded for the drift itself.
+
     One caveat on reading that as a thin-lens limit: at fixed *integrated* strength
     ``k2l`` the ``k2^2 L^3`` term is ``k2l^2 L``, so shortening the body at fixed
     ``k2l`` closes the gap only linearly. A genuinely thin magnet is
     :class:`ThinSextupole`, not a short thick one.
 
-    At ``k2 = 0`` the composition collapses to the linear drift map identically, for
-    any ``n_slices``.
+    At ``k2 = 0`` the composition collapses to the drift identically, for any
+    ``n_slices`` — the exact one, bit for bit, which is the ``k2 -> 0`` limit of the
+    loop and not a separate model.
     """
 
     def __init__(
@@ -179,21 +202,30 @@ class Sextupole(Element):
         return _drift_matrix(self.length, ref)
 
     def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
-        # Drift-kick-drift, n_slices times (see the class docstring for the order
-        # of accuracy this buys and what it costs). The split carries no constant
-        # part -- a sextupole's ``kick()`` is the inherited zero -- so at k2 = 0 the
-        # base class's affine map is the right answer *and* keeps this override
-        # honest about the (M, k) contract rather than quietly dropping k.
+        # Drift-kick-drift on the *exact* drift, n_slices times (see the class docstring
+        # for the order of accuracy this buys and what it costs). The gaps delegate to
+        # ``Drift._track_body`` rather than restating the geometry: that map's
+        # longitudinal term is written in a deliberately rationalised form to avoid a
+        # cancellation that would otherwise show up in finite-difference Jacobians, and
+        # a second copy of it here is exactly how the two would drift apart.
         if self.k2 == 0.0:
-            return super()._track_body(state, ref)
-        n = self.n_slices
-        half = _drift_matrix(0.5 * self.length / n, ref)
-        k2l_slice = self.k2l / n
-        out = np.array(state, dtype=float, copy=True)
-        for _ in range(n):
-            out = _apply_kick(half @ out, k2l_slice)
-            out = half @ out
-        return out
+            # The k2 -> 0 limit, taken in one step so that a zero-strength body is the
+            # exact drift to the last bit rather than to the rounding of n composed
+            # slices.
+            out = Drift(self.length)._track_body(state, ref)
+        else:
+            n = self.n_slices
+            half = Drift(0.5 * self.length / n)
+            k2l_slice = self.k2l / n
+            out = np.array(state, dtype=float, copy=True)
+            for _ in range(n):
+                out = _apply_kick(half._track_body(out, ref), k2l_slice)
+                out = half._track_body(out, ref)
+        # The split carries no constant part -- a sextupole's ``kick()`` is the inherited
+        # zero -- but a subclass may add one, and a ``_track_body`` override that drops
+        # ``_kick_body`` breaks I1's affine contract. Added here, as the base class does.
+        k = self._kick_body(ref)
+        return out + (k if out.ndim == 1 else k[:, None])
 
     def __repr__(self) -> str:
         slices = f", n_slices={self.n_slices}" if self.n_slices != 1 else ""

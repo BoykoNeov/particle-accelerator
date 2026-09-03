@@ -16,18 +16,24 @@ and the match is **bit-for-bit**, not approximate — the thin kick touches only
 ``(px, py)``, so there is no drift model for the two codes to disagree about. The
 opposite sign is off by twice the kick.
 
-**Why the thick element is compared by difference.** A raw comparison of
-``Sextupole`` against ``xt.Sextupole`` leaves a residual of order ``1e-8`` that has
-nothing to do with the sextupole: it is present **unchanged at ``k2 = 0``** and
-equals the first-order chromatic drift term ``-L px delta`` — xtrack integrates the
-exact drift ``x += L px / sqrt((1+delta)^2 - px^2 - py^2)`` while accsim's linear
-map carries ``x += L px``, an omission that belongs to the linear drift and is
-documented there, not here. Switching ``k2`` on and off at fixed geometry cancels it
-term-for-term and isolates exactly the nonlinear content, the same difference idiom
-``test_sextupole_xtrack.py`` uses for feed-down. That the residual does *not* shrink
-as ``n_slices`` grows is also expected: xtrack's thick sextupole is itself a
-single-kick drift-kick-drift split, so accsim's ``n_slices = 1`` is its closest
-match and larger slice counts converge on the exact map, away from xtrack's default.
+**The thick element used to need comparing by difference; P2 (ii) ended that.** A raw
+comparison of ``Sextupole`` against ``xt.Sextupole`` used to leave ``1e-8`` that had
+nothing to do with the sextupole — present unchanged at ``k2 = 0``, and equal to the
+chromatic drift term ``-L px delta``, because the gaps between accsim's slices were the
+linear drift matrix while xtrack integrated a real drift. The gaps are ``Drift.track``
+now and the raw residual is ``2.7e-13``.
+
+**What is left of it is a drift model, and it is the third-order term this time.**
+``xt.Sextupole`` drifts with xtrack's *expanded* (paraxial) model, ``x += L px/(1+delta)``
+— confirmed here, since the same sandwich built from explicit ``xt.Drift()`` elements
+reproduces it exactly while ``xt.Drift(model="exact")`` agrees with accsim to ``3e-17``.
+The difference between the two models is ``L px (px^2 + py^2)/2``, cubic in the state,
+and that closed form is what the residual is gated against below rather than a
+tolerance. It is the same three-code split ``docs/CONVENTIONS.md`` records for M2.
+
+The comparison is still made at ``n_slices = 1``, because that is xtrack's own splitting:
+raising the slice count converges accsim onto the exact map and therefore *away* from
+xtrack, which does not slice further.
 
 Marked ``reference``: skips when xtrack or its JIT compiler is unavailable.
 """
@@ -117,63 +123,75 @@ def test_thin_kick_matches_xtrack_across_amplitudes(ref: ReferenceParticle) -> N
 
 
 def test_thick_residual_at_zero_strength_is_the_chromatic_drift(ref: ReferenceParticle) -> None:
-    """Attribute the thick element's ~1e-8 residual: it is the drift, not the sextupole.
+    """The ``1e-8`` that used to be here, and the ``3e-13`` that replaced it.
 
-    At ``k2 = 0`` there is no sextupole left, yet the full residual is still there —
-    and it matches the leading term of xtrack's exact drift minus accsim's linear
-    one, ``Delta x = -L px delta``. Establishing this is what licenses the
-    difference method in the next test.
+    At ``k2 = 0`` there is no sextupole left, so whatever is measured is the drift model.
+    Two statements, and the first is the one P2 (ii) did not make disappear:
+
+    1. accsim's linear *matrix* still misses ``Delta x = -L px delta`` against xtrack —
+       that term is bilinear, no 6x6 can carry it, and ``matrix()`` is still what every
+       optics function is built on. This is the ``1e-8``, unchanged.
+    2. accsim's **tracked** thick body no longer misses it. What is left is
+       ``L px (px^2 + py^2)/2``, the *cubic* angle term xtrack's expanded drift drops and
+       accsim's exact one keeps — five orders smaller, and the opposite sign in the sense
+       that accsim is now the one carrying more.
     """
     length = 0.5
-    residual = (
-        _track_xtrack([xt.Sextupole(length=length, k2=0.0)]) - Drift(length).matrix(ref) @ STATE
-    )
-
+    theirs = _track_xtrack([xt.Sextupole(length=length, k2=0.0)])
     px, py, delta = STATE[1], STATE[3], STATE[5]
-    assert residual[0] == pytest.approx(-length * px * delta, rel=1e-3)
-    assert residual[2] == pytest.approx(-length * py * delta, rel=1e-3)
+
+    matrix_residual = theirs - Drift(length).matrix(ref) @ STATE
+    assert matrix_residual[0] == pytest.approx(-length * px * delta, rel=1e-3)
+    assert matrix_residual[2] == pytest.approx(-length * py * delta, rel=1e-3)
     # ...and it lives entirely in the positions: no momentum is changed by a drift.
-    assert residual[1] == 0.0 and residual[3] == 0.0 and residual[5] == 0.0
+    assert matrix_residual[1] == 0.0 and matrix_residual[3] == 0.0 and matrix_residual[5] == 0.0
+
+    tracked_residual = Sextupole(length, 0.0).track(STATE, ref) - theirs
+    angle_sq = px * px + py * py
+    assert tracked_residual[0] == pytest.approx(length * px * angle_sq / 2, rel=1e-2)
+    assert tracked_residual[2] == pytest.approx(length * py * angle_sq / 2, rel=1e-2)
+    assert np.max(np.abs(tracked_residual)) < 1e-3 * np.max(np.abs(matrix_residual))
 
 
 def test_thick_sextupole_nonlinear_content_matches_xtrack(ref: ReferenceParticle) -> None:
-    """The isolated kick of the thick element agrees with xtrack's thick sextupole.
+    """The whole thick element, compared **raw** — no difference idiom needed after P2 (ii).
 
-    ``with(k2) - without(k2)`` at fixed geometry cancels the shared drift model
-    (previous test) and leaves the nonlinear content of the magnet. Compared at
-    ``n_slices = 1`` because that is xtrack's own splitting.
+    ``with(k2) - without(k2)`` was how this had to be asked while the two codes disagreed
+    about the drift; it cancelled the shared geometry and left the magnet. Both maps are
+    now the same composition of the same two exact factors, so the raw states are
+    compared, on every coordinate including ``zeta``, and the residual is the ``2.7e-13``
+    of xtrack's expanded drift rather than the ``1e-8`` of accsim's linear one.
 
-    The surviving ``2e-4`` relative residual is the *second-order* shadow of the
-    same drift difference: the two codes' half-drifts deliver the particle to the
-    kick at slightly different ``x``, so the kick itself differs slightly, and that
-    difference is then drifted again. It is not a disagreement about the sextupole —
-    the kick alone is bit-exact (see the thin tests above).
+    The difference form is kept alongside it, tightened by five orders, so that a
+    regression in the drift and one in the kick would not be able to cancel.
     """
     length, k2 = 0.5, 12.0
-    xt_kick = _track_xtrack([xt.Sextupole(length=length, k2=k2)]) - _track_xtrack(
-        [xt.Sextupole(length=length, k2=0.0)]
-    )
-    acc = Sextupole(length, k2, n_slices=1).track(STATE, ref) - Sextupole(
-        length, 0.0, n_slices=1
-    ).track(STATE, ref)
+    theirs = _track_xtrack([xt.Sextupole(length=length, k2=k2)])
+    ours = Sextupole(length, k2, n_slices=1).track(STATE, ref)
 
-    transverse = [0, 1, 2, 3]
-    assert np.max(np.abs(xt_kick[transverse])) > 1e-6  # non-vacuous: a kick to compare
-    assert np.allclose(acc[transverse], xt_kick[transverse], rtol=1e-3, atol=1e-12)
+    assert np.max(np.abs(ours - Drift(length).track(STATE, ref))) > 1e-6  # a real kick
+    assert np.allclose(ours, theirs, rtol=0.0, atol=1e-12)
+
+    xt_kick = theirs - _track_xtrack([xt.Sextupole(length=length, k2=0.0)])
+    acc_kick = ours - Sextupole(length, 0.0, n_slices=1).track(STATE, ref)
+    assert np.allclose(acc_kick, xt_kick, rtol=0.0, atol=1e-12)
 
 
-def test_thick_sextupole_omits_the_path_lengthening_of_a_kicked_trajectory(
+def test_thick_sextupole_lengthens_the_path_of_a_kicked_trajectory_like_xtrack(
     ref: ReferenceParticle,
 ) -> None:
-    r"""The ``zeta`` difference is accsim's linear drift, quantified — not left as slop.
+    r"""The ``zeta`` row: what accsim used to be blind to, and now measures with xtrack.
 
-    Deflecting a particle lengthens its path: the exact drift advances
-    ``zeta`` by ``-(L/2)(px^2 + py^2)`` to leading order, so turning ``k2`` on shifts
-    ``zeta`` in xtrack. accsim's linear drift carries only ``R56 delta``, with no
-    ``px`` dependence at all, so its ``zeta`` does not move. The gap is therefore
-    predictable, and predicting it is what turns an unexplained ``3e-10`` into a
-    known omission of the linear map (flagged in ``docs/CONVENTIONS.md``; it is the
-    same order the transverse residual above comes from).
+    Deflecting a particle lengthens its path, so the drift after the kick takes longer to
+    cross and ``zeta`` moves when ``k2`` is switched on. accsim's linear gaps carried only
+    ``R56 delta``, with no ``px`` dependence at all, so this number was exactly zero on
+    one side of the comparison and ``3e-10`` on the other — an *explained* gap, but a gap.
+
+    Both codes now report it, they agree to seven figures, and the closed form
+
+        Delta zeta = -(L/4) [ (px^2 + py^2)_after - (px^2 + py^2)_before ]
+
+    predicts it — the ``L/2`` of the second half-drift over the ``2`` of ``pz + E/E0``.
     """
     length, k2 = 0.5, 12.0
     xt_on = _track_xtrack([xt.Sextupole(length=length, k2=k2)])
@@ -181,41 +199,47 @@ def test_thick_sextupole_omits_the_path_lengthening_of_a_kicked_trajectory(
     acc_on = Sextupole(length, k2, n_slices=1).track(STATE, ref)
     acc_off = Sextupole(length, 0.0, n_slices=1).track(STATE, ref)
 
-    # accsim: zeta is blind to the kick.
-    assert acc_on[4] - acc_off[4] == pytest.approx(0.0, abs=1e-18)
-
-    # xtrack: the second half-drift sees the kicked momenta, so zeta moves by
-    # -(L/2) * [ (px^2 + py^2)_after - (px^2 + py^2)_before ] / 2.
     before = STATE[1] ** 2 + STATE[3] ** 2
     after = acc_on[1] ** 2 + acc_on[3] ** 2
-    predicted = -(length / 2.0) * (after - before) / 2.0
-    assert xt_on[4] - xt_off[4] == pytest.approx(predicted, rel=2e-2)
+    predicted = -(length / 4.0) * (after - before)
+
+    assert abs(predicted) > 1e-12  # non-vacuous: the kick really does deflect
+    assert acc_on[4] - acc_off[4] == pytest.approx(predicted, rel=1e-2)
+    assert acc_on[4] - acc_off[4] == pytest.approx(xt_on[4] - xt_off[4], rel=1e-5)
 
 
 def test_thick_sextupole_agrees_with_a_multipole_sandwich(ref: ReferenceParticle) -> None:
-    """accsim's drift-kick-drift is xtrack's too, element for element.
+    """accsim's drift-kick-drift is xtrack's too, element for element — and which drift.
 
-    Building the split explicitly in xtrack — ``Drift(L/2) . Multipole . Drift(L/2)``
-    — reproduces accsim's single-slice thick map up to the drift model alone, which
-    is the sharpest available statement about the *composition* (as opposed to the
-    kick, which is pinned exactly above).
+    Building the split explicitly in xtrack — ``Drift(L/2) . Multipole . Drift(L/2)`` —
+    reproduces accsim's single-slice thick map, and *which* ``xt.Drift`` is used decides
+    at what order. With ``model="exact"`` the two agree to ``3e-17``, i.e. to the last
+    bits of a double on every coordinate: same kick, same drift, same composition.
 
-    The momenta are not bit-exact even though the kick is: xtrack's exact half-drift
-    hands the multipole a slightly different ``x``, and the kick is a function of
-    ``x``. The miss is ``~k2l * x * Delta_x`` with ``Delta_x ~ (L/2) px delta``, i.e.
-    parts in ``1e6`` here.
+    With xtrack's **default** drift the same sandwich lands on ``2.7e-13`` — and, more
+    usefully, lands on exactly what ``xt.Sextupole`` gives. That identifies the model
+    inside xtrack's thick multipole as the expanded one, which is the whole content of
+    the residual gated in the tests above.
     """
     length, k2 = 0.5, 12.0
-    sandwich = _track_xtrack(
+    accsim = Sextupole(length, k2, n_slices=1).track(STATE, ref)
+
+    exact = _track_xtrack(
+        [
+            xt.Drift(length=length / 2, model="exact"),
+            xt.Multipole(knl=[0.0, 0.0, k2 * length]),
+            xt.Drift(length=length / 2, model="exact"),
+        ]
+    )
+    assert np.allclose(accsim, exact, rtol=0.0, atol=1e-15)
+
+    expanded = _track_xtrack(
         [
             xt.Drift(length=length / 2),
             xt.Multipole(knl=[0.0, 0.0, k2 * length]),
             xt.Drift(length=length / 2),
         ]
     )
-    accsim = Sextupole(length, k2, n_slices=1).track(STATE, ref)
-
-    assert np.allclose(accsim[[1, 3]], sandwich[[1, 3]], rtol=5e-6, atol=0.0)
-    assert accsim[5] == sandwich[5]  # delta: untouched by both
-    # Positions: the chromatic drift term, ~1e-8 at this amplitude.
-    assert np.allclose(accsim[[0, 2]], sandwich[[0, 2]], atol=2e-8)
+    thick = _track_xtrack([xt.Sextupole(length=length, k2=k2)])
+    assert np.array_equal(expanded, thick)  # xt.Sextupole drifts with the default model
+    assert np.max(np.abs(accsim - expanded)) > 1e-14  # and that model is not the exact one

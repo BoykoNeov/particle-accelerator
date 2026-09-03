@@ -17,8 +17,9 @@ its ``T`` is derived symbolically in the analytic suite, and MAD-X's ``t566 =
 
 **What each leg covers, stated.** The ``sectormap`` leg gates every entry of every
 element on a design-orbit ring — drift, thick quadrupole, sector bend, thin sextupole,
-thin octupole — and pins the *gap* on the thick sextupole (its sliced body is the linear
-drift, so it lacks the drift's own ``T``; the residual is asserted to *be* that ``T``).
+thin octupole — including the thick sextupole, whose gap P1 found here and P2 (ii) then
+closed: its sliced body drifts through the *exact* map now, so what is left is the
+integrator alone, gated by its ``1/n_slices^2`` scaling rather than by a number.
 The PTC leg gates the composed one-turn map on the same ring, then on a bunched ring
 (the ``t`` column), then about a **steered** closed orbit. The sign of PTC's sixth
 variable is pinned on ``R56`` before anything at second order is read.
@@ -294,15 +295,25 @@ def test_every_element_map_agrees_with_sectormap(sectormap, ring, name: str) -> 
         assert np.max(np.abs(theirs.T)) < 1e-12  # MAD-X agrees: no octupole in T
 
 
-def test_thick_sextupole_gap_is_exactly_the_drifts_own_t() -> None:
-    """MAD-X's thick sextupole carries the drift's chromatic and path-length terms; accsim's
-    sliced body does not, and the difference is the standalone drift's ``T`` to the
-    slicing error.
+def test_the_thick_sextupole_carries_the_drifts_own_t_now() -> None:
+    """P1 found this gap here; P2 (ii) closed it. Both halves are asserted, in that order.
 
-    Many slices, so that the ``O(k2 L^3 / n^2)`` integrator remainder (measured in
-    ``test_sextupole_kick.py``) is below the gate and the residual is the drift alone.
-    The transverse-transverse block — the sextupole's own content — agrees to the same
-    floor, so this is a *one-term* gap, named in ``docs/ROADMAP.md``.
+    MAD-X's thick sextupole carries the drift's chromatic and path-length second-order
+    terms. accsim's sliced body did not, because the gaps between its slices were the
+    linear drift *matrix*: the residual was the standalone drift's whole ``T``, and its
+    largest entry was ``T[x, px, delta] = -L/2`` — not small, and not a tolerance.
+
+    The gaps are ``Drift.track`` now, so what is left is the **slicing** error alone, and
+    it is gated on its mechanism rather than on a measured number: drift-kick-drift is a
+    second-order integrator, so halving the slice size must quarter the residual. It does
+    — ``x4.00`` per doubling across 50..400 slices (``5.3e-6`` down to ``8.3e-8``) — which
+    a map that were merely small-and-wrong could not reproduce, and which no fixed
+    tolerance would have distinguished from one.
+
+    **The witness is kept.** The term did not vanish from either code, it moved into the
+    element: MAD-X still reports ``t126 = -L/(2 beta0)`` and accsim's bare
+    :class:`~accsim.elements.drift.Drift` still expands to ``T[x, px, delta] = -L/2``.
+    Asserting the agreement without them would lose the proof that anything was there.
     """
     ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
     with madx_session() as madx:
@@ -315,15 +326,27 @@ def test_thick_sextupole_gap_is_exactly_the_drifts_own_t() -> None:
         """)
         (k, R, T), beta0 = sectormap_rows(madx)["el"], beam_beta0(madx, "ring")
     theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0)
-    sliced = Sextupole(L_SEXT, K2_THICK, n_slices=400)
-    ours = taylor_expand(lambda s: sliced.track(s, ref), np.zeros(DIM))
+
+    # The witness: the term is still in MAD-X's map and still in accsim's bare drift.
+    assert abs(T[X, PX, DELTA] + L_SEXT / (2 * beta0)) < 1e-12
     drift = taylor_expand(lambda s: Drift(L_SEXT).track(s, ref), np.zeros(DIM))
-    gap = theirs.T - ours.T
-    transverse = np.ix_([X, PX, Y, PY], [X, PX, Y, PY], [X, PX, Y, PY])
-    assert np.max(np.abs(gap[transverse])) < 5e-6  # the integrator remainder, n = 400
-    assert np.max(np.abs(gap - drift.T)) < 5e-6  # the whole gap is the drift's T
-    assert abs(gap[X, PX, DELTA] + L_SEXT / 2) < 5e-6  # and it is not small: -L/2
-    assert abs(T[X, PX, DELTA] + L_SEXT / (2 * beta0)) < 1e-12  # MAD-X's own entry
+    assert abs(drift.T[X, PX, DELTA] + L_SEXT / 2) < 1e-12
+
+    gaps = {}
+    for n in (50, 100, 200, 400):
+        sliced = Sextupole(L_SEXT, K2_THICK, n_slices=n)
+        ours = taylor_expand(lambda s, e=sliced: e.track(s, ref), np.zeros(DIM))
+        assert np.max(np.abs(theirs.R - ours.R)) < 1e-10, n  # first order was never in it
+        gaps[n] = float(np.max(np.abs(theirs.T - ours.T)))
+
+    # The mechanism: a second-order integrator, so 4x per doubling of the slice count.
+    counts = sorted(gaps)
+    for coarse, fine in zip(counts[:-1], counts[1:], strict=True):
+        assert gaps[coarse] / gaps[fine] == pytest.approx(4.0, rel=0.05), gaps
+
+    # And it really has come down: the drift's own T is no longer anywhere in the gap.
+    assert gaps[400] < 2e-7
+    assert np.max(np.abs(drift.T)) > 1e-3  # non-vacuous: that T is not itself small
 
 
 def test_the_bend_gap_is_the_hard_edge_fringe_and_nothing_else() -> None:

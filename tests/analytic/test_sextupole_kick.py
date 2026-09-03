@@ -54,6 +54,7 @@ import sympy as sp
 from accsim import (
     DELTA,
     DIM,
+    J6,
     PX,
     PY,
     ZETA,
@@ -70,6 +71,7 @@ from accsim import (
     Y,
     chromaticity,
     is_symplectic_map,
+    is_symplectic_map_canonical,
     jacobian,
     natural_chromaticity,
     tracked_tunes,
@@ -465,12 +467,63 @@ def test_reversed_kick_undoes_it(ref: ReferenceParticle) -> None:
 
 
 def test_thick_sextupole_with_zero_k2_is_exactly_a_drift(ref: ReferenceParticle) -> None:
-    """At ``k2 = 0`` the integrator must collapse onto the linear drift map identically."""
+    """At ``k2 = 0`` the integrator collapses onto the drift — and P2 (ii) changed which.
+
+    The gaps between the slices are :meth:`Drift._track_body` now, so a zero-strength
+    body is bit-for-bit the **exact** drift of the same length, at any slice count, and
+    the ``k2 -> 0`` limit of the loop is continuous with it. It used to be the linear
+    matrix, which is a different map off axis.
+
+    The probe state carries an angle *and* a momentum offset because that is the only
+    place the two drifts differ. At ``px = py = 0``, or at ``delta = 0``, this test would
+    pass against either map — which is what it did before.
+    """
     state = np.array([1e-3, 2e-4, -5e-4, 3e-4, 1e-3, 2e-4])
     for n in (1, 3, 8):
         elem = Sextupole(0.4, 0.0, n_slices=n)
-        assert np.allclose(elem.track(state, ref), elem.matrix(ref) @ state, atol=0.0)
-        assert np.allclose(elem.matrix(ref), Drift(0.4).matrix(ref), atol=0.0)
+        assert np.array_equal(elem.track(state, ref), Drift(0.4).track(state, ref))
+        # The *matrix* is untouched: it is that exact map's Jacobian at the origin, and
+        # every optics function in the package is still built on it.
+        assert np.array_equal(elem.matrix(ref), Drift(0.4).matrix(ref))
+
+
+def test_the_slice_gaps_are_the_exact_drift_not_the_linear_matrix(
+    ref: ReferenceParticle,
+) -> None:
+    r"""P2 (ii) named as the terms it adds — chromatic, and path-length.
+
+    Until now the split's gaps were the linear drift *matrix*: ``x += L px``, with no
+    ``delta`` in it and no ``px`` in ``zeta``. So a thick sextupole carried a cruder
+    drift than a bare :class:`Drift` of the same length has since L1. The difference is
+    not a truncation to be tightened but three named terms, all bilinear or quadratic and
+    so structurally beyond any 6x6:
+
+        Delta x = -L px delta,   Delta y = -L py delta,   Delta zeta = -L (px^2 + py^2)/2.
+
+    Measured at ``k2 = 0`` so that the sextupole's own kick is not what is being tested:
+    with no kick there is nothing in the element but the drift model.
+
+    **The tolerance is the next order, and is stated rather than tuned.** These are the
+    leading terms of an exact map, not the whole of it: ``L px/pz`` continues
+    ``-L px (delta - delta^2 - (px^2 + py^2)/2)`` and the ``zeta`` row carries a
+    ``-L delta^2 (2 + beta0^2)/(2 gamma0^2)`` alongside the path term. At this state
+    those corrections are ~3.5e-3 and ~5e-4 of the terms above, which is what ``1e-2``
+    leaves room for. The *exact* comparison is the job of the reference legs
+    (``tests/reference/test_sextupole_kick_xtrack.py``,
+    ``tests/reference/test_second_order_map_madx.py``); this test's job is to name the
+    terms and their size.
+    """
+    L = 0.4
+    state = np.array([1e-3, 2e-3, -5e-4, -1e-3, 1e-3, 1e-3])
+    elem = Sextupole(L, 0.0)
+    residual = elem.track(state, ref) - elem.matrix(ref) @ state
+
+    px, py, delta = state[PX], state[PY], state[DELTA]
+    assert residual[X] == pytest.approx(-L * px * delta, rel=1e-2)
+    assert residual[Y] == pytest.approx(-L * py * delta, rel=1e-2)
+    assert residual[ZETA] == pytest.approx(-L * (px * px + py * py) / 2.0, rel=1e-2)
+    # A drift changes no momentum, exactly — so the whole residual is in the positions.
+    assert residual[PX] == 0.0 and residual[PY] == 0.0 and residual[DELTA] == 0.0
 
 
 class _KickingSextupole(Sextupole):
@@ -504,16 +557,61 @@ def test_thick_track_respects_the_affine_contract_at_zero_strength(
     """
     state = np.array([1e-3, 2e-4, -5e-4, 3e-4, 1e-3, 2e-4])
     elem = _KickingSextupole(0.4, 0.0)
-    expected = elem.matrix(ref) @ state + elem.kick(ref)
+    # The linear part is the exact drift after P2 (ii), so the affine contract is stated
+    # against ``Drift.track`` rather than the matrix. The contract itself is unchanged:
+    # the constant part must survive the override.
+    expected = Drift(0.4).track(state, ref) + elem.kick(ref)
     assert np.allclose(elem.track(state, ref), expected, atol=0.0)
 
 
 def test_thick_sextupole_is_symplectic_at_every_slicing(ref: ReferenceParticle) -> None:
-    """Drift-kick-drift is symplectic *exactly* — that is the reason to use it."""
+    """Drift-kick-drift is symplectic *exactly* — that is the reason to use it.
+
+    Checked in ``(zeta, p_zeta)`` since P2 (ii) put the exact drift in the gaps.
+    ``(zeta, delta)`` is canonically conjugate only for the linear maps, so the plain
+    check now measures the coordinates rather than the map: its residual here is
+    ``1.2e-10`` and grows as the *square* of the amplitude, against ``4.9e-13`` at the
+    differencing floor for the canonical one. That mechanism is gated generically in
+    ``tests/analytic/test_symplectic_canonical.py``; what is asserted here is only that
+    this element passes the check that applies to it, at every slicing.
+
+    The margin between the two is asserted so that swapping the checkers back would fail
+    rather than quietly weaken the gate.
+    """
     state = np.array([4e-3, 1e-3, -3e-3, 5e-4, 1e-3, 1e-4])
     for n in (1, 2, 5):
         elem = Sextupole(0.5, 12.0, n_slices=n)
-        assert is_symplectic_map(lambda s, e=elem: e.track(s, ref), state)
+        assert is_symplectic_map_canonical(lambda s, e=elem: e.track(s, ref), state, ref)
+        M = jacobian(lambda s, e=elem: e.track(s, ref), state)
+        plain = float(np.max(np.abs(M.T @ J6 @ M - J6)))
+        assert plain > 100 * 1e-12  # the (zeta, delta) residual is not a rounding error
+
+
+def test_a_kicked_trajectory_now_lengthens_its_own_path(ref: ReferenceParticle) -> None:
+    r"""The new physics in one number: turning ``k2`` on now moves ``zeta``.
+
+    Deflecting a particle lengthens its path, so the drift *after* the kick takes longer
+    to cross. With linear gaps ``zeta`` was blind to that — it carried ``R56 delta`` and
+    no ``px`` at all — and ``zeta(k2) - zeta(0)`` was identically zero. It is now the
+    exact drift's own angle term evaluated on the kicked momenta,
+
+        Delta zeta = -(L/4) [ (px^2 + py^2)_after - (px^2 + py^2)_before ],
+
+    the ``L/2`` of the second half-drift over the ``2`` of ``pz + E/E0``. This is the
+    quantity ``tests/reference/test_sextupole_kick_xtrack.py`` used to *explain* a gap
+    against xtrack; it is a gate now, and the gap is closed.
+    """
+    length, k2 = 0.5, 12.0
+    state = np.array([3e-3, 1e-4, -2e-3, 2e-4, 1e-3, 2e-4])
+    on = Sextupole(length, k2, n_slices=1).track(state, ref)
+    off = Sextupole(length, 0.0, n_slices=1).track(state, ref)
+
+    before = state[PX] ** 2 + state[PY] ** 2
+    after = on[PX] ** 2 + on[PY] ** 2
+    predicted = -(length / 4.0) * (after - before)
+
+    assert abs(predicted) > 1e-12  # non-vacuous: the kick really does deflect
+    assert on[ZETA] - off[ZETA] == pytest.approx(predicted, rel=5e-3)
 
 
 def test_single_slice_thick_is_exactly_drift_kick_drift(ref: ReferenceParticle) -> None:
@@ -527,9 +625,9 @@ def test_single_slice_thick_is_exactly_drift_kick_drift(ref: ReferenceParticle) 
     """
     length, k2 = 0.5, 12.0
     state = np.array([3e-3, 1e-4, -2e-3, 2e-4, 1e-3, 2e-4])
-    half = Drift(length / 2).matrix(ref)
-    split = half @ ThinSextupole(k2 * length).track(half @ state, ref)
-    assert np.allclose(Sextupole(length, k2).track(state, ref), split, atol=0.0)
+    half = Drift(length / 2)
+    split = half.track(ThinSextupole(k2 * length).track(half.track(state, ref), ref), ref)
+    assert np.array_equal(Sextupole(length, k2).track(state, ref), split)
 
 
 def test_thick_sextupole_remainder_is_third_order_in_length(ref: ReferenceParticle) -> None:
