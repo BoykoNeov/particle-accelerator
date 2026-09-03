@@ -32,13 +32,13 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | M | optics off-momentum | M1–M3 | — |
 | N | spin | N1–N5 | — |
 | O | normalised coordinates, driving terms | O1–O6 | — |
-| P | the map beyond first order | **P1** (2026-09-02), **P2 (i)** the dipole fringe, **P2 (ii)** the sliced bodies (2026-09-03) | **P2 (iii)–(iv)** — two second-order gaps left, one element each |
+| P | the map beyond first order | **P1** (2026-09-02), **P2 (i)** the dipole fringe, **P2 (ii)** the sliced bodies, **P2 (iii)** the cavity's energy kick (2026-09-03) | **P2 (iv)** — one second-order gap left, one element |
 
 **The open candidate is P2** (end of axis P). Its four items are independent and each is
 a session: the hard-edge dipole fringe ✅ **shipped 2026-09-03**, the sliced thick bodies
-on the exact drift ✅ **shipped 2026-09-03**, the cavity as an energy kick, and the
-quadrupole's kinematic term. **Two are left**; (iii) is the next by the "how much a
-shipped number moves" ordering.
+on the exact drift ✅ **shipped 2026-09-03**, the cavity as an energy kick ✅ **shipped
+2026-09-03**, and the quadrupole's kinematic term. **One is left**, (iv), and it is the
+last written candidate anywhere — see the note under it.
 
 ## Validation strategy (non-negotiable)
 
@@ -729,6 +729,55 @@ disagreed about the drift, and with the raw residual down from `1e-8` to `2.7e-1
 comparison is direct, with what remains being a drift model one order higher (xtrack's
 thick multipole is paraxial where accsim is exact). One measured fact worth keeping:
 `line.configure_drift_model("exact")` does **not** reach inside a thick multipole.
+
+**P2 (iii) shipped the same day, the third of the four closed.** The `RFCavity` applied
+its kick straight to `delta`; a cavity gives *energy*, and `delta` is a nonlinear function
+of it. The amplitude was never wrong — `qV[sin ...]/(beta0^2 E0)` is exactly the kick in
+`p_zeta`, the coordinate conjugate to `zeta` — so the whole milestone is *which variable
+it is added to*, and the method is renamed `energy_kick_pzeta` to say so. Four things it
+taught. The roadmap's own gate, "Stage 3/5's synchrotron tune unchanged at first order",
+was **vacuous as written**: `synchrotron_tune` reads `slope()`, which the milestone does
+not touch, so asserting on it proves only that an unedited function stayed unedited; the
+version with teeth tracks the whole ring twice, once with each cavity, and finds the
+tracked tunes agree to `2.1e-9`. **Symplecticity swapped sides** — the old map is a shear
+in `(zeta, delta)`, which is not a conjugate pair, and the new one is a shear in
+`(zeta, p_zeta)`, which is, so `is_symplectic_map` now accepts the *wrong* cavity and
+rejects the right one while `is_symplectic_map_canonical` does the reverse; the residual
+is the same `1.583e-10` from both sides, which is what identifies it as a change of
+variables rather than a bug. The **sharpest statement of the physics was the one that
+could not be measured**: "the energy went up by `qV sin phi`" costs seven digits to form
+in double precision (a `1.2e3` eV kick on a `1.9e10` eV particle), so the primary gate
+evaluates the exact map in `mpmath` at 60 digits and the readable form is kept with its
+`2e-9` floor stated rather than quietly worked around. And a **third arbiter arrived
+unasked**: xtrack's `Cavity` is `ptau += dE/p0c` with `px`/`py` untouched, which is now
+bit-for-bit accsim's map, so it gates by *tracking* — `x`, `px`, `y`, `py` and `zeta`
+bit-identical, `delta` to `2.6e-16` against the old map's `8.3e-13` — sharper than the
+maptable leg it was meant to supplement, and the reason the PTC control was inverted
+rather than deleted.
+
+That third leg also turned up a **Stage-3 convention the package had never written down**,
+and it cost seven failing tests to see: accsim's cavity applies `sin(phi_s - k zeta) -
+sin(phi_s)` and xtrack's applies the bare `sin`, so the two differ by a constant
+`qV sin(phi_s)` of *energy* unless the bucket is stationary. Every previous xtrack cavity
+cross-check had used `phi_s = 0` or `pi`, so the difference had never surfaced; a first
+attempt at this leg used `phi_s = 0.3` and every test failed by the same `1.578e-5` in
+`delta`. It is a real difference of frame — accsim's kick is measured relative to a
+*ramping reference*, xtrack's is the lab kick — and it is now gated on its own, in energy,
+where it is exactly `qV sin(0.3)` at every `delta`. Reading it in `delta` would have made a
+clean constant look like a drifting discrepancy, for the same reason the milestone exists.
+
+The blast radius here is the narrowest of the three. Every closed-form quantity on a ring
+with a cavity is bit-identical (`array_equal`): the one-turn matrix, the synchrotron tune,
+the slip factor, the RF bucket height and the 6D closed orbit — structural, since they read
+`slope()` and never `track`. Only tracking moves: `7.0e-12` on the tracked `Q_s` at a
+`1e-4` launch, `2.7e-9` at `1e-3`, `3.8e-7` at `5e-3`, all below the `4e-6` at which the
+tracked tune departs from the small-amplitude closed form in the first place. A single
+kick moves linearly in `delta` — `4.1e-11` relative at `delta = 0`, `3.2e-8` at `1e-2` —
+which is the `delta/gamma0^2` mechanism read straight off. **1526** analytic tests pass,
+against **1500** before — 25 of the 26 are this milestone's own file — and **347**
+reference, against 339, the eight being its xtrack leg. The analytic bucket model is
+deliberately left alone and documented instead: it still uses the `p_zeta` amplitude as a
+`delta` kick, which is consistent with the small-amplitude Hamiltonian it is built from.
 
 **The blast radius was measured rather than inferred from a green suite** — a passing
 suite alone would have been evidence of no *coverage*, not of no effect. On a ring with a
@@ -2121,7 +2170,8 @@ sustained arc.
   **A shipped claim is wrong and this milestone corrects it.** `orbit.py`'s
   `closed_orbit_delta` docstring and N5's deferral paragraph both say a ring needs a 6D
   fixed point when "`phi_s != 0`, **or** radiation switched on in tracking". The first
-  half does not hold in this package. `energy_kick_delta` is
+  half does not hold in this package. `energy_kick_pzeta` (named `energy_kick_delta`
+  when this was written; renamed by P2 (iii)) is
   `sin(phi_s - k zeta) - sin(phi_s)`, which vanishes at `zeta = 0` for **every** `phi_s`,
   and the reference energy ramp that would make an accelerating bucket mean something
   lives entirely inside `accelerate` (which builds its own `ref` per turn) and never
@@ -4991,12 +5041,42 @@ was executed on a probe ring before a word of this entry was written. What the r
   **one order higher**, xtrack's thick multipole being paraxial where accsim is exact
   (`L px (px²+py²)/2`, gated as its closed form; `configure_drift_model("exact")` does
   not reach inside a thick multipole). See `docs/CONVENTIONS.md` → *The sliced thick body
-  drifts exactly*. (iii) **`RFCavity` as an energy
-  kick**: `delta' = psi(PT(delta) + Delta PT(zeta))`; gate: PTC's `icase=6` maptable with
-  no correction term, and Stage 3/5's synchrotron tune unchanged at first order.
+  drifts exactly*.
+
+  (iii) **`RFCavity` as an energy kick** ✅ **DONE (2026-09-03)** — `delta' =
+  psi(PT(delta) + Delta PT(zeta))`, applied as a cancellation-free *increment* on `delta`
+  so that a zero kick is the identity bit for bit. Unconditional, not behind a feature
+  switch: it is a correctness fix, not an added model. Both pre-committed gates held —
+  PTC's `icase=6` maptable agrees with no correction term on either side, and nothing at
+  first order moved. Four things the milestone taught. **The amplitude was never wrong**:
+  `qV[sin ...]/(beta0^2 E0)` *is* the kick in `p_zeta`, so the fix is which variable it is
+  added to, and the method is renamed `energy_kick_pzeta` to stop the next reader
+  re-deriving that. **The roadmap's own "Qs unchanged" gate was vacuous as written** —
+  `synchrotron_tune` reads `slope()`, which this milestone does not touch, so asserting on
+  it proves only that an unedited function was not edited; the gate with teeth tracks the
+  whole ring twice, once with each cavity, and the tracked tunes agree to `2.1e-9`.
+  **Symplecticity swaps sides**: the old map is a shear in `(zeta, delta)` and the new one
+  in `(zeta, p_zeta)`, so each checker calls the *other* map symplectic, and the identical
+  `1.583e-10` residual seen from both sides is what says this is a change of variables
+  rather than a bug in either. And **the sharpest gate is limited by a floor, not by the
+  map** — "the energy went up by `qV sin phi`" cannot be checked below `2e-9` in double
+  precision (a `1.2e3` eV kick on a `1.9e10` eV particle), so the primary gate evaluates
+  the exact statement in `mpmath` at 60 digits and the readable one is kept with its floor
+  stated. A third arbiter arrived unasked: xtrack's `Cavity` *is* this map
+  (`add_to_energy(..., pz_only=1)`), so it gates by **tracking** — five coordinates
+  bit-identical, `delta` to `2.6e-16` against the old map's `8.3e-13`, that miss gated on
+  its *linearity in `delta`* rather than on a number. That leg also exposed an unwritten
+  Stage-3 convention: accsim's kick carries a `- sin(phi_s)` offset (it is measured
+  relative to a ramping reference) and xtrack's does not, so the two differ by a constant
+  `qV sin(phi_s)` of energy unless the bucket is stationary — invisible until now because
+  every previous xtrack cavity check used `phi_s = 0` or `pi`. See `docs/CONVENTIONS.md` ->
+  *The cavity gives energy, not momentum*.
+
   (iv) **The quadrupole's kinematic term** — L2 named it, P1 measured it (`T[x,px,px]`
   linear in `px_co`); one arbiter (PTC) and xtrack's thick quadrupole as a second if its
-  model is exact in the angles, to be run before the entry is written.
+  model is exact in the angles, to be run before the entry is written. **This is the last
+  written candidate in this file.** When it ships, a new one has to be written — either
+  extending an axis below or opening one — as axis O's exhaustion did on 2026-08-31.
 
 
 ## Out of scope (unless a milestone explicitly calls for it)

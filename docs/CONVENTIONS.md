@@ -3314,7 +3314,7 @@ momentum variable `delta` the (nonlinear) kick is
   effect is their sum.
 - **Linear map** (`RFCavity.matrix`) is the small-amplitude shear
   `R65 = ∂δ/∂zeta|₀ = −(q V k_rf cos φ_s)/(β₀² E₀)` (only `M[DELTA, ZETA]`); it is
-  symplectic (a shear, det = 1). The full `sin` kick (`energy_kick_delta`) is the
+  symplectic (a shear, det = 1). The full `sin` kick (`energy_kick_pzeta`) is the
   tracking map (the pendulum whose separatrix is the bucket) — Stage-3 nonlinear
   tracking. **Stationary bucket only**, and *which* stationary phase depends on the
   **sign of the charge**: stability needs `Qs² = −(h η q V cos φ_s)/(2π β₀² E₀) > 0`,
@@ -3342,6 +3342,177 @@ momentum variable `delta` the (nonlinear) kick is
   and cross-checked to xtrack at the coupling order
   (`tests/reference/test_synchrotron_tune_xtrack.py`).
 
+## The cavity gives energy, not momentum (P2 (iii) — implemented 2026-09-03)
+
+`RFCavity` applies an **energy** kick. Until P2 (iii) it added the kick straight to
+`delta`:
+
+```
+delta ← delta + (qV/β₀²E₀)[sin(φ_s − k_rf·ζ) − sin φ_s]
+```
+
+The **amplitude is right** — `p_ζ = (E − E₀)/(β₀²E₀)` is linear in the energy, so that
+expression *is* `Δp_ζ` — but it was added to the wrong variable. `delta = Δp/p₀` is a
+nonlinear function of the energy, and the conversion was frozen at `delta = 0`.
+
+**The map now.** `Δp_ζ` unchanged (the method is renamed `energy_kick_pzeta`, which is
+what it always computed), converted exactly:
+
+```
+Δp_tau = β₀·Δp_ζ = ΔE/(p₀c)          E/(p₀c) = √((1+δ)² + (m/p₀)²)
+s      = Δp_tau·(2·E/(p₀c) + Δp_tau) = (1+δ′)² − (1+δ)²
+δ′     = δ + s/(√((1+δ)² + s) + 1 + δ)
+```
+
+Written as an **increment**, for two reasons. Nothing cancels — `E/(p₀c)` is a `hypot`,
+and the difference of squares is divided rather than square-rooted-and-subtracted. And a
+zero kick adds exactly `0.0`, so `V = 0` *and the synchronous particle at `ζ = 0` inside a
+bunch* are the identity bit for bit, with no `if` to get wrong. Routing through
+`pzeta_from_delta`/`delta_from_pzeta` instead would have been reuse, but their round trip
+is not bit-exact (`~1e-16` relative, measured), which would put every cavity turn and the
+6D closed orbit off by that for no physical reason.
+
+**This is a correctness fix and is therefore not behind a feature switch.** The
+`accsim.features` rule governs external tools and heavy dependencies, not "the map was
+wrong about energy" — so it goes in unconditionally, like P2 (ii) and unlike P2 (i)'s
+opt-in fringe.
+
+**What changed, as a closed form.** `d δ/d p_ζ = 1` at the origin and `d²δ/d p_ζ² =
+−1/γ₀²`, from `(1 + δ)² = 1 + 2p_ζ + β₀²p_ζ²` (derived in sympy, not recalled). So
+
+```
+T[δ,ζ,δ] = T[δ,δ,ζ] = −R65/(2γ₀²)          T[δ,ζ,ζ] += −R65²/(2γ₀²)
+```
+
+the first being PTC's gap named by P1 (`−5.83e-8` on its ring, `+4.02e-9` on the analytic
+fixture). The relative error of the old map in the **energy delivered** is `δ/γ₀²` —
+*first* order in the momentum deviation, not second, which is why this was a milestone and
+not a footnote — so it is `1.25e-3` of the slope on a `γ₀ = 20` proton ring and vanishes
+as `1/γ₀²` on a high-energy electron ring.
+
+⚠️ **Symplecticity swaps sides here, and both checkers now have teeth on this element.**
+A kick in `p_ζ` depending on `ζ` alone is a shear in a **conjugate** pair, so it is exactly
+symplectic; the old map was a shear in `(ζ, δ)`, which is not a conjugate pair. Measured
+at `ζ = 0.02` on the 1 MV fixture, the residual is `1.583e-10` for whichever map is read in
+the wrong pair and `5.1e-15` (the differencing floor) for the right one. The two
+`1.583e-10`s are the *same* number to `1e-3` — the tolerance the test asserts, at a fixed
+`step = 1e-4`; at other steps they separate by ~1% — which is what says the disagreement is
+one change of variables seen from two sides rather than a bug in either map. So `is_symplectic_map` (in `(ζ, δ)`) **accepts the old cavity and
+rejects the correct one**, and `is_symplectic_map_canonical` does the reverse. Its residual
+scales with the *kick* (`∝ V·ζ`) and is flat in `δ`, so a probe at `ζ = 0` sees nothing at
+all. Use a large `step` (`1e-4`) when differencing an exact map: the floor is round-off and
+falls as the step grows (`5.1e-15` at `1e-4`, `1.1e-12` at `1e-7`).
+
+The cavity also joins the sector bend as an element that fails P1's second-order
+symplectic identity in `(ζ, δ)` by a closed form — for the opposite reason. The bend
+breaks it by coupling the transverse plane into `ζ`; the cavity touches nothing
+transverse but is the only element that *changes* `δ`. Its residual lives in the `k = ζ`
+slice alone, `S_ζ = c·(e_ζ e_δᵀ − e_δ e_ζᵀ)` with `c = T[δ,ζ,δ]`, and the `k = δ` slice
+cancels exactly. It vanishes in `(ζ, p_ζ)`.
+
+⚠️ **The exact map has a physical domain, and the old one did not.** `(1+δ′)² =
+(E/(p₀c) + Δp_τ)² − (m/p₀)²` has no real root once the kick drops the total energy below
+`mc²`. On axis that edge is exactly
+
+```
+Δp_ζ = −(γ₀ − 1)/(β₀²γ₀)        i.e.   ΔE = −(γ₀ − 1)mc²  — the whole kinetic energy
+```
+
+and beyond it the map returns **NaN**. This is not a pathology of the fix; it is the fix
+being honest about where the model stops. The old map had no domain *and was not merely
+imprecise near the edge*: at 99% of the kinetic energy removed it reports `δ = −0.660`
+(`γ₀ = 2`) where the exact answer is `−0.918` — it claims a third of the design momentum
+survives the loss of essentially all the kinetic energy — and past the edge it carries on
+to `δ < −1`, a negative total momentum.
+
+In practice this reaches only trajectories that are already outside any bucket. The
+moving-bucket suite meets it on a deliberate runaway (`γ₀ = 5` proton, lost at turn 3140
+having reached `δ = −0.99` and `ζ = 1127`), and handles it with the idiom that file
+already needed for **L3's exact sector bend**, which returns NaN for a trajectory that
+cannot reach the exit face: track, find the first non-finite turn, assert the escape on
+the turns before it and that the loss came late. The cavity is simply a second source of
+the same reported condition. See *Exact maps* and `tests/analytic/test_moving_bucket.py`.
+
+**How far the change reaches — measured, not inferred from a green suite.** On a ring with
+a cavity, every closed-form quantity is **bit-identical** (`array_equal`): the one-turn
+matrix, the synchrotron tune, the slip factor, the RF bucket height and the 6D closed
+orbit. That is structural — they read `slope()` and `matrix()` and never call `track`, and
+`slope()` is untouched because `dδ/dp_ζ = 1` at the origin and the synchronous particle
+sits at `Δp_ζ = 0`. Only **tracking** moves, and with amplitude as a second-order
+correction must: the tracked `Q_s` shifts by `7.0e-12` at a `1e-4` launch, `2.7e-9` at
+`1e-3` and `3.8e-7` at `5e-3` — against the `4e-6` at which the tracked tune departs from
+the small-amplitude closed form in the first place, i.e. below the approximation `Q_s` is
+defined by. A single cavity kick moves by `4.1e-11` relative at `δ = 0` and `3.2e-8` at
+`δ = 1e-2`: **linear in `δ`**, which is the `δ/γ₀²` mechanism read directly. **Suite totals:
+1526 analytic (from 1500 — 25 in this milestone's own file and one in the second-order
+map's) and 347 reference (from 339, all eight this milestone's xtrack leg), all
+passing.** The only shipped tests that had to change are the two named below, and neither
+by a loosened tolerance.
+
+**The analytic bucket model is unchanged and is now a stated approximation.**
+`longitudinal.py` still uses the `p_ζ` amplitude as if it were a `delta` kick when it
+builds `H`, the separatrix and `rf_bucket_height`. That is not this bug repeated: the
+bucket Hamiltonian is a small-amplitude construction to begin with, and the two agree to
+the order it is written at. It is why `rf_bucket_height` above is bit-identical.
+
+**Two shipped tests moved, and neither by a loosened tolerance.** `test_closed_orbit_6d`
+reconstructed the one-turn `delta` residual as `collected − bill` **bit-for-bit**, which
+was exact only while `delta` and `p_ζ` were interchangeable. The shortfall is now derived
+rather than tolerated — `d_cav·g/γ₀² + g²/(2γ₀²)`, matched to 2% — and is `9.0e-12` of the
+residual on that `γ₀ = 12720` electron ring, precisely where this milestone predicted the
+term would be invisible. `test_moving_bucket` hit the physical domain above.
+
+### What the reference legs say now
+
+- **PTC `maptable`, `icase=6`.** P1 found the gap here and this closes it: the composed
+  one-turn map of the bunched ring now agrees entry for entry at the same `TURN_ATOL` as
+  the other two PTC legs, with **no correction term applied on either side**.
+- **The control is inverted rather than deleted.** A rewrite that only checks agreement
+  can pass for the wrong reason — nothing would notice if PTC's cavity and accsim's had
+  *both* been momentum kicks. So the pre-P2 (iii) cavity is reconstructed by zeroing
+  exactly those two `T` entries, recomposed into the ring, and asserted to miss PTC by
+  exactly `−R65/(2γ₀²)` and by `> 1e-7` overall. Same measurement P1 made, read from the
+  other end.
+- **xtrack, by tracking, and it is the sharp leg.** `track_rf.h` does
+  `LocalParticle_add_to_energy(part, qV·sin(phase − k·tau), pz_only=1)`, which is
+  `ptau += ΔE/p₀c` with `delta` recomputed from `ptau` and `px`/`py` left alone — entry
+  for entry the map accsim now applies. So this compares raw tracked states rather than a
+  second-order expansion of a ring: `x`, `px`, `y`, `py` and `ζ` come back **bit-identical**
+  and `delta` agrees to `2.6e-16`, where the old map missed by `8.3e-13`.
+- ⚠️ **The `2.6e-16` is xtrack's floor, not accsim's**, and the control is what proves it.
+  xtrack reconstructs `delta = √(ptau² + 2ptau/β₀ + 1) − 1`, and subtracting 1 from a
+  number near 1 costs `ulp(1) ≈ 2.2e-16` however small `delta` is; accsim's increment form
+  never forms that difference. So the residual wanders between `6e-18` and `2.6e-16` with
+  no trend, while the old map's miss is **linear in `delta`** — `1.7e-14`, `1.7e-13`,
+  `8.3e-13` at `1e-4`, `1e-3`, `5e-3`, a clean factor of ten per decade. The gate is that
+  *shape*, not the size: a floor has no trend in `delta` and this has nothing but.
+- ⚠️ **The two codes reference the synchronous phase differently, and this is Stage 3's
+  doing, not P2 (iii)'s.** accsim applies `sin(φ_s − k·ζ) − sin φ_s`; xtrack applies the
+  bare `sin(phase − k·tau)`. accsim's is the kick measured relative to a **ramping
+  reference**, so a synchronous particle stays at `delta = 0` and the `qV sin φ_s` per turn
+  is the reference's business (Stage 5's `accelerate`); xtrack's is the lab kick. The two
+  therefore differ by a constant `qV sin φ_s` of **energy** unless `sin φ_s = 0`. This was
+  invisible until now because every previous xtrack cavity cross-check uses a stationary
+  bucket — checked, not assumed: `phase = π` in `test_closed_orbit_6d_xtrack.py` and
+  `test_synchrotron_tune_xtrack.py`, `lag = 180` in `test_radiation_xtrack.py` and
+  `test_coupling_emittance_xtrack.py`, `lag = 0.5` in the MAD-X line, and `phi_s = 0.0` in
+  both normal-form rings and the spin-sideband ring. A first attempt at this leg used
+  `φ_s = 0.3` and all seven tests failed by the same `1.578e-5` in `delta`. It is gated on its own now, in **energy**, where it is
+  exactly `qV sin(0.3) = 295520.2067` eV at every `delta` (to `4e-13`) — and gated as a
+  *comparison of spreads* rather than against a literal: read in `delta`, the same offset
+  varies by `δ_max/γ₀²`, this milestone's own coefficient, which is `1.25e-5` here against
+  the energy reading's `4e-13`. The agreement gates run at `φ_s = 0`, which switches
+  off the offset while leaving the `cos φ_s` slope that drives the conversion.
+- **Two more traps, both asserted.** xtrack's `q` is `fabs(q0)·charge_ratio`, so an
+  **electron** needs `phase = φ_s + π` (see *RF cavity / synchrotron tune*); and
+  `XTRACK_CAVITY_PRESERVE_ANGLE`, were it defined in the build, would rescale `px`/`py` at
+  the kick — which is what the bit-identical `px`/`py` assertion catches.
+
+Gates: `tests/analytic/test_rf_energy_kick.py`,
+`tests/analytic/test_second_order_map.py`,
+`tests/reference/test_rf_energy_kick_xtrack.py`,
+`tests/reference/test_second_order_map_madx.py`.
+
 ## RF bucket / nonlinear longitudinal tracking (Stage 3 — implemented)
 
 The synchrotron *tune* is linear, but the RF *bucket* is nonlinear (the cavity
@@ -3354,7 +3525,9 @@ map — a kick-drift pair, each a symplectic shear:
 - **Nonlinear tracking seam.** `Element.track(state, ref)` maps one 6D state;
   default is the linear `matrix(ref) @ state` (so element-by-element tracking of a
   linear lattice equals the one-turn matrix). `RFCavity.track` overrides it with
-  the exact `sin` kick (`energy_kick_delta`). `Tracker.track` / `track_turns` take
+  the exact `sin` kick (`energy_kick_pzeta`), converted from energy to `delta`
+  exactly (P2 (iii) — see *The cavity gives energy, not momentum*).
+  `Tracker.track` / `track_turns` take
   `nonlinear=True` to push element-by-element. The kick + linear drift is
   symplectic, so a bounded orbit conserves the Hamiltonian below (bounded ripple,
   **no** secular drift over ≥1e4 turns — the longitudinal symplecticity smoke test,
