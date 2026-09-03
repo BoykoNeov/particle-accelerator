@@ -58,6 +58,7 @@ from accsim import (
     X,
     Y,
     is_symplectic_map,
+    is_symplectic_map_canonical,
     jacobian,
     tunes,
 )
@@ -233,11 +234,17 @@ def test_thin_kick_is_symplectic_at_amplitude(ref: ReferenceParticle) -> None:
 
 
 def test_thick_octupole_is_symplectic_at_amplitude(ref: ReferenceParticle) -> None:
-    """Drift-kick-drift is symplectic exactly, for any number of slices."""
+    """Drift-kick-drift is symplectic exactly, for any number of slices.
+
+    In ``(zeta, p_zeta)`` since P2 (ii) put the exact drift in the gaps: ``(zeta, delta)``
+    is canonically conjugate only for the linear maps, so the plain check measures the
+    coordinates rather than the map once an exact map is in the composition. The
+    mechanism is gated generically in ``tests/analytic/test_symplectic_canonical.py``.
+    """
     for n_slices in (1, 3, 8):
         elem = Octupole(0.4, 900.0, n_slices=n_slices)
         state = np.array([3e-3, 1e-4, -2e-3, 2e-4, 1e-3, 5e-4])
-        assert is_symplectic_map(lambda s, e=elem: e.track(s, ref), state, atol=1e-9)
+        assert is_symplectic_map_canonical(lambda s, e=elem: e.track(s, ref), state, ref)
 
 
 def test_kick_is_curl_free(ref: ReferenceParticle) -> None:
@@ -302,14 +309,77 @@ def test_linear_matrix_is_exactly_a_drift(ref: ReferenceParticle) -> None:
     assert np.array_equal(ThinOctupole(5e4).matrix(ref), np.eye(DIM))
 
 
-def test_zero_strength_collapses_onto_the_linear_map(ref: ReferenceParticle) -> None:
-    """At ``k3 = 0`` tracking is the drift map identically, for any ``n_slices``."""
+def test_zero_strength_collapses_onto_the_drift(ref: ReferenceParticle) -> None:
+    """At ``k3 = 0`` tracking is the drift identically — the **exact** one, after P2 (ii).
+
+    Bit-for-bit at any ``n_slices``, so the ``k3 -> 0`` limit of the split is continuous
+    with it. The probe state carries angles *and* a momentum offset because that is the
+    only place the exact and linear drifts differ; on axis, or at ``delta = 0``, this
+    would pass against either.
+    """
     state = np.array([1e-3, 2e-4, -5e-4, 1e-4, 3e-3, 7e-4])
-    M = Drift(0.6).matrix(ref)
     for n_slices in (1, 5):
         out = Octupole(0.6, 0.0, n_slices=n_slices).track(state, ref)
-        assert np.allclose(out, M @ state, atol=0.0, rtol=0.0)
+        assert np.array_equal(out, Drift(0.6).track(state, ref))
     assert np.array_equal(ThinOctupole(0.0).track(state, ref), state)
+    # The *matrix* path is untouched: still the linear drift, exactly.
+    assert np.array_equal(Octupole(0.6, 0.0).matrix(ref), Drift(0.6).matrix(ref))
+
+
+def test_the_slice_gaps_are_the_exact_drift_not_the_linear_matrix(
+    ref: ReferenceParticle,
+) -> None:
+    r"""P2 (ii) named as the terms it adds — chromatic, and path-length.
+
+    The split's gaps were the linear drift *matrix* — ``x += L px``, with no ``delta`` in
+    it and no ``px`` in ``zeta`` — so a thick octupole carried a cruder drift than a bare
+    :class:`Drift` of the same length. The difference is three named terms, all bilinear
+    or quadratic and so structurally beyond any 6x6:
+
+        Delta x = -L px delta,   Delta y = -L py delta,   Delta zeta = -L (px^2 + py^2)/2.
+
+    Measured at ``k3 = 0``, so the octupole's own kick is not what is being tested, and
+    to ``1e-2`` because these are the *leading* terms of an exact map: the next order
+    (relative ``delta + (px^2+py^2)/2delta`` transversely, and a
+    ``delta^2 (2+beta0^2)/(2 gamma0^2)`` on ``zeta``) is a few parts in a thousand here.
+    The exact comparison is the reference legs' job.
+    """
+    L = 0.4
+    state = np.array([1e-3, 2e-3, -5e-4, -1e-3, 1e-3, 1e-3])
+    elem = Octupole(L, 0.0)
+    residual = elem.track(state, ref) - elem.matrix(ref) @ state
+
+    px, py, delta = state[PX], state[PY], state[DELTA]
+    assert residual[X] == pytest.approx(-L * px * delta, rel=1e-2)
+    assert residual[Y] == pytest.approx(-L * py * delta, rel=1e-2)
+    assert residual[ZETA] == pytest.approx(-L * (px * px + py * py) / 2.0, rel=1e-2)
+    # A drift changes no momentum, exactly — the whole residual is in the positions.
+    assert residual[PX] == 0.0 and residual[PY] == 0.0 and residual[DELTA] == 0.0
+
+
+def test_a_kicked_trajectory_now_lengthens_its_own_path(ref: ReferenceParticle) -> None:
+    r"""The new physics in one number: turning ``k3`` on now moves ``zeta``.
+
+    Deflecting a particle lengthens its path, so the drift *after* the kick takes longer
+    to cross. With linear gaps ``zeta`` carried ``R56 delta`` and no ``px`` at all, and
+    ``zeta(k3) - zeta(0)`` was identically zero. It is now the exact drift's own angle
+    term on the kicked momenta,
+
+        Delta zeta = -(L/4) [ (px^2 + py^2)_after - (px^2 + py^2)_before ],
+
+    the ``L/2`` of the second half-drift over the ``2`` of ``pz + E/E0``.
+    """
+    length, k3 = 0.4, 9.0e4
+    state = np.array([3e-3, 1e-4, -2e-3, 2e-4, 1e-3, 5e-4])
+    on = Octupole(length, k3, n_slices=1).track(state, ref)
+    off = Octupole(length, 0.0, n_slices=1).track(state, ref)
+
+    before = state[PX] ** 2 + state[PY] ** 2
+    after = on[PX] ** 2 + on[PY] ** 2
+    predicted = -(length / 4.0) * (after - before)
+
+    assert abs(predicted) > 1e-13  # non-vacuous: the kick really does deflect
+    assert on[ZETA] - off[ZETA] == pytest.approx(predicted, rel=1e-2)
 
 
 def test_linear_optics_are_untouched_by_the_octupole(ref: ReferenceParticle) -> None:
@@ -385,9 +455,11 @@ def test_short_thick_octupole_approaches_the_thin_one(ref: ReferenceParticle) ->
     gaps = []
     for L in (0.4, 0.2, 0.1):
         thick = Octupole(L, k3l / L).track(state, ref)
-        # Strip the drift both sides so only the kick's placement is compared.
-        undrift = np.linalg.inv(Drift(L).matrix(ref))
-        gaps.append(float(np.linalg.norm(undrift @ thick - thin)))
+        # Give the thin kick the *same* drift instead of stripping it off the thick one,
+        # so only the kick's placement is compared. Adding the drift rather than undoing
+        # it is what P2 (ii) forces: the gaps are the exact map now, and the linear
+        # matrix's inverse is no longer its inverse.
+        gaps.append(float(np.linalg.norm(thick - Drift(L).track(thin, ref))))
     ratios = [gaps[i] / gaps[i + 1] for i in range(len(gaps) - 1)]
     for r in ratios:
         assert r == pytest.approx(2.0, rel=0.1), f"ratios {ratios} — not O(L)"

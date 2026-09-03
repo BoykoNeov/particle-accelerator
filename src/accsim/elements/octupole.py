@@ -86,11 +86,17 @@ import numpy as np
 
 from ..coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from ..reference import ReferenceParticle
+from .drift import Drift
 from .element import Element
 
 
 def _drift_matrix(length: float, ref: ReferenceParticle) -> np.ndarray:
-    """The linear drift map of ``length`` — the octupole's whole linear content."""
+    """The linear drift map of ``length`` — the octupole's whole linear content.
+
+    This is the *matrix* path only. Since P2 (ii) the tracking path drifts through
+    :meth:`Drift._track_body` instead, which is the exact map this matrix is the
+    origin Jacobian of; the two agree at first order and nowhere else.
+    """
     M = np.eye(DIM)
     M[X, PX] = length  # R12 (x, px)
     M[Y, PY] = length  # R34 (y, py)
@@ -142,8 +148,23 @@ class Octupole(Element):
     so shortening the body at fixed ``k3l`` closes the gap only at first order: a
     genuinely thin magnet is :class:`ThinOctupole`, not a short thick one.
 
-    At ``k3 = 0`` the composition collapses to the linear drift map identically, for
-    any ``n_slices``.
+    **The gaps are the exact drift (P2 (ii)), not the linear one** — the same change
+    :class:`~accsim.elements.sextupole.Sextupole` took, for the same reason. They were
+    ``_drift_matrix`` until then, so a thick octupole carried a cruder drift than a bare
+    :class:`~accsim.elements.drift.Drift` of the same length has since L1. The split now
+    calls :meth:`Drift._track_body`, adding ``-L px delta``, ``-L py delta`` and
+    ``-L (px^2 + py^2)/2`` — all bilinear or quadratic, hence beyond any 6x6. The last is
+    the statement that a *kicked* particle takes a longer path: ``zeta`` responds to
+    ``k3`` now, where before it was identically blind to it.
+
+    Check symplecticity with
+    :func:`~accsim.symplectic.is_symplectic_map_canonical`; plain
+    :func:`~accsim.symplectic.is_symplectic_map` *rejects* this correct map, the
+    ``(zeta, delta)`` caveat recorded for the drift itself.
+
+    At ``k3 = 0`` the composition collapses to the drift identically, for any
+    ``n_slices`` — the exact one, bit for bit, which is the ``k3 -> 0`` limit of the
+    loop and not a separate model.
     """
 
     def __init__(
@@ -173,20 +194,29 @@ class Octupole(Element):
         return _drift_matrix(self.length, ref)
 
     def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
-        # Drift-kick-drift, n_slices times. The split carries no constant part -- an
-        # octupole's ``kick()`` is the inherited zero -- so at k3 = 0 the base class's
-        # affine map is the right answer *and* keeps this override honest about the
-        # (M, k) contract rather than quietly dropping k.
+        # Drift-kick-drift on the *exact* drift, n_slices times. The gaps delegate to
+        # ``Drift._track_body`` rather than restating the geometry: that map's
+        # longitudinal term is written in a deliberately rationalised form to avoid a
+        # cancellation that would otherwise show up in finite-difference Jacobians, and
+        # a second copy of it here is exactly how the two would drift apart.
         if self.k3 == 0.0:
-            return super()._track_body(state, ref)
-        n = self.n_slices
-        half = _drift_matrix(0.5 * self.length / n, ref)
-        k3l_slice = self.k3l / n
-        out = np.array(state, dtype=float, copy=True)
-        for _ in range(n):
-            out = _apply_kick(half @ out, k3l_slice)
-            out = half @ out
-        return out
+            # The k3 -> 0 limit, taken in one step so that a zero-strength body is the
+            # exact drift to the last bit rather than to the rounding of n composed
+            # slices.
+            out = Drift(self.length)._track_body(state, ref)
+        else:
+            n = self.n_slices
+            half = Drift(0.5 * self.length / n)
+            k3l_slice = self.k3l / n
+            out = np.array(state, dtype=float, copy=True)
+            for _ in range(n):
+                out = _apply_kick(half._track_body(out, ref), k3l_slice)
+                out = half._track_body(out, ref)
+        # The split carries no constant part -- an octupole's ``kick()`` is the inherited
+        # zero -- but a subclass may add one, and a ``_track_body`` override that drops
+        # ``_kick_body`` breaks I1's affine contract. Added here, as the base class does.
+        k = self._kick_body(ref)
+        return out + (k if out.ndim == 1 else k[:, None])
 
     def __repr__(self) -> str:
         slices = f", n_slices={self.n_slices}" if self.n_slices != 1 else ""

@@ -171,47 +171,58 @@ def test_thin_kick_matches_xtrack_across_amplitudes(ref: ReferenceParticle) -> N
 
 
 # --------------------------------------------------------------------------
-# 2. The thick element, compared by difference
+# 2. The thick element, compared raw (P2 (ii) removed the need for a difference)
 # --------------------------------------------------------------------------
 
 
 def test_thick_residual_at_zero_strength_is_the_chromatic_drift(ref: ReferenceParticle) -> None:
-    """Attribute the thick element's residual: at ``k3 = 0`` it is the drift, not the magnet.
+    """The ``1e-8`` that used to be here, and the ``2.5e-13`` that replaced it.
 
-    xtrack integrates the exact drift while accsim's linear map carries ``x += L px``;
-    the difference is ``-L px delta`` to leading order and belongs to the drift model.
-    Establishing this is what licenses the difference method in the next test — the
-    same idiom J1 used for the sextupole.
+    At ``k3 = 0`` there is no octupole left, so whatever is measured is the drift model.
+    accsim's linear *matrix* still misses ``Delta x = -L px delta`` — bilinear, so no 6x6
+    can carry it — but since P2 (ii) its **tracked** thick body does not: the gaps between
+    the slices are the exact drift, and what is left is the cubic ``L px (px^2 + py^2)/2``
+    that xtrack's expanded drift drops. The same two statements J1 makes for the
+    sextupole, in the same order.
     """
     length = 0.4
-    residual = (
-        _track_xtrack([xt.Octupole(length=length, k3=0.0)]) - Drift(length).matrix(ref) @ STATE
-    )
+    theirs = _track_xtrack([xt.Octupole(length=length, k3=0.0)])
     px, py, delta = STATE[1], STATE[3], STATE[5]
-    assert residual[0] == pytest.approx(-length * px * delta, rel=1e-3)
-    assert residual[2] == pytest.approx(-length * py * delta, rel=1e-3)
-    assert residual[1] == 0.0 and residual[3] == 0.0 and residual[5] == 0.0
+
+    matrix_residual = theirs - Drift(length).matrix(ref) @ STATE
+    assert matrix_residual[0] == pytest.approx(-length * px * delta, rel=1e-3)
+    assert matrix_residual[2] == pytest.approx(-length * py * delta, rel=1e-3)
+    assert matrix_residual[1] == 0.0 and matrix_residual[3] == 0.0 and matrix_residual[5] == 0.0
+
+    tracked_residual = Octupole(length, 0.0).track(STATE, ref) - theirs
+    angle_sq = px * px + py * py
+    assert tracked_residual[0] == pytest.approx(length * px * angle_sq / 2, rel=1e-2)
+    assert tracked_residual[2] == pytest.approx(length * py * angle_sq / 2, rel=1e-2)
+    assert np.max(np.abs(tracked_residual)) < 1e-3 * np.max(np.abs(matrix_residual))
 
 
 def test_thick_octupole_nonlinear_content_matches_xtrack(ref: ReferenceParticle) -> None:
-    """The isolated kick of the thick element agrees with xtrack's thick octupole.
+    """The whole thick element, compared **raw** — no difference idiom needed after P2 (ii).
 
-    ``with(k3) - without(k3)`` at fixed geometry cancels the shared drift model and
-    leaves the magnet. Compared at ``n_slices = 1`` because that is xtrack's own
-    splitting: as in J1, raising the slice count converges accsim onto the *exact*
-    map, which moves it away from xtrack rather than toward it.
+    ``with(k3) - without(k3)`` was how this had to be asked while the two codes disagreed
+    about the drift. Both maps are now the same composition of the same two exact factors,
+    so the raw states are compared on every coordinate including ``zeta``. Still at
+    ``n_slices = 1``, which is xtrack's own splitting: raising the slice count converges
+    accsim onto the exact map and therefore *away* from xtrack.
+
+    The difference form is kept alongside, so a regression in the drift and one in the
+    kick cannot cancel.
     """
     length, k3 = 0.4, 5.0e4
-    xt_kick = _track_xtrack([xt.Octupole(length=length, k3=k3)]) - _track_xtrack(
-        [xt.Octupole(length=length, k3=0.0)]
-    )
-    acc = Octupole(length, k3, n_slices=1).track(STATE, ref) - Octupole(
-        length, 0.0, n_slices=1
-    ).track(STATE, ref)
+    theirs = _track_xtrack([xt.Octupole(length=length, k3=k3)])
+    ours = Octupole(length, k3, n_slices=1).track(STATE, ref)
 
-    transverse = [0, 1, 2, 3]
-    assert np.max(np.abs(xt_kick[transverse])) > 1e-6  # non-vacuous
-    assert np.allclose(acc[transverse], xt_kick[transverse], rtol=1e-3, atol=1e-12)
+    assert np.max(np.abs(ours - Drift(length).track(STATE, ref))) > 1e-6  # a real kick
+    assert np.allclose(ours, theirs, rtol=0.0, atol=1e-12)
+
+    xt_kick = theirs - _track_xtrack([xt.Octupole(length=length, k3=0.0)])
+    acc_kick = ours - Octupole(length, 0.0, n_slices=1).track(STATE, ref)
+    assert np.allclose(acc_kick, xt_kick, rtol=0.0, atol=1e-12)
 
 
 # --------------------------------------------------------------------------

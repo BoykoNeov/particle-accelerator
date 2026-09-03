@@ -160,25 +160,32 @@ def test_an_octupole_does_not_appear_in_t_at_all(ref) -> None:
     assert np.max(np.abs(m.R - np.eye(DIM))) < 1e-13
 
 
-def test_the_sliced_thick_bodies_carry_the_linear_drift_and_t_says_so(ref) -> None:
-    """A thick :class:`Octupole`'s ``T`` is exactly zero; an exact drift of its length is not.
+def test_the_sliced_thick_bodies_now_carry_the_drifts_own_t(ref) -> None:
+    """A thick :class:`Octupole`'s ``T`` **is** the drift's, entry for entry — P1's finding,
+    repaired by P2 (ii).
 
-    **A finding, recorded rather than fixed here.** The thick sextupole and octupole
-    bodies are drift-kick-drift integrators whose drift halves are the *linear* drift
-    matrix, so at second order they lack the drift's own ``-L px delta`` chromatic term
-    and ``-L px^2/2`` path lengthening — ``T[x, px, delta] = -L/2 = -0.1`` on this 0.2 m
-    body, where the sliced map has ``0``. MAD-X's thick sextupole carries those entries
-    (``t126 = -L/(2 beta0)``, measured), so the reference leg pins the gap as exactly the
-    drift's ``T``. It is an approximation that predates this milestone (L1 made the
-    standalone drift exact and left the sliced bodies alone) and it is named in
-    ``docs/ROADMAP.md`` as P1's follow-up; a thin element has no such term to miss.
+    The thick sextupole and octupole bodies are drift-kick-drift integrators whose drift
+    halves were the *linear* drift matrix, so at second order they lacked the drift's own
+    ``-L px delta`` chromatic term and ``-L px^2/2`` path lengthening: ``T[x, px, delta] =
+    -L/2 = -0.1`` on this 0.2 m body, where the sliced map had ``0``. P2 (ii) replaced the
+    halves with ``Drift.track``, so the body now carries them.
+
+    **The octupole is the clean case, and that is why it is the one asserted here.** Its
+    kick is *cubic*, so it contributes nothing to ``T`` at all (the test above) and the
+    body's whole second-order content must be the drift's, with no integrator remainder to
+    allow for. The sextupole's quadratic kick does contribute — its ``T`` differs from the
+    drift's by exactly its own ``-k2l/2`` — which is why its gate is the ``1/n_slices^2``
+    scaling against MAD-X rather than an identity.
+
+    The witness is kept: the entry is still ``-L/2``, and it is not small. Asserting the
+    agreement without it would lose the proof that anything was there to carry.
     """
     thick = _expand(Octupole(0.2, 2000.0), ref)
     drift = _expand(Drift(0.2), ref)
-    assert np.max(np.abs(thick.T)) < 1e-12
     assert abs(drift.T[X, PX, DELTA] + 0.1) < 1e-11
-    assert np.max(np.abs(thick.T - drift.T)) > 0.09  # the whole drift T is the gap
-    assert np.max(np.abs(thick.R - drift.R)) < 1e-12  # at first order they agree
+    assert np.max(np.abs(drift.T)) > 0.09  # non-vacuous: that T is not itself small
+    assert np.max(np.abs(thick.T - drift.T)) < 5e-10  # 5.6e-11, the differencing floor
+    assert np.max(np.abs(thick.R - drift.R)) < 1e-12  # at first order they always agreed
 
 
 def _symbolic_drift(L: sp.Symbol, beta0: sp.Symbol, gamma0: sp.Symbol):
