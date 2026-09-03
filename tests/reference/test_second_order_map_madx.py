@@ -80,11 +80,12 @@ L_SEXT, K2_THICK = 0.2, 40.0
 ELEMENT_ATOL = 1e-9
 TURN_ATOL = 1e-8
 
-#: MAD-X and PTC apply the **hard-edge dipole fringe field** at second order by default —
-#: a physical end-field effect accsim's :class:`Dipole` does not model (its edges are the
-#: linear pole-face matrices of F1). Killed on the ring fixtures so the body maps are
-#: compared like with like; the gap itself is measured and pinned in
-#: :func:`test_the_bend_gap_is_the_hard_edge_fringe_and_nothing_else`.
+#: MAD-X and PTC apply the **hard-edge dipole fringe field** at second order by default.
+#: accsim's :class:`Dipole` models it too since P2 — but *opt in*, ``fringe=True``, so the
+#: package default is still the bare body. Killed on the default ring fixtures so those
+#: compare body against body; ``fringe=True`` on both sides is the gate in
+#: :func:`test_the_fringe_on_bend_matches_madx_entry_for_entry` and
+#: :func:`test_one_turn_map_with_the_fringe_agrees_with_ptc`.
 NO_FRINGE = "kill_ent_fringe=true, kill_exi_fringe=true"
 
 #: The rows PTC returns at ``icase=5``: everything but the arrival time.
@@ -95,13 +96,13 @@ RING_LENGTH = 4 * (LQ + 0.5 + 0.5 + LB + LQ + 0.4 + 0.6)
 RF_FREQ_HZ = 2 * ReferenceParticle.from_gamma(MASS0, GAMMA0).beta0 * 299792458.0 / RING_LENGTH
 
 
-def _elements(ref: ReferenceParticle) -> list:
+def _elements(ref: ReferenceParticle, *, fringe: bool = False) -> list:
     return [
         Quadrupole(LQ, KF, name="qf"),
         Drift(0.5, name="d1"),
         ThinSextupole(K2L, name="ms"),
         Drift(0.5, name="d2"),
-        Dipole(LB, ANGLE, name="mb"),
+        Dipole(LB, ANGLE, name="mb", fringe=fringe),
         Quadrupole(LQ, KD, name="qd"),
         Drift(0.4, name="d3"),
         ThinOctupole(K3L, name="mo"),
@@ -110,7 +111,12 @@ def _elements(ref: ReferenceParticle) -> list:
 
 
 def _madx_line(
-    *, cells: int = 4, kick: float = 0.0, cavity: bool = False, thin_quads: bool = False
+    *,
+    cells: int = 4,
+    kick: float = 0.0,
+    cavity: bool = False,
+    thin_quads: bool = False,
+    fringe: bool = False,
 ) -> str:
     """A ``line``, not a ``sequence``: elements abut exactly and nothing is implicit.
 
@@ -138,7 +144,7 @@ def _madx_line(
         "d4: drift, l=0.6;",
         f"ms: multipole, knl={{0, 0, {K2L}}};",
         f"mo: multipole, knl={{0, 0, 0, {K3L}}};",
-        f"mb: sbend, l={LB}, angle={ANGLE}, {NO_FRINGE};",
+        f"mb: sbend, l={LB}, angle={ANGLE}" + ("" if fringe else f", {NO_FRINGE}") + ";",
         cell,
     ]
     head = []
@@ -164,7 +170,12 @@ use, sequence=ring;
 
 
 def _accsim_ring(
-    *, cells: int = 4, kick: float = 0.0, cavity: bool = False, thin_quads: bool = False
+    *,
+    cells: int = 4,
+    kick: float = 0.0,
+    cavity: bool = False,
+    thin_quads: bool = False,
+    fringe: bool = False,
 ) -> Lattice:
     ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
     head: list = []
@@ -172,7 +183,7 @@ def _accsim_ring(
         head.append(Corrector(kick_x=kick))
     if cavity:
         head.append(RFCavity(1.0e6, RF_FREQ_HZ, np.pi))
-    elements = _elements(ref)
+    elements = _elements(ref, fringe=fringe)
     if thin_quads:
         thinned: list = []
         for e in elements:
@@ -318,17 +329,21 @@ def test_thick_sextupole_gap_is_exactly_the_drifts_own_t() -> None:
 def test_the_bend_gap_is_the_hard_edge_fringe_and_nothing_else() -> None:
     r"""With MAD-X's default fringe on, the sector bend misses by ``hL/2``; killed, by ``6e-12``.
 
-    **A finding, named rather than absorbed.** Both MAD-X's TWISS and PTC (``exact=true``,
-    two integrator models) apply a hard-edge dipole fringe at each face — the second-order
-    map of the field's termination, whose entrance form is ``x += (h/2) y^2``,
-    ``py -= h y px`` and whose exit form is the reverse. Composed with the body that
-    leaves ``T[x, y, py] = T[y, px, y] = -hL/2``, ``T[py, px, py] = +hL cos(theta)/2``,
-    ``T[x, y, y] = -h (1 - cos theta)/2`` and ``T[px, y, y] = -h^2 sin(theta)/2`` — the
-    entries measured here, all of them ``y``-dependent in a magnet whose *body* field is
-    ``y``-independent. accsim's :class:`Dipole` carries F1's linear pole-face matrices and no
-    second-order fringe, and neither does ``xt.Bend`` with its default ``linear`` edge model;
-    with the fringe killed the three agree to the differencing floor. The fringe is a real
-    end-field effect and is the follow-up P1 names in ``docs/ROADMAP.md``.
+    **P1's finding, kept as the record of the default.** Both MAD-X's TWISS and PTC
+    (``exact=true``, two integrator models) apply a hard-edge dipole fringe at each face —
+    the second-order map of the field's termination, whose entrance form is
+    ``x += (h/2) y^2``, ``py -= h y px`` and whose exit form is the reverse. Composed with
+    the body that leaves ``T[x, y, py] = T[y, px, y] = -hL/2``,
+    ``T[py, px, py] = +hL cos(theta)/2``, ``T[x, y, y] = -h (1 - cos theta)/2`` and
+    ``T[px, y, y] = -h^2 sin(theta)/2`` — the entries measured here, all of them
+    ``y``-dependent in a magnet whose *body* field is ``y``-independent.
+
+    P2 shipped that map (``Dipole(..., fringe=True)``, gated in the next test), and this
+    one is deliberately unchanged: accsim's **default** bend still carries F1's linear
+    pole-face matrices and no fringe, exactly as ``xt.Bend`` does with its default
+    ``linear`` edge model, and the gap it leaves against a default MAD-X ``sbend`` is a
+    fact about the package that a caller has to know. With the fringe killed on MAD-X's
+    side the three agree to the differencing floor.
     """
     ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
     ours = taylor_expand(lambda s: Dipole(LB, ANGLE).track(s, ref), np.zeros(DIM))
@@ -355,6 +370,61 @@ def test_the_bend_gap_is_the_hard_edge_fringe_and_nothing_else() -> None:
     # And nothing in the horizontal-only block: the fringe is a y-effect at this order.
     hx = np.ix_([X, PX], [X, PX], [X, PX])
     assert np.max(np.abs(gap[hx])) < 1e-10
+
+
+def test_the_fringe_on_bend_matches_madx_entry_for_entry() -> None:
+    r"""P2 (i): ``Dipole(fringe=True)`` against a default MAD-X ``sbend``, all 216 entries.
+
+    The gate the milestone is judged on, and it is deliberately *not* the five closed
+    forms P1 named: those were the entries that happened to be large, and the composed
+    map has **twelve** distinct nonzero ones — the two ``x`` shifts nearly cancelling, the
+    entrance kick carried through the body's vertical drift, a ``T[zeta, y, y]`` from the
+    path length and a ``T[py, y, delta]`` from the rigidity. Every one of them is compared
+    against MAD-X's analytic ``sectormap`` at the same ``1e-10`` the fringe-off bend meets.
+
+    The five are asserted by name as well, because they are the numbers the roadmap
+    carries, and the *previous* map is asserted to fail this same comparison by ``hL/2`` —
+    otherwise a fringe that did nothing would pass.
+    """
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    with madx_session() as madx:
+        madx.input(f"""
+        beam, particle=proton, gamma={GAMMA0!r};
+        mb: sbend, l={LB}, angle={ANGLE};
+        ring: line = (mb);
+        use, sequence=ring;
+        twiss, betx=1.0, bety=1.0, sectormap, sectortable=smap, sectorfile="{os.devnull}";
+        """)
+        (k, R, T), beta0 = sectormap_rows(madx)["mb"], beam_beta0(madx, "ring")
+    theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0)
+
+    ours = taylor_expand(lambda s: Dipole(LB, ANGLE, fringe=True).track(s, ref), np.zeros(DIM))
+    assert np.max(np.abs(theirs.R - ours.R)) < 1e-10
+    assert np.max(np.abs(theirs.T - ours.T)) < 1e-10, np.max(np.abs(theirs.T - ours.T))
+
+    # The twelve entries are real: without the fringe the same comparison misses by hL/2.
+    bare = taylor_expand(lambda s: Dipole(LB, ANGLE).track(s, ref), np.zeros(DIM))
+    h = ANGLE / LB
+    assert np.max(np.abs(theirs.T - bare.T)) == pytest.approx(h * LB / 2, rel=1e-3)
+    upper = [
+        theirs.T[i, j, l] - bare.T[i, j, l]
+        for i in range(DIM)
+        for j in range(DIM)
+        for l in range(j, DIM)
+    ]
+    assert np.count_nonzero(np.abs(np.array(upper)) > 1e-9) == 12
+
+    # ...and the five the roadmap names, on MAD-X's side of the comparison.
+    c, sn = np.cos(ANGLE), np.sin(ANGLE)
+    for idx, want in (
+        ((X, Y, PY), -h * LB / 2),
+        ((Y, PX, Y), -h * LB / 2),
+        ((PY, PX, PY), +h * LB * c / 2),
+        ((X, Y, Y), -h * (1 - c) / 2),
+        ((PX, Y, Y), -h * h * sn / 2),
+    ):
+        assert theirs.T[idx] - bare.T[idx] == pytest.approx(want, abs=1e-10), idx
+        assert abs(theirs.T[idx] - ours.T[idx]) < 1e-10, idx
 
 
 def _ptc_turn(sequence: str, *, icase: int, closed_orbit: bool, order: int = 2, start: str = ""):
@@ -391,6 +461,31 @@ def test_one_turn_map_agrees_with_ptc_on_the_design_orbit() -> None:
     diff = np.abs(theirs.T[FIVE] - ours.T[FIVE])
     assert np.max(diff) < TURN_ATOL, np.max(diff)
     assert np.max(np.abs(ours.T)) > 100.0
+
+
+def test_one_turn_map_with_the_fringe_agrees_with_ptc() -> None:
+    r"""The whole ring, fringe on, against differential algebra — eight faces composed.
+
+    The ``sectormap`` gate above is one magnet in isolation, which cannot see whether the
+    two faces are applied in the right order or with the right relative sign: swapping
+    them changes the composed ring, not the single element's ``T`` at leading order. Here
+    the four bends' eight faces are composed with everything else in the cell and read
+    against PTC's exact maps, on a ring whose ``T`` reaches ``600``. It is the same
+    comparison :func:`test_one_turn_map_agrees_with_ptc_on_the_design_orbit` makes with the
+    fringe killed on both sides, run with it live on both.
+    """
+    lat = _accsim_ring(fringe=True)
+    (k, R, T), beta0 = _ptc_turn(_madx_line(fringe=True), icase=5, closed_orbit=True)
+    theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0, time_sign=-1.0)
+    ours = second_order_one_turn_map(lat, step=2.5e-4)
+    assert np.max(np.abs(theirs.R[FIVE] - ours.R[FIVE])) < 1e-9
+    diff = np.abs(theirs.T[FIVE] - ours.T[FIVE])
+    assert np.max(diff) < TURN_ATOL, np.max(diff)
+
+    # And the fringe is not a rounding correction on this ring: the fringe-off map misses
+    # PTC's fringe-on one by ~0.1, seven orders above the gate.
+    bare = second_order_one_turn_map(_accsim_ring(), step=2.5e-4)
+    assert np.max(np.abs(theirs.T[FIVE] - bare.T[FIVE])) > 1e-2
 
 
 def test_one_turn_map_agrees_with_ptc_on_a_bunched_ring() -> None:
