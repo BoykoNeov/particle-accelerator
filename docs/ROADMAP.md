@@ -5131,9 +5131,9 @@ was executed on a probe ring before a word of this entry was written. What the r
   correction: its gap is `113x` the first's, so a term of the right shape and the wrong size
   could close one but not both. **Suite totals: 1538 analytic** (from 1526 — the whole
   difference is this milestone's twelve tests) **and 354 reference** (from 347 — the seven
-  new cross-checks, five xtrack and two PTC), all passing; the reference suite is 18m38s
-  serial-equivalent at `-n 8`. See `docs/CONVENTIONS.md` -> *The quadrupole's kinematic
-  term*.
+  new cross-checks, five xtrack and two PTC), all passing. See `docs/CONVENTIONS.md` ->
+  *The quadrupole's kinematic term*, and *Test-suite cost* for what the reference leg now
+  costs.
 
 - **P3 (candidate) — the fringe field of a magnet face that is rotated or carries a
   gradient.** Effort **M**; two elements, and the entry is written because P2 (i)

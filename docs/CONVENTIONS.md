@@ -8357,6 +8357,15 @@ dominant term is **not** in accsim's code and is easy to misattribute.
   ~240 s and analytic at ~360 s. (The ratio is measured; the split of 604 s follows
   from it only under the assumption that contention inflates both suites alike — do
   not quote the two component numbers as if they were measured directly.)
+- **The reference suite has grown 45 -> 354 tests; the current figure is 1118.46 s
+  (18m38s) WALL CLOCK at `-n 8` (2026-09-03, contended box, P2 (iv)'s run).** Read that
+  as what one full reference run costs you in real time on eight workers, and nothing
+  else. It is **not** a serial-equivalent, and the log does not contain one: pytest's
+  summary line reports elapsed wall clock, not summed test time, so no per-test or
+  serial number can be extracted from it. It is also not comparable to the 548.88 s
+  `-m reference` figure above, which was serial and 45 tests. If a serial-equivalent is
+  ever wanted, it has to be measured (`--durations=0` summed, or a serial run) — do not
+  divide or multiply this one.
 - **Compiles per reference test: 37 `.pyd` for 45 tests (~0.82), from a clean start.**
   Not the 1.0 that the single-file sample suggested — some tests reuse a tracker or
   never build a Line. The `.pyd` delta is load-independent, so it is the honest metric
