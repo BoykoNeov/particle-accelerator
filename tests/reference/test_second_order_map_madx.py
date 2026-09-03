@@ -606,7 +606,15 @@ def test_one_turn_map_agrees_with_ptc_about_a_steered_orbit() -> None:
     assert np.max(np.abs(ours.T)) > 100.0
 
 
-def _ptc_single(element: str, z: np.ndarray):
+def _ptc_single(element: str, z: np.ndarray, *, model: int = 2, nst: int = 5):
+    """One element's PTC map about ``z``.
+
+    ``model`` selects PTC's splitting family (1 = drift-kick-drift, 2 = matrix-kick-matrix)
+    and ``nst`` the number of integration steps per element. The defaults are this file's
+    long-standing ring settings; P2 (iv) passes them explicitly because the quantity it
+    measures is *below* the error a default ``nst`` leaves behind — see
+    :func:`test_the_kinematic_flag_closes_the_gap_to_ptc`.
+    """
     with madx_session() as madx:
         madx.input(f"""
         beam, particle=proton, gamma={GAMMA0!r};
@@ -614,7 +622,7 @@ def _ptc_single(element: str, z: np.ndarray):
         ring: line = (el);
         use, sequence=ring;
         ptc_create_universe;
-        ptc_create_layout, model=2, method=6, nst=5, exact=true;
+        ptc_create_layout, model={model}, method=6, nst={nst}, exact=true;
         ptc_twiss, icase=5, no=2, betx=1, bety=1, x={float(z[X])!r}, px={float(z[PX])!r},
                    maptable;
         ptc_end;
@@ -657,6 +665,126 @@ def test_the_thick_quadrupole_departs_from_ptc_off_axis_as_l2_says() -> None:
         assert np.max(np.abs(theirs.R[FIVE] - ours.R[FIVE])) < 1e-7
     assert misses[0] < misses[1] < misses[2]  # grows with the orbit angle
     assert 1e-5 < misses[1] < 1e-4  # and it is not the floor
+
+
+# --------------------------------------------------------------------------
+# P2 (iv) — the gap above, closed
+# --------------------------------------------------------------------------
+
+#: PTC settings at which the quadrupole's map has stopped moving. ``nst`` is swept, not
+#: guessed: with the drift-kick-drift family the map moves ``4.0e-6`` from ``nst=1`` to the
+#: limit, ``4.1e-12`` from ``nst=10``, and ``6.4e-14`` from ``nst=20`` — so 40 steps is
+#: converged to well under this file's ``1e-10`` differencing floor. The default ``nst=5``
+#: used by the ring fixtures is **not**: it sits ``6.4e-8`` out, which would swamp the
+#: ``8e-10`` residual the gate below rests on.
+PTC_CONVERGED = {"model": 1, "nst": 40}
+
+
+def _ptc_quad_second_order(z: np.ndarray, **ptc):
+    """PTC's second-order map of the thick quadrupole, in accsim's frame."""
+    (k, R, T), beta0 = _ptc_single(f"quadrupole, l={LQ}, k1={KF}", z, **ptc)
+    return to_accsim_frame_second_order(k, R, T, z, beta0, time_sign=-1.0)
+
+
+def test_the_kinematic_flag_closes_the_gap_to_ptc() -> None:
+    r"""P2 (iv): ``kinematic_slices`` takes P1's ``5.6e-5`` gap to the differencing floor.
+
+    The test above records the price of L2's paraxial quadrupole: about a point with an
+    orbit angle, its second-order coefficients miss PTC's exact map by ``5.6e-5``, almost
+    all of it in ``T[x, px, px]``. That is the term ``H_kin = (1+delta) - sqrt((1+delta)^2
+    - p^2) - p^2/(2(1+delta))`` — a function of the momenta alone, hence with an explicit
+    flow of its own, hence interleavable with the paraxial map it was split from.
+
+    Interleaved 64 times the residual is ``8.2e-10`` on ``T`` and ``2.7e-13`` on ``R``,
+    from ``5.6e-5`` and ``8.2e-9``. Four and a half decades on the second-order
+    coefficients, four on the first-order ones — and the first-order improvement matters
+    because a correction that fixed ``T`` while spoiling ``R`` would be a different bug
+    wearing this one's clothes.
+
+    **The ladder, not the number, is the physics.** The symmetric interleave is second
+    order in the slice length, so the residual should quarter per doubling of ``n``:
+    measured ``3.4e-6, 8.4e-7, 2.1e-7, 5.2e-8, 1.3e-8, 3.3e-9, 8.2e-10`` for
+    ``n = 1 ... 64``. From ``n = 2`` on, every ratio is ``4.00`` to half a percent; the
+    first step is ``4.08``, because one slice is not yet in the asymptotic regime — the
+    ``1/n^4`` term of the expansion is still worth two percent there. That is asserted as
+    what it is rather than absorbed into a wider band on the whole ladder, since a wider
+    band is exactly what would let a wrong exponent through. A term with the wrong
+    coefficient would
+    converge just as prettily — to the wrong place — so the ladder is asserted *together
+    with* the endpoint, and the endpoint is asserted against a reference that has been
+    swept to convergence.
+
+    Below ``8e-10`` there is nothing left to measure here: ``taylor_expand`` differences a
+    tracked map twice at ``step = 2.5e-4``, and the second derivative's rounding noise
+    bottoms out near ``1e-10``. Pushing ``n`` to 256 does not improve the residual, it
+    starts to wander (``1.2e-10``, then ``2.5e-10`` at 512). The *tracking* leg,
+    ``tests/reference/test_kinematic_quadrupole_xtrack.py``, has no such floor and follows
+    the same convergence four decades further down.
+    """
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    z0 = np.array([3.8e-4, -6.6e-5, 0.0, 0.0, 0.0, 0.0])
+    F = np.ix_(FIVE, FIVE, FIVE)
+    theirs = _ptc_quad_second_order(z0, **PTC_CONVERGED)
+
+    def gap(n: int) -> tuple[float, float]:
+        quad = Quadrupole(LQ, KF) if n == 0 else Quadrupole(LQ, KF, kinematic_slices=n)
+        ours = taylor_expand(lambda s: quad.track(s, ref), z0, step=2.5e-4)
+        return (
+            float(np.max(np.abs(theirs.T[F] - ours.T[F]))),
+            float(np.max(np.abs(theirs.R[FIVE] - ours.R[FIVE]))),
+        )
+
+    off_t, off_r = gap(0)
+    assert off_t == pytest.approx(5.63e-5, rel=0.05)  # P1's measured gap, reproduced
+    assert off_r == pytest.approx(8.2e-9, rel=0.05)
+
+    on_t, on_r = gap(64)
+    assert on_t < 1e-9
+    assert on_r < 1e-12
+    assert off_t / on_t > 1e4
+    assert off_r / on_r > 1e4
+
+    ladder = {n: gap(n)[0] for n in (1, 2, 4, 8, 16, 32, 64)}
+    ns = sorted(ladder)
+    for coarse, fine in zip(ns[1:], ns[2:], strict=False):
+        assert ladder[coarse] / ladder[fine] == pytest.approx(4.0, rel=0.02), (coarse, fine)
+    # One slice is still outside the asymptotic regime, by a measured 2%.
+    assert ladder[1] / ladder[2] == pytest.approx(4.08, rel=0.01)
+
+
+def test_ptcs_two_splitting_families_land_on_the_same_map() -> None:
+    r"""The arbiter is the Hamiltonian's flow, not any one code's way of splitting it.
+
+    There is no closed form for the exact quadrupole, so PTC integrates it — and it offers
+    two different integrators: ``model=1`` alternates *exact drifts* with thin kicks, and
+    ``model=2`` alternates the *paraxial matrix* with thin kicks. Run to convergence they
+    agree to ``2.1e-11``, below this file's ``1e-10`` differencing floor, i.e. they are the
+    same map. accsim's interleave is a third splitting, and xtrack's ``yoshida4``
+    drift-kick-drift a fourth; all four meet.
+
+    That is what licenses the gate above. accsim's own split reuses the paraxial flow, so
+    it is at least a cousin of PTC's ``model=2`` — if the agreement only held against that
+    family, the cross-check would be partly circular. It holds against ``model=1`` too,
+    which shares nothing with accsim's construction but the Hamiltonian.
+
+    **How far from converged the defaults are.** At ``nst=1`` the two families sit
+    ``4.1e-6`` and ``3.4e-8`` from the limit and ``3.4e-6`` from *each other* — larger than
+    the ``8.2e-10`` residual P2 (iv) is measured at, and in ``model=1``'s case comparable
+    to L2's whole ``5.6e-5`` gap. Whichever one had been picked without sweeping ``nst``
+    would have produced a number, and the number would have been the integrator's.
+    """
+    z0 = np.array([3.8e-4, -6.6e-5, 0.0, 0.0, 0.0, 0.0])
+    F = np.ix_(FIVE, FIVE, FIVE)
+    gold = _ptc_quad_second_order(z0, **PTC_CONVERGED)
+    other = _ptc_quad_second_order(z0, model=2, nst=40)
+    assert np.max(np.abs(gold.T[F] - other.T[F])) < 1e-10  # the same map, at the floor
+    assert np.max(np.abs(gold.R[FIVE] - other.R[FIVE])) < 1e-13
+
+    # Neither family is anywhere near that map at one step per element.
+    coarse = [_ptc_quad_second_order(z0, model=m, nst=1) for m in (1, 2)]
+    misses = [float(np.max(np.abs(gold.T[F] - c.T[F]))) for c in coarse]
+    assert min(misses) > 1e-8  # both are above the residual the gate above rests on
+    assert np.max(np.abs(coarse[0].T[F] - coarse[1].T[F])) > 1e-6  # and they disagree
 
 
 def test_frame_maps_round_trip_and_reduce_to_the_first_order_transform() -> None:
