@@ -512,23 +512,25 @@ def test_one_turn_map_with_the_fringe_agrees_with_ptc() -> None:
 
 
 def test_one_turn_map_agrees_with_ptc_on_a_bunched_ring() -> None:
-    r"""With a cavity, ``icase=6`` and the ``t`` column live — and one named gap.
+    r"""With a cavity, ``icase=6`` and the ``t`` column live — and P1's named gap, closed.
 
-    **The cavity's kick is a momentum kick linearised in ``delta``, and PTC's is an energy
-    kick.** accsim's :class:`RFCavity` applies ``Delta delta = (qV/(beta0^2 E0)) [sin(...)
-    - sin(phi_s)]`` — exact in ``zeta``, but the conversion from the energy the cavity
-    actually gives to ``delta`` is taken at ``delta = 0``. The exact statement is
-    ``delta' = psi(PT(delta) + Delta PT(zeta))``, whose ``zeta delta`` cross term is
+    **P1 found here that accsim's cavity applied a momentum kick where PTC's applies an
+    energy kick**, the conversion from energy to ``delta`` being frozen at ``delta = 0``.
+    P2 (iii) made it the energy kick it always should have been —
+    ``delta' = psi(PT(delta) + Delta PT(zeta))`` — whose ``zeta delta`` cross term is
 
         T[delta, zeta, delta] = -R65 / (2 gamma0^2),   R65 = d(Delta delta)/d zeta,
 
-    ``-5.83e-8`` here against accsim's ``0``, and it reaches ``T[x, delta, zeta]`` through
-    the dispersion at ``1.1e-7``. Measured on the maptable, derived from ``psi''(0) =
-    -1/(beta0^2 gamma0^2)``, and gated both ways: the uncorrected map misses PTC by
-    exactly that term, and the ring composed with the cavity's map *plus* that term lands
-    on PTC at the floor. It is ``1/(2 gamma0^2)`` of the cavity's slope — invisible on an
-    electron ring, ``1.25e-3`` here — and it is named in ``docs/ROADMAP.md`` as a
-    follow-up on the cavity, not absorbed into a tolerance.
+    ``-5.83e-8`` here, reaching ``T[x, delta, zeta]`` through the dispersion at ``1.1e-7``.
+    So this test now gates the whole ``T`` directly, at the same ``TURN_ATOL`` as the
+    other two PTC legs, with no correction term applied on either side.
+
+    **The control is inverted rather than deleted**, because a rewrite that only checks
+    agreement can pass for the wrong reason — nothing here would notice if PTC's cavity
+    and accsim's had *both* been momentum kicks. So the pre-P2 (iii) cavity is
+    reconstructed by zeroing exactly those two entries, recomposed into the ring, and
+    asserted to miss PTC by exactly ``-R65/(2 gamma0^2)`` and by ``> 1e-7`` overall. That
+    is the same measurement P1 made, read from the other end.
     """
     lat = _accsim_ring(cavity=True)
     (k, R, T), beta0 = _ptc_turn(_madx_line(cavity=True), icase=6, closed_orbit=True)
@@ -545,21 +547,27 @@ def test_one_turn_map_agrees_with_ptc_on_a_bunched_ring() -> None:
     assert np.max(np.abs(theirs.R - ours.R)) < 1e-9
     assert np.max(np.abs(ours.T[:, ZETA, :])) > 1e-9  # the t column is live
 
+    # The gate: the whole second-order map, no correction term on either side.
+    diff = np.abs(theirs.T - ours.T)
+    assert np.max(diff) < TURN_ATOL, np.max(diff)
+
+    # The inverted control: put the momentum-kick cavity back and it misses, decisively.
     cav = maps[0]
     assert isinstance(lat.elements[0], RFCavity)
     missing = -cav.R[DELTA, ZETA] / (2 * lat.ref.gamma0**2)
     assert abs(missing) > 1e-8  # not a round-off statement
-    gap = theirs.T - ours.T
+    assert abs(cav.T[DELTA, ZETA, DELTA] - missing) < 1e-11
+    assert abs(cav.T[DELTA, DELTA, ZETA] - missing) < 1e-11
+
+    T_old = cav.T.copy()
+    T_old[DELTA, ZETA, DELTA] = T_old[DELTA, DELTA, ZETA] = 0.0
+    was = TaylorMap(cav.origin, cav.k, cav.R, T_old)
+    for m in maps[1:]:
+        was = was.then(m)
+    gap = theirs.T - was.T
     assert abs(gap[DELTA, ZETA, DELTA] - missing) < 1e-11
     assert abs(gap[DELTA, DELTA, ZETA] - missing) < 1e-11
-    assert np.max(np.abs(gap)) > 1e-7  # the uncorrected map misses, decisively
-
-    T_fixed = cav.T.copy()
-    T_fixed[DELTA, ZETA, DELTA] = T_fixed[DELTA, DELTA, ZETA] = missing
-    fixed = TaylorMap(cav.origin, cav.k, cav.R, T_fixed)
-    for m in maps[1:]:
-        fixed = fixed.then(m)
-    assert np.max(np.abs(theirs.T - fixed.T)) < 1e-9
+    assert np.max(np.abs(gap)) > 1e-7
 
 
 def test_one_turn_map_agrees_with_ptc_about_a_steered_orbit() -> None:

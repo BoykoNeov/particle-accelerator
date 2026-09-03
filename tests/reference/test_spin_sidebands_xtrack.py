@@ -136,7 +136,7 @@ def test_the_cavity_correspondence_needs_half_a_turn_of_phase_for_an_electron(ri
 
         ``q = fabs(LocalParticle_get_q0(part)) * charge_ratio``
 
-    accsim's :meth:`RFCavity.energy_kick_delta` uses ``ref.charge`` **signed**, because an
+    accsim's :meth:`RFCavity.energy_kick_pzeta` uses ``ref.charge`` **signed**, because an
     RF cavity accelerates a physical charge in a physical field and a negative particle at
     a given phase gains the opposite energy. xtrack's choice makes ``lag`` mean the same
     thing for both species, which is defensible and is *not* what accsim's docstring used
