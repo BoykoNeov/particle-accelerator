@@ -351,6 +351,100 @@ def curvature_sextupole_kick(state: np.ndarray, hk1l: float) -> np.ndarray:
     return out
 
 
+def hard_edge_fringe_map(state: np.ndarray, h: float, ref: ReferenceParticle) -> np.ndarray:
+    r"""The **hard-edge dipole fringe** at one face — the exact map, thin and symplectic.
+
+    A sector bend's body field is ``y``-independent, so nothing in :meth:`Dipole._matrix_body`
+    or :func:`exact_sector_bend_map` couples the planes. That is only true *inside* the
+    magnet. At the face the field stops, and ``curl B = 0`` forbids it stopping only in
+    ``B_y``: a longitudinal component ``B_s = y dB_y/ds`` appears, a delta function at a
+    hard edge, whose impulse is ``Delta p_y = -h y p_x / p_s`` — a **vertical** kick
+    proportional to the *horizontal* angle, in a magnet that bends horizontally. That is
+    the whole of the effect, and it is why every entry it adds to the second-order map
+    carries a ``y``.
+
+    **The map is generated, not assembled.** Writing ``p_z = sqrt((1+delta)^2 - px^2 -
+    py^2)`` and
+
+        Phi(px, py, delta) = h * px * p_z / ((1 + delta)^2 - px^2)
+
+    — the effective face angle the particle sees, ``h`` times ``x'/(1 + y'^2)`` — the
+    fringe is the exact canonical transformation of ``W = -Phi(p) ybar^2 / 2``, i.e.
+
+        ybar    :  y = ybar - (1/2) (dPhi/dpy) ybar^2      [inverted below]
+        xbar    = x    + (1/2) (dPhi/dpx) ybar^2
+        pybar   = py   - Phi ybar
+        taubar  = tau  + (1/2) (dPhi/dp_tau) ybar^2
+
+    with ``px``, ``py`` evaluated *before* the map and ``x``, ``px``, ``delta`` otherwise
+    untouched. Being a generating function it is **exactly symplectic at any amplitude**,
+    not symplectic to the order it is written — the property no term-by-term truncation
+    has. This is the ``fint = hgap = 0`` limit of the MAD-NG/PTC fringe that
+    ``xt.Bend(edge_entry_model="full")`` tracks and that MAD-X's TWISS and PTC apply *by
+    default*; there the ``atan``/``tan`` pair round-trips and ``Phi`` collapses to the
+    closed form above.
+
+    **The entrance takes ``h``, the exit takes ``-h``** — the field switches on at one
+    face and off at the other, so the two impulses have opposite sign (xtrack spells this
+    ``if (is_exit) k0 = -k0``). :class:`Dipole` composes them as ``fringe(-h) . body .
+    fringe(h)``.
+
+    **The ``ybar`` branch is the one continuous to ``ybar = y``.** ``y = ybar - a
+    ybar^2/2`` with ``a = dPhi/dpy`` is a quadratic in ``ybar``; the root
+    ``(1 - sqrt(1 - 2 a y))/a`` is the physical one, and it is written here as
+    ``2y / (1 + sqrt(1 - 2 a y))`` so that neither the ``a -> 0`` limit needs a branch
+    nor the numerator cancels. When ``1 - 2 a y < 0`` the map returns ``NaN``, the same
+    documented answer :class:`~accsim.elements.drift.Drift` and
+    :func:`exact_sector_bend_map` give a particle whose trajectory does not exist; that
+    root is off at ``|y| ~ 1/a ~ p_z/(h x' y')``, i.e. metres, and is not a beam
+    condition.
+
+    **What it does to the linear map: nothing.** Every term above is quadratic in the
+    coordinates (``ybar^2``, ``Phi ybar`` with ``Phi(0) = 0``), so the Jacobian at the
+    origin is the identity and :meth:`Dipole._matrix_body` — hence every tune, beta,
+    dispersion and chromaticity in the package — is untouched. The fringe is a purely
+    second-order-and-up effect, which is exactly why it took the second-order map (P1) to
+    find it missing.
+
+    ``state`` is a ``(6,)`` vector or a ``(6, n)`` bunch. ``h = 0`` is the identity.
+    """
+    st = np.asarray(state, dtype=float)
+    if h == 0.0:
+        return st.copy()
+
+    x, px, py, delta = st[X], st[PX], st[PY], st[DELTA]
+    one_plus = 1.0 + delta
+    # d = p_z^2 + p_y^2 = (1 + delta)^2 - px^2. Neither d nor (pz^2 - px^2) below is a
+    # cancelling difference for a beam-like particle: both are ~1 against angles ~1e-3.
+    d = one_plus * one_plus - px * px
+    # NaN for a particle with no forward momentum is a *documented* return value, as in
+    # Drift and exact_sector_bend_map; only the warning is silenced, never the value.
+    with np.errstate(invalid="ignore"):
+        pz = np.sqrt(d - py * py)
+
+    phi = h * px * pz / d
+    dphi_dpx = h * ((pz * pz - px * px) / (pz * d) + 2.0 * px * px * pz / (d * d))
+    dphi_dpy = -h * px * py / (pz * d)
+    dphi_ddelta = h * px * one_plus * (py * py - pz * pz) / (pz * d * d)
+
+    # The root of y = ybar - dphi_dpy * ybar^2 / 2 that is continuous to ybar = y.
+    with np.errstate(invalid="ignore"):
+        y_new = 2.0 * st[Y] / (1.0 + np.sqrt(1.0 - 2.0 * dphi_dpy * st[Y]))
+    y_sq = y_new * y_new
+
+    # tau = zeta / beta0 is conjugate to p_tau, and dPhi/dp_tau = (1/beta) dPhi/ddelta,
+    # so zeta picks up beta0/beta = (E/E0)/(1 + delta) times the delta derivative. E/E0
+    # via hypot, as the exact drift does, to keep the large-momentum limit clean.
+    e_over_e0 = np.hypot(ref.momentum_eV * one_plus, ref.mass_eV) / ref.total_energy_eV
+
+    out = st.copy()
+    out[X] = x + 0.5 * dphi_dpx * y_sq
+    out[Y] = y_new
+    out[PY] = py - phi * y_new
+    out[ZETA] = st[ZETA] + 0.5 * (e_over_e0 / one_plus) * dphi_ddelta * y_sq
+    return out
+
+
 def _edge_matrix(h: float, e: float) -> np.ndarray:
     r"""Thin hard-edge pole-face focusing kick for edge angle ``e`` [rad].
 
@@ -367,10 +461,15 @@ def _edge_matrix(h: float, e: float) -> np.ndarray:
     sees lengthens on the outside of the bend), not remembered. Each 2x2 block
     ``[[1, 0], [+-h tan e, 1]]`` has unit determinant, so the kick is symplectic.
 
-    The fringe-field correction (``e -> e - psi`` in the *vertical* plane only,
+    The **soft**-edge correction (``e -> e - psi`` in the *vertical* plane only,
     ``psi = h*g*fint*(1 + sin^2 e)/cos e``) is deliberately **not** applied here:
     this is the hard-edge map, the apples-to-apples match to MAD-X ``sbend`` with
-    its default ``FINT = HGAP = 0``. Fringe is a separate, opt-in refinement.
+    its default ``FINT = HGAP = 0``.
+
+    That leaves this matrix the *whole* linear story at a face, and it stays so: the
+    hard-edge fringe of :func:`hard_edge_fringe_map` -- which MAD-X and PTC do apply by
+    default, at ``FINT = HGAP = 0`` -- has an identity Jacobian at the origin, so it adds
+    nothing here and everything one order up.
     """
     E = np.eye(DIM)
     if h == 0.0 or e == 0.0:
@@ -509,8 +608,38 @@ class Dipole(Element):
     **Edges stay linear.** :meth:`_track_body` composes ``Edge(e2) . body . Edge(e1)``
     with the same hard-edge kicks :meth:`_matrix_body` uses. Each edge is *exactly*
     linear, so it is not an approximation inside the composition and the Jacobian
-    identity survives it. The real pole-face map is nonlinear (xtrack's wedge and
-    fringe); that is out of scope here, as :func:`_edge_matrix` already records.
+    identity survives it. The real pole-face map is nonlinear -- a *rotated* face needs
+    xtrack's wedge as well -- and that half is still out of scope, as
+    :func:`_edge_matrix` records.
+
+    The hard-edge fringe (P2)
+    -------------------------
+    ``fringe=True`` adds :func:`hard_edge_fringe_map` at each face, ``fringe(-h) . body .
+    fringe(h)``. It is **off by default**, and MAD-X's TWISS, MAD-X PTC and
+    ``xt.Bend(edge_*_model="full")`` all have it **on** -- which is the whole reason it
+    is here: P1's second-order map found the gap by composing a ring against those three,
+    and no first-order quantity can see it. The body field of a sector bend does not
+    depend on ``y``, so nothing in the linear map or in :func:`exact_sector_bend_map`
+    couples the planes; the field's *termination* does, through the ``B_s = y dB_y/ds``
+    that ``curl B = 0`` forces at the face. Composed with the body it lands as
+
+        T[x, y, py] = T[y, px, y] = -h L / 2,     T[py, px, py] = +h L cos(theta) / 2,
+        T[x, y, y]  = -h (1 - cos theta) / 2,     T[px, y, y]   = -h^2 sin(theta) / 2,
+
+    every entry carrying a ``y`` -- five entries measured against MAD-X's ``sectormap``
+    before a line of this was written (``tests/reference/test_second_order_map_madx.py``).
+    Being generated by a function it is exactly symplectic at any amplitude, and its
+    origin Jacobian is the identity, so **no first-order quantity in the package moves**:
+    ``fringe=True`` and ``fringe=False`` have the same ``matrix``, the same tunes, the
+    same dispersion and the same chromaticity, and differ only under ``track``.
+
+    WARNING: **it is refused on a rotated or gradient face, rather than half-applied.**
+    With ``e1``/``e2`` the physical edge is fringe *plus* a **wedge**, which is first
+    order in the face angle where the fringe is second, so it is the larger of the two;
+    with ``k1`` the face terminates a quadrupole as well, which MAD-X's ``tmfrng`` carries
+    through its ``sk1`` argument and xtrack through its multipole fringe. accsim
+    implements neither, so a ``Dipole`` asking for both raises rather than reporting a
+    bend that is nonlinear at the face in one of its two ways.
 
     **On the design orbit nothing changes.** Every new entry is proportional to an orbit
     angle, and at the origin the exact map's Jacobian *is* the linear matrix — measured
@@ -568,6 +697,7 @@ class Dipole(Element):
         e2: float = 0.0,
         name: str | None = None,
         *,
+        fringe: bool = False,
         dx: float = 0.0,
         dy: float = 0.0,
         roll: float = 0.0,
@@ -579,6 +709,17 @@ class Dipole(Element):
         self.k1 = float(k1)
         self.e1 = float(e1)
         self.e2 = float(e2)
+        self.fringe = bool(fringe)
+        if self.fringe and (self.e1 != 0.0 or self.e2 != 0.0 or self.k1 != 0.0):
+            raise NotImplementedError(
+                "the hard-edge fringe is implemented for a pure sector face only "
+                f"(Dipole {self.name!r} has e1={self.e1}, e2={self.e2}, k1={self.k1}). A "
+                "rotated face is a fringe *and* a wedge, and the wedge is first order in "
+                "the face angle where the fringe is second; a gradient face terminates a "
+                "quadrupole too, which MAD-X carries as tmfrng's sk1 and xtrack as its "
+                "multipole fringe. accsim implements neither, and half a face is worse "
+                "than none: use fringe=False, or a pure sector bend"
+            )
 
     @property
     def frame_rotation_angle(self) -> float:
@@ -751,6 +892,13 @@ class Dipole(Element):
         survives them too: each edge is *exactly* linear, so a linear factor in the
         composition is not an approximation to anything.
 
+        With ``fringe=True`` the two hard-edge fringes sit inside those edges,
+        ``fringe(-h) . body . fringe(h)`` -- the field switches on at one face and off at
+        the other, so the impulses have opposite sign. The Jacobian identity survives
+        that too, and for a stronger reason: the fringe's own Jacobian at the origin is
+        the identity, so :meth:`_matrix_body` is *unchanged* rather than merely still
+        correct.
+
         Vectorised over a trailing particle axis, so a ``(6,)`` state and a ``(6, n)``
         bunch take the same path.
         """
@@ -759,6 +907,8 @@ class Dipole(Element):
         h = self.curvature
         if self.e1 != 0.0:
             st = _edge_matrix(h, self.e1) @ st
+        if self.fringe:
+            st = hard_edge_fringe_map(st, h, ref)
         if self.k1 == 0.0:
             st = exact_sector_bend_map(st, self.length, h, ref)
         else:
@@ -766,6 +916,8 @@ class Dipole(Element):
             st = expanded_cfd_map(st, half, h, self.k1, ref)
             st = curvature_sextupole_kick(st, h * self.k1 * self.length)
             st = expanded_cfd_map(st, half, h, self.k1, ref)
+        if self.fringe:
+            st = hard_edge_fringe_map(st, -h, ref)
         if self.e2 != 0.0:
             st = _edge_matrix(h, self.e2) @ st
         return st
@@ -790,4 +942,7 @@ class Dipole(Element):
     def __repr__(self) -> str:
         grad = f", k1={self.k1}" if self.k1 else ""
         edges = f", e1={self.e1}, e2={self.e2}" if (self.e1 or self.e2) else ""
-        return f"Dipole(length={self.length}, angle={self.angle}{grad}{edges}{self._repr_tail()})"
+        fr = ", fringe=True" if self.fringe else ""
+        return (
+            f"Dipole(length={self.length}, angle={self.angle}{grad}{edges}{fr}{self._repr_tail()})"
+        )
