@@ -54,7 +54,6 @@ import sympy as sp
 from accsim import (
     DELTA,
     DIM,
-    J6,
     PX,
     PY,
     ZETA,
@@ -575,16 +574,22 @@ def test_thick_sextupole_is_symplectic_at_every_slicing(ref: ReferenceParticle) 
     ``tests/analytic/test_symplectic_canonical.py``; what is asserted here is only that
     this element passes the check that applies to it, at every slicing.
 
-    The margin between the two is asserted so that swapping the checkers back would fail
-    rather than quietly weaken the gate.
+    **Nothing here asserts the margin between the two checkers, deliberately.** Both
+    candidate forms of that assertion were tried and both are floors, not mechanisms: an
+    absolute bound on the ``(zeta, delta)`` residual is a finite-difference number pinned
+    to ``jacobian``'s default step (``1.2e-10``, i.e. a 1.2x margin over a ``1e-10``
+    threshold), and the *ratio* between the two residuals is not stable either, because
+    the canonical one is differencing noise — measured ``252x`` at ``n_slices = 2`` but
+    ``49x`` at ``n_slices = 5``. Either would have become a false alarm on another machine
+    before it ever caught a regression. The mechanism — the ``(zeta, delta)`` residual
+    growing as the *square* of the amplitude while the canonical one stays at the floor —
+    is gated once, generically, in ``tests/analytic/test_symplectic_canonical.py``, and
+    that is where it belongs.
     """
     state = np.array([4e-3, 1e-3, -3e-3, 5e-4, 1e-3, 1e-4])
     for n in (1, 2, 5):
         elem = Sextupole(0.5, 12.0, n_slices=n)
         assert is_symplectic_map_canonical(lambda s, e=elem: e.track(s, ref), state, ref)
-        M = jacobian(lambda s, e=elem: e.track(s, ref), state)
-        plain = float(np.max(np.abs(M.T @ J6 @ M - J6)))
-        assert plain > 100 * 1e-12  # the (zeta, delta) residual is not a rounding error
 
 
 def test_a_kicked_trajectory_now_lengthens_its_own_path(ref: ReferenceParticle) -> None:
