@@ -22,7 +22,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | C | collider / beam-beam deepening | C1, C2 | — |
 | D | integration, validation, teaching | D1–D5 | — |
 | E | event-physics siblings | E1, E2 | — |
-| F | combined-function magnets, pole-face edges | F1, F2, the hard-edge fringe (P2 i) | — |
+| F | combined-function magnets, pole-face edges | F1, F2, the hard-edge fringe (P2 i), the rotated face (P3 a) | — |
 | G | betatron coupling, vertical emittance | G1, G2 | — |
 | H | matching | H1, H2 | — |
 | I | closed orbit, steering, feed-down, 6D orbit | I1–I4 | — |
@@ -32,16 +32,20 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | M | optics off-momentum | M1–M3 | — |
 | N | spin | N1–N5 | — |
 | O | normalised coordinates, driving terms | O1–O6 | — |
-| P | the map beyond first order | **P1** (2026-09-02); **P2 (i)** the dipole fringe, **(ii)** the sliced bodies, **(iii)** the cavity's energy kick, **(iv)** the quadrupole's kinematic term — all four gaps closed (2026-09-03) | **P3** — the fringe of a rotated or gradient face |
+| P | the map beyond first order | **P1** (2026-09-02); **P2 (i)–(iv)** all four second-order gaps closed; **P3 (a)** the rotated face — the wedge (2026-09-03) | **P3 (b)** — the *gradient* face, the multipole fringe |
 
-**The open candidate is P3** — the fringe field of a magnet face that is rotated
-(`e1`/`e2`, the wedge) or carries a gradient (the multipole fringe). **P2 is complete**:
-all four second-order gaps P1 found are closed, each in its own session and all on
-2026-09-03 — the hard-edge dipole fringe (i), the sliced thick bodies on the exact drift
-(ii), the cavity as an energy kick (iii), and the quadrupole's kinematic term (iv). P3 was
-written when (iv) shipped, because (iv) had been the last written candidate in the file; it
-is the piece P2 (i) explicitly **refused** and named, and it is chosen over L5 for L5's own
-reason — two reference codes implement it, and none implements L5.
+**The open candidate is P3 (b)** — the fringe of a face that carries a **gradient** (the
+multipole fringe). **P3 (a) is done**: the *rotated* face, `e1`/`e2`, is the wedge, and it
+shipped on 2026-09-03 with all three arbiters. Its finding rewrote its own entry — the
+premise on which P2 (i) refused the rotated face ("the wedge is *first* order in the face
+angle where the fringe is second") is true, and the conclusion drawn from it was not: that
+first-order content is `_edge_matrix`, the `h·tan(e)` kick F2 already ships, so the
+composed face's origin Jacobian is that matrix exactly and **no first-order quantity
+moves**. The API decision this entry said "is the milestone" turned out not to exist.
+**P2 is complete** too: all four second-order gaps P1 found are closed, each in its own
+session and all on 2026-09-03 — the hard-edge dipole fringe (i), the sliced thick bodies on
+the exact drift (ii), the cavity as an energy kick (iii), and the quadrupole's kinematic
+term (iv).
 
 ## Validation strategy (non-negotiable)
 
@@ -5020,7 +5024,10 @@ was executed on a probe ring before a word of this entry was written. What the r
   (`1e-10`), PTC on the composed 4-cell turn (`1e-8`), and `xt.Bend(edge_*_model="full")`
   by **tracking** to `1e-15` — the only leg that reaches `ζ` and the `1/(1+δ)` factors.
   Refused rather than half-applied on a rotated (`e1`/`e2`, needs the wedge — *first* order
-  in the face angle) or gradient (`k1`, needs the multipole fringe) face. Nothing at first
+  in the face angle) or gradient (`k1`, needs the multipole fringe) face. **The rotated
+  half of that refusal was lifted by P3 (a)**, which found the "first order in the face
+  angle" premise true and the conclusion drawn from it false — that first-order content is
+  F2's `_edge_matrix`, so the composed face moves nothing at first order either. Nothing at first
   order moved: the origin Jacobian is the identity, so `matrix`, the tunes, `β`, dispersion
   and natural chromaticity are bit-identical, asserted with `array_equal`. See
   `docs/CONVENTIONS.md` → *Hard-edge dipole fringe*.
@@ -5135,57 +5142,125 @@ was executed on a probe ring before a word of this entry was written. What the r
   *The quadrupole's kinematic term*, and *Test-suite cost* for what the reference leg now
   costs.
 
-- **P3 (candidate) — the fringe field of a magnet face that is rotated or carries a
-  gradient.** Effort **M**; two elements, and the entry is written because P2 (i)
-  **refused** exactly this and named why. `Dipole(fringe=True)` models the hard-edge fringe
-  of an *unrotated, gradient-free* face only. Two things sit outside it, and real lattices
-  use both:
+- **P3 (a) — the rotated pole face: the wedge.** ✅ **DONE (2026-09-03)** —
+  `Dipole(..., e1=..., e2=..., fringe=True)` composes the whole nonlinear face,
+  `wedge(−e, h) · fringe(h) · wedge(e, 0)` at the entrance and the reverse at the exit.
+  Default OFF, as P2 (i) is. All five pre-committed gates were met, **and the entry's own
+  central claim was wrong**, which is the milestone's headline.
 
-  (a) **The rotated face (`e1`/`e2`) — the wedge.** A pole face at an angle is not the
-  hard-edge map composed with anything; it needs the wedge, and the wedge is **first order**
-  in the face angle, not second. So unlike P2 (i) this one *does* move `matrix()`, the tunes
-  and the chromaticity — which means it cannot be a quiet opt-in bolted onto the existing
-  `DipoleEdge` (F2) without deciding how the two compose. That decision is the milestone.
+  **The composition decision this entry called "the milestone" does not exist.** The entry
+  said a rotated face "*does* move `matrix()`, the tunes and the chromaticity — which means
+  it cannot be a quiet opt-in bolted onto the existing `DipoleEdge` (F2) without deciding
+  how the two compose." Measured before a line was written: the composed face's origin
+  Jacobian **is** `_edge_matrix(h, e)`, to the finite-difference floor (the residual scales
+  as `eps/step`, i.e. it is zero), at both faces and at every `(h, e)` tried. The wedge *is*
+  first order in the face angle — that too is measured, `×10` per decade of `e` — but its
+  first-order content is the `h·tan(e)` kick F2 shipped long ago, so P3 (a) reproduces a
+  shipped quantity before it adds one and `matrix`, the tunes, `β`, the dispersion and the
+  chromaticity are **bit-identical** with the flag on, by `array_equal`. The linear edge is
+  *replaced* by the face rather than composed with it, and that is the whole API change.
 
-  (b) **The gradient face — the multipole fringe.** A combined-function magnet's face, and
-  a plain quadrupole's, carry a fringe of their own. This is the piece P2 (i) named and put
-  down.
+  **The wedge is derived, not ported, and that mattered.** It is the same uniform-field
+  circle L3 integrates: `dpx/dz = −h`, so the trajectory is a circle, and the wedge ends
+  where that circle meets the plane `z = x·tan θ`. Eliminating the crossing point ought to
+  need a transcendental solve and does not — the crossing condition, times `h·cos θ/q`,
+  *is* `px → px cos θ + (pz − h x) sin θ`, checked symbolically. `xt.Bend`'s closed form
+  falls out as the consequence and is used only as a check; transcribing it and then
+  agreeing with it would have been the circularity P2 (iv) had to rule out for PTC.
 
-  **Why it is the right next candidate.** It is the only *written, already-localised* gap
-  left in the file — P2 (i)'s own entry names it, with the reason for the refusal — and it
-  has **two independent arbiters, and both were checked to implement it before this entry
-  was written** — the discipline the (iv) entry demanded of itself. MAD-X/PTC:
-  `ptc_create_layout` with the face fringe on, `sectormap` for the composed faces. xtrack,
-  verified by inspection and by tracking on 2026-09-03:
+  **The rotation is the wedge with the field off, so a face is one map and not two.**
+  Nothing in the wedge divides by `h`: the turned angle is `arcsin(v)/h` with `v ∝ h`, so
+  the code forms `v/h` directly and multiplies by `arcsin(t)/t`. `h = 0` therefore needs no
+  branch and reproduces the frame rotation exactly — the map xtrack reaches through a
+  separate kernel behind a `fabs(b1) < 1e-10` test. That closed the discontinuity trap
+  structurally, as P2 (iv)'s `k1 → 0` did, and it makes `θ = 0` the identity bit for bit.
 
-  - `xt.Bend` carries `edge_entry_angle`, `edge_entry_model` (`linear` / `full`),
-    `edge_entry_fint` and `edge_entry_hgap`, plus the exit set — so (a) has a full second
-    arbiter, the same `full` model P2 (i) already used.
-  - `xt.Quadrupole` carries `edge_entry_active` / `edge_exit_active` **only**: an on/off
-    switch, no model choice and no face angle. Switching it on moves a tracked state by
-    `5.3e-9` on the standard probe, so it is a real multipole fringe and (b) has a second
-    arbiter — but a *narrower* one, with nothing to sweep and no alternative model to play
-    the `model=1` vs `model=2` role P2 (iv) needed from PTC. Expect (b) to lean on PTC for
-    the cross-family check.
+  **Only the fringe flips sign at the exit.** The field switches on at one face and off at
+  the other, so its impulse reverses; the wedge is a slice of the *body's* field, which
+  does not. Mirroring `−h` into the wedge too breaks the origin Jacobian by exactly
+  `2 h tan(e)` — one of three deliberate breakages (the others drop the rotation and drop
+  the wedge, each `tan(e)` out) that keep the decomposition test from reading as "the
+  pieces I composed compose".
 
-  That is the test P2 (i) applied to its own scope, and it is why this is chosen over L5:
-  no reference code implements L5's curvilinear metric term, and two implement this one.
+  **Where `h tan(e)` comes from is the pedagogy, and it is asserted.** `R43` is the
+  *fringe's*: the rotation sends the design orbit to `px = sin(e)`, and P2 (i)'s fringe —
+  whose Jacobian at the *origin* is the identity — evaluated there has exactly one
+  non-identity entry, `−h tan(e)`. `R21` is the *wedge's* `h sin(e)`, scaled by the
+  rotation's own `x → x/cos(e)`. The rotation's `sin(e)` dispersion and `−tan(e)`
+  path-length entries cancel against the wedge's, which is why the product has no `δ`
+  column.
 
-  **Pre-committed gates, to be written before any implementation.** (1) At `e1 = e2 = 0` the
-  wedge is the identity and the composed map is **bit-identical** to the current
-  `DipoleEdge`, by `array_equal` — the continuity gate, the one P2 (ii)'s short-circuit and
-  P2 (iv)'s `k1 -> 0` limit both turned on. (2) The wedge's **first-order** content lands on
-  the `tan(e1)/rho` focusing kick F2 already ships, so the new map must *reproduce* a
-  shipped quantity before it is allowed to add one. (3) The second-order content against
-  `sectormap` entry for entry, at P2 (i)'s `1e-10`. (4) Symplecticity at amplitude with the
-  canonical checker, since ζ's share will again be cubic and invisible to both arbiters.
-  (5) Both references swept to convergence *first*, and the sweep recorded — three
-  milestones running have now been decided by that step.
+  **Two measurements that would otherwise have been asserted wrongly.** The `E/E0` time
+  conversion in `ζ` is **worst at high energy** here, the reverse of P2 (i), and for a
+  reason of order rather than energy: the fringe's `ζ` share is cubic, the wedge's is a
+  flight time linear in `x`, four orders larger — so it is gated by the ordinary `γ0 = 20`
+  fixture as well, on the closed form `β0(20)²/β0(1.5)²`. And the whole-ring PTC leg missed
+  by `4.5e-8` against a `1e-8` gate until it was localised: `second_order_one_turn_map`
+  differences twice, rotating the eight faces raises its round-off arm by `600×` without
+  touching its truncation arm, and the optimum step moves from `2.5e-4` to `1e-3` — where
+  the rotated and sector rings land on the **same** `1.18e-9`, the ring's own third-order
+  leftover. Both arms of that U are live tests, not a comment.
 
-  **Out of scope, deliberately.** Soft-edge and measured field maps (no closed form, no
-  arbiter), the fringe of a solenoid (accsim has no solenoid), and third-order content
-  (PTC `no=3` is one arbiter, which is O6's and L5's refusal reason).
+  **The numbers.** MAD-X `sectormap`, all 216 entries, `< 1e-10`, for an asymmetric face
+  pair and for a rectangular bend; MAD-X PTC on the composed 4-cell ring, `< 1e-8` on a `T`
+  reaching `682`; `xt.Bend(edge_*_model="full")` by tracking, `< 1e-14` on every coordinate
+  including `ζ`, rbend included. Controls throughout: the linear-edge bend misses the same
+  comparisons by `2.5e-3` in `T` and `1e-4` in tracking. **Suite totals: 1557 analytic**
+  (from 1538 — the whole difference is this milestone's nineteen tests) **and 363
+  reference** (from 354 — five xtrack, two `sectormap`, one PTC, one order-scaling), all
+  passing. See `docs/CONVENTIONS.md` → *The rotated pole face: the wedge*.
 
+- **P3 (b) (candidate) — the gradient face: the multipole fringe.** Effort **S–M**; one
+  refusal to lift, and it is the other half of the `NotImplementedError` P2 (i) raised.
+  `Dipole(fringe=True, k1=...)` still refuses, and so does every plain
+  `Quadrupole` — a quadrupole's own faces are not modelled at all.
+
+  **What it is.** A face terminates whatever multipole the body carries, not only its
+  dipole component. For the `k1` term MAD-NG's (and xtrack's) hard-edge multipole fringe is
+  the point transformation
+
+      x → x + κ·(x³ + 3xy²)/12,     y → y − κ·(3x²y + y³)/12,      κ = ±k1/(1+δ)
+
+  with the momenta carried by the inverse transpose of its Jacobian (so it is exactly
+  symplectic) and a matching arrival-time term. Sign by face, as the dipole fringe's is.
+
+  **The gate structure is upside-down from P3 (a), and that is the whole planning point.**
+  Every entry above is **third order** in the coordinates, so the map contributes *nothing*
+  to `T`: MAD-X's `sectormap`, PTC's `maptable` at `no=2` and P1's whole second-order object
+  are blind to it, and it is the one gap of the four P1 found that P1 could not have found.
+  Writing P3 (a)'s "second-order content against `sectormap` at `1e-10`" for this half
+  would be a **vacuous gate** — it would pass on a map that did nothing at all. What can
+  see it: tracking against a reference, symplecticity at amplitude, and PTC at `no=3`.
+
+  **Arbiters, checked rather than assumed** — the discipline P2 (iv) demanded and P3 (a)
+  repaid:
+
+  - **xtrack** implements it for both elements. `xt.Bend` reaches it through
+    `edge_*_model="full"` (the `MultFringe` kernel, `min_order=1`), and `xt.Quadrupole`
+    through `edge_entry_active`/`edge_exit_active` — an **on/off switch only**, with no
+    model choice and no face angle. Switching it on moves a tracked state by `5.3e-9`.
+  - **MAD-X/PTC** carries it as `tmfrng`'s `sk1` and through `ptc_create_layout`'s fringe
+    controls, and — unlike xtrack — it has an *order* to sweep, which is what P3 (a)'s and
+    P2 (iv)'s sweeps needed. Expect the PTC leg to be the one with teeth.
+  - A **third** arbiter falls out of the milestone itself, as in P3 (a): the map is a
+    point transformation plus its inverse-transpose momentum rule, so symplecticity is
+    exact by construction and any transcription slip breaks it.
+
+  **Pre-committed gates.** (1) At `k1 = 0` the fringe is the identity **bit for bit**, and
+  the approach to it is gated as a *scaling* in `k1`, not only at zero — P2 (ii)'s
+  short-circuit and P2 (iv)'s `k1 → 0` limit both turned on that. (2) **Nothing at first
+  or second order moves**: `matrix`, the tunes and `T` itself are `array_equal`/`1e-12`
+  identical with the flag on, asserted rather than hoped, since a cubic map must not reach
+  them. (3) Tracking against xtrack on both elements, and against PTC swept to convergence
+  **first**. (4) Symplecticity at amplitude, canonical pair, including a low-energy
+  fixture. (5) A control that the flag changes tracking by a measured amount with the right
+  **order in the amplitude** (cubic), because a uniform mis-scale of a cubic map is
+  invisible to every structural gate — J2's and J3's lesson.
+
+  **Out of scope, deliberately.** Soft-edge `fint`/`hgap` and measured field maps (no
+  closed form, no arbiter), the solenoid fringe (accsim has no solenoid), sextupole and
+  octupole faces (`min_order` higher still, and a fifth-order map with one arbiter), and
+  the `Quadrupole`'s *rotated* face — xtrack exposes no face angle for it at all.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

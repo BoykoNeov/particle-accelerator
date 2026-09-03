@@ -416,21 +416,28 @@ def test_it_is_the_field_stopping_so_it_vanishes_with_y_or_with_h(ref: Reference
     assert np.array_equal(straight.track(bunch, ref), Dipole(2.0, 0.0).track(bunch, ref))
 
 
-def test_a_rotated_or_gradient_face_is_refused_rather_than_half_applied() -> None:
-    r"""``e1``/``e2`` need the wedge and ``k1`` needs the multipole fringe; neither exists.
+def test_a_gradient_face_is_refused_rather_than_half_applied() -> None:
+    r"""``k1`` needs the multipole fringe, which does not exist. ``e1``/``e2`` now do (P3).
 
-    The refusal is the point, not a limitation to be worked around: a rotated face's
-    nonlinear map is the fringe **plus** a wedge, and the wedge is first order in the
-    face angle where the fringe is second — so applying only the fringe on a rectangular
-    bend would be *further* from MAD-X than applying neither. Same shape as the bending
-    dipole's refusal to be displaced (K1).
+    The refusal is the point, not a limitation to be worked around: a gradient face
+    terminates a quadrupole as well as a dipole, and half a face is worse than none.
+    Same shape as the bending dipole's refusal to be displaced (K1).
+
+    **Half of P2 (i)'s refusal was lifted by P3**, which built the wedge — so the
+    rotated face is no longer refused, and this test is the record of which half moved.
+    P2 (i) refused the rotated face on the grounds that "the wedge is first order in the
+    face angle where the fringe is second", which is true of the *wedge map* and false
+    of what it does to the linear optics: the first-order content is
+    :func:`~accsim.elements.dipole._edge_matrix`, which F2 already shipped, and the
+    composed face reproduces it exactly (``tests/analytic/test_wedge.py``).
     """
-    for kwargs in ({"e1": 0.05}, {"e2": 0.05}, {"e1": 0.05, "e2": 0.05}, {"k1": 0.3}):
-        with pytest.raises(NotImplementedError, match="pure sector face"):
-            Dipole(L_B, ANGLE, fringe=True, **kwargs)
-    # ...and each is legal without the fringe, and legal with the fringe when zero.
+    with pytest.raises(NotImplementedError, match="gradient-free"):
+        Dipole(L_B, ANGLE, k1=0.3, fringe=True)
+    # ...legal without the fringe, and legal with the fringe when zero — and a rotated
+    # face is legal with the fringe outright now.
     Dipole(L_B, ANGLE, e1=0.05, e2=0.05, k1=0.3)
     Dipole(L_B, ANGLE, e1=0.0, k1=0.0, fringe=True)
+    Dipole(L_B, ANGLE, e1=0.05, e2=-0.03, fringe=True)
 
 
 def test_the_repr_says_so(ref: ReferenceParticle) -> None:

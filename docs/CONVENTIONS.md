@@ -1039,7 +1039,9 @@ R43 = −h·tan(e)     (py -= h·tan(e)·y  — vertical FOCUS   for e > 0)
   fringe-off defaults. The **hard-edge fringe**, which MAD-X and PTC apply even at
   `fint = hgap = 0`, is built as of P2 and is opt-in: see *Hard-edge dipole fringe*
   below. It is invisible here — its Jacobian at the origin is the identity, so it
-  changes nothing at first order.
+  changes nothing at first order. The **wedge** of a rotated face (P3) is invisible here
+  too, and for a stronger reason: its Jacobian at the origin is *not* the identity, but
+  the composed face's is exactly this matrix. See *The rotated pole face: the wedge*.
 - **Rectangular-bend identity (the strongest gate).** For `e1 = e2 = θ/2` the two
   edge kicks *exactly* cancel the body's horizontal weak focusing: the horizontal
   block collapses to a drift `[[1, ρ·sin θ], [0, 1]]` with `R21 = 0` to machine
@@ -1111,13 +1113,15 @@ a single element's `T` cannot.
 That is asserted with `array_equal`, not a tolerance, and it is why no first-order
 cross-check could ever have found this.
 
-**Refused rather than half-applied on a rotated or gradient face.** `fringe=True` with
-`e1`/`e2` or `k1` raises `NotImplementedError` at construction. A rotated face's nonlinear
-map is the fringe **plus a wedge**, and the wedge is *first* order in the face angle where
-the fringe is second — so applying only the fringe to a rectangular bend would be further
-from MAD-X than applying neither. A gradient face terminates a quadrupole as well, which
-MAD-X carries through `tmfrng`'s `sk1` argument and xtrack through its multipole fringe.
-Same shape as the bending dipole's refusal to be displaced (K1).
+**Refused rather than half-applied on a rotated or gradient face — half lifted by P3.**
+`fringe=True` with `k1` still raises `NotImplementedError` at construction: a gradient
+face terminates a quadrupole as well, which MAD-X carries through `tmfrng`'s `sk1`
+argument and xtrack through its multipole fringe. Same shape as the bending dipole's
+refusal to be displaced (K1). The **rotated** face is no longer refused: P3 (a) built the
+wedge, and the reasoning that put it out of scope here — "the wedge is *first* order in
+the face angle where the fringe is second" — turned out to be a true premise with a false
+conclusion, since that first-order content is `_edge_matrix`, which F2 already ships. See
+*The rotated pole face: the wedge*.
 
 **Three things measured that a gate would otherwise assert wrongly.**
 
@@ -1153,6 +1157,115 @@ entries); MAD-X PTC `maptable` (differential algebra, the composed turn); `xt.Be
 bare `DipoleFringe` kernel — **tracking**, to `1e-15` on every coordinate, which is the
 only leg that reaches the `1/(1+δ)` factors and `ζ`. Controls on all three: the fringe-off
 bend misses by `hL/2` in `T` and `1.7e-5` in tracking, ten orders above the gate.
+
+## The rotated pole face: the wedge (P3 (a) — implemented 2026-09-03, opt-in)
+
+`Dipole(..., e1=..., e2=..., fringe=True)` composes the **whole** nonlinear face. Default
+OFF, like P2 (i)'s fringe, and for the same reason: MAD-X's TWISS, MAD-X PTC and
+`xt.Bend(edge_*_model="full")` all have it ON.
+
+**What P2 (i) refused, and why the refusal was half right.** P2 (i) shipped the fringe of
+an *unrotated* face and raised on `e1`/`e2`, on the grounds that "a rotated face's
+nonlinear map is the fringe **plus a wedge**, and the wedge is *first* order in the face
+angle where the fringe is second". The premise is correct — measured here, `×10` per
+decade of `e` — and the conclusion was not. The wedge's first-order content **is**
+`_edge_matrix`, the `h·tan(e)` kick F2 shipped long ago, so the composed face's origin
+Jacobian is that matrix *exactly* and nothing at first order moves. P3 (a) is therefore
+the same quiet opt-in P2 (i) was, not the API decision the roadmap expected.
+
+**The face is three maps, and one of them is another with the field off.**
+
+```
+entrance:  wedge(−e, h) · fringe(h)  · wedge(e, 0)
+exit:      wedge(e, 0)  · fringe(−h) · wedge(−e, h)
+```
+
+Only the **fringe** flips sign at the exit — the field switches on at one face and off at
+the other, so its impulse reverses. The **wedge does not**: it is a slice of the body's
+own field, which is the same at both ends. Mirroring `−h` into the wedge too breaks the
+origin Jacobian by exactly `2·h·tan(e)`.
+
+**The wedge, derived rather than ported.** A pole face at angle `e` leaves a wedge-shaped
+sliver of field between the tilted plane and the sector plane. In it the field is uniform,
+so — as in L3's exact bend — the trajectory is a **circle**. With `P = 1+δ`,
+`q = √(P² − py²)`, `px = q·sin α`, `pz = q·cos α`, `dpx/dz = −h` gives
+
+```
+x(a) = x0 + (q/h)(cos a − cos a0),     z(a) = (q/h)(sin a0 − sin a)
+```
+
+and the wedge ends where that meets the plane `z = x·tan θ`, reported in the frame whose
+`x` axis lies along `(cos θ, sin θ)`. Eliminating the crossing point between those two
+statements *ought* to need a transcendental solve. It does not — the crossing condition,
+times `h·cos θ/q`, **is**
+
+```
+sin(a_end + θ) = sin(a0 + θ) − (h·x0/q)·sin θ     ⟺     px → px·cos θ + (pz − h·x)·sin θ
+```
+
+which is the whole horizontal map, algebraic and exact. `x` follows algebraically; `y` and
+the path length are the turned angle `(a0 − a_end)` times `py/h` and `P/h`. The collapse is
+checked symbolically in `tests/analytic/test_wedge.py`; `xt.Bend`'s closed form is the
+*consequence*, and appears only as a cross-check — transcribing it and then agreeing with
+it would be the circularity P2 (iv) had to rule out for PTC.
+
+**Nothing divides by `h`, so the rotation is not a second map.** The turned angle is
+`arcsin(v)/h` with `v` itself proportional to `h`; the code forms `v/h` directly (every
+cancellation removed by hand) and multiplies by `_arcsinc(t) = arcsin(t)/t`. So `h = 0`
+needs no branch and `wedge_map(e, 0)` **is** the rotation into the face plane — the same
+map xtrack reaches through a separate kernel behind a `fabs(b1) < 1e-10` test. A naive
+`(θ + D)/h` instead loses accuracy as `1/h`: measured `3.6e-11` at `h = 1e-6` and `1.2e-9`
+at `1e-8`, against this form's clean linear approach to the limit.
+
+**Where `h·tan(e)` actually comes from.** Neither entry is written anywhere; both are
+produced, by different pieces, and the test reports them separately so the cancellation is
+visible rather than assumed:
+
+- **`R43 = −h·tan(e)` is the *fringe's*.** Its Jacobian at the origin is the identity —
+  P2 (i)'s headline — but the rotation does not fix the origin: it sends the design orbit
+  to `px = sin(e)`, and the fringe's `py → py − h·tan(x′)·y` evaluated *there* is exactly
+  `−h·tan(e)·y`. The vertical edge focusing is the fringe seen in the tilted frame.
+- **`R21 = +h·tan(e)` is the *wedge's*** `h·sin(e)`, scaled by the rotation's own
+  `x → x/cos(e)`.
+- the rotation's `sin(e)` momentum-dispersion and `−tan(e)` path-length entries are
+  cancelled by the wedge's, which is why the product has no `δ` column at all.
+
+Three deliberate breakages gate that: the wedge's sign mirrored (`2·h·tan e` out), the
+rotation dropped and the wedge dropped (`tan e` out, i.e. `1/h` times the kick they were
+meant to produce).
+
+**Two things measured that a gate would otherwise assert wrongly.**
+
+- **The `E/E0` time conversion is worst at *high* energy — the reverse of P2 (i).** The
+  wedge's `ζ` share is `−(path)·β0/β`, and dropping the ratio costs `β0²` times that
+  share. P2 (i) found the identical conversion inside the fringe visible **only** at
+  `γ0 = 1.5` (`9.1e-8`, against `5.1e-10` at `γ0 = 20`). Here it is visible at both, and
+  larger at 20 — because the *order* differs, not the energy: the fringe's `ζ` term is
+  `Φ_δ·ȳ²/2`, cubic in the coordinates, while the wedge's is a flight time linear in `x`
+  and first order in `e`, four orders larger at millimetre amplitudes. The gate is the
+  closed form `β0(20)²/β0(1.5)²`, not a tolerance.
+- **The whole-ring PTC leg needs a *larger* differencing step, not a looser tolerance.**
+  `second_order_one_turn_map` differences twice, so its error is a U: third-order
+  truncation falling as `step⁴`, round-off rising as `1/step²`. Rotating the eight faces
+  raises the round-off arm by `600×` (the state passes through `px ~ sin e` and back at
+  every face) and leaves the truncation arm untouched, so the optimum moves from `2.5e-4`
+  to `1e-3`. At `1e-3` the rotated and sector rings land on the **same** `1.18e-9`, which
+  is the ring's own third-order leftover and not a disagreement about the faces. Both arms
+  are asserted as live tests, because a comment cannot fail.
+
+**Scope, stated.** Unchanged from P2 (i): the faces are not sampled by the sub-slice
+walkers in `radiation.py` / `twiss.py`, and a thin map radiates nothing in any case.
+Soft-edge `fint`/`hgap` remain out of scope. The **gradient** face (`k1`) is still refused
+at construction — that is P3 (b), and it is a *cubic* map, which is why P1's second-order
+map never saw it.
+
+**Arbiters and their coverage.** MAD-X `sectormap` entry for entry on one magnet, at
+`1e-10`, for an asymmetric face pair *and* a rectangular bend (analytic — the only leg
+that is not a tracked comparison); MAD-X PTC on the composed four-cell ring, the only leg
+that can see the two faces' order and relative sign; and
+`xt.Bend(edge_*_model="full")` by **tracking**, to `1e-14` on every coordinate, the only
+leg that reaches `ζ` and the `1/(1+δ)` factors. Controls on all three: the linear-edge
+bend misses the same comparisons by `2.5e-3` in `T` and `1e-4` in tracking.
 
 ## Dispersion in Twiss (Stage 1 — implemented)
 
@@ -8357,7 +8470,7 @@ dominant term is **not** in accsim's code and is easy to misattribute.
   ~240 s and analytic at ~360 s. (The ratio is measured; the split of 604 s follows
   from it only under the assumption that contention inflates both suites alike — do
   not quote the two component numbers as if they were measured directly.)
-- **The reference suite has grown 45 -> 354 tests; the current figure is 1118.46 s
+- **The reference suite has grown 45 -> 363 tests; the 1118.46 s below was measured at 354
   (18m38s) WALL CLOCK at `-n 8` (2026-09-03, contended box, P2 (iv)'s run).** Read that
   as what one full reference run costs you in real time on eight workers, and nothing
   else. It is **not** a serial-equivalent, and the log does not contain one: pytest's

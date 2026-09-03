@@ -56,6 +56,116 @@ def _sinc(z: np.ndarray) -> np.ndarray:
     return np.where(z == 0.0, 1.0, np.sin(safe) / safe)
 
 
+def _arcsinc(t: np.ndarray) -> np.ndarray:
+    """``arcsin(t)/t``, continued to ``1`` at ``t = 0``.
+
+    :func:`_sinc`'s partner, and it is here for the same reason: it lets
+    :func:`wedge_map` divide the turned angle by the curvature ``h`` without ever
+    dividing by ``h``, so the wedge runs continuously into its zero-field limit (the
+    plain rotation into the face frame) with **no branch on ``h``**.
+
+    The series is used below ``|t| = 1e-4``, where the two terms kept are already
+    exact to double precision (the first dropped term is ``15 t^6/336 < 5e-25``) and
+    the closed form would be evaluating ``arcsin`` of a number smaller than its own
+    round-off.
+    """
+    t = np.asarray(t, dtype=float)
+    small = np.abs(t) < 1e-4
+    safe = np.where(small, 1.0, t)
+    t2 = t * t
+    return np.where(small, 1.0 + t2 * (1.0 / 6.0 + t2 * 3.0 / 40.0), np.arcsin(safe) / safe)
+
+
+def wedge_map(state: np.ndarray, theta: float, h: float, ref: ReferenceParticle) -> np.ndarray:
+    r"""The **wedge** — the exact map across a plane rotated by ``theta``, in a
+    uniform field of curvature ``h``. Its ``h = 0`` limit is the plain rotation into
+    the face frame, with no branch.
+
+    A pole face rotated by ``e`` is not the sector face, so a magnet with ``e1``/``e2``
+    has a wedge-shaped sliver of field between the two planes. Crossing it is what
+    :func:`_edge_matrix` linearises. This is the exact version, and it is **derived
+    from the same uniform-field circle as** :func:`exact_sector_bend_map`, not
+    transcribed:
+
+    Writing ``P = 1 + delta``, ``q = sqrt(P^2 - py^2)`` and the horizontal momentum
+    angle ``alpha`` by ``px = q sin(alpha)``, ``pz = q cos(alpha)``, a uniform vertical
+    field gives ``dpx/dz = -h``, hence the circle
+
+        x(a) = x0 + (q/h)(cos a - cos a0),      z(a) = (q/h)(sin a0 - sin a).
+
+    The wedge ends where that circle meets the plane ``z = x tan(theta)``, and reports
+    the crossing in the frame whose ``x`` axis lies along ``(cos theta, sin theta)``.
+    Eliminating the crossing point between those two statements collapses — with no
+    transcendental solve left — to
+
+        px  ->  px cos(theta) + (pz - h x) sin(theta),
+
+    which is the whole of the horizontal map; ``x`` follows algebraically, and ``y``
+    and the path length are the arc ``(alpha0 - alpha_end)`` times ``py/h`` and
+    ``P/h``. That elimination is checked symbolically in
+    ``tests/analytic/test_wedge.py``, and the four resulting components against
+    ``xt.Bend``'s closed form to ``1.2e-14`` — xtrack's form is the *check*, not the
+    source.
+
+    **Nothing here divides by ``h``.** The arc is ``arcsin(v)/h`` with ``v`` itself
+    proportional to ``h``; the code forms ``v/h`` directly (every cancellation removed
+    by hand) and multiplies by :func:`_arcsinc`. So ``h = 0`` needs no special case and
+    returns exactly the rotation into the face frame — which is how a face is built:
+    ``wedge(-e, h) . fringe(h) . wedge(e, 0)`` at the entrance (see
+    :meth:`Dipole._track_body`). A naive ``(theta + D)/h`` instead loses accuracy as
+    ``1/h`` — measured ``3.6e-11`` at ``h = 1e-6`` and ``1.2e-9`` at ``1e-8``, against
+    this form's clean linear approach to the rotation.
+
+    ``theta = 0`` returns the state unchanged, bit for bit. ``state`` is a ``(6,)``
+    vector or a ``(6, n)`` bunch.
+    """
+    st = np.asarray(state, dtype=float)
+    if theta == 0.0:
+        return st.copy()
+
+    x, px, py, delta = st[X], st[PX], st[PY], st[DELTA]
+    c, s = math.cos(theta), math.sin(theta)
+    one_plus = 1.0 + delta
+    # q^2 = pz^2 + px^2 is the squared momentum in the bend plane, conserved by the
+    # field and by the rotation. Not a cancelling difference for a beam-like particle.
+    q2 = one_plus * one_plus - py * py
+    # NaN for a particle with no forward momentum is a *documented* return value here
+    # as in Drift and exact_sector_bend_map; only the warning is silenced.
+    with np.errstate(invalid="ignore"):
+        pz = np.sqrt(q2 - px * px)
+        new_px = px * c + (pz - h * x) * s
+        new_pz = np.sqrt(q2 - new_px * new_px)
+    # The field-free images, which are what every h-proportional numerator is measured
+    # against below.
+    npx0 = px * c + pz * s
+    npz0 = pz * c - px * s
+
+    new_x = x * c + (x * px * (2.0 * s * c) + s * s * (2.0 * x * pz - h * x * x)) / (new_pz + npz0)
+
+    # The turned angle alpha0 - alpha_end, divided by h, with the h -> 0 cancellation
+    # taken out analytically: it is arcsin(v) with v = h * (the bracket below).
+    # w = sin(D) and r = cos(D) for the angle D between the incoming and outgoing
+    # momenta, both written as products rather than as differences of arcsines.
+    w = (px * new_pz - new_px * pz) / q2
+    r = (pz * new_pz + px * new_px) / q2
+    v_over_h = (
+        x * s * (px * (npx0 + new_px) / (new_pz + npz0) + pz) / q2 * (c + s * (s - w) / (r + c))
+    )
+    arc_over_h = v_over_h * _arcsinc(h * v_over_h)
+
+    # zeta = s - beta0*c*t and the wedge advances the reference by nothing, so the
+    # whole of it is the extra flight time: -(path)*beta0/beta, with beta0/beta =
+    # (E/E0)/(1+delta) as in hard_edge_fringe_map.
+    e_over_e0 = np.hypot(ref.momentum_eV * one_plus, ref.mass_eV) / ref.total_energy_eV
+
+    out = st.copy()
+    out[X] = new_x
+    out[PX] = new_px
+    out[Y] = st[Y] + py * arc_over_h
+    out[ZETA] = st[ZETA] - e_over_e0 * arc_over_h
+    return out
+
+
 def exact_sector_bend_map(
     state: np.ndarray, length: float, h: float, ref: ReferenceParticle
 ) -> np.ndarray:
@@ -466,10 +576,16 @@ def _edge_matrix(h: float, e: float) -> np.ndarray:
     this is the hard-edge map, the apples-to-apples match to MAD-X ``sbend`` with
     its default ``FINT = HGAP = 0``.
 
-    That leaves this matrix the *whole* linear story at a face, and it stays so: the
-    hard-edge fringe of :func:`hard_edge_fringe_map` -- which MAD-X and PTC do apply by
-    default, at ``FINT = HGAP = 0`` -- has an identity Jacobian at the origin, so it adds
-    nothing here and everything one order up.
+    That leaves this matrix the *whole* linear story at a face, and P3 is the milestone
+    that says so rather than assumes it. The hard-edge fringe of
+    :func:`hard_edge_fringe_map` -- which MAD-X and PTC do apply by default, at
+    ``FINT = HGAP = 0`` -- has an identity Jacobian at the origin, so it adds nothing here
+    and everything one order up. The **wedge** of :func:`wedge_map` does not: on its own
+    it carries ``h sin(e)``, an ``x/cos(e)`` scaling and a ``delta`` column. Composed into
+    a face, all of that cancels down to exactly the two entries below -- measured, in
+    ``tests/analytic/test_wedge.py``, with three deliberate breakages that move it by
+    ``O(h tan e)``. So ``fringe=True`` on a rotated face is still an opt-in that no
+    first-order quantity can see.
     """
     E = np.eye(DIM)
     if h == 0.0 or e == 0.0:
@@ -605,12 +721,12 @@ class Dipole(Element):
     up an extra ``cos t``. Both are derived in ``tests/analytic/test_exact_dipole.py``
     from the equations of motion, not recalled.
 
-    **Edges stay linear.** :meth:`_track_body` composes ``Edge(e2) . body . Edge(e1)``
-    with the same hard-edge kicks :meth:`_matrix_body` uses. Each edge is *exactly*
-    linear, so it is not an approximation inside the composition and the Jacobian
-    identity survives it. The real pole-face map is nonlinear -- a *rotated* face needs
-    xtrack's wedge as well -- and that half is still out of scope, as
-    :func:`_edge_matrix` records.
+    **Edges stay linear unless the fringe is asked for.** With ``fringe=False`` -- the
+    default -- :meth:`_track_body` composes ``Edge(e2) . body . Edge(e1)`` with the same
+    hard-edge kicks :meth:`_matrix_body` uses. Each edge is *exactly* linear, so it is not
+    an approximation inside the composition and the Jacobian identity survives it. The
+    real pole-face map is nonlinear, and ``fringe=True`` is where that lives -- both the
+    fringe (P2) and, on a rotated face, the wedge (P3); see below.
 
     The hard-edge fringe (P2)
     -------------------------
@@ -633,13 +749,26 @@ class Dipole(Element):
     ``fringe=True`` and ``fringe=False`` have the same ``matrix``, the same tunes, the
     same dispersion and the same chromaticity, and differ only under ``track``.
 
-    WARNING: **it is refused on a rotated or gradient face, rather than half-applied.**
-    With ``e1``/``e2`` the physical edge is fringe *plus* a **wedge**, which is first
-    order in the face angle where the fringe is second, so it is the larger of the two;
-    with ``k1`` the face terminates a quadrupole as well, which MAD-X's ``tmfrng`` carries
-    through its ``sk1`` argument and xtrack through its multipole fringe. accsim
-    implements neither, so a ``Dipole`` asking for both raises rather than reporting a
-    bend that is nonlinear at the face in one of its two ways.
+    The rotated face (P3)
+    ---------------------
+    ``fringe=True`` **with** ``e1``/``e2`` composes the whole nonlinear face,
+    ``wedge(-e, h) . fringe(h) . wedge(e, 0)`` at the entrance and the reverse at the exit
+    -- see :meth:`_face` and :func:`wedge_map`. P2 (i) refused exactly this, on the
+    grounds that the wedge is *first* order in the face angle where the fringe is second.
+    The premise is right and the conclusion was wrong: the wedge's first-order content is
+    :func:`_edge_matrix`, which F2 already ships, and the composed face's origin Jacobian
+    is that matrix **exactly**. So the rotated face is the same quiet opt-in the sector
+    face was -- ``matrix``, the tunes, ``beta``, the dispersion and the chromaticity are
+    bit-identical with it on -- and it agrees with MAD-X's ``sectormap`` entry for entry
+    at ``1e-10``, with PTC on the composed ring, and with
+    ``xt.Bend(edge_*_model="full")`` by tracking to ``1e-14``, rectangular bends included.
+
+    WARNING: **it is still refused on a gradient face, rather than half-applied.** With
+    ``k1`` the face terminates a quadrupole as well, which MAD-X's ``tmfrng`` carries
+    through its ``sk1`` argument and xtrack through its multipole fringe -- a *cubic* map,
+    which is why P1's second-order map never saw it. accsim implements neither, so a
+    ``Dipole`` asking for both raises rather than reporting a bend that is nonlinear at
+    the face in only one of its two ways.
 
     **On the design orbit nothing changes.** Every new entry is proportional to an orbit
     angle, and at the origin the exact map's Jacobian *is* the linear matrix — measured
@@ -710,15 +839,15 @@ class Dipole(Element):
         self.e1 = float(e1)
         self.e2 = float(e2)
         self.fringe = bool(fringe)
-        if self.fringe and (self.e1 != 0.0 or self.e2 != 0.0 or self.k1 != 0.0):
+        if self.fringe and self.k1 != 0.0:
             raise NotImplementedError(
-                "the hard-edge fringe is implemented for a pure sector face only "
-                f"(Dipole {self.name!r} has e1={self.e1}, e2={self.e2}, k1={self.k1}). A "
-                "rotated face is a fringe *and* a wedge, and the wedge is first order in "
-                "the face angle where the fringe is second; a gradient face terminates a "
-                "quadrupole too, which MAD-X carries as tmfrng's sk1 and xtrack as its "
-                "multipole fringe. accsim implements neither, and half a face is worse "
-                "than none: use fringe=False, or a pure sector bend"
+                "the nonlinear face is implemented for a gradient-free magnet only "
+                f"(Dipole {self.name!r} has k1={self.k1}). A gradient face terminates a "
+                "quadrupole as well as a dipole, which MAD-X carries as tmfrng's sk1 and "
+                "xtrack as its multipole fringe (a *cubic* map, so P1's second-order "
+                "map never saw it); accsim implements neither, and half a face is worse "
+                "than none: use fringe=False, or drop k1. The *rotated* face is "
+                "implemented (P3) -- e1/e2 with fringe=True is the full wedge"
             )
 
     @property
@@ -892,11 +1021,11 @@ class Dipole(Element):
         survives them too: each edge is *exactly* linear, so a linear factor in the
         composition is not an approximation to anything.
 
-        With ``fringe=True`` the two hard-edge fringes sit inside those edges,
-        ``fringe(-h) . body . fringe(h)`` -- the field switches on at one face and off at
-        the other, so the impulses have opposite sign. The Jacobian identity survives
-        that too, and for a stronger reason: the fringe's own Jacobian at the origin is
-        the identity, so :meth:`_matrix_body` is *unchanged* rather than merely still
+        With ``fringe=True`` the linear edges are **replaced** by the full nonlinear
+        faces of :meth:`_face`, not composed with them: a face already contains its edge,
+        and applying both would double it. The Jacobian identity survives that for the
+        reason it survived P2 (i) -- the face's origin Jacobian *is* ``_edge_matrix(h,
+        e)``, exactly, so :meth:`_matrix_body` is *unchanged* rather than merely still
         correct.
 
         Vectorised over a trailing particle axis, so a ``(6,)`` state and a ``(6, n)``
@@ -905,10 +1034,10 @@ class Dipole(Element):
         self._refuse_misalignment()
         st = np.asarray(state, dtype=float)
         h = self.curvature
-        if self.e1 != 0.0:
-            st = _edge_matrix(h, self.e1) @ st
         if self.fringe:
-            st = hard_edge_fringe_map(st, h, ref)
+            st = self._face(st, self.e1, ref, exit_face=False)
+        elif self.e1 != 0.0:
+            st = _edge_matrix(h, self.e1) @ st
         if self.k1 == 0.0:
             st = exact_sector_bend_map(st, self.length, h, ref)
         else:
@@ -917,10 +1046,48 @@ class Dipole(Element):
             st = curvature_sextupole_kick(st, h * self.k1 * self.length)
             st = expanded_cfd_map(st, half, h, self.k1, ref)
         if self.fringe:
-            st = hard_edge_fringe_map(st, -h, ref)
-        if self.e2 != 0.0:
+            st = self._face(st, self.e2, ref, exit_face=True)
+        elif self.e2 != 0.0:
             st = _edge_matrix(h, self.e2) @ st
         return st
+
+    def _face(
+        self, state: np.ndarray, e: float, ref: ReferenceParticle, *, exit_face: bool
+    ) -> np.ndarray:
+        r"""One nonlinear pole face: the wedge, the fringe, and the rotation (P3).
+
+        ``wedge(-e, h) . fringe(h) . wedge(e, 0)`` at the entrance, and the reverse
+        order with ``h -> -h`` in the *fringe alone* at the exit. Three facts fix
+        that, and none of them is a convention:
+
+        - **the rotation is** :func:`wedge_map` **with the field off**, so a face
+          needs one map and not two, and ``e = 0`` collapses it to P2 (i)'s bare
+          fringe bit for bit (:func:`wedge_map` returns its input unchanged at
+          ``theta = 0``);
+        - **only the fringe flips sign at the exit.** The field switches on at one
+          face and off at the other, so the *impulse* reverses -- but the wedge is a
+          slice of the body's own field, which does not. Mirroring ``-h`` into the
+          wedge too breaks the origin Jacobian by ``2 h tan(e)``, four orders above
+          anything else here (``tests/analytic/test_wedge.py``);
+        - **the sequence is the geometry.** The rotation puts the frame normal to the
+          real face; the fringe is what the field's *termination* does there; the
+          wedge integrates the sliver of body field back to the sector plane.
+
+        **It moves nothing at first order**, which is the finding this milestone
+        turned on. Each piece has a non-identity Jacobian -- the rotation carries the
+        ``x/cos(e)`` scaling and a ``sin(e)`` dispersion, the wedge carries
+        ``h sin(e)`` and cancels the rest -- but the product is *exactly*
+        :func:`_edge_matrix`, so :meth:`_matrix_body`, the tunes, ``beta``, the
+        dispersion and the chromaticity are untouched. See the class docstring.
+        """
+        h = self.curvature
+        if exit_face:
+            st = wedge_map(state, -e, h, ref)
+            st = hard_edge_fringe_map(st, -h, ref)
+            return wedge_map(st, e, 0.0, ref)
+        st = wedge_map(state, e, 0.0, ref)
+        st = hard_edge_fringe_map(st, h, ref)
+        return wedge_map(st, -e, h, ref)
 
     def normalized_field(
         self, x: np.ndarray | float, y: np.ndarray | float

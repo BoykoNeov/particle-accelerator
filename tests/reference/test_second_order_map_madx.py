@@ -97,13 +97,13 @@ RING_LENGTH = 4 * (LQ + 0.5 + 0.5 + LB + LQ + 0.4 + 0.6)
 RF_FREQ_HZ = 2 * ReferenceParticle.from_gamma(MASS0, GAMMA0).beta0 * 299792458.0 / RING_LENGTH
 
 
-def _elements(ref: ReferenceParticle, *, fringe: bool = False) -> list:
+def _elements(ref: ReferenceParticle, *, fringe: bool = False, faces: float = 0.0) -> list:
     return [
         Quadrupole(LQ, KF, name="qf"),
         Drift(0.5, name="d1"),
         ThinSextupole(K2L, name="ms"),
         Drift(0.5, name="d2"),
-        Dipole(LB, ANGLE, name="mb", fringe=fringe),
+        Dipole(LB, ANGLE, e1=faces, e2=faces, name="mb", fringe=fringe),
         Quadrupole(LQ, KD, name="qd"),
         Drift(0.4, name="d3"),
         ThinOctupole(K3L, name="mo"),
@@ -118,6 +118,7 @@ def _madx_line(
     cavity: bool = False,
     thin_quads: bool = False,
     fringe: bool = False,
+    faces: float = 0.0,
 ) -> str:
     """A ``line``, not a ``sequence``: elements abut exactly and nothing is implicit.
 
@@ -145,7 +146,9 @@ def _madx_line(
         "d4: drift, l=0.6;",
         f"ms: multipole, knl={{0, 0, {K2L}}};",
         f"mo: multipole, knl={{0, 0, 0, {K3L}}};",
-        f"mb: sbend, l={LB}, angle={ANGLE}" + ("" if fringe else f", {NO_FRINGE}") + ";",
+        f"mb: sbend, l={LB}, angle={ANGLE}, e1={faces!r}, e2={faces!r}"
+        + ("" if fringe else f", {NO_FRINGE}")
+        + ";",
         cell,
     ]
     head = []
@@ -177,6 +180,7 @@ def _accsim_ring(
     cavity: bool = False,
     thin_quads: bool = False,
     fringe: bool = False,
+    faces: float = 0.0,
 ) -> Lattice:
     ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
     head: list = []
@@ -184,7 +188,7 @@ def _accsim_ring(
         head.append(Corrector(kick_x=kick))
     if cavity:
         head.append(RFCavity(1.0e6, RF_FREQ_HZ, np.pi))
-    elements = _elements(ref, fringe=fringe)
+    elements = _elements(ref, fringe=fringe, faces=faces)
     if thin_quads:
         thinned: list = []
         for e in elements:
@@ -450,6 +454,102 @@ def test_the_fringe_on_bend_matches_madx_entry_for_entry() -> None:
         assert abs(theirs.T[idx] - ours.T[idx]) < 1e-10, idx
 
 
+#: The rotated faces P3 gates. Deliberately unequal and of opposite sign, so a map that
+#: applied one face twice, or that mixed the entrance and exit compositions, cannot pass.
+E1_FACE, E2_FACE = 0.12, -0.07
+
+
+@pytest.mark.parametrize(
+    ("e1", "e2", "label"),
+    [(E1_FACE, E2_FACE, "asymmetric"), (ANGLE / 2, ANGLE / 2, "rectangular")],
+)
+def test_the_rotated_face_matches_madx_entry_for_entry(e1: float, e2: float, label: str) -> None:
+    r"""P3 (a): ``Dipole(e1, e2, fringe=True)`` against a default MAD-X ``sbend``.
+
+    The second-order arbiter for the wedge, and the one leg that is *analytic* rather
+    than tracked. MAD-X applies the pole-face fringe by default (``kill_ent_fringe`` is
+    off), so a plain ``sbend`` with ``e1``/``e2`` carries the whole rotated face; accsim
+    now does too, and all 216 entries agree at the same ``1e-10`` the unrotated bend meets.
+
+    Three controls, because "the entries agree" is worth very little on its own:
+
+    - the **fringe-off** bend, which is F2's linear ``h tan(e)`` edge and nothing else,
+      misses this same comparison — that is the size of what P3 adds at second order;
+    - the **unrotated** ``fringe=True`` bend misses it too, by more, which is what says
+      the wedge is being applied and not merely the P2 (i) fringe with an edge matrix
+      bolted on;
+    - and the ``rectangular`` case is run as well as the asymmetric one, because
+      ``e1 = e2 = angle/2`` is the face a real lattice actually has.
+    """
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    with madx_session() as madx:
+        madx.input(f"""
+        beam, particle=proton, gamma={GAMMA0!r};
+        mb: sbend, l={LB}, angle={ANGLE}, e1={e1!r}, e2={e2!r};
+        ring: line = (mb);
+        use, sequence=ring;
+        twiss, betx=1.0, bety=1.0, sectormap, sectortable=smap, sectorfile="{os.devnull}";
+        """)
+        (k, R, T), beta0 = sectormap_rows(madx)["mb"], beam_beta0(madx, "ring")
+    theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0)
+
+    faced = Dipole(LB, ANGLE, e1=e1, e2=e2, fringe=True)
+    ours = taylor_expand(lambda s: faced.track(s, ref), np.zeros(DIM))
+    assert np.max(np.abs(theirs.R - ours.R)) < 1e-10, label
+    residual = np.max(np.abs(theirs.T - ours.T))
+    assert residual < 1e-10, residual
+
+    linear_edges = taylor_expand(
+        lambda s: Dipole(LB, ANGLE, e1=e1, e2=e2).track(s, ref), np.zeros(DIM)
+    )
+    unrotated = taylor_expand(lambda s: Dipole(LB, ANGLE, fringe=True).track(s, ref), np.zeros(DIM))
+    # Both controls miss by more than a millionth-of-a-percent of nothing: measured
+    # 2.5e-3 (fringe off) and 2.5e-3 (unrotated), against a 1e-10 agreement.
+    assert np.max(np.abs(theirs.T - linear_edges.T)) > 1e6 * residual
+    assert np.max(np.abs(theirs.T - unrotated.T)) > 1e6 * residual
+    assert (
+        min(np.max(np.abs(theirs.T - linear_edges.T)), np.max(np.abs(theirs.T - unrotated.T)))
+        > 1e-4
+    )
+    # The linear map, on the other hand, is the *same* with and without the face: F2's
+    # edge matrix is already the whole first-order story, which is P3's headline.
+    assert np.max(np.abs(ours.R - linear_edges.R)) < 1e-10
+
+
+def test_what_the_wedge_adds_at_second_order_is_first_order_in_the_face_angle() -> None:
+    r"""The size of the new content, and its **order** — which is the gate, not the size.
+
+    P2 (i) refused the rotated face because "the wedge is first order in the face angle
+    where the fringe is second". That is true of the second-order map, and it is measured
+    here rather than asserted: the gap between the fringe-only bend's ``T`` and MAD-X's
+    rotated-face ``T`` falls by ten per decade of ``e``, where the *linear* map's gap is
+    zero at every ``e``. Both halves matter — the first is why P3 exists, the second is
+    why it could be a quiet opt-in.
+    """
+    ref = ReferenceParticle.from_gamma(MASS0, GAMMA0)
+    unrotated = taylor_expand(lambda s: Dipole(LB, ANGLE, fringe=True).track(s, ref), np.zeros(DIM))
+    previous = None
+    for e in (1e-1, 1e-2, 1e-3):
+        with madx_session() as madx:
+            madx.input(f"""
+            beam, particle=proton, gamma={GAMMA0!r};
+            mb: sbend, l={LB}, angle={ANGLE}, e1={e!r}, e2=0.0;
+            ring: line = (mb);
+            use, sequence=ring;
+            twiss, betx=1.0, bety=1.0, sectormap, sectortable=smap, sectorfile="{os.devnull}";
+            """)
+            (k, R, T), beta0 = sectormap_rows(madx)["mb"], beam_beta0(madx, "ring")
+        theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0)
+        faced = Dipole(LB, ANGLE, e1=e, fringe=True)
+        ours = taylor_expand(lambda s, b=faced: b.track(s, ref), np.zeros(DIM))
+        assert np.max(np.abs(theirs.T - ours.T)) < 1e-10, e
+
+        gap = np.max(np.abs(theirs.T - unrotated.T))
+        if previous is not None:
+            assert previous / gap == pytest.approx(10.0, rel=0.1), e
+        previous = gap
+
+
 def _ptc_turn(sequence: str, *, icase: int, closed_orbit: bool, order: int = 2, start: str = ""):
     """PTC's one-turn ``(k, R, T)`` in its own frame, plus ``beta0``.
 
@@ -509,6 +609,72 @@ def test_one_turn_map_with_the_fringe_agrees_with_ptc() -> None:
     # PTC's fringe-on one by ~0.1, seven orders above the gate.
     bare = second_order_one_turn_map(_accsim_ring(), step=2.5e-4)
     assert np.max(np.abs(theirs.T[FIVE] - bare.T[FIVE])) > 1e-2
+
+
+def test_one_turn_map_with_rotated_faces_agrees_with_ptc() -> None:
+    r"""P3 (a) on the whole ring: four bends, eight *rotated* faces, against PTC.
+
+    The third arbiter, and the only one that can see the two faces' **order** and their
+    relative sign. A single element's ``T`` is nearly blind to swapping the entrance and
+    exit compositions; a ring of four bends composed with quadrupoles, sextupoles and an
+    octupole is not. Same comparison as the unrotated fringe leg above, with
+    ``e1 = e2 = angle/2`` — the rectangular bend — on both sides.
+
+    ``sectormap`` and PTC are not independent of each other the way accsim and xtrack are
+    (both are MAD-X), so what this leg adds is the eightfold composition and the
+    closed-orbit search, not a fresh derivation of the face.
+
+    **The step is 1e-3 here and 2.5e-4 elsewhere in this file, and that is measured.**
+    :func:`~accsim.second_order_one_turn_map` differences twice, so its error is a U:
+    third-order truncation falling as ``step^4`` on the left, round-off rising as
+    ``1/step^2`` on the right. Rotating the faces raises the round-off branch by ``600x``
+    (the state passes through ``px ~ sin(e)`` and back at every face, which costs
+    precision on the small coordinates) without touching the truncation branch at all —
+    so the minimum moves from ``2.5e-4`` to ``1e-3``. Both rings land on the *same*
+    ``1.18e-9`` there, which is the ring's own third-order leftover and not a
+    disagreement about the faces. That is asserted as a sweep below rather than written
+    in a comment, because a comment cannot fail.
+    """
+    half = ANGLE / 2.0
+    lat = _accsim_ring(fringe=True, faces=half)
+    (k, R, T), beta0 = _ptc_turn(_madx_line(fringe=True, faces=half), icase=5, closed_orbit=True)
+    theirs = to_accsim_frame_second_order(k, R, T, np.zeros(DIM), beta0, time_sign=-1.0)
+    ours = second_order_one_turn_map(lat, step=1e-3)
+    assert np.max(np.abs(theirs.R[FIVE] - ours.R[FIVE])) < 1e-9
+    diff = np.max(np.abs(theirs.T[FIVE] - ours.T[FIVE]))
+    assert diff < TURN_ATOL, diff
+    assert np.max(np.abs(ours.T)) > 600.0
+
+    # Controls. The linear edge alone misses PTC's rotated face by ~0.1, and the ring's
+    # *first-order* map is the same with the faces on and off — F2's edge matrix is the
+    # whole first-order story, which is what let P3 stay a quiet opt-in.
+    linear_only = second_order_one_turn_map(_accsim_ring(faces=half), step=1e-3)
+    assert np.max(np.abs(theirs.T[FIVE] - linear_only.T[FIVE])) > 1e6 * diff
+    assert np.max(np.abs(ours.R - linear_only.R)) < 1e-9
+
+    # The left arm of the U: pure truncation, so it falls as step^4 and it is the *same*
+    # for the sector ring, which is what says it belongs to the ring and not to the face.
+    sector = _accsim_ring(fringe=True)
+    (k0, R0, T0), b0 = _ptc_turn(_madx_line(fringe=True), icase=5, closed_orbit=True)
+    theirs0 = to_accsim_frame_second_order(k0, R0, T0, np.zeros(DIM), b0, time_sign=-1.0)
+    previous = None
+    for step in (4e-3, 2e-3, 1e-3):
+        gap = np.max(np.abs(theirs.T[FIVE] - second_order_one_turn_map(lat, step=step).T[FIVE]))
+        if previous is not None:
+            assert previous / gap == pytest.approx(16.0, rel=0.15), step
+        previous = gap
+        flat = np.max(
+            np.abs(theirs0.T[FIVE] - second_order_one_turn_map(sector, step=step).T[FIVE])
+        )
+        assert flat == pytest.approx(gap, rel=0.15), step
+
+    # ...and the right arm, which is the one rotating the faces moves.
+    tight = np.max(np.abs(theirs.T[FIVE] - second_order_one_turn_map(lat, step=2.5e-4).T[FIVE]))
+    tight_sector = np.max(
+        np.abs(theirs0.T[FIVE] - second_order_one_turn_map(sector, step=2.5e-4).T[FIVE])
+    )
+    assert tight > 10.0 * previous
+    assert tight > 100.0 * tight_sector
 
 
 def test_one_turn_map_agrees_with_ptc_on_a_bunched_ring() -> None:
