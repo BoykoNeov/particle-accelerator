@@ -920,10 +920,13 @@ R43 = −h·tan(e)     (py -= h·tan(e)·y  — vertical FOCUS   for e > 0)
   `x` and focuses `y`; the whole 6×6 matches MAD-X `sbend` (`fint = hgap = 0`) to
   **~2e-16** and xtrack `Bend` (linear edge model, fringe off) to ~1e-6
   (`tests/reference/test_dipole_edges_{madx,xtrack}.py`).
-- **Hard edge only.** The fringe-field correction (`e → e − ψ` in the *vertical*
+- **Hard edge only.** The *soft*-edge correction (`e → e − ψ` in the *vertical*
   plane, `ψ = h·g·fint·(1+sin²e)/cos e`) is **not** applied — this is the
   apples-to-apples match to MAD-X's default `fint = hgap = 0` and xtrack's
-  fringe-off defaults. Fringe is a separate, opt-in refinement (not yet built).
+  fringe-off defaults. The **hard-edge fringe**, which MAD-X and PTC apply even at
+  `fint = hgap = 0`, is built as of P2 and is opt-in: see *Hard-edge dipole fringe*
+  below. It is invisible here — its Jacobian at the origin is the identity, so it
+  changes nothing at first order.
 - **Rectangular-bend identity (the strongest gate).** For `e1 = e2 = θ/2` the two
   edge kicks *exactly* cancel the body's horizontal weak focusing: the horizontal
   block collapses to a drift `[[1, ρ·sin θ], [0, 1]]` with `R21 = 0` to machine
@@ -937,6 +940,106 @@ R43 = −h·tan(e)     (py -= h·tan(e)·y  — vertical FOCUS   for e > 0)
 - Analytic gates in `tests/analytic/test_dipole_edges.py`; the effect on the
   radiation damping partition (`I4`'s `−D_x h² tan(e)` face term) is in
   *Synchrotron radiation* below.
+
+## Hard-edge dipole fringe (P2 (i) — implemented 2026-09-03, opt-in)
+
+`Dipole(..., fringe=True)` adds a thin map at each face, `fringe(−h) · body · fringe(h)`.
+**Default OFF**, so nothing in the package moves unless a caller asks; MAD-X's TWISS,
+MAD-X PTC and `xt.Bend(edge_*_model="full")` all have it **ON** by default, which is why
+P1's second-order map found it missing.
+
+**What it is.** A sector bend's body field does not depend on `y`, so the linear map and
+L3's exact circle couple no planes. The field's *termination* does: `curl B = 0` forbids
+`B_y` stopping alone, so `B_s = y·∂B_y/∂s` appears — a delta function at a hard edge —
+whose impulse is a **vertical** kick proportional to the *horizontal* angle. Every entry
+the fringe adds to `T` therefore carries a `y`, in a magnet that bends horizontally.
+
+**The map is generated, not assembled.** With `pz = √((1+δ)² − px² − py²)`,
+
+```
+Φ(px, py, δ) = h·px·pz / ((1+δ)² − px²)        (= h·x'/(1 + y'²), the effective face angle)
+W = −Φ(p)·ȳ²/2
+```
+
+and the face is the exact canonical transformation of `W`:
+
+```
+ȳ    :  y = ȳ − (∂Φ/∂py)·ȳ²/2          → ȳ = 2y / (1 + √(1 − 2·(∂Φ/∂py)·y))
+x    → x  + (∂Φ/∂px)·ȳ²/2
+py   → py − Φ·ȳ
+ζ    → ζ  + (β0/β)·(∂Φ/∂δ)·ȳ²/2,       β0/β = (E/E0)/(1+δ)
+```
+
+with `px`, `py`, `δ` read *before* the map and `px`, `δ` unchanged by it. Entrance takes
+`h`, exit takes `−h` (the field switches on at one face and off at the other — xtrack
+spells this `if (is_exit) k0 = -k0`). Being a generating function it is **exactly
+symplectic at any amplitude**, not symplectic to the order it is written. This is the
+`fint = hgap = 0` limit of the MAD-NG/PTC fringe, where the `atan`/`tan` pair round-trips
+and Φ collapses to the closed form above; the three gradients are derived with sympy in
+`tests/analytic/test_dipole_fringe.py` and asserted identically equal to the rearranged,
+cancellation-free forms the code evaluates.
+
+**Composed with the body it lands on twelve entries, not the five P1 named.** The five:
+
+```
+T[x,y,py] = T[y,px,y] = −hL/2      T[py,px,py] = +hL·cos θ/2
+T[x,y,y] = −h(1 − cos θ)/2         T[px,y,y]  = −h²·sin θ/2
+```
+
+The other seven include `T[ζ,y,y]` (the body carrying the entrance face's `x` shift into
+the path length) and `T[py,y,δ]`. **All twelve** are gated against MAD-X's `sectormap` at
+`1e-10`, and the composed one-turn map of the 4-cell ring against PTC at `1e-8` — the
+whole-ring leg being the one that can see the two faces' *order* and relative sign, which
+a single element's `T` cannot.
+
+**What it does not change: anything at first order.** Every term is quadratic (`ȳ²`, and
+`Φ·ȳ` with `Φ(0) = 0`), so the origin Jacobian is the identity and `matrix`, the tunes,
+`β`, the dispersion and the natural chromaticity are **bit-identical** with the fringe on.
+That is asserted with `array_equal`, not a tolerance, and it is why no first-order
+cross-check could ever have found this.
+
+**Refused rather than half-applied on a rotated or gradient face.** `fringe=True` with
+`e1`/`e2` or `k1` raises `NotImplementedError` at construction. A rotated face's nonlinear
+map is the fringe **plus a wedge**, and the wedge is *first* order in the face angle where
+the fringe is second — so applying only the fringe to a rectangular bend would be further
+from MAD-X than applying neither. A gradient face terminates a quadrupole as well, which
+MAD-X carries through `tmfrng`'s `sk1` argument and xtrack through its multipole fringe.
+Same shape as the bending dipole's refusal to be displaced (K1).
+
+**Three things measured that a gate would otherwise assert wrongly.**
+
+- **`ζ`'s share is cubic, so no reference leg sees it.** `(β0/β)·Φ_δ·ȳ²` is a product of
+  three coordinates: absent from `T`, hence invisible to `sectormap`, to PTC's `maptable`
+  and to all twelve entries. What sees it is **canonical symplecticity** — `x`'s
+  `δ`-dependence and `ζ`'s `px`-dependence are conjugate halves of one generating function
+  — and xtrack's arrival time, which is asserted on its own line (the fringe moves `ζ` by
+  `6e-8 … 4e-6`, four orders below `x`, so a `max` over six coordinates would hide it).
+- **The `β0/β` conversion is a *low-energy* gate.** Dropping it breaks symplecticity by
+  `9.1e-8` at `γ0 = 1.5` and `2.3e-8` at `3`, but only `5.1e-10` at the `γ0 = 20` this
+  suite runs at — *below* the `1e-9` tolerance — and `4.6e-12` at `200`. It is real, it is
+  checked, and it can only be checked on a low-energy fixture. Stated rather than averaged.
+- **The two faces are inverse only to fourth order.** `fringe(−h) · fringe(h)` at one
+  point ought to be nothing, and is, up to a *fifth*-order leftover
+  `−h²·px·py·y³/(1+δ)⁴` in `x` and `+3h²·px²·py·y²/(2(1+δ)⁴)` in `py` (`2.6e-13` at
+  millimetre amplitudes, fitted exponent `4.9`). The cause is that Φ's gradients are read
+  at the **incoming** momenta and `py` differs on the two sides. It is a property of the
+  PTC/MAD-NG hard-edge form both arbiters share, not of accsim's transcription, and it is
+  gated as an *order*, never a tolerance.
+
+**Scope, stated.** Like the linear pole-face edges, the fringe is **not** sampled by the
+sub-slice walkers in `radiation.py` / `twiss.py`: those replace a dipole by `n` body
+sub-slices and so carry neither `e1`/`e2` nor the fringe. It radiates nothing in any case
+(a thin map has no length to radiate over — see `Dipole.normalized_field`), but a
+polarization integral over a `fringe=True` bend samples the body's trajectory, not the
+fringed one. Pre-existing behaviour for edges, unchanged, and named here so it is not
+rediscovered.
+
+**Arbiters and their coverage.** MAD-X `sectormap` (analytic, per element, all 216
+entries); MAD-X PTC `maptable` (differential algebra, the composed turn); `xt.Bend` with
+`edge_*_model="full"` and `model="bend-kick-bend"`, which at a sector face reduces to the
+bare `DipoleFringe` kernel — **tracking**, to `1e-15` on every coordinate, which is the
+only leg that reaches the `1/(1+δ)` factors and `ζ`. Controls on all three: the fringe-off
+bend misses by `hL/2` in `T` and `1.7e-5` in tracking, ten orders above the gate.
 
 ## Dispersion in Twiss (Stage 1 — implemented)
 
@@ -7728,15 +7831,17 @@ does not look for; `delta0=0` asks for the same one.
 
 ### Four gaps the object exposed, each named and pinned rather than absorbed
 
-1. **The hard-edge dipole fringe field at second order.** MAD-X's TWISS and PTC (`exact=true`,
-   two integrator models) apply it by default at each face — entrance `x += (h/2) y²`,
-   `py −= h y px`, exit the reverse — leaving on a sector bend `T[x,y,py] = T[y,px,y] =
-   −hL/2`, `T[py,px,py] = +hL cos θ/2`, `T[x,y,y] = −h(1 − cos θ)/2`, `T[px,y,y] =
-   −h² sin θ/2`: `y`-dependence in a magnet whose *body* field has none. accsim's `Dipole`
-   carries F1's linear pole-face matrices and no second-order fringe, and so does `xt.Bend`
-   with its default `linear` edge model; with `kill_ent_fringe, kill_exi_fringe` all three
-   agree to `6e-12`. Gated as the closed form above; a real end-field effect and a
-   follow-up.
+1. **The hard-edge dipole fringe field at second order — ✅ CLOSED by P2 (i), 2026-09-03.**
+   MAD-X's TWISS and PTC (`exact=true`, two integrator models) apply it by default at each
+   face — entrance `x += (h/2) y²`, `py −= h y px`, exit the reverse — leaving on a sector
+   bend `T[x,y,py] = T[y,px,y] = −hL/2`, `T[py,px,py] = +hL cos θ/2`, `T[x,y,y] =
+   −h(1 − cos θ)/2`, `T[px,y,y] = −h² sin θ/2`: `y`-dependence in a magnet whose *body*
+   field has none. accsim now implements it as `Dipole(..., fringe=True)` — see *Hard-edge
+   dipole fringe* above — and the composed map agrees with MAD-X entry for entry on all
+   twelve nonzero entries, not only these five. The **default is still fringe-off**, which
+   is what `xt.Bend`'s default `linear` edge model is too; with `kill_ent_fringe,
+   kill_exi_fringe` the three still agree to `6e-12`, and that comparison is kept as the
+   record of the default.
 2. **The sliced thick `Sextupole` / `Octupole` bodies use the linear drift matrix**, so at
    second order they lack the drift's own `−L px δ` chromatic term and `−L px²/2` path
    lengthening; MAD-X's thick sextupole carries them (`t126 = −L/(2β0)`). Gated: the
@@ -7760,8 +7865,11 @@ does not look for; `delta0=0` asks for the same one.
 
 Third order and above (the octupole's whole content; the second-order-in-`k2` driving
 terms O6 refused) — one arbiter (PTC `no=3`) and refused for O6's reason. `T` as a table
-along the ring. The sliced-body, fringe, cavity and paraxial-quadrupole gaps above, which
-are pinned and not fixed. Rolled sources beyond what O6 models.
+along the ring. The sliced-body, cavity and paraxial-quadrupole gaps above, which are
+pinned and not fixed (the fringe gap is now built). Rolled sources beyond what O6 models.
+The fringe's own third-order content — the `1/(1+δ)` factors inside Φ and the
+fifth-order face-pair leftover — has one arbiter, xtrack's `full` edge model, and is
+gated by tracking rather than by a map entry.
 
 ## Toolchain / environment notes
 

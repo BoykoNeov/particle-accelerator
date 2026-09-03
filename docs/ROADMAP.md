@@ -22,7 +22,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | C | collider / beam-beam deepening | C1, C2 | — |
 | D | integration, validation, teaching | D1–D5 | — |
 | E | event-physics siblings | E1, E2 | — |
-| F | combined-function magnets, pole-face edges | F1, F2 | the second-order fringe → P2 (i) |
+| F | combined-function magnets, pole-face edges | F1, F2, the hard-edge fringe (P2 i) | — |
 | G | betatron coupling, vertical emittance | G1, G2 | — |
 | H | matching | H1, H2 | — |
 | I | closed orbit, steering, feed-down, 6D orbit | I1–I4 | — |
@@ -32,11 +32,12 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | M | optics off-momentum | M1–M3 | — |
 | N | spin | N1–N5 | — |
 | O | normalised coordinates, driving terms | O1–O6 | — |
-| P | the map beyond first order | **P1** (2026-09-02) | **P2** — the four second-order gaps, one element each |
+| P | the map beyond first order | **P1** (2026-09-02), **P2 (i)** the dipole fringe (2026-09-03) | **P2 (ii)–(iv)** — three second-order gaps left, one element each |
 
 **The open candidate is P2** (end of axis P). Its four items are independent and each is
-a session: the hard-edge dipole fringe, the sliced thick bodies on the exact drift, the
-cavity as an energy kick, and the quadrupole's kinematic term.
+a session: the hard-edge dipole fringe ✅ **shipped 2026-09-03**, the sliced thick bodies
+on the exact drift, the cavity as an energy kick, and the quadrupole's kinematic term.
+**Three are left**; (ii) is the next by the "how much a shipped number moves" ordering.
 
 ## Validation strategy (non-negotiable)
 
@@ -693,6 +694,25 @@ linear drift inside the sliced thick sextupole and octupole, the cavity's moment
 linearised in `delta`, and L2's paraxial angles off-axis. Each is pinned as a closed form
 in the reference legs and named as **P2**, the open candidate. See the *status index* at
 the top of this file.
+
+**P2 (i) shipped 2026-09-03, the first of those four closed.** It is the one the roadmap
+ordered first because it moves a shipped number most, and it went in as the *exact* map
+rather than the second-order one the entry asked for — the generating function costs the
+same test file and the truncation falls out of it, so shipping the truncation would have
+shipped a worse map for the same work. Two of the entry's own premises were corrected on
+contact. The gap is **twelve** entries, not the five P1 measured as large, and the extra
+seven include a path-length and a rigidity term that no closed form in the entry mentions;
+and the entry's "gate: the closed forms, then the fringe-on sectormap" turned out to be
+blind to a third of the map — `ζ`'s share is cubic, so `sectormap`, PTC and all twelve
+entries cannot see it, and its only internal gate is **canonical symplecticity**, whose
+own sensitivity to the `β0/β` conversion vanishes with energy (visible at `γ0 = 1.5`,
+below tolerance at the `γ0 = 20` the suite runs at). The third arbiter earned its place
+for exactly that reason: `xt.Bend(edge_*_model="full")` at a sector face reduces to the
+bare fringe kernel, so the comparison is *tracking* to `1e-15`, and it is the only leg
+that reaches the arrival time at all. One measured property is recorded rather than fixed:
+the two faces undo each other only to **fourth** order, the fifth-order leftover
+(`−h²·px·py·y³/(1+δ)⁴`) being a property of the PTC/MAD-NG hard-edge form that both
+arbiters share.
 
 A new milestone means writing a *new* candidate — either extending an
 axis below or opening one — and, where it overlaps *Out of scope* below, pulling that
@@ -4904,12 +4924,30 @@ was executed on a probe ring before a word of this entry was written. What the r
   closed forms, not as agreements.
 
 - **P2 (candidate) — the four second-order gaps, each one element and one change.**
-  Effort **S** each; ordered by how much a shipped number moves.
-  (i) **The hard-edge dipole fringe** (`Dipole`, axis F's territory): the thin entrance
-  and exit maps whose composition with the body gives the five entries pinned in
-  `test_second_order_map_madx.py`; arbiters MAD-X TWISS and PTC (both default-on), and
-  xtrack's `edge_*_model="full"` as a third. Gate: the closed forms above, then the
-  fringe-on sectormap entry by entry. (ii) **The sliced bodies on the exact drift**
+  Effort **S** each; ordered by how much a shipped number moves. **(i) is DONE; (ii)–(iv)
+  remain.**
+
+  (i) **The hard-edge dipole fringe** ✅ **DONE (2026-09-03)** — `Dipole(..., fringe=True)`,
+  default OFF, composing `fringe(−h) · body · fringe(h)` around the existing body. Not a
+  term-by-term second-order map but the **exact generating-function map** of
+  `W = −Φ(px,py,δ)·ȳ²/2` with `Φ = h·px·pz/((1+δ)² − px²)`, so it is symplectic at any
+  amplitude and the five pinned entries fall out of it rather than being fitted to. Three
+  things the milestone taught: the composed gap has **twelve** nonzero entries, not the
+  five P1 named, and all twelve are gated against `sectormap`; `ζ`'s share is *cubic* so
+  no reference leg can see it and **symplecticity is its only internal gate** — with the
+  `β0/β` conversion inside it visible only on a *low-energy* fixture (`9.1e-8` at
+  `γ0 = 1.5`, `5.1e-10` at the suite's `γ0 = 20`, i.e. below tolerance); and the two faces
+  are inverse only to **fourth** order, the fifth-order leftover being a property of the
+  PTC/MAD-NG form both arbiters share. All three arbiters ran: `sectormap` entry by entry
+  (`1e-10`), PTC on the composed 4-cell turn (`1e-8`), and `xt.Bend(edge_*_model="full")`
+  by **tracking** to `1e-15` — the only leg that reaches `ζ` and the `1/(1+δ)` factors.
+  Refused rather than half-applied on a rotated (`e1`/`e2`, needs the wedge — *first* order
+  in the face angle) or gradient (`k1`, needs the multipole fringe) face. Nothing at first
+  order moved: the origin Jacobian is the identity, so `matrix`, the tunes, `β`, dispersion
+  and natural chromaticity are bit-identical, asserted with `array_equal`. See
+  `docs/CONVENTIONS.md` → *Hard-edge dipole fringe*.
+
+  (ii) **The sliced bodies on the exact drift**
   (`Sextupole`, `Octupole`): replace `_drift_matrix` halves by `Drift.track`; gate: the
   residual against MAD-X's thick sextupole falls from the drift's `T` to the slicing
   error, and nothing in the transverse block moves. (iii) **`RFCavity` as an energy
