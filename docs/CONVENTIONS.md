@@ -225,10 +225,13 @@ inconsistency and the price of doing one element at a time.
 same position, and the paragraph above was describing a code path rather than checking
 one:
 
-- **`Quadrupole(L, 0).track`** is now the **expanded** drift `x += L·px/(1+δ)`, not the
-  affine default and not the exact drift. The gap to `Drift` narrows from first order
-  (`O(px·δ)`) to third (`O(px³)`); it is **not** closed, and the ROADMAP's prediction
-  that L2 would close it was wrong. See *The quadrupole's momentum-dependent map* below.
+- **`Quadrupole(L, 0).track`** is by default the **expanded** drift `x += L·px/(1+δ)`, not
+  the affine default and not the exact drift. The gap to `Drift` narrows from first order
+  (`O(px·δ)`) to third (`O(px³)`); it is **not** closed by L2, and the ROADMAP's
+  prediction that L2 would close it was wrong. See *The quadrupole's momentum-dependent
+  map* below. ✅ **Closed 2026-09-03 by P2 (iv), when `kinematic_slices` is set** — then it
+  is `Drift(L).track` identically, at any slice count and with no `k1 == 0` branch. The
+  **default is still off**, so the sentence above is what an unflagged quadrupole does.
 - **`Sextupole(L, 0).track` and `Octupole(L, 0).track`** do keep the affine default —
   they short-circuit on `k2 == 0` / `k3 == 0` — so for those two the paragraph stands as
   written. Checked in `elements/sextupole.py` and `elements/octupole.py`, not inherited.
@@ -238,7 +241,11 @@ one:
   `n_slices → ∞` converged onto the *paraxial* thick multipole rather than onto the exact
   one. ✅ **Closed 2026-09-03** — the gaps are `Drift._track_body` now; see *The sliced
   thick body drifts exactly* below. The quadrupole's version of the same model boundary
-  (L2) is still open, as **P2 (iv)**.
+  (L2) is ✅ **closed too, 2026-09-03, by P2 (iv)** — and closed *structurally* rather
+  than by a branch: with `kinematic_slices` set, `Quadrupole(L, 0).track` is the exact
+  drift identically, at any slice count, and the gap to `Drift` is continuous (linear) in
+  `k1` down to zero. The package **default is still off**, so the bullet above still
+  describes what ships. See *The quadrupole's kinematic term* below.
 
 **Updated again 2026-08-17 (L3)** — for one element the inconsistency is now *gone*
 rather than narrowed. The exact sector-bend map has **no division by the curvature left
@@ -417,6 +424,110 @@ Two consequences worth carrying:
 
 Gates: `tests/analytic/test_exact_quadrupole.py` (16),
 `tests/reference/test_quadrupole_xtrack.py` (4).
+
+## The quadrupole's kinematic term (P2 (iv) — implemented 2026-09-03, opt-in)
+
+L2 shipped the quadrupole **exact in `δ` and paraxial in the angles**, and said so. P1
+measured the price: about a point with an orbit angle, `T[x,px,px]` misses PTC by `5.6e-5`.
+This adds the missing piece back, behind `Quadrupole(..., kinematic_slices=n)`, **default
+`0` = off**.
+
+**The split.** The exact quadrupole Hamiltonian has no closed-form flow, so accsim's is
+the paraxial one's:
+
+```
+H_exact    = −√((1+δ)² − px² − py²) + (k1/2)(x² − y²)
+H_paraxial = −(1+δ) + (px² + py²)/(2(1+δ)) + (k1/2)(x² − y²)
+H_kin      = H_exact − H_paraxial
+           = (1+δ) − √((1+δ)² − p²) − p²/(2(1+δ))
+           = p⁴/(8(1+δ)³) + p⁶/(16(1+δ)⁵) + …      (p² = px² + py²)
+```
+
+`H_kin` is a function of the **momenta alone**, so it generates its own explicit flow — a
+drift that bends nothing and changes only `x`, `y`, `ζ`. `kinematic_drift()` builds it as
+`exact_drift(s) − paraxial_drift(s)`, deliberately: two forms that already exist and are
+separately gated, rather than a third hand-written one. The subtraction costs digits of the
+*correction*, not of the state — measured `~1e-19` against a term of `~1e-11`, about one
+ulp.
+
+The element composes it symmetrically (Strang), `[kin(h/2) · para(h) · kin(h/2)]ⁿ` with
+`h = L/n`, so the map stays second order in `h` and stays symplectic exactly at every `n`.
+
+**Why this is the split and not a drift-kick-drift.** L2 refused the sliced families
+because `matrix()` must remain the *exact* Jacobian of `track()` at the origin — every
+design-optics quantity in the package rests on that identity, and a sliced map's origin
+Jacobian is the sliced approximation to the `cos`/`sin` block, not the block. `H_kin` is
+**quartic** in the momenta, so its Jacobian at zero angle is the identity at *any* `δ`;
+`matrix()` is untouched, at any slice count, with no exception carved anywhere. At `n = 1`
+the paraxial factor is not sliced at all. This is what makes the term addable where the
+sliced families were not.
+
+**It closes L2's `k1 → 0` inconsistency structurally.** At `k1 = 0` the two factors commute,
+the interleave telescopes, and what is left is the **exact** drift identically — at any `n`,
+with no `k1 == 0` branch. That matters twice over: L2's open wart (a zero-strength
+quadrupole was the *paraxial* drift, `1.5e-9` from `Drift`) is gone, and it is gone without
+the discontinuity-in-strength trap P2 (ii) found in the sextupole's short-circuit. Continuity
+is gated directly: the gap to `Drift` is linear in `k1` (`×10` per decade) down to `k1 = 0`,
+where it is `0`.
+
+⚠️ **`n = 1` is not enough, and not because the term is small.** The leading commutator
+scales as `k1·L·x / p` — *order one* for an ordinary trajectory — so one slice's splitting
+error (`3.6e-10` on the standard probe) is **larger than the term it adds** (`2.6e-10`).
+The knob is real, `n ≥ 8` when the number matters, and the gate is the `1/n²` scaling, not
+a tolerance.
+
+**Nothing on the design orbit moves.** The one-turn matrix, tunes, natural chromaticity and
+every Twiss column are **bit-identical** with the flag on, by `array_equal`, as is the
+tracked zero state. On axis but off momentum the two arithmetics differ by `6.5e-19` (one
+ulp: the two `ζ` forms group their terms differently), which is why that case is gated at
+`1e-18` rather than by bit-identity.
+
+`SkewQuadrupole` carries the flag through its 45° roll. That is exact rather than
+approximate: `H_kin` depends on the momenta only through `px² + py²`, which any rotation
+about `s` leaves invariant, so it commutes with the conjugation.
+
+### What the reference legs say
+
+Three independent splittings of the same Hamiltonian — accsim's, PTC's, xtrack's — and they
+meet.
+
+- **xtrack, by tracking** (`model="drift-kick-drift-exact"`, `integrator="yoshida4"`). The
+  default misses the exact map by `2.58e-10` on a modest trajectory and `2.90e-8` on one
+  with 3× the angles; `kinematic_slices=256` closes both to `4.9e-15` and `8.1e-14`, the
+  arithmetic floor. In between the residual falls `×4.00` per doubling across five decades.
+  The steeper state is what gates the **coefficient**: its gap is 113× the first's, so a
+  correction of the right shape and the wrong size could close one but not both.
+- **MAD-X PTC, by second-order coefficients** (`model=1, method=6, nst=40, exact=true`).
+  P1's `5.6e-5` on `T` and `8.2e-9` on `R` become `8.2e-10` and `2.7e-13` at
+  `kinematic_slices=64`, with the same `×4.00` ladder. Below `8e-10` there is nothing left
+  to measure: `taylor_expand`'s double differencing at `step = 2.5e-4` bottoms out near
+  `1e-10`, and pushing `n` to 512 makes the residual *wander* (`2.5e-10`) rather than fall.
+  The tracking leg has no such floor.
+- **PTC's own two families agree**, which is what makes it a legitimate arbiter here rather
+  than a mirror. `model=1` (exact drift + kick) and `model=2` (paraxial matrix + kick) land
+  on the same map to `2.1e-11`, under the differencing floor. accsim's split reuses the
+  paraxial flow, so agreement with `model=2` alone would be partly circular; `model=1`
+  shares nothing with accsim's construction but the Hamiltonian.
+
+⚠️ **A reference that has not been swept agrees with everything.** This is the third
+milestone in a row where matching the reference's integration had to come first (P2 (ii)'s
+sliced multipole, P2 (iii)'s cavity). The sweeps, recorded so they are not re-guessed:
+
+- **xtrack.** `integrator="yoshida4"` rounds `num_multipole_kicks` **up to a multiple of
+  seven**, so 1, 2, 4 and 7 are all the same map. At those 7 kicks the reference is `2.3e-6`
+  from its own limit — four decades above the term — and flag-off, flag-on-at-1 and
+  flag-on-at-256 all land within `0.1%` of the same number. Worse, at `N = 112` accsim's
+  ladder *plateaus* at `1e-13`, which reads exactly like accsim bottoming out and is in fact
+  the reference's own `1/N⁴` error. `N = 224` drops it to `4.9e-15`; `N = 448` moves that by
+  less than 2×, which is the evidence the number belongs to accsim. Both facts are kept as
+  live tests, not comments.
+- **PTC.** The map moves `4.0e-6` from `nst=1`, `4.1e-12` from `nst=10` and `6.4e-14` from
+  `nst=20`, so `nst=40` is converged. The ring fixtures' default `nst=5` is **not**: it sits
+  `6.4e-8` out, which would swamp the `8.2e-10` residual the gate rests on.
+
+Gates: `tests/analytic/test_kinematic_quadrupole.py` (12),
+`tests/reference/test_kinematic_quadrupole_xtrack.py` (5),
+`tests/reference/test_second_order_map_madx.py` (2).
 
 ## The dipole's exact map (L3 — implemented 2026-08-17)
 
@@ -8107,19 +8218,26 @@ does not look for; `delta0=0` asks for the same one.
    both ways: the uncorrected ring misses PTC by that term (and by `R16` times it in
    `T[x,δ,ζ]`), and with the term added to the cavity's map the ring lands on PTC at the
    floor.
-4. **The thick `Quadrupole` is paraxial in the angles (L2)** — the kinematic
-   `(px²+py²)²/8` is dropped — which is quartic on the axis and invisible to `T` there
-   (`1e-11` agreement), but about a point with an orbit angle its third derivative enters:
-   `4.2e-5, 5.6e-5, 8.4e-5` on `T[x,px,px]` at `px_co = 3.3e-5, 6.6e-5, 1.3e-4` against
-   PTC, `8e-9` on `R`. The exact bend and drift agree about the same point to `2e-12`. The
-   steered-orbit PTC gate runs on thin quadrupoles for that reason.
+4. **The thick `Quadrupole` is paraxial in the angles (L2) — ✅ CLOSED by P2 (iv),
+   2026-09-03, opt-in.** The kinematic `(px²+py²)²/8` is dropped, which is quartic on the
+   axis and invisible to `T` there (`1e-11` agreement), but about a point with an orbit
+   angle its third derivative enters: `4.2e-5, 5.6e-5, 8.4e-5` on `T[x,px,px]` at
+   `px_co = 3.3e-5, 6.6e-5, 1.3e-4` against PTC, `8e-9` on `R`. The exact bend and drift
+   agree about the same point to `2e-12`. The steered-orbit PTC gate runs on thin
+   quadrupoles for that reason. `Quadrupole(..., kinematic_slices=64)` takes those two
+   numbers to `8.2e-10` and `2.7e-13` — see *The quadrupole's kinematic term* above — with
+   the `×4.00`-per-doubling ladder as the gate. The **default is still off**, so the
+   measurement above is what an unflagged quadrupole still reports, and the test that
+   records it is unchanged.
 
 ### What is not gated
 
 Third order and above (the octupole's whole content; the second-order-in-`k2` driving
 terms O6 refused) — one arbiter (PTC `no=3`) and refused for O6's reason. `T` as a table
-along the ring. The cavity and paraxial-quadrupole gaps above, which are pinned and not
-fixed (the fringe and sliced-body gaps are now built). Rolled sources beyond what O6
+along the ring. All four gaps above are now built rather than merely pinned; three of the
+four (the fringe, the kinematic term, and the sliced-body drift before it) ship **off** or
+at a default slice count, so the pinned measurements remain what an unflagged element
+reports. Rolled sources beyond what O6
 models.
 The fringe's own third-order content — the `1/(1+δ)` factors inside Φ and the
 fifth-order face-pair leftover — has one arbiter, xtrack's `full` edge model, and is

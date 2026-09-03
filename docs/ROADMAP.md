@@ -28,17 +28,20 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | I | closed orbit, steering, feed-down, 6D orbit | I1–I4 | — |
 | J | nonlinear single-particle dynamics | J1–J3 | — |
 | K | misalignments | K1, K2 | — |
-| L | exact element maps | L1–L4 | L5 deferred (no reference); the sliced bodies ✅ P2 (ii); the paraxial quadrupole → P2 (iv) |
+| L | exact element maps | L1–L4; the sliced bodies ✅ P2 (ii); the paraxial quadrupole ✅ P2 (iv) | L5 deferred (no reference) |
 | M | optics off-momentum | M1–M3 | — |
 | N | spin | N1–N5 | — |
 | O | normalised coordinates, driving terms | O1–O6 | — |
-| P | the map beyond first order | **P1** (2026-09-02), **P2 (i)** the dipole fringe, **P2 (ii)** the sliced bodies, **P2 (iii)** the cavity's energy kick (2026-09-03) | **P2 (iv)** — one second-order gap left, one element |
+| P | the map beyond first order | **P1** (2026-09-02); **P2 (i)** the dipole fringe, **(ii)** the sliced bodies, **(iii)** the cavity's energy kick, **(iv)** the quadrupole's kinematic term — all four gaps closed (2026-09-03) | **P3** — the fringe of a rotated or gradient face |
 
-**The open candidate is P2** (end of axis P). Its four items are independent and each is
-a session: the hard-edge dipole fringe ✅ **shipped 2026-09-03**, the sliced thick bodies
-on the exact drift ✅ **shipped 2026-09-03**, the cavity as an energy kick ✅ **shipped
-2026-09-03**, and the quadrupole's kinematic term. **One is left**, (iv), and it is the
-last written candidate anywhere — see the note under it.
+**The open candidate is P3** — the fringe field of a magnet face that is rotated
+(`e1`/`e2`, the wedge) or carries a gradient (the multipole fringe). **P2 is complete**:
+all four second-order gaps P1 found are closed, each in its own session and all on
+2026-09-03 — the hard-edge dipole fringe (i), the sliced thick bodies on the exact drift
+(ii), the cavity as an energy kick (iii), and the quadrupole's kinematic term (iv). P3 was
+written when (iv) shipped, because (iv) had been the last written candidate in the file; it
+is the piece P2 (i) explicitly **refused** and named, and it is chosen over L5 for L5's own
+reason — two reference codes implement it, and none implements L5.
 
 ## Validation strategy (non-negotiable)
 
@@ -5072,11 +5075,116 @@ was executed on a probe ring before a word of this entry was written. What the r
   every previous xtrack cavity check used `phi_s = 0` or `pi`. See `docs/CONVENTIONS.md` ->
   *The cavity gives energy, not momentum*.
 
-  (iv) **The quadrupole's kinematic term** — L2 named it, P1 measured it (`T[x,px,px]`
-  linear in `px_co`); one arbiter (PTC) and xtrack's thick quadrupole as a second if its
-  model is exact in the angles, to be run before the entry is written. **This is the last
-  written candidate in this file.** When it ships, a new one has to be written — either
-  extending an axis below or opening one — as axis O's exhaustion did on 2026-08-31.
+  (iv) **The quadrupole's kinematic term** ✅ **DONE (2026-09-03)** —
+  `Quadrupole(..., kinematic_slices=n)`, default `0` = off, `SkewQuadrupole` too. The
+  exact quadrupole Hamiltonian minus L2's paraxial one is
+  `H_kin = (1+delta) - sqrt((1+delta)^2 - p^2) - p^2/(2(1+delta)) = p^4/(8(1+delta)^3) +
+  ...`, a function of the **momenta alone**, so it has its own explicit flow and is
+  interleaved symmetrically, `[kin(h/2) . para(h) . kin(h/2)]^n`. Both arbiters ran and a
+  third fell out. Five things the milestone taught.
+
+  **The split is what makes the term addable at all.** L2 refused the drift-kick-drift
+  families because `matrix()` must stay the exact origin Jacobian of `track()` — every
+  design-optics quantity rests on that identity. `H_kin` is **quartic** in the momenta, so
+  its Jacobian at zero angle is the identity at any `delta`; `matrix()` is untouched at any
+  slice count, with no exception carved anywhere, and at `n = 1` the paraxial factor is not
+  sliced at all. The one-turn matrix, tunes, natural chromaticity and every Twiss column are
+  bit-identical with the flag on, by `array_equal`.
+
+  **It closed L2's `k1 -> 0` wart structurally, and that was not the plan.** At `k1 = 0` the
+  two factors commute, the interleave telescopes, and the map *is* the exact drift — at any
+  `n`, with **no `k1 == 0` branch**, which is exactly the discontinuity trap P2 (ii) found in
+  the sextupole's short-circuit. Gated as continuity in the strength (`×10` per decade of
+  `k1`, `0` at zero) rather than as a special case.
+
+  **One slice is not enough, and not because the term is small.** The leading commutator
+  scales as `k1 L x / p` — order one for an ordinary trajectory — so `n = 1`'s splitting
+  error (`3.6e-10`) is **larger than the term it adds** (`2.6e-10`). The pre-committed
+  "does the flag do something" gate would have been satisfied by a map that was worse. What
+  gates it instead is the `1/n^2` **scaling**, `×4.00` per doubling across five decades, on
+  both reference legs.
+
+  **A reference that has not been swept agrees with everything — the third milestone in a
+  row.** xtrack's `yoshida4` rounds `num_multipole_kicks` up to a multiple of seven, and at
+  those seven kicks the reference sits `2.3e-6` from its own limit: flag off, flag on at one
+  slice and flag on at 256 all land within `0.1%` of the same number. Worse, at `N = 112`
+  accsim's ladder *plateaus* at `1e-13`, which reads exactly like accsim bottoming out and is
+  in fact the **reference's** `1/N^4` error; `N = 224` drops it to `4.9e-15` and `N = 448`
+  moves that by less than `2x`. Same for PTC: the ring fixtures' default `nst=5` is `6.4e-8`
+  from the limit, which would have swamped the `8.2e-10` residual the gate rests on. Both
+  facts are kept as **live tests**, because a comment cannot fail.
+
+  **PTC turned out to be a legitimate arbiter here rather than a mirror, and that had to be
+  checked.** accsim's split reuses the paraxial flow, so agreement with PTC's `model=2`
+  (paraxial matrix + kick) alone would have been partly circular. PTC's `model=1` (exact
+  drift + kick) shares nothing with accsim's construction but the Hamiltonian, and the two
+  families land on the same map to `2.1e-11`, under the differencing floor. Three
+  independent splittings meet: PTC's two and xtrack's `drift-kick-drift-exact`.
+
+  **The numbers.** Against converged xtrack, by tracking: the default misses by `2.58e-10`
+  on a modest trajectory and `2.90e-8` on one with `3x` the angles; `kinematic_slices=256`
+  closes both to `4.9e-15` and `8.1e-14`, the arithmetic floor. Against converged PTC, by
+  second-order coefficients: P1's `5.6e-5` on `T` and `8.2e-9` on `R` become `8.2e-10` and
+  `2.7e-13` at `n = 64` — below which `taylor_expand`'s double differencing floors out near
+  `1e-10` and the residual starts to wander, which is why the tracking leg exists. The
+  steeper xtrack state is what gates the **coefficient** rather than the presence of a
+  correction: its gap is `113x` the first's, so a term of the right shape and the wrong size
+  could close one but not both. **Suite totals: 1538 analytic** (from 1526 — the whole
+  difference is this milestone's twelve tests) **and 354 reference** (from 347 — the seven
+  new cross-checks, five xtrack and two PTC), all passing; the reference suite is 18m38s
+  serial-equivalent at `-n 8`. See `docs/CONVENTIONS.md` -> *The quadrupole's kinematic
+  term*.
+
+- **P3 (candidate) — the fringe field of a magnet face that is rotated or carries a
+  gradient.** Effort **M**; two elements, and the entry is written because P2 (i)
+  **refused** exactly this and named why. `Dipole(fringe=True)` models the hard-edge fringe
+  of an *unrotated, gradient-free* face only. Two things sit outside it, and real lattices
+  use both:
+
+  (a) **The rotated face (`e1`/`e2`) — the wedge.** A pole face at an angle is not the
+  hard-edge map composed with anything; it needs the wedge, and the wedge is **first order**
+  in the face angle, not second. So unlike P2 (i) this one *does* move `matrix()`, the tunes
+  and the chromaticity — which means it cannot be a quiet opt-in bolted onto the existing
+  `DipoleEdge` (F2) without deciding how the two compose. That decision is the milestone.
+
+  (b) **The gradient face — the multipole fringe.** A combined-function magnet's face, and
+  a plain quadrupole's, carry a fringe of their own. This is the piece P2 (i) named and put
+  down.
+
+  **Why it is the right next candidate.** It is the only *written, already-localised* gap
+  left in the file — P2 (i)'s own entry names it, with the reason for the refusal — and it
+  has **two independent arbiters, and both were checked to implement it before this entry
+  was written** — the discipline the (iv) entry demanded of itself. MAD-X/PTC:
+  `ptc_create_layout` with the face fringe on, `sectormap` for the composed faces. xtrack,
+  verified by inspection and by tracking on 2026-09-03:
+
+  - `xt.Bend` carries `edge_entry_angle`, `edge_entry_model` (`linear` / `full`),
+    `edge_entry_fint` and `edge_entry_hgap`, plus the exit set — so (a) has a full second
+    arbiter, the same `full` model P2 (i) already used.
+  - `xt.Quadrupole` carries `edge_entry_active` / `edge_exit_active` **only**: an on/off
+    switch, no model choice and no face angle. Switching it on moves a tracked state by
+    `5.3e-9` on the standard probe, so it is a real multipole fringe and (b) has a second
+    arbiter — but a *narrower* one, with nothing to sweep and no alternative model to play
+    the `model=1` vs `model=2` role P2 (iv) needed from PTC. Expect (b) to lean on PTC for
+    the cross-family check.
+
+  That is the test P2 (i) applied to its own scope, and it is why this is chosen over L5:
+  no reference code implements L5's curvilinear metric term, and two implement this one.
+
+  **Pre-committed gates, to be written before any implementation.** (1) At `e1 = e2 = 0` the
+  wedge is the identity and the composed map is **bit-identical** to the current
+  `DipoleEdge`, by `array_equal` — the continuity gate, the one P2 (ii)'s short-circuit and
+  P2 (iv)'s `k1 -> 0` limit both turned on. (2) The wedge's **first-order** content lands on
+  the `tan(e1)/rho` focusing kick F2 already ships, so the new map must *reproduce* a
+  shipped quantity before it is allowed to add one. (3) The second-order content against
+  `sectormap` entry for entry, at P2 (i)'s `1e-10`. (4) Symplecticity at amplitude with the
+  canonical checker, since ζ's share will again be cubic and invisible to both arbiters.
+  (5) Both references swept to convergence *first*, and the sweep recorded — three
+  milestones running have now been decided by that step.
+
+  **Out of scope, deliberately.** Soft-edge and measured field maps (no closed form, no
+  arbiter), the fringe of a solenoid (accsim has no solenoid), and third-order content
+  (PTC `no=3` is one arbiter, which is O6's and L5's refusal reason).
 
 
 ## Out of scope (unless a milestone explicitly calls for it)
