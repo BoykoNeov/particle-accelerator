@@ -44,6 +44,8 @@ from accsim import (
     ReferenceParticle,
     closed_twiss,
     is_symplectic_map_canonical,
+    jacobian,
+    natural_chromaticity,
     taylor_expand,
     tunes,
 )
@@ -117,6 +119,7 @@ def test_maxwell_fixes_the_twelve() -> None:
 # The derivation. Step 2: the Lorentz force turns it into a map.
 # ---------------------------------------------------------------------------
 
+
 #: Two longitudinal ramps on ``[-l, l]``, rising ``0 -> 1``. Both are **C^2** at the
 #: joins, and that is a physical requirement, not neatness: the harmonic completion puts a
 #: ``g''`` term in the *transverse* field, so a profile whose ``g''`` jumps at the matching
@@ -184,10 +187,7 @@ def _lorentz_fringe(profile_index: int, *, switching_off: bool) -> dict[str, sp.
 
     kick = [_integrate(force[i], -half, half) - _integrate(force_h[i], lo_h, hi_h) for i in (0, 1)]
     shift = [
-        (
-            _integrate(force[i], -half, half, half - s)
-            - _integrate(force_h[i], lo_h, hi_h, hi_h - s)
-        )
+        (_integrate(force[i], -half, half, half - s) - _integrate(force_h[i], lo_h, hi_h, hi_h - s))
         / (1 + delta)
         for i in (0, 1)
     ]
@@ -199,8 +199,12 @@ def _lorentz_fringe(profile_index: int, *, switching_off: bool) -> dict[str, sp.
         limited = sp.limit(sp.cancel(sp.expand(expr)), half, 0)
         return sp.expand(sp.expand(limited).subs(scale)).coeff(eps, 3)
 
-    return {"px": _cubic(kick[0]), "py": _cubic(kick[1]), "x": _cubic(shift[0]),
-            "y": _cubic(shift[1])}
+    return {
+        "px": _cubic(kick[0]),
+        "py": _cubic(kick[1]),
+        "x": _cubic(shift[0]),
+        "y": _cubic(shift[1]),
+    }
 
 
 def _shipped_first_order(switching_off: bool) -> dict[str, sp.Expr]:
@@ -437,6 +441,62 @@ def test_no_first_or_second_order_quantity_moves(ref) -> None:
         STATES[0], ref
     )
     assert np.abs(moved).max() > 1e-9
+
+
+def test_nothing_first_order_moves_on_a_gradient_bend_either(ref) -> None:
+    r"""The same gate on the element the refusal was actually on — and it is not the same test.
+
+    ``Quadrupole``'s version above is the easy half: the only new map there is *cubic*, and
+    a cubic map cannot reach a linear quantity. A **rotated gradient** bend inserts a
+    *quadratic* map into P3 (a)'s composition, and P3 (a)'s headline was precisely that the
+    composed face's origin Jacobian **is** :func:`~accsim.elements.dipole._edge_matrix`. So
+    the claim being re-made here is that a centred quadratic kick has a zero Jacobian at the
+    origin and leaves that identity standing —
+    :func:`~accsim.elements.dipole.curvature_sextupole_kick`'s docstring argues exactly
+    that, which is the kind of "should" this project measures rather than believes.
+
+    Nothing before P3 (b) could have covered this: the constructor *raised*.
+    """
+    L, angle, k1, e1, e2 = 1.0, 0.3, 0.4, 0.08, 0.05
+
+    def bend(fringe: bool, sign: float = 1.0) -> Dipole:
+        return Dipole(L, angle, k1=sign * k1, e1=e1, e2=e2, fringe=fringe)
+
+    # 1. the element's own linear map, bit for bit
+    assert np.array_equal(bend(True).matrix(ref), bend(False).matrix(ref))
+
+    # 2. and every optics quantity a ring of them reports. The gradient has to alternate
+    #    -- a ring of like-signed combined bends is vertically unstable, and an
+    #    UnstableLatticeError would have made this gate pass by never running.
+    def ring(fringe: bool) -> Lattice:
+        return Lattice(
+            [bend(fringe, +1.0), Drift(0.5), bend(fringe, -1.0), Drift(0.5)] * 2, ref
+        )
+
+    off, on = ring(False), ring(True)
+    assert np.array_equal(off.one_turn_matrix(), on.one_turn_matrix())
+    assert tunes(off) == tunes(on)
+    tw_off, tw_on = closed_twiss(off), closed_twiss(on)
+    assert tw_off.beta_x == tw_on.beta_x
+    assert tw_off.beta_y == tw_on.beta_y
+    assert natural_chromaticity(off) == natural_chromaticity(on)
+
+    # 3. matrix() is still the origin Jacobian of track(), and the residual is the
+    #    finite-difference floor rather than a physical gap: it falls with the step.
+    fringed = bend(True)
+    residuals = [
+        float(
+            np.abs(
+                jacobian(lambda s: fringed.track(s, ref), np.zeros(DIM), h) - fringed.matrix(ref)
+            ).max()
+        )
+        for h in (1e-4, 1e-5)
+    ]
+    assert residuals[1] < residuals[0]
+    assert residuals[1] < 1e-9
+
+    # 4. ...and the face is emphatically doing something to the *tracked* state.
+    assert np.abs(fringed.track(STATES[0], ref) - bend(False).track(STATES[0], ref)).max() > 1e-6
 
 
 # ---------------------------------------------------------------------------

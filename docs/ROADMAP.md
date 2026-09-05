@@ -5277,9 +5277,9 @@ was executed on a probe ring before a word of this entry was written. What the r
   moves a tracked state by `2e-5` against a `1e-14` gate, and removing either gradient map
   alone is measured (`2.5e-6` and `4.5e-6` — *comparable*, which was not the guess, so size
   does not separate them and only the amplitude order does). MAD-X PTC is deliberately
-  **not** a leg: it would need `no = 3`, and O3's finding applies. **Suite totals: 1581
-  analytic** (from 1557 — the whole difference is this milestone's twenty-four tests) **and
-  371 reference** (from 363 — eight xtrack), all passing. See `docs/CONVENTIONS.md` → *The
+  **not** a leg: it would need `no = 3`, and O3's finding applies. **Suite totals: 1582
+  analytic** (from 1557 — the whole difference is this milestone's twenty-five tests) **and
+  371 reference** (from 363 — eight xtrack), both run in full and both passing. See `docs/CONVENTIONS.md` → *The
   gradient pole face: the multipole fringe and the quadrupole wedge*.
 
 ## Out of scope (unless a milestone explicitly calls for it)

@@ -1358,9 +1358,10 @@ way to lose the whole effect while every integral still evaluates. Two unrelated
 are run, which is the statement that the hard-edge limit is profile-independent (only the
 moments `∫g' = 1` and `∫s·g'' = −1` survive).
 
-**Cost note.** Written as a nested `sympy.integrate` the derivation took **346 s**.
-Swapping the order of integration, `∫ds ∫_lo^s f dt = ∫ f(t)(hi − t) dt`, turns it into a
-single integral and the whole file into **33 s**.
+**Cost note.** Written as a nested `sympy.integrate` the derivation alone took **346 s** —
+enough to matter in a serial analytic suite. Swapping the order of integration,
+`∫ds ∫_lo^s f dt = ∫ f(t)(hi − t) dt`, turns it into a single integral and the whole file
+into a few seconds.
 
 ### `ζ`: derived from the F2, because *no* leg in this milestone can see it
 
