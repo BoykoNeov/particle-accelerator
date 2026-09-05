@@ -1255,9 +1255,8 @@ meant to produce).
 
 **Scope, stated.** Unchanged from P2 (i): the faces are not sampled by the sub-slice
 walkers in `radiation.py` / `twiss.py`, and a thin map radiates nothing in any case.
-Soft-edge `fint`/`hgap` remain out of scope. The **gradient** face (`k1`) is still refused
-at construction — that is P3 (b), and it is a *cubic* map, which is why P1's second-order
-map never saw it.
+Soft-edge `fint`/`hgap` remain out of scope. The **gradient** face (`k1`) was refused at
+construction here; that refusal is lifted by P3 (b) below.
 
 **Arbiters and their coverage.** MAD-X `sectormap` entry for entry on one magnet, at
 `1e-10`, for an asymmetric face pair *and* a rectangular bend (analytic — the only leg
@@ -1266,6 +1265,184 @@ that can see the two faces' order and relative sign; and
 `xt.Bend(edge_*_model="full")` by **tracking**, to `1e-14` on every coordinate, the only
 leg that reaches `ζ` and the `1/(1+δ)` factors. Controls on all three: the linear-edge
 bend misses the same comparisons by `2.5e-3` in `T` and `1e-4` in tracking.
+
+## The gradient pole face: the multipole fringe and the quadrupole wedge (P3 (b) — implemented 2026-09-05, opt-in)
+
+`Quadrupole(..., fringe=True)` and `Dipole(..., k1=..., fringe=True)`. Default OFF, like
+every face before it. This lifts the last `NotImplementedError` P2 (i) raised, and it also
+gives a plain quadrupole faces for the first time — until now a quadrupole's own ends were
+not modelled at all.
+
+A face terminates whatever multipole the body carries. The gradient reaches it in **two
+different ways**, and they are different physics:
+
+```
+entrance:  wedge(−e, h) · quad_wedge(−e, k1) · mult_fringe(+k1) · fringe(h)  · wedge(e, 0)
+exit:      wedge(e, 0)  · fringe(−h)         · mult_fringe(−k1) · quad_wedge(−e, k1) · wedge(−e, h)
+```
+
+- **`mult_fringe`** (`accsim.elements.fringe.multipole_fringe_map`) — the gradient's own
+  hard-edge fringe. A **cubic** point transformation, present at every face, rotated or
+  not. MAD-X carries it as `tmfrng`'s `sk1`; xtrack as `MultFringe` at `min_order = 1`.
+- **`quad_wedge`** (`quad_wedge_map`) — the gradient's share of the **wedge**, the sliver
+  of body gradient between a rotated face plane and the sector plane. **Quadratic**, and
+  identically zero at `e = 0`.
+
+The same asymmetry P3 (a) established governs both new maps: **only the fringes flip sign
+at the exit**, the wedges do not. xtrack spells this the same way, negating `k0` for the
+fringes while passing `knorm[0]`/`knorm[1]` un-negated to the wedges.
+
+### The gate structure is upside-down, and that is the milestone's shape
+
+Every entry of the multipole fringe is **third order** in the coordinates, so its origin
+Jacobian is the identity and its second-order map is zero. `matrix`, the tunes, `β`, the
+dispersion, the chromaticity **and P1's whole second-order object** are bit-unchanged with
+it on. That retires the three arbiters that carried P1, P2 and P3 (a) in one stroke: MAD-X
+`sectormap` and PTC at `no = 2` would pass a map that did nothing at all. Writing P3 (a)'s
+"second-order content against `sectormap` at `1e-10`" here would have been a **vacuous
+gate** — this was pre-committed in the roadmap and it held.
+
+Worse, the surviving structural gates are blind to the coefficient too:
+
+| gate | what it would catch | blind to the `1/12`? |
+|---|---|---|
+| `k1 → 0` scaling | a discontinuity at zero | yes — slope is 1 for any coefficient |
+| amplitude order (cubic) | a leaked linear/quadratic term | yes |
+| symplecticity at amplitude | a broken `J^-T` or `ζ` term | yes — an F2 is symplectic for any coefficient |
+
+That is J1's lesson verbatim. So the coefficient is **derived**, and the derivation is the
+gate this milestone actually rests on.
+
+### Deriving the `1/12`: Maxwell, then the Lorentz force
+
+Two steps, both in `tests/analytic/test_multipole_fringe.py`, sharing no arithmetic with
+the code and no constant with either reference code.
+
+1. **The harmonic completion fixes the number.** A quadrupole with a longitudinal profile
+   `g(s)` is *not* `g(s)` times the 2D field — `∇²ψ = 0` forbids it. For a 2D harmonic `u`
+   of degree `N`, `∇⊥²(r²u) = 4(N+1)·u` (Euler: `x∂ₓ + y∂ᵧ = N` on `u`), so
+
+   ```
+   ψ = g·u − g''·r²·u / (4(N+1)) + O(g'''')
+   ```
+
+   A quadrupole is `N = 2`. **That is the 12.** (A dipole would get `1/8`, a sextupole
+   `1/16` — all three are checked, because a coefficient right for one degree by accident
+   would not stay right across three.)
+
+2. **The Lorentz force turns it into a map.** `curl B = 0` puts `b_s = −g'·u` in the
+   fringe; the `g''` term above puts an `O(1/l)` transverse field there. Integrating
+   `dpx/ds = y'·b_s − b_y` along the unperturbed straight line, subtracting the *hard-edge
+   model's own* integral, and letting the extent `l → 0` leaves exactly
+
+   ```
+   Δx  = +κ(x³ + 3xy²)/12        Δpx = κ(x·y·y'/2 − x'(x²+y²)/4)
+   Δy  = −κ(3x²y + y³)/12        Δpy = κ(y'(x²+y²)/4 − x·x'·y/2)
+   ```
+
+   with `κ = k1/(1+δ)`. Which term comes from where is the physics: `b_s` is `O(1/l)` over
+   a range `O(l)` and gives the **momentum** kick through `∫g' = 1`; the `g''` field is
+   `O(1/l²)`, so integrated once it makes `px` deviate by `O(1/l)` *inside* the fringe and
+   that deviation integrated over the extent leaves a finite **position** shift. A map
+   written as a pure momentum kick would have missed the second and would not have been
+   symplectic.
+
+The derivation fixes the **entrance sign** too, independently of any reference code; the
+exit's follows from `∫g' = −1` when the field switches off instead of on.
+
+**The profile must be C², and that is physics rather than neatness.** The completion puts
+a `g''` term in the *transverse* field, so a ramp whose `g''` jumps at the matching plane
+does not hand back the plain 2D field there and is not comparable with the hard-edge model
+at all. A C¹-only ramp was tried: it gives a momentum kick of **exactly zero** — a clean
+way to lose the whole effect while every integral still evaluates. Two unrelated C² ramps
+are run, which is the statement that the hard-edge limit is profile-independent (only the
+moments `∫g' = 1` and `∫s·g'' = −1` survive).
+
+**Cost note.** Written as a nested `sympy.integrate` the derivation took **346 s**.
+Swapping the order of integration, `∫ds ∫_lo^s f dt = ∫ f(t)(hi − t) dt`, turns it into a
+single integral and the whole file into **33 s**.
+
+### `ζ`: derived from the F2, because *no* leg in this milestone can see it
+
+The map is the type-2 generating function `F2 = P·g(q, p_τ) + τ·p_τ'` with
+`g = q − f(q)/(1+δ)`: reading `p = (∂g/∂q)ᵀP` gives the inverse-transpose momentum rule,
+and `T = ∂F2/∂p_τ` with `dδ/dp_τ = (1/β₀ + p_τ)/(1+δ)` gives
+
+```
+ζ → ζ + (1 + β₀p_τ)·(P·f)/(1+δ)³,        and  1 + β₀p_τ  ≡  E/E₀.
+```
+
+P2 (i) hit the same `E/E₀` blind spot and reached for **symplecticity**, which works there
+because the dipole fringe's `ζ` term is comparable in size to its transverse ones. **Here
+it does not**, and that is measured: the whole map is cubic, so a 0.1% error in `ζ` is a
+`5e-14` perturbation of a finite-difference Poisson bracket, and the variant with the
+factor dropped *passes* `is_symplectic_map_canonical` at `γ0 = 1.5`. So the factor is
+derived symbolically instead — the first time in this axis that symplecticity was not
+enough.
+
+### The reference legs, and what naming the model family bought
+
+`xt.Quadrupole` exposes `edge_entry_active`/`edge_exit_active` **independently** — an
+on/off switch only, no model choice, no face angle. That is used deliberately: an
+exit-face sign error is *partially self-cancelling*, so a both-faces comparison changes
+magnitude and keeps structure. All four combinations agree at **`1e-16`**, and the two
+single-face rows are where the sign is actually pinned.
+
+**The bend's body model had to be named before any of this was measurable.** Against
+`bend-kick-bend` the fringe-off floor is `1.3e-5` — *half the size of the whole effect* —
+and the comparison would have had to be a difference of differences gating at `5e-8`.
+Against `mat-kick-mat` with one `uniform` kick, which **is** accsim's combined-function
+body, the same comparison is absolute at `1e-16`. Naming the family is worth five orders
+of magnitude, and it is the reason the roadmap's expectation of a difference-of-differences
+gate did not have to be met.
+
+**The two maps are comparable in size, which was not the guess.** Dropping the fringe
+misses by `2.5e-6`; dropping the wedge by `4.5e-6`. A factor of a hundred was expected —
+quadratic against cubic — and is absent, because `k1·e = 0.032` is small where `k1` is not,
+and at `1e-2` amplitudes `k1x³` and `k1·e·x²` land within a factor of two. So **size does
+not separate these two maps**; only the *order in the amplitude* does, and that is what the
+analytic file asserts (the fringe leaves `T` untouched; the wedge moves it).
+
+### The quadrupole wedge is `curvature_sextupole_kick`, and not by coincidence
+
+```
+px → px + k1·θ·(y²/2 − x²),      py → py + k1·θ·x·y
+```
+
+is `curvature_sextupole_kick(state, k1·θ)` **exactly** — asserted, not assumed. Both are
+the quadrupole potential integrated over a path length that varies linearly in `x`: the
+body's `(1 + h·x)` metric factor over `L` gives `h·k1·L`, the wedge's geometric sliver
+`x·tan(e)` gives `k1·θ`. A bend's `θ = h·L`, so the two integrated strengths are one
+expression, and the `2:−1` split is Maxwell's in both. It is kept as a separately named
+map so the two are not merged.
+
+Being quadratic, it is the **one piece of this milestone a second-order arbiter can see** —
+which is a gain, not a cost. The comparison has to be *face against face* rather than bend
+against bend, because P2 (i)'s dipole fringe already moves `T` by `0.19` on the same magnet
+and would drown the gradient's share entirely.
+
+### Scope, stated
+
+Soft-edge `fint`/`hgap` and measured field maps remain out (no closed form, no arbiter);
+the solenoid fringe (accsim has no solenoid); sextupole and octupole faces (`min_order`
+higher still, a fifth-order map with one arbiter); and the standalone `Quadrupole`'s
+*rotated* face — xtrack exposes no face angle for it at all, so it would ship with no
+reference. `ThinQuadrupole` has no faces, being zero-length. As with every face before it,
+the maps are thin and are not sampled by the sub-slice walkers in `radiation.py` /
+`twiss.py`.
+
+**Arbiters and their coverage.** The **derivation** (Maxwell + Lorentz, two profiles) is
+the only leg that pins the `1/12`, the entrance sign and the `E/E₀` factor. `xt.Quadrupole`
+by tracking, four face combinations including two single-face ones, at `1e-16`.
+`xt.Bend(edge_*_model="full")` on a combined-function magnet, sector and rotated faces, at
+`1e-16`, which is the only leg that sees the five maps' **ordering** (they do not commute).
+Controls throughout: the face moves the tracked state by `2e-5` against a `1e-14` gate, and
+removing either gradient map on its own is measured.
+
+**MAD-X PTC is *not* a leg here**, deliberately. It would need `no = 3` to see the map at
+all, and the derivation already covers what PTC would have arbitrated. O3's finding
+applies: a leg that agrees exactly is not an independent one, and a leg that cannot see the
+quantity is not a leg.
 
 ## Dispersion in Twiss (Stage 1 — implemented)
 

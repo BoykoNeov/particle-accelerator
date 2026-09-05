@@ -10,6 +10,7 @@ from ..coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from ..reference import ReferenceParticle
 from .alignment import arc_motion, frame_change, roll_motion
 from .element import Element
+from .fringe import multipole_fringe_map, quad_wedge_map
 from .quadrupole import _focusing_block, _focusing_functions
 
 
@@ -763,12 +764,26 @@ class Dipole(Element):
     at ``1e-10``, with PTC on the composed ring, and with
     ``xt.Bend(edge_*_model="full")`` by tracking to ``1e-14``, rectangular bends included.
 
-    WARNING: **it is still refused on a gradient face, rather than half-applied.** With
-    ``k1`` the face terminates a quadrupole as well, which MAD-X's ``tmfrng`` carries
-    through its ``sk1`` argument and xtrack through its multipole fringe -- a *cubic* map,
-    which is why P1's second-order map never saw it. accsim implements neither, so a
-    ``Dipole`` asking for both raises rather than reporting a bend that is nonlinear at
-    the face in only one of its two ways.
+    The gradient face (P3 (b))
+    --------------------------
+    With ``k1`` the face terminates a **quadrupole** as well, and until P3 (b) that was
+    refused rather than half-applied. It is now composed too, and it takes *two* maps,
+    not one, because a gradient reaches a face in two different ways:
+
+    - :func:`~accsim.elements.fringe.multipole_fringe_map` -- the gradient's own hard-edge
+      fringe (MAD-X's ``tmfrng`` ``sk1``, xtrack's ``MultFringe`` at ``min_order = 1``).
+      **Cubic**, so P1's second-order map never saw it and neither can ``sectormap``; it
+      is present at every face, rotated or not.
+    - :func:`~accsim.elements.fringe.quad_wedge_map` -- the gradient's share of the
+      **wedge**, the sliver of body gradient between a rotated face plane and the sector
+      plane. **Quadratic**, so unlike everything else on this face it *does* move the
+      second-order map, and only when ``e1``/``e2`` is non-zero.
+
+    So the full face is ``wedge(-e, h) . quad_wedge(-e, k1) . mult_fringe(k1) .
+    fringe(h) . wedge(e, 0)`` at the entrance, and the mirror at the exit with the *two
+    fringes* flipped in sign and the *two wedges* not -- the same rule P3 (a) established,
+    for the same reason (a wedge is a slice of the body's own field, which does not
+    switch off at the face).
 
     **On the design orbit nothing changes.** Every new entry is proportional to an orbit
     angle, and at the origin the exact map's Jacobian *is* the linear matrix — measured
@@ -839,16 +854,6 @@ class Dipole(Element):
         self.e1 = float(e1)
         self.e2 = float(e2)
         self.fringe = bool(fringe)
-        if self.fringe and self.k1 != 0.0:
-            raise NotImplementedError(
-                "the nonlinear face is implemented for a gradient-free magnet only "
-                f"(Dipole {self.name!r} has k1={self.k1}). A gradient face terminates a "
-                "quadrupole as well as a dipole, which MAD-X carries as tmfrng's sk1 and "
-                "xtrack as its multipole fringe (a *cubic* map, so P1's second-order "
-                "map never saw it); accsim implements neither, and half a face is worse "
-                "than none: use fringe=False, or drop k1. The *rotated* face is "
-                "implemented (P3) -- e1/e2 with fringe=True is the full wedge"
-            )
 
     @property
     def frame_rotation_angle(self) -> float:
@@ -1054,39 +1059,49 @@ class Dipole(Element):
     def _face(
         self, state: np.ndarray, e: float, ref: ReferenceParticle, *, exit_face: bool
     ) -> np.ndarray:
-        r"""One nonlinear pole face: the wedge, the fringe, and the rotation (P3).
+        r"""One nonlinear pole face: the rotation, the fringes, the wedges (P3).
 
-        ``wedge(-e, h) . fringe(h) . wedge(e, 0)`` at the entrance, and the reverse
-        order with ``h -> -h`` in the *fringe alone* at the exit. Three facts fix
-        that, and none of them is a convention:
+        ``wedge(-e, h) . quad_wedge(-e, k1) . mult_fringe(k1) . fringe(h) . wedge(e, 0)``
+        at the entrance, and the reverse order with the sign flipped in the *two fringes
+        alone* at the exit. The two ``k1`` maps drop out identically at ``k1 = 0``, which
+        is why this is bit-for-bit P2 (i)/P3 (a)'s face for a gradient-free bend. Three
+        facts fix the ordering, and none of them is a convention:
 
         - **the rotation is** :func:`wedge_map` **with the field off**, so a face
           needs one map and not two, and ``e = 0`` collapses it to P2 (i)'s bare
           fringe bit for bit (:func:`wedge_map` returns its input unchanged at
           ``theta = 0``);
-        - **only the fringe flips sign at the exit.** The field switches on at one
-          face and off at the other, so the *impulse* reverses -- but the wedge is a
+        - **only the fringes flip sign at the exit.** The field switches on at one
+          face and off at the other, so the *impulse* reverses -- but a wedge is a
           slice of the body's own field, which does not. Mirroring ``-h`` into the
           wedge too breaks the origin Jacobian by ``2 h tan(e)``, four orders above
-          anything else here (``tests/analytic/test_wedge.py``);
+          anything else here (``tests/analytic/test_wedge.py``); xtrack applies the
+          same asymmetry to the gradient pair, negating ``k0`` for the fringes and
+          passing ``knorm[0]``/``knorm[1]`` un-negated to the wedges;
         - **the sequence is the geometry.** The rotation puts the frame normal to the
-          real face; the fringe is what the field's *termination* does there; the
-          wedge integrates the sliver of body field back to the sector plane.
+          real face; the fringes are what the field's *termination* does there, dipole
+          component then gradient; the wedges integrate the sliver of body field --
+          bend, then gradient -- back to the sector plane.
 
-        **It moves nothing at first order**, which is the finding this milestone
-        turned on. Each piece has a non-identity Jacobian -- the rotation carries the
+        **It moves nothing at first order**, which is the finding P3 (a) turned on.
+        Each piece has a non-identity Jacobian -- the rotation carries the
         ``x/cos(e)`` scaling and a ``sin(e)`` dispersion, the wedge carries
         ``h sin(e)`` and cancels the rest -- but the product is *exactly*
         :func:`_edge_matrix`, so :meth:`_matrix_body`, the tunes, ``beta``, the
         dispersion and the chromaticity are untouched. See the class docstring.
         """
         h = self.curvature
+        k1 = self.k1
         if exit_face:
             st = wedge_map(state, -e, h, ref)
+            st = quad_wedge_map(st, -e, k1)
+            st = multipole_fringe_map(st, k1, ref, exit_face=True)
             st = hard_edge_fringe_map(st, -h, ref)
             return wedge_map(st, e, 0.0, ref)
         st = wedge_map(state, e, 0.0, ref)
         st = hard_edge_fringe_map(st, h, ref)
+        st = multipole_fringe_map(st, k1, ref, exit_face=False)
+        st = quad_wedge_map(st, -e, k1)
         return wedge_map(st, -e, h, ref)
 
     def normalized_field(

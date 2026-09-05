@@ -10,6 +10,7 @@ from ..coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from ..reference import ReferenceParticle
 from .drift import Drift
 from .element import Element
+from .fringe import multipole_fringe_map
 
 
 def _focusing_block(g: float, L: float) -> np.ndarray:
@@ -363,6 +364,23 @@ class Quadrupole(Element):
     the cancellation, leaving two small quantities that are *added*. The first term
     is the drift's ``zeta`` map at zero angle, which is a free cross-check on the
     algebra.
+
+    The faces, opt in (P3 (b))
+    --------------------------
+    ``fringe = True`` adds :func:`~accsim.elements.fringe.multipole_fringe_map` at each
+    end -- the hard-edge **gradient fringe**, what the quadrupole field's termination
+    does. Until P3 (b) a quadrupole's own faces were not modelled at all.
+
+    It is **off by default**, like ``kinematic_slices`` and like
+    :class:`~accsim.elements.dipole.Dipole`'s ``fringe``, and for the same reason: MAD-X's
+    thick quadrupole and ``xt.Quadrupole``'s default (``edge_entry_active = False``) do
+    not apply it either, so the shipped default stays the apples-to-apples match the
+    reference suite pins to ``1e-16``.
+
+    **Nothing an optics function can see moves.** The map is *cubic*, so its Jacobian at
+    the origin is the identity: :meth:`matrix`, the tunes, ``beta``, the dispersion, the
+    chromaticity and the whole second-order map of :mod:`accsim.taylor` are bit-for-bit
+    what they were. Only tracking at amplitude changes, by ``O(k1 x^3)``.
     """
 
     def __init__(
@@ -372,6 +390,7 @@ class Quadrupole(Element):
         name: str | None = None,
         *,
         kinematic_slices: int = 0,
+        fringe: bool = False,
         dx: float = 0.0,
         dy: float = 0.0,
         roll: float = 0.0,
@@ -381,6 +400,7 @@ class Quadrupole(Element):
             raise ValueError(f"kinematic_slices must be >= 0, got {kinematic_slices}")
         self.k1 = float(k1)
         self.kinematic_slices = int(kinematic_slices)
+        self.fringe = bool(fringe)
 
     def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
         L = self.length
@@ -399,9 +419,15 @@ class Quadrupole(Element):
         bunch with a momentum spread take the same path. A zero-length quadrupole is
         the identity, matching :meth:`_matrix_body`.
         """
-        return thick_quadrupole_map(
-            state, self.length, self.k1, ref, kinematic_slices=self.kinematic_slices
+        st = np.asarray(state, dtype=float)
+        if self.fringe:
+            st = multipole_fringe_map(st, self.k1, ref, exit_face=False)
+        st = thick_quadrupole_map(
+            st, self.length, self.k1, ref, kinematic_slices=self.kinematic_slices
         )
+        if self.fringe:
+            st = multipole_fringe_map(st, self.k1, ref, exit_face=True)
+        return st
 
     def normalized_field(
         self, x: np.ndarray | float, y: np.ndarray | float
@@ -417,7 +443,8 @@ class Quadrupole(Element):
 
     def __repr__(self) -> str:
         kin = f", kinematic_slices={self.kinematic_slices}" if self.kinematic_slices else ""
-        return f"Quadrupole(length={self.length}, k1={self.k1}{kin}{self._repr_tail()})"
+        fr = ", fringe=True" if self.fringe else ""
+        return f"Quadrupole(length={self.length}, k1={self.k1}{kin}{fr}{self._repr_tail()})"
 
 
 class ThinQuadrupole(Element):

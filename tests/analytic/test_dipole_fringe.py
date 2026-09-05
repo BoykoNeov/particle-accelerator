@@ -416,28 +416,37 @@ def test_it_is_the_field_stopping_so_it_vanishes_with_y_or_with_h(ref: Reference
     assert np.array_equal(straight.track(bunch, ref), Dipole(2.0, 0.0).track(bunch, ref))
 
 
-def test_a_gradient_face_is_refused_rather_than_half_applied() -> None:
-    r"""``k1`` needs the multipole fringe, which does not exist. ``e1``/``e2`` now do (P3).
+def test_the_gradient_face_was_the_last_half_of_the_refusal(ref: ReferenceParticle) -> None:
+    r"""P2 (i) refused two kinds of face. P3 lifted both, and this is the record of which.
 
-    The refusal is the point, not a limitation to be worked around: a gradient face
-    terminates a quadrupole as well as a dipole, and half a face is worse than none.
-    Same shape as the bending dipole's refusal to be displaced (K1).
+    P2 (i) shipped the fringe of a **sector, gradient-free** face and raised
+    :class:`NotImplementedError` on the other two, on the grounds that half a face is worse
+    than none — the same shape as the bending dipole's refusal to be displaced (K1).
 
-    **Half of P2 (i)'s refusal was lifted by P3**, which built the wedge — so the
-    rotated face is no longer refused, and this test is the record of which half moved.
-    P2 (i) refused the rotated face on the grounds that "the wedge is first order in the
-    face angle where the fringe is second", which is true of the *wedge map* and false
-    of what it does to the linear optics: the first-order content is
-    :func:`~accsim.elements.dipole._edge_matrix`, which F2 already shipped, and the
-    composed face reproduces it exactly (``tests/analytic/test_wedge.py``).
+    - **The rotated face** (``e1``/``e2``) was lifted by **P3 (a)**. The refusal's premise —
+      "the wedge is first order in the face angle where the fringe is second" — is true of
+      the *wedge map* and false of what it does to the linear optics: the first-order
+      content is :func:`~accsim.elements.dipole._edge_matrix`, which F2 already shipped, and
+      the composed face reproduces it exactly (``tests/analytic/test_wedge.py``).
+    - **The gradient face** (``k1``) was lifted by **P3 (b)**, and there the refusal's
+      premise was right but incomplete: it named the multipole fringe alone, where a rotated
+      gradient face also needs a *quadrupole wedge*. Two maps, not one
+      (``tests/analytic/test_multipole_fringe.py``).
+
+    So nothing is refused any more, and what replaces the refusal is the assertion that each
+    formerly-refused combination now **tracks differently** — a face that were silently
+    dropped would pass a mere "does not raise".
     """
-    with pytest.raises(NotImplementedError, match="gradient-free"):
-        Dipole(L_B, ANGLE, k1=0.3, fringe=True)
-    # ...legal without the fringe, and legal with the fringe when zero — and a rotated
-    # face is legal with the fringe outright now.
-    Dipole(L_B, ANGLE, e1=0.05, e2=0.05, k1=0.3)
-    Dipole(L_B, ANGLE, e1=0.0, k1=0.0, fringe=True)
-    Dipole(L_B, ANGLE, e1=0.05, e2=-0.03, fringe=True)
+    combinations = [
+        {"k1": 0.3},
+        {"e1": 0.05, "e2": -0.03},
+        {"k1": 0.3, "e1": 0.05, "e2": -0.03},
+    ]
+    for kwargs in combinations:
+        plain = Dipole(L_B, ANGLE, fringe=False, **kwargs)
+        fringed = Dipole(L_B, ANGLE, fringe=True, **kwargs)
+        moved = np.abs(fringed.track(STATES[0], ref) - plain.track(STATES[0], ref)).max()
+        assert moved > 1e-9, kwargs
 
 
 def test_the_repr_says_so(ref: ReferenceParticle) -> None:
