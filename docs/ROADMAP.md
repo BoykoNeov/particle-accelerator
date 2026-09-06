@@ -5424,8 +5424,19 @@ there was the fixture, not the tool).
   `0.0946 span^2`. It is *second* order in the sag, so it vanishes quadratically as the ring
   stops radiating; a wrong coefficient in the radiation kick would be first order and would
   survive. Two energies are run for exactly that reason, because one could only ever have
-  produced a tolerance. The constant component is `1.7e-9` of the span: the codes place the
-  ramp identically and only distribute the loss along it differently.
+  produced a tolerance. The constant component is `1.7e-9` of the span over the radiating
+  elements (`2.3e-7` over all of them, the thin quadrupoles sampling the ramp at its steps
+  rather than across them): the codes place the ramp identically and only distribute the loss
+  along it differently.
+
+  **What that law's *cause* is has not been localised, and the entry says so.** The shape and
+  the scaling are measured; the mechanism — the loss being evaluated at a different point
+  along each magnet, the local `E^2` doing the rest — is *inferred from them*, not run down.
+  It is consistent with everything measured and it is not evidence. The gate does not rest on
+  it: what gates the milestone is that the disagreement is second order in the sag, which
+  separates a model difference from a coefficient error whatever the model difference turns
+  out to be. This paragraph exists because the milestone's own `Q_x` finding started life as
+  exactly this kind of plausible mechanism and was wrong until it was measured.
 
   **Three tolerances were written from the wrong ring and corrected by running them.** The
   half-step ratio, the shape residual and the uncentred control's span all turned out to

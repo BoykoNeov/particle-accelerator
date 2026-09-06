@@ -19,9 +19,11 @@ span over the radiating elements, ``2.3e-7`` over all of them).
 **The element-by-element disagreement is a law, not a tolerance, and that is the point of
 this file.** It is ``0.1446 span^2`` — *second* order in the sag — measured to ``0.5%``
 across a factor eight in span, and three quarters of it is a parabola in ``s`` whose sagitta
-is ``0.0946 span^2``. That shape is what a difference in *where along the element the loss is
-evaluated* produces, because the radiated power follows the local ``E^2``: it vanishes
-quadratically as the ring stops radiating, which a genuine coefficient error would not. Two
+is ``0.0946 span^2``. That shape is *consistent with* a difference in where along the element
+the loss is evaluated, the radiated power following the local ``E^2`` — inferred from the
+shape and the scaling rather than localised, so it is not what the gate rests on. What the
+gate rests on is the order: this vanishes quadratically as the ring stops radiating, which a
+genuine coefficient error would not. Two
 energies are run for exactly that reason — a single one could only ever be a tolerance.
 
 **The control matters more than usual here.** The span is fixed by conservation, so a

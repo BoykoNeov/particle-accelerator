@@ -8611,10 +8611,12 @@ ramp identically.
 **What is left is a law, not a tolerance.** Element by element the profiles differ by
 `0.1446 span^2` — *second* order in the sag — measured to `0.5%` across a factor eight in
 span (`6.9e-5` of the span at 3.25 GeV, `5.5e-4` at 6.5 GeV), and three quarters of it is a
-parabola in `s` of sagitta `0.0946 span^2`. That is what evaluating the same `E^2` power law
-at a slightly different point along each magnet produces, and it *vanishes quadratically* as
-the ring stops radiating, which a wrong coefficient in the radiation kick would not: that
-would be first order and would survive. Two energies are run for exactly that reason. The
+parabola in `s` of sagitta `0.0946 span^2`. That shape is *consistent with* the loss
+being evaluated at a different point along each magnet, the local `E^2` doing the rest — but
+that mechanism is inferred from the shape and the scaling and was **not** localised, so it is
+not what the gate rests on. What gates it is that the disagreement is second order in the
+sag, vanishing quadratically as the ring stops radiating, where a wrong coefficient in the
+radiation kick would be first order and would survive. Two energies are run for exactly that reason. The
 control is the uncentred profile, which misses the same comparison by half the span.
 
 **MAD-X's untapered `pt` column is a second, independent view of the same sawtooth.** Span
