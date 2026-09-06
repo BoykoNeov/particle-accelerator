@@ -36,6 +36,22 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06); **Q2** applying it (2026-09-06) | axis Q complete |
 | R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
+| T | the wiggler — the magnet built to radiate | — (opened 2026-09-07) | **T1** the element and its map; **T2** its radiation integrals |
+
+**Axis T is open as of 2026-09-07 — nothing shipped yet.** The wiggler, chosen by
+re-running the project's filter with axis S complete, and specified as two milestones
+before any code: **T1** the element and its map, **T2** its radiation integrals. The
+filter run settled three things that shaped the entry. Neither reference code has the
+element at all (xtrack has no wiggler among 110 classes; MAD-X *crashes the process* on
+the keyword), so T opens with at most one arbiter, which is axis N's condition rather
+than a new deficiency. A wiggler's focusing lands in the **vertical** plane at `k_y =
+h0^2/2`, and both natural ways to spell it in xtrack get the plane wrong in opposite
+directions — a straight-reference sliced line gives `R43` identically zero at 8, 64 and
+256 slices (it does not converge; the gap is asserted as a **mechanism**), while
+alternating curved bends put the same-sized term in the horizontal plane. And a
+hard-edge staircase matched to the same `I2` still understates `sigma_delta` by
+**8.73%**, a separation that survives the matching and that `I4` was checked not to
+contaminate.
 
 **Axis R shipped R1 on 2026-09-06** — the survey, the ring's geometry in laboratory
 coordinates, the candidate the last two filter runs recorded rather than sequenced. It is
@@ -6218,6 +6234,201 @@ quadrature one, which is the sharpest form of "the disagreement is in that one e
 Radiation agrees at `3.2e-7` relative (`1.496241e-10` lost, both codes) and is **exactly**
 `0.0` on axis in both.
 
+
+### T. The wiggler — the magnet built to radiate, and the plane its focusing lands in
+
+Every magnet in `src/accsim` either bends the reference trajectory or focuses about it,
+and every one of them has a field that is constant along `s` inside its body. A
+**wiggler** is neither: its field alternates so that the beam leaves travelling the way it
+arrived — no net bend, and no net focusing from the bending — and its entire purpose is the
+radiation emitted on the way through. It is how a storage ring buys damping it was not
+designed with, and how a light source makes photons at all. It is absent from
+`src/accsim` entirely.
+
+**Chosen on the project's usual filter, run the way O5, O6, P, Q, R and S established —
+every arbiter was executed on probe elements before a word of this entry was written.**
+The probe machine throughout is `B0 = 1.5 T`, `lambda_w = 0.1 m`, `N = 10` periods,
+`E = 1 GeV`: `rho0 = 2.223761 m`, `h0 = 0.449689 /m`, `k = 62.8319 /m`, `L = 1.0 m`. Its
+**maximum deflection angle** is `theta_max = h0/k = 7.157018e-03 rad`; note this is *not*
+the conventional wiggler parameter, which is `K = gamma theta_max = 14.01` here
+(`gamma = 1956.95`) — the two differ by `gamma`, and this entry uses `theta_max` throughout
+because that is the quantity the orbit expansions are actually in. What the run settled,
+none of it read out of documentation:
+
+- **Neither reference code has a wiggler, and this entry does not pretend otherwise.**
+  `xtrack`'s element inventory (110 public classes, down to `ElectronCooler`,
+  `NonLinearLens` and `Wire`) contains no wiggler or undulator. MAD-X does not merely
+  reject the keyword — `w: wiggler, l=1.0;` prints `+=+=+= fatal: unknown class type:
+  wiggler` and **takes the process down**, so a probe needs a fresh `Madx` per keyword.
+  The milestone therefore opens with **one** arbiter at most, used for what it can see,
+  and a great deal of arbiter-free measurement. That is axis N's established condition
+  rather than a new deficiency.
+
+- **A wiggler is not a list of hard-edge bends, and the separation is 20% in the quantity
+  that sets energy spread.** Over one period of `h = h0 cos(k s)`, sympy returns
+  `<h^2> = h0^2/2` and `<|h|^3> = 4 h0^3/(3 pi) = 0.424413 h0^3` (the `|h|^3` integral
+  taken as four times the first quarter-period, where the cosine keeps its sign). A
+  hard-edge staircase tuned to the **same `I2`** — i.e. `h_eff = h0/sqrt(2)`, the same
+  energy loss per turn — still gets `I3` wrong by exactly `8 sqrt(2)/(3 pi) = 1.200422`,
+  and the direction matters: the **staircase is the low one**. Since
+  `sigma_delta^2 = C_q gamma^2 I3/(J_z I2)`, the true energy spread is **9.56% higher**
+  than the staircase model gives, i.e. the staircase **understates `sigma_delta` by
+  8.73%** — and it does so *after* being matched on the thing such models are usually
+  matched on. Derived symbolically, not recalled.
+
+- **Matching `I2` really does isolate `I3`, and that had to be checked rather than
+  assumed.** `J_z = 2 + I4/I2` sits in the same formula, so the 20% is attributable to
+  `I3` only if the two models also agree on `I4`. They do, for two separate reasons, both
+  measured: from the ring's **pre-existing dispersion** the contribution is
+  `eta0 * int h^3 ds`, which is **exactly zero for both** — `I4` carries an *odd* power of
+  the field and both fields are odd-symmetric over a period; and from the wiggler's
+  **self-generated dispersion** the two give `-3 h0^2/(4 k^2)` and `-pi^2 h0^2/(24 k^2)`,
+  differing by `(pi^2 - 18)/24 * theta_max^2 = -1.735e-05`, which moves `J_z` by
+  **8.7e-04 %**. The difference is `O(theta_max^2)` and `theta_max = K/gamma` is small for
+  any relativistic beam, so this holds generally and not only on the probe machine. The
+  `I3` separation stands at four significant figures.
+
+- **The focusing is in the wrong plane, and that is the headline.** Maxwell forces a
+  longitudinal component on a planar pole (`by = h0 cos(ks) cosh(ky)`,
+  `bs = -h0 sin(ks) sinh(ky)`, `div b = 0` checked symbolically), and the vertical
+  equation of motion `y'' = -x' bs = -h0^2 y sin^2(ks)` averages to `y'' = -(h0^2/2) y`.
+  So a wiggler focuses **vertically** at `k_y = h0^2/2 = 1/(2 rho0^2)`, where a flat
+  sector bend has `k_y = 0` exactly. Integrating the **exact** field's Lorentz force
+  (`solve_ivp`, rtol 1e-12) reproduces the averaged thick-focusing block to
+  **`1.264e-05`**, where a **drift** — what a bend-based model gives vertically — is off by
+  **`9.942e-02`** (`R43 = -9.941627e-02`, a focal length of `1/f = 0.099416 /m` over
+  `1.0 m`). Discrimination ~7900x: order-unity, not a tolerance. And the horizontal block
+  comes back a **pure drift** (`R21 = 1.135702e-11`), because a wiggler's reference
+  trajectory is straight and carries no weak focusing.
+
+- **The gap does not slice away, and xtrack's two spellings fail in opposite planes.**
+  The vertical focusing comes from `dby/dy = -dbs/ds`, which any piecewise-constant-in-`s`
+  model sets to exactly zero inside every slice. Measured: a straight-reference
+  (`angle = 0`, alternating `k0`) xtrack line returns `R43 = +0.000000e+00` at
+  **`n = 8`, `64` and `256`** slices alike, and its distance from the exact-field map stays
+  pinned at **`9.941627e-02`** — seven digits, not one of them moving — while its distance
+  from a plain drift falls and then plateaus (`2.634946e-04`, `1.182903e-05`,
+  `1.274200e-05`; the plateau is an `O(theta_max^2)` term, and this entry does not claim a
+  limit it did not measure). The other construction — alternating **curved** bends
+  (`h = k0`) — puts a focusing term of the same size in the **horizontal** plane
+  (`R21 = -9.941393e-02`, against the exact field's `+1.135702e-11`) and still leaves
+  `R43 = 0`. So the two natural ways to spell "wiggler" in xtrack are near mirror images of
+  each other and neither is the magnet: one focuses in no plane, the other in the plane
+  that should be free. This is S2's shape exactly — a clean reference half and a half where
+  the arbiter is structurally blind — and it is gated as a **mechanism** (`R43` identically
+  zero at every `n`), never as a tolerance.
+
+- **The field accessors have no place to put a wiggler, and the failure would be silent.**
+  All three of `normalized_field`, `longitudinal_field` and `normalized_vector_potential`
+  on `Element` take `(x, y)` and **no `s`**, and `radiation_kick` samples the field
+  **once per traversal, at the mid-point**. A wiggler's field reverses sign several times
+  inside one element and averages to exactly zero over a period, so a single sample reports
+  **no radiation from the magnet whose only purpose is to radiate** — and radiation goes as
+  the field *squared*, so no choice of sample point repairs it. The accessor's *shape* is
+  wrong for this element, not merely its argument list. This is the third interface finding
+  on this line of work: S1 found no place for a field along the beam, S2 none for the
+  vector potential, T none for a field that varies along the magnet.
+
+- **The package cannot see a wiggler at all yet.** `radiation_integrals` keys on
+  `isinstance(elem, Dipole) and elem.angle != 0.0 and elem.length > 0.0`, so a new element
+  contributes **exactly zero** to `I1..I5` until that is opened — the same shape as S2's
+  `normalized_field` refusal, and the same risk: a silent zero rather than a loud one.
+
+It is split on the S1/S2 line, for the reason that split was right there: the map and the
+radiation take different arbiters and different work.
+
+**T1 — the wiggler's map, and the focusing that lands in the vertical plane.**
+Effort **M**.
+
+A new `Wiggler` element with a period, a peak field and an integer number of periods, whose
+map is the averaged thick block: a **drift horizontally** and a **focusing block
+vertically** at `k_y = h0^2/2`. The physics content is entirely in the second half — every
+bend-based intuition puts the focusing in the other plane, and both of xtrack's spellings
+get the plane wrong, in opposite directions.
+
+**Pre-committed gates.**
+
+1. **The reference trajectory closes.** An integer number of periods leaves the exit offset
+   and angle at zero: `|x_out|` and `|px_out|` at machine precision for an on-axis
+   particle, with the orbit inside given by `x'(s) = -(h0/k) sin(ks)` and peak angle
+   `theta_max = 7.157018e-03`. This is what makes it a wiggler rather than a bend.
+2. **Maxwell holds for the shipped field model** — `div b = 0` for
+   `(0, h0 cos(ks) cosh(ky), -h0 sin(ks) sinh(ky))`, symbolically and numerically — **and
+   it is blind to the coefficient.** Recorded as a gate *and* as a blindness, the way J1
+   recorded that structural gates cannot see a kick coefficient.
+3. **The vertical focusing coefficient, against the exact field — the only discriminating
+   gate there is.** `max|M_y(shipped) - M_y(exact-field integration)| <= 2e-05` (measured
+   `1.264e-05`), where the same comparison against a **drift** is `9.942e-02`. Gates 2 and
+   5 both pass for `k_y = h0^2`, `h0^2/2` or `h0^2/4`; **this one does not**, and the entry
+   says so explicitly so that no future session mistakes a structural gate for a
+   discriminating one.
+4. **The horizontal plane is a drift, exactly.** `|R21| <= 1e-10` (measured
+   `1.135702e-11`), and the horizontal block equals a drift of the same length to the same
+   bound. A wiggler has no weak focusing because its reference trajectory is straight; the
+   alternating-bend model that gets this wrong lands `R21 = -9.94e-02`.
+5. **Symplecticity to machine precision — and its blindness**, as in gate 2.
+6. **The focusing does not care about the sign of the field, or the charge.**
+   `k_y = h0^2/2` is *even* in `h0`, so flipping the field polarity must give a
+   **bit-identical** map, and an electron and a proton reference must agree. S1's
+   charge-free gate for `ks`, in the form this element takes it.
+7. **The disagreement with xtrack is asserted as a mechanism, not a tolerance.** Behind the
+   `reference` marker: a straight-reference sliced xtrack line has `R43` **identically
+   `+0.000000e+00`** at `n = 8, 64, 256`, with a residual against the exact field pinned at
+   `9.941627e-02` to seven digits; an alternating-curved-bend line puts `R21 = -9.94e-02`
+   in the horizontal plane and still leaves `R43 = 0`. **No tolerance gate is pre-committed
+   against either xtrack construction for the wiggler's transverse map.**
+8. **Nothing else moves.** Every existing element and every existing test is bit-identical;
+   the new element is purely additive.
+
+**What is refused in T1.** Radiation. A `Wiggler` in T1 contributes **zero** to `I1..I5`
+and is invisible to `radiation_kick`, exactly as `radiation_integrals` stands today — and
+that refusal is made **loud, not silent**, by a test asserting the zero and written to fail
+the day T2 lands, in the manner of S1's
+`test_tapering_a_ring_with_a_solenoid_is_refused_for_now`.
+
+**T2 — the wiggler becomes visible to the radiation integrals, and the tracking gap is
+priced.** Effort **M**.
+
+The magnet exists to radiate, so this is where the milestone pays. `radiation_integrals`
+learns a second contributing element type, and the wiggler's period-averaged `<h^2>` and
+`<|h|^3>` reach `I1..I5`, the damping times, the energy spread and the equilibrium
+emittance through machinery axis B already built.
+
+**Pre-committed gates.**
+
+1. **`radiation_integrals` stops keying on `Dipole` alone**, and every existing lattice
+   returns **bit-identical** integrals.
+2. **`I2 = h0^2 L / 2` and `I3 = 4 h0^3 L / (3 pi)`** for the wiggler, closed form, at
+   machine precision.
+3. **The discriminating radiation gate: the staircase separation, with its direction.**
+   Against a hard-edge stack matched to the **same `I2`**, the wiggler's `I3` must be
+   **higher** by exactly `8 sqrt(2)/(3 pi) = 1.200422` — asserted to `1e-12`, and asserted
+   as a *ratio*, so it cannot be passed by a uniformly mis-scaled field. Consequence gated
+   end-to-end: `sigma_delta` is **9.56% higher** than the staircase gives.
+4. **`I4` is the control, and it is gated as an exact zero.** From constant ring dispersion
+   a wiggler contributes `eta0 * int h^3 ds = 0` **exactly** (an odd power of an
+   odd-symmetric field) — asserted at machine precision — while the self-dispersion part is
+   `O(theta_max^2)` (`-1.735e-05` on the probe machine, moving `J_z` by `8.7e-04 %`). This
+   is what licenses gate 3 to be attributed to `I3` alone, and it is written down as such.
+5. **A damping wiggler damps.** Adding a wiggler to a ring raises `I2` without materially
+   moving `I4`, so all three damping times **shorten** and `J_x` is unchanged to
+   `O(theta_max^2)`. The end-to-end statement the milestone exists for.
+6. **The tracking gap is refused loudly, not papered over.** `radiation_kick` samples the
+   field once per traversal and cannot see a field that reverses inside the element, so a
+   `Wiggler` under any `radiation_model` other than `"off"` **raises** rather than silently
+   radiating nothing. Gated by a test that asserts the raise and states the reason — the S1
+   pattern, because "radiates in the integrals but not in tracking" is precisely the silent
+   wrong answer S1 refused for the solenoid.
+7. **`taper()`** on a ring containing a wiggler: whichever way it falls, it is measured and
+   stated, not left to be discovered. If it must be refused, it is refused the way S1
+   refused it — with the test that fails the day it is lifted.
+8. **Nothing else moves.** Axis B's existing analytic and reference results are
+   bit-identical.
+
+**What is refused in T2.** Per-period tracking through the wiggler's real field (that is an
+`s`-dependent accessor plus a slicing model, and it is a milestone of its own); undulator
+radiation *spectra* and coherence, which are light-source physics rather than beam
+dynamics; and any claim about a limit under slicing that was not measured.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
