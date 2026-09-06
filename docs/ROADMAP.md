@@ -6234,6 +6234,15 @@ quadrature one, which is the sharpest form of "the disagreement is in that one e
 Radiation agrees at `3.2e-7` relative (`1.496241e-10` lost, both codes) and is **exactly**
 `0.0` on axis in both.
 
+**Suite totals: 1725 analytic** (from S1's recorded 1699) and **412 reference** (from
+405) — S2 added **26** collected analytic items, from 15 new test functions expanded by
+parametrisation, and **7** reference tests, one per new function. Both figures are
+**collected counts, measured on 2026-09-07 after the fact** (`--collect-only`, 8m13s and
+6m43s on a loaded box): they are the size of the suite, not a claim that it was re-run.
+What was run and passing is what the gates above record — this milestone's own tests,
+at the time they were written. The delta is attributable to S2 because every commit
+between the S1 totals and this measurement other than `e250af7` touches `docs/` only.
+
 
 ### T. The wiggler — the magnet built to radiate, and the plane its focusing lands in
 
