@@ -8627,7 +8627,9 @@ independently: `7.0898e-3` (xtrack) and `7.0882e-3` (MAD-X), agreeing to `2.2e-4
 
 **MAD-X's `TWISS, TAPERING` is not a leg, and the measurement is why.** On this ring `ktap`
 reads identically zero with tapering on *and* off, and `|x|max` moves `7.0882e-3 → 7.0352e-3`
-— under 1%, where xtrack collapses the same orbit by a factor 14,300. Naming which half of a
+— under 1%, where xtrack collapses the same orbit by a factor 14,300 (`7.3e7` on Q2's
+remeasurement against a radiation twiss — either way the refusal stands by orders). Naming
+which half of a
 reference code can see a milestone is worth more than counting the codes, which is P3 (b)'s
 refusal of PTC in the same shape.
 
@@ -8642,12 +8644,157 @@ centred — a centred profile has no first-order chromatic tune shift, so the ce
 this number are one fact.
 
 **Applying the profile needs a bending magnet whose field is separable from its geometry**,
-which `Dipole` does not have: it stores `angle`, so `k0 = h = angle/L`. A tapered bend has
-`k0 = h(1+delta_t)` with `h` unchanged — the geometry belongs to the ring and the bends must
-still sum to `2 pi`. The shortcut of evaluating the existing map at an effective momentum was
-checked and **refuted**: it reproduces the drive `G = h − k0/(1+delta)` exactly but scales the
-weak-focusing `h^2` along with the gradient, leaving `h^2 delta_t/(1+delta)`, `1.2e-4`
-relative on `K_x` and a hundred times a `1e-6` gate. That is Q2.
+which `Dipole` did not have: it stored `angle`, so `k0 = h = angle/L`. That is Q2, below.
+
+## Applying the taper: a field that is not the geometry (Q2 — implemented)
+
+`Dipole` now carries **`k0`** alongside `angle`, defaulting to the curvature `h = angle/L`,
+and `accsim.tapering.taper(lattice)` returns a new ring with every magnet's field scaled to
+the momentum the beam has there. `Dipole.curvature` is the geometry and never moves — the
+bends must still sum to `2 pi`; `Dipole.k0` is the field and follows the beam.
+`Dipole.field_ratio` is `s = k0/h`, `Dipole.taper` is `t = s − 1` (formed as `(k0−h)/h`, so a
+`4e-3` taper keeps all its digits), and `Dipole.nominal_k1` is `k1/s` — the gradient of the
+design magnet this one is a tapering of. `angle = 0` with a non-zero `k0` **raises**: a field
+with no geometry is a steering magnet and the ratio `k0/h` has no meaning there.
+
+### The tapering symmetry, and why six earlier milestones did not move
+
+Scale every field in a magnet by `s` and leave the geometry alone. With `px = s P`,
+`py = s Q` and `1 + delta = s (1 + delta')`,
+
+    H_tapered(x, px, y, py; delta)  =  s * H_nominal(x, P, y, Q; delta')
+
+because `s` factors out of the square root and out of the whole vector potential together.
+The `s` cancels in Hamilton's equations, so **a tapered magnet maps `(x, px, y, py)` exactly
+as the design magnet maps `(x, P, y, Q)`** — exactly, not to leading order. `_track_body`
+is written as that rescaling, so the exact circle (L3), the expanded combined-function body
+(L4), the pole faces (P3 a/b), the hard-edge fringe (P2 i) and the wedges all come through
+**untouched**: not one line of F2, L3, L4, P2 (i), P3 (a) or P3 (b) moved for this milestone.
+
+`zeta` is the one row the symmetry does not carry. The two magnets share a *trajectory*, so
+they share its path length `P`, but `zeta = s − beta_0 c t` turns that path into a time with
+the particle's own speed and the design magnet was handed the wrong momentum for it. Since
+
+    dzeta = L − (beta_0/beta) P
+
+holds identically for every map in the element — verified against a Cartesian path-length
+quadrature, and algebraically: the code's `slip` term *is* `L(1 − beta_0/beta)` written as
+`L delta(2+delta)/gamma_0^2 / ((1+delta)(1+delta+E/E_0))` — eliminating `P` gives
+
+    L − dzeta_tapered = r (L − dzeta_nominal),     r = beta(p/s) / beta(p),
+
+with `1 − r = m^2 (s^2 − 1) / (A(A+B))`, `A = hypot(pc, s m)`, `B = hypot(pc, m)` — the
+difference of two square roots rationalised, because it is `O(1/gamma^2)` small.
+
+### `matrix()` is expanded at `delta = t`, and that is a statement
+
+A tapered magnet's linear map is `S M_nominal S^-1` with `S = diag(1, s, 1, s, 1, s)`, plus
+a constant `k = M_nominal[:, delta] (−t/s)` carried out through `S` — the magnet being
+mis-set for the design particle is exactly its own dispersion, and it lands in
+`Element.kick` under I1's affine contract (a tapered bend is the first *magnet* in the
+package with a non-zero kick when perfectly aligned). The expansion point is `delta = t`,
+not `delta = 0`: **a tapered magnet's linear map is the map it presents to the beam it was
+tapered for**, and that is where the similarity is the identity on `delta`. The departure
+from the `delta = 0` origin Jacobian is *first order in the taper* — `1.10 t` on a
+combined-function bend, `0.99 t` on a plain one, constant to 1% over a factor eight in `t`.
+
+A tapered ring's one-turn matrix is therefore a product of element matrices each expanded
+at its **own** `delta = t_i`, so it is not the Jacobian of any single map. Measured rather
+than assumed: on I4's ring the design tunes move by `2e-7` against a taper spread of
+`3.7e-3` — *second* order — and `beta` and the natural chromaticity by `1e-4` relative. The
+one quantity that is deliberately not design-like is the `delta = 0` closed orbit with
+radiation **off**: there the magnets really are mis-set by their own taper and the ring
+closes `6.6e-4` m off axis, which is the `7 mm` sag read from the other side.
+
+**Both candidate matrices are symplectic, so symplecticity is blind to the choice.** The
+naive truncation (linearise about the reference curve, `K_x = k0 h + k1`, drive `h delta`)
+is generated by a quadratic Hamiltonian and is therefore symplectic — and it is *wrong*,
+which the `k0 = 0` limit settles in one line: a field-free curved region has no dispersion,
+and the truncation gives `h L^2/2`. What it drops is `x' = px/(1+delta)`'s cross term
+`−px delta`, formally second order but first order in `delta` here because the constant
+drive makes `px ~ h s` large. The similarity keeps it.
+
+Symplecticity does bite on the `zeta` row, in **canonical** coordinates: `(zeta, delta)` is
+conjugate only where `ddelta/dp_zeta = 1`, i.e. `delta = 0` exactly, so a tapered matrix
+fails the *raw* check by `O(t/gamma^2)` (`3.9e-12` on I4's electrons, `2.4e-4` on a
+`gamma = 1.6` proton) and passes the canonical one at `2e-16`. Setting `r = 1` breaks the
+canonical check by `2.4e-4`; dropping the `L dr/ddelta` term does **not** — that one is
+caught only by the tracked Jacobian, which sees it at `1.9e-3` on `R56`. Two gates, each
+blind to what the other catches.
+
+### The taper is a fixed point, and each round removes one power of the sag
+
+`taper()` applies Q1's profile once and then, for every further round, re-derives the
+profile from the **tapered** ring's own radiating closed orbit and re-applies it from the
+design strengths. It never compounds: tapering does not shrink the sawtooth (the ring
+radiates exactly as much as before — it is the *orbit* that goes away, not the ramp), so
+applying the same profile twice tapers twice and returns the ring to the distortion it
+started with, to a tenth of a percent. On I4's ring, `max |x|` on the radiating closed
+orbit:
+
+| rounds | residual | the law |
+|---|---|---|
+| 0 | `7.090e-3` m | `1.858 * span` |
+| 1 | `6.828e-6` m | `0.4688 * span^2` |
+| 2 | `5.506e-9` m | `0.104 * span^3` |
+| 3 | `1.00e-10` m | the closed-orbit solver's own floor |
+
+measured over a factor eight in span (3.25 / 4.6 / 6.5 GeV). **The exponent is the gate**
+(J2's rule): a taper wrong by a coefficient leaves a residual *first* order in the sag,
+like the distortion it was meant to remove, and no number of rounds changes that. The
+default is `rounds=3`, which is the floor and is where xtrack lands too. `rounds=1` is the
+only mode available on a ring with no RF cavity, since the later rounds need
+`closed_orbit_6d`.
+
+The residual is **not** the magnets' own length: slicing every bend into four gives each
+slice its own field and moves the one-shot answer by under 1%. Nor is it a centring error —
+a constant offset added to the profile changes it by under 10%, because a ring whose fields
+are *uniformly* rescaled simply finds a new closed-orbit momentum at fixed RF frequency.
+
+### The reference legs, and a number of the entry's own that was wrong
+
+- **`xt.Bend` takes `k0` and `angle` as separate parameters**, so it is a direct arbiter
+  for the whole `k0 != h` map. The two agree to **`7.5e-17`**, at `gamma = 1.6` as well as
+  `gamma = 21` and at tapers up to `−5%`. The low-`gamma` leg is what gates the `zeta` row
+  at all: on I4's 6.5 GeV electrons the taper's `zeta` correction is `~1e-11` of the length
+  and a map with the row omitted would pass everything measured there.
+- **A Cartesian Lorentz-force integration** (`scipy.solve_ivp` in the laboratory frame,
+  exit face by plane geometry, arrival time from the path length) agrees to `2e-14` in
+  position and `9e-14` in `zeta`, sharing no code and no convention with accsim. It is the
+  gate that is not vacuous, since the shipped map is *built* from the symmetry.
+- **`line.compensate_radiation_energy_loss()`** is xtrack's own taper — per-element
+  `delta_taper` applied at tracking time, against accsim's new lattice with new `k0` — and
+  it collapses the same `7.0904e-3` orbit to **`9.70e-11`**, accsim's third round to 3%.
+- ⚠️ **Q1's entry recorded xtrack collapsing this orbit "by a factor 14,300", to
+  `4.96e-7`.** Measured against a radiation twiss it is `7.3e7`, to `9.70e-11`. The larger
+  residual belonged to that measurement, not to xtrack, and the corrected number is what
+  set `rounds=3` rather than 2.
+
+### The shortcut, refuted with a number
+
+Evaluating the existing map at an effective momentum reproduces the drive
+`G = h − k0/(1+delta)` exactly and then scales the weak-focusing `h^2` along with the
+gradient. A bend's horizontal focusing is `K_x = k0 h + k1` — a **product** of field and
+geometry, of which only the field tapers — so leaving `k0 = h` and tapering the gradient
+alone is short by `h^2 t = 9.86e-5` on I4's bends (the entry's `1.2e-4` was the same
+quantity at a different working point). What that costs is the milestone in one number: a
+magnet tapered that way puts its own matched particle `3.04e-4` m off the axis across one
+metre of bend, where the shipped magnet leaves it there at `1e-17`.
+
+### What is not gated
+
+- **From `rounds >= 2` the residual is measured with the same solver that built the
+  taper**: `closed_orbit_6d` supplies the profile and then reports the orbit. What is
+  independent of that is the `rounds=1` deliberate break, the span exponents, both
+  element-level arbiters, and xtrack's own collapse from unrelated machinery.
+- **The `k0 != h` map at large angles combined with `k1` and rotated faces** is exercised
+  only through the symmetry, not against a reference at those settings — `xt.Bend`'s legs
+  here are gradient-free. The symmetry is exact, so this is a coverage statement rather
+  than a suspected gap.
+- **MAD-X is not a leg for Q2 at all.** Q1 already established that its `TWISS, TAPERING`
+  reads `ktap` identically zero on this ring with tapering on and off; nothing was added
+  here that would change that, and its untapered `pt` column remains an arbiter for the
+  *profile* only.
 
 ## Toolchain / environment notes
 

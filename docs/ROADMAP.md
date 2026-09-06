@@ -33,9 +33,19 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | N | spin | N1–N5 | — |
 | O | normalised coordinates, driving terms | O1–O6 | — |
 | P | the map beyond first order | **P1** (2026-09-02); **P2 (i)-(iv)** all four second-order gaps closed; **P3 (a)** the rotated face (2026-09-03); **P3 (b)** the gradient face (2026-09-05) | axis P complete |
-| Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06) | **Q2** — applying it, which needs a bend whose field is separable from its geometry |
+| Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06); **Q2** applying it (2026-09-06) | axis Q complete |
 
-**Axis Q is open. Q1 — the taper profile — shipped on 2026-09-06, and Q2 — applying it — is the candidate to read.** It was chosen on 2026-09-06 by re-running the project's filter with axis P complete: tapering is absent from `src/accsim` entirely, `xtrack`'s `compensate_radiation_energy_loss()` collapses the radiation orbit on I4's own ring by a factor **14,300**, and MAD-X's untapered `pt` column is a second, independent view of the same sawtooth. Axis Q is cross-listed on B: it is not a new radiation effect but the machine correcting a distortion its own radiation inflicts. **Axis P is complete.** P3 (b) — the *gradient* face, the
+**Axis Q is complete.** Q1 — the taper profile — and Q2 — applying it — both shipped on
+2026-09-06. The axis was chosen that day by re-running the project's filter with axis P
+complete: tapering was absent from `src/accsim` entirely, `xtrack`'s
+`compensate_radiation_energy_loss()` collapses the radiation orbit on I4's own ring, and
+MAD-X's untapered `pt` column is a second, independent view of the same sawtooth. Axis Q is
+cross-listed on B: it is not a new radiation effect but the machine correcting a distortion
+its own radiation inflicts. **No axis is open; the next session starts by re-running the
+filter.** `line.survey()` — the ring's geometry in laboratory coordinates — remains the
+recorded gap it was when P's filter measured it, with two arbiters agreeing on ring closure
+to `4e-15`; intra-beam scattering still has no arbiter here (`xfields` absent) and third
+order still has exactly one (PTC at `no = 3`). **Axis P is complete.** P3 (b) — the *gradient* face, the
 multipole fringe — shipped on 2026-09-05, and with it the last `NotImplementedError` P2 (i)
 raised. `Quadrupole(..., fringe=True)` now exists (a plain quadrupole had no faces at all
 before), and `Dipole(..., k1=..., fringe=True)` composes the whole five-map face. Its
@@ -5308,7 +5318,9 @@ against `accsim`'s exports. What the run settled:
 
 - **Tapering** is absent from `src/accsim` entirely (`grep` finds no `taper` anywhere) and
   `line.compensate_radiation_energy_loss()` works here: on the I4 ring it collapses the
-  radiation orbit from `7.0898e-3` to `4.9599e-7`, a factor **14,300**.
+  radiation orbit from `7.0898e-3` to `4.9599e-7`, a factor **14,300**. ⚠️ **Corrected by
+  Q2:** measured against a radiation twiss rather than the routine's own report it is
+  `9.70e-11`, a factor **7.3e7** — see Q2 below.
 - **`line.survey()`** — the ring's geometry in laboratory coordinates — remains the real gap
   it was when P's filter measured it, with two arbiters that agree on ring closure to
   `4e-15`. It is still geometry rather than dynamics, and it is still recorded rather than
@@ -5378,7 +5390,8 @@ there was the fixture, not the tool).
   **What is refused, in the manner O2 established.**
   - **MAD-X's `TWISS, TAPERING` is not a leg, and the measurement says so.** On this ring
     `ktap` reads identically zero with tapering on *and* off, and `|x|max` moves
-    `7.0882e-3 -> 7.0352e-3` — under 1%, where xtrack collapses the same orbit by 14,300.
+    `7.0882e-3 -> 7.0352e-3` — under 1%, where xtrack collapses the same orbit by 14,300
+    (7.3e7 on Q2's remeasurement; either way the refusal stands by orders).
     Its untapered `pt` column is an arbiter for the **profile**; its tapering is not an
     arbiter for anything. This is P3 (b)'s refusal of PTC in the same shape: naming which
     half of a reference code can see the milestone is worth more than counting the codes.
@@ -5459,23 +5472,90 @@ there was the fixture, not the tool).
   skips rather than fails when a loaded box cannot launch one, which it did once and did not
   on the re-run.
 
-- **Q2 (candidate) — the tapered lattice: a bending magnet whose field is not its geometry.**
-  Effort **M**. What Q1 computes, applied: `taper(lattice) -> Lattice`, a new-lattice sibling
-  in O6's sense (the idiom already exists twice — `orbit._with_offset`,
-  `radiation._coupling_off_lattice`), with the pre-committed gate that
-  `closed_orbit_6d(radiation="mean")` on the tapered ring falls from **7.09 mm to below a
-  micron**, plus the `1.01` deliberate break moving the residual by `1%` of the untapered
-  distortion.
+- **Q2 — the tapered lattice: a bending magnet whose field is not its geometry.**
+  ✅ **SHIPPED (2026-09-06).** `Dipole` carries **`k0`** alongside `angle`, and
+  `accsim.tapering.taper(lattice) -> Lattice` returns a new ring with every magnet's field
+  set to the momentum the beam has there. Effort **M**, as estimated. Full detail in
+  `docs/CONVENTIONS.md` → *Applying the taper*.
 
-  **Its central object is named, and it is why it is not Q1.** `Dipole` stores `angle`, so
-  its field and its curvature are the same number: `k0 = h = angle/L`. A tapered bend has
-  `k0 = h(1+delta_t)` with `h` **unchanged** — the geometry is the ring's, not the magnet's,
-  and the bends must still sum to `2 pi`. The shortcut of evaluating the existing map at an
-  effective momentum was checked symbolically and **refuted**: it reproduces the drive term
-  `G = h - k0/(1+delta)` exactly but scales the weak-focusing `h^2` along with the gradient,
-  leaving `h^2 delta_t/(1+delta)` — `1.2e-4` relative on `K_x`, a hundred times a `1e-6`
-  gate. So Q2 is surgery on the element carrying F2, P2 (i), P3 (a) and P3 (b), and it gets
-  its own milestone for the same reason I2 and J3 did.
+  **Its central object was named in advance and it held.** `Dipole` stored `angle`, so its
+  field and its curvature were the same number, `k0 = h = angle/L`. A tapered bend has
+  `k0 = h(1+delta_t)` with `h` **unchanged** — the geometry belongs to the ring (the bends
+  must still sum to `2 pi`) and the field belongs to the beam. The shortcut of evaluating
+  the existing map at an effective momentum was refuted before the milestone opened and the
+  refutation is now a test with a consequence attached: a bend's horizontal focusing is
+  `K_x = k0 h + k1`, a **product** of field and geometry of which only the field tapers, so
+  tapering the gradient alone is short by `h^2 t = 9.86e-5` and puts the magnet's own
+  matched particle `3.04e-4` m off the axis across one metre of bend, where the shipped
+  magnet leaves it there at `1e-17`. (The entry's `1.2e-4` was the same quantity at a
+  different working point.)
+
+  **The finding that made the milestone small is an exact symmetry, and it was not in the
+  entry.** Scale every field by `s` and leave the geometry alone: with `px = s P` and
+  `1 + delta = s(1 + delta')` the bend Hamiltonian obeys
+  `H_tapered(x, px, y, py; delta) = s H_nominal(x, P, y, Q; delta')`, so **a tapered magnet
+  maps the transverse coordinates exactly as the design magnet does at the rescaled
+  momentum.** Writing `_track_body` as that rescaling meant **not one line** of F2, L3, L4,
+  P2 (i), P3 (a) or P3 (b) had to move — the exact circle, the expanded combined-function
+  body, the faces, the fringes and the wedges all come through untouched. The entry had
+  expected "surgery on the element carrying F2, P2 (i), P3 (a) and P3 (b)"; the surgery
+  turned out to be one wrapper.
+
+  **The one row the symmetry does not carry is `zeta`**, and its gate had to be built
+  somewhere I4 cannot reach. The two magnets share a trajectory and therefore a path
+  length; `zeta = s − beta_0 c t` turns that into a time with the wrong momentum, and
+  `dzeta = L − (beta_0/beta) P` fixes the row with no freedom left. The correction is
+  `O(t/gamma^2)` — `1e-11` of the length on I4's 6.5 GeV electrons, where **nothing
+  measured could see it**. So the `zeta` gate is a `gamma = 1.6` proton fixture, against
+  `xt.Bend` and against a Cartesian Lorentz-force integration. That is Q1's abandoned 1 GeV
+  probe repeated deliberately, from the other side.
+
+  **Two candidate linear maps, both symplectic, and symplecticity is blind to the choice.**
+  The naive truncation about the reference curve is generated by a quadratic Hamiltonian
+  and so is symplectic — and is *wrong*: at `k0 = 0` a field-free curved region acquires a
+  dispersion `h L^2/2` it cannot have, because the truncation drops a `px delta` term that
+  the constant drive makes first order. The shipped map is the similarity
+  `S M_nominal S^-1`, expanded at `delta = t` rather than `delta = 0`: **a tapered magnet's
+  linear map is the map it presents to the beam it was tapered for**. The departure at
+  `delta = 0` is first order in the taper (`1.10 t`, constant to 1% over a factor eight) and
+  is the magnet being genuinely mis-set, which is also where `Element.kick` becomes non-zero
+  for a perfectly aligned *magnet* for the first time in the package.
+
+  **The pre-committed gate was missed by the object the entry named, and localising it was
+  the milestone's real result.** The entry pre-committed "7.09 mm to below a micron". One
+  application of Q1's profile stops at **`6.83e-6` m** — and the residual is `0.4688 span^2`,
+  constant to four figures over a factor eight in span. It is not the magnets' length
+  (slicing every bend into four moves it by under 1%) and not a centring error (a constant
+  offset moves it by under 10%, since a uniformly rescaled ring simply finds a new
+  closed-orbit momentum at fixed RF frequency). **The taper is a fixed point, not a
+  formula**: re-deriving the profile from the *tapered* ring's own closed orbit and
+  re-applying it from the design strengths gives `5.51e-9` m, and a third round `1.00e-10`
+  m. Each round removes one power of the sag — `1.858 span`, `0.4688 span^2`,
+  `0.104 span^3` — and **the exponent is the gate** (J2's rule), because a taper wrong by a
+  coefficient leaves a residual first order in the sag that no number of rounds removes.
+
+  **A number in Q1's own entry is corrected.** It recorded xtrack collapsing this orbit "by
+  a factor 14,300", to `4.96e-7`. Measured against a radiation twiss, xtrack's
+  `compensate_radiation_energy_loss` collapses it by **7.3e7**, to `9.70e-11` — accsim's
+  third round to 3%, and the reason `rounds` defaults to three rather than two. The larger
+  residual belonged to that probe, not to xtrack.
+
+  **The trap the `rounds` argument exists for, asserted so it stays asserted.** Tapering
+  does not shrink the sawtooth — the ring radiates exactly as much as before, and it is the
+  *orbit* that goes away, not the ramp. So feeding a tapered ring back through `taper` with
+  a fresh profile applies the correction twice and returns the ring to the distortion it
+  started with, to a tenth of a percent.
+
+  **Arbiters.** `xt.Bend` with `k0` and `angle` given separately — the direct arbiter for
+  the object this milestone creates, agreeing to **`7.5e-17`** at two energies and tapers to
+  `-5%`; a Cartesian Lorentz-force integration in the laboratory frame (`2e-14` in position,
+  `9e-14` in `zeta`), which is the only gate that shares nothing with a map built *from* the
+  symmetry; and xtrack's `compensate_radiation_energy_loss` on the ring. **MAD-X is not a
+  leg**, for the reason Q1 established and re-states here. **Suite totals: 1642 analytic**
+  (from 1601 — the whole difference is this milestone's forty-one tests) **and 386
+  reference** (from 382 — four xtrack), all passing. The 44-minute full analytic run
+  reported 1640 and predates the last two tests, which were run with the rest of the
+  tapering files afterwards; nothing outside the two tapering test files calls `taper`.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

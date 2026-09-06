@@ -469,9 +469,7 @@ def test_nothing_first_order_moves_on_a_gradient_bend_either(ref) -> None:
     #    -- a ring of like-signed combined bends is vertically unstable, and an
     #    UnstableLatticeError would have made this gate pass by never running.
     def ring(fringe: bool) -> Lattice:
-        return Lattice(
-            [bend(fringe, +1.0), Drift(0.5), bend(fringe, -1.0), Drift(0.5)] * 2, ref
-        )
+        return Lattice([bend(fringe, +1.0), Drift(0.5), bend(fringe, -1.0), Drift(0.5)] * 2, ref)
 
     off, on = ring(False), ring(True)
     assert np.array_equal(off.one_turn_matrix(), on.one_turn_matrix())
@@ -538,13 +536,13 @@ def test_the_gradient_free_face_is_untouched_bit_for_bit(state: np.ndarray, ref)
     h, e1, e2 = 0.3 / 1.0, 0.08, 0.05
     bend = Dipole(1.0, 0.3, e1=e1, e2=e2, fringe=True)
 
-    got_entry = bend._face(state, e1, ref, exit_face=False)
+    got_entry = bend._face(state, e1, ref, bend.k1, exit_face=False)
     want_entry = wedge_map(
         hard_edge_fringe_map(wedge_map(state, e1, 0.0, ref), h, ref), -e1, h, ref
     )
     assert np.array_equal(got_entry, want_entry)
 
-    got_exit = bend._face(state, e2, ref, exit_face=True)
+    got_exit = bend._face(state, e2, ref, bend.k1, exit_face=True)
     want_exit = wedge_map(
         hard_edge_fringe_map(wedge_map(state, -e2, h, ref), -h, ref), e2, 0.0, ref
     )

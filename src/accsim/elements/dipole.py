@@ -789,6 +789,46 @@ class Dipole(Element):
     angle, and at the origin the exact map's Jacobian *is* the linear matrix — measured
     at ``4.9e-15`` with a ``1e-7`` finite difference, improving as the step shrinks.
 
+    Tapering: the field and the geometry come apart (Q2)
+    ----------------------------------------------------
+    ``k0`` is the magnet's **field** [m^-1] and defaults to the curvature ``h = angle/L``,
+    which is the design magnet. A ring that radiates runs its beam at a different momentum
+    in every magnet, and *tapering* sets ``k0 = h(1 + delta_t)`` so the particle at
+    ``delta_t`` feels the nominal magnet again -- with ``h`` **unchanged**, because the
+    geometry belongs to the ring (the bends must still sum to ``2 pi``) and the field
+    belongs to the beam. :func:`~accsim.tapering.taper` is what builds such a ring;
+    ``angle = 0`` with a field raises, since the whole construction is the ratio ``k0/h``.
+
+    **The map is an exact symmetry of the design map, not a new one.** Scale every field by
+    ``s`` and leave ``h`` alone; then with ``px = s P``, ``py = s Q`` and
+    ``1 + delta = s (1 + delta')``,
+
+        H_tapered(x, px, y, py; delta)  =  s * H_nominal(x, P, y, Q; delta')
+
+    since ``s`` factors out of the square root and out of the whole vector potential
+    together. The ``s`` cancels in Hamilton's equations, so a tapered magnet maps
+    ``(x, px, y, py)`` **exactly** as the design magnet of gradient ``k1/s`` maps
+    ``(x, P, y, Q)``. :meth:`_track_body` is written as that rescaling, which is why the
+    exact circle, the expanded body, the faces, the fringes and the wedges above all apply
+    unchanged and none of them knows a taper exists. Checked against ``xt.Bend`` (which
+    takes ``k0`` and ``angle`` separately) to ``7.5e-17``, and against a Cartesian
+    Lorentz-force integration to ``2e-14``.
+
+    ``zeta`` is the one row the symmetry does not carry -- see :meth:`_tapered_zeta`.
+
+    **Its linear map is expanded at ``delta = t``, not at the origin**
+    (:meth:`_taper_affine`): a tapered magnet's matrix is the map it presents to the beam
+    it was tapered for. So ``matrix`` is the exact origin Jacobian of ``track`` *there*, and
+    departs from the ``delta = 0`` Jacobian by ``1.10 t`` (``0.99 t`` with no gradient) --
+    first order in the taper, and it is the magnet being genuinely mis-set for the design
+    particle. That mis-setting is also this element's :meth:`_kick_body`: a tapered bend is
+    the first perfectly aligned **magnet** in the package with a non-zero kick.
+
+    ⚠️ **The raw symplecticity check fails on a tapered matrix, by ``O(t/gamma^2)``**, and
+    that is the coordinates rather than the map: ``(zeta, delta)`` is canonically conjugate
+    only where ``ddelta/dp_zeta = 1``, i.e. at ``delta = 0`` exactly. In ``(zeta, p_zeta)``
+    it is symplectic to ``2e-16``. See ``docs/CONVENTIONS.md`` -> *Applying the taper*.
+
     **A bending dipole refuses to be displaced** (K1), and the refusal is measured
     rather than cautious. K1's misalignment is the translation ``d + body(state - d)``
     — one translation in, the same one back out — which is right for a *straight*
@@ -841,6 +881,7 @@ class Dipole(Element):
         e2: float = 0.0,
         name: str | None = None,
         *,
+        k0: float | None = None,
         fringe: bool = False,
         dx: float = 0.0,
         dy: float = 0.0,
@@ -854,6 +895,15 @@ class Dipole(Element):
         self.e1 = float(e1)
         self.e2 = float(e2)
         self.fringe = bool(fringe)
+        #: Field strength [m^-1], **separate from the geometry** since Q2. Defaults to
+        #: the curvature ``h = angle/L``, which is the design magnet.
+        self.k0 = self.curvature if k0 is None else float(k0)
+        if self.angle == 0.0 and self.k0 != 0.0:
+            raise NotImplementedError(
+                f"Dipole {self.name!r} has angle=0 and k0={self.k0}: a field with no "
+                "geometry is a steering magnet, not a tapered bend. Q2's field/geometry "
+                "split is the ratio k0/h and has no meaning at h = 0 — use a Corrector"
+            )
 
     @property
     def frame_rotation_angle(self) -> float:
@@ -876,21 +926,93 @@ class Dipole(Element):
         """Bending radius ``rho = L/theta`` [m] (``inf`` for a straight dipole)."""
         return self.length / self.angle if self.angle != 0.0 else math.inf
 
-    def _arc_matrix(self, ref: ReferenceParticle) -> np.ndarray:
-        """The bare bend body (no edges)."""
+    @property
+    def is_tapered(self) -> bool:
+        """Is the field set to anything other than the geometry? (Q2)"""
+        return self.k0 != self.curvature
+
+    @property
+    def field_ratio(self) -> float:
+        r"""``s = k0 / h``: the field divided by the geometry it is bent in (Q2).
+
+        Exactly ``1.0`` for every design magnet, and ``1 + delta_t`` for one tapered to
+        a beam running at ``delta_t``. It is the only number the **maps** see the taper
+        through: :meth:`_track_body` and :meth:`_matrix_body` both reduce a tapered bend
+        to the design bend of gradient ``k1/s`` seen at the rescaled momentum, which is
+        an exact symmetry of the bend Hamiltonian and not an approximation. See the
+        class docstring, *Tapering*.
+
+        :meth:`normalized_field` is the exception and it is deliberate: radiation and spin
+        read the field itself, so they see ``k0`` and not this ratio. That is the seam the
+        symmetry does not cover — a ring tapered for a loss it is not taking would gate
+        nothing.
+        """
+        h = self.curvature
+        return 1.0 if h == 0.0 else self.k0 / h
+
+    @property
+    def taper(self) -> float:
+        r"""``k0/h - 1``: how far the field is set above the geometry (Q2).
+
+        Formed as ``(k0 - h)/h`` rather than ``k0/h - 1`` so that a taper of ``4e-3``
+        keeps every digit it was given -- the numerator is a difference of two nearby
+        floats and is therefore exact, where the other order cancels a number of size
+        one against itself.
+        """
+        h = self.curvature
+        return 0.0 if h == 0.0 else (self.k0 - h) / h
+
+    @property
+    def nominal_k1(self) -> float:
+        """The gradient of the design magnet this one is a tapering of: ``k1 / s``."""
+        return self.k1 / self.field_ratio
+
+    def _tapered_zeta(
+        self, dzeta_nom: np.ndarray, delta: np.ndarray, ratio: float, ref: ReferenceParticle
+    ) -> np.ndarray:
+        r"""The one row the tapering symmetry does **not** carry: ``zeta`` (Q2).
+
+        The symmetry maps a tapered magnet onto the design magnet at a rescaled
+        momentum, and the two share a *trajectory* exactly -- so they share the path
+        length ``P`` too. What they do not share is the clock: ``zeta = s - beta_0 c t``
+        turns that path into a time with the particle's **own** speed, and the design
+        magnet was handed the wrong momentum for that. Since
+
+            dzeta = L - (beta_0 / beta) P
+
+        holds identically for every map in this element (checked against a Cartesian
+        path-length quadrature to ``1e-13``), eliminating the shared ``P`` gives
+
+            L - dzeta_tapered = r (L - dzeta_nominal),     r = beta(p/s) / beta(p),
+
+        which is this function. ``1 - r`` is formed as ``m^2 (s^2 - 1) / (A(A+B))`` --
+        the difference of the two square roots rationalised -- because it is the
+        difference of two numbers of size one and is ``O(1/gamma^2)`` small: on I4's
+        6.5 GeV ring it is ``1e-11`` of ``L``, which is why the ``zeta`` row of this
+        milestone is gated on a low-``gamma`` proton fixture and not on I4.
+        """
+        m = ref.mass_eV
+        pc = ref.momentum_eV * (1.0 + np.asarray(delta, dtype=float))
+        big = np.hypot(pc, ratio * m)
+        small = np.hypot(pc, m)
+        one_minus_r = m * m * (ratio * ratio - 1.0) / (big * (big + small))
+        return self.length * one_minus_r + (1.0 - one_minus_r) * dzeta_nom
+
+    def _arc_matrix(self, ref: ReferenceParticle, k1: float) -> np.ndarray:
+        """The bare bend body (no edges), for a magnet of gradient ``k1``."""
         L = self.length
         theta = self.angle
         M = np.eye(DIM)
 
         # Straight limit with no gradient: a zero-angle "bend" is just a drift.
-        if theta == 0.0 and self.k1 == 0.0:
+        if theta == 0.0 and k1 == 0.0:
             M[X, PX] = L
             M[Y, PY] = L
             M[ZETA, DELTA] = L / ref.gamma0**2
             return M
 
-        if self.k1 != 0.0:
-            return self._combined_function_body(ref)
+        if k1 != 0.0:
+            return self._combined_function_body(ref, k1)
 
         # Pure sector bend (no gradient): the original closed form, byte-identical.
         h = theta / L  # = 1/rho
@@ -912,7 +1034,7 @@ class Dipole(Element):
         M[ZETA, DELTA] = s / h - L + L / ref.gamma0**2
         return M
 
-    def _combined_function_body(self, ref: ReferenceParticle) -> np.ndarray:
+    def _combined_function_body(self, ref: ReferenceParticle, k1: float) -> np.ndarray:
         r"""Body map with a quadrupole gradient ``k1`` (``exp(L*A)``, closed form).
 
         Equations of motion ``x'' + (h^2 + k1) x = h*delta``, ``y'' - k1 y = 0``:
@@ -924,11 +1046,11 @@ class Dipole(Element):
         """
         L = self.length
         h = self.curvature
-        Kx = h * h + self.k1
+        Kx = h * h + k1
         M = np.eye(DIM)
         # Transverse blocks: Hill equation with K_x (x) and K_y = -k1 (y).
         M[np.ix_([X, PX], [X, PX])] = _focusing_block(Kx, L)
-        M[np.ix_([Y, PY], [Y, PY])] = _focusing_block(-self.k1, L)
+        M[np.ix_([Y, PY], [Y, PY])] = _focusing_block(-k1, L)
         # Dispersion (driven by the h*delta term) and its symplectic partners.
         c1, s1, c2 = _dispersion_integrals(Kx, L)
         r16, r26 = h * c1, h * s1
@@ -939,13 +1061,78 @@ class Dipole(Element):
         M[ZETA, DELTA] = L / ref.gamma0**2 + h * h * c2
         return M
 
-    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
-        body = self._arc_matrix(ref)
+    def _nominal_matrix(self, ref: ReferenceParticle) -> np.ndarray:
+        """The **design** magnet's 6x6: gradient ``k1/s``, field equal to the geometry.
+
+        The whole of :meth:`_matrix_body` when the magnet is not tapered, and the object
+        the taper conjugates when it is.
+        """
+        body = self._arc_matrix(ref, self.nominal_k1)
         if self.e1 == 0.0 and self.e2 == 0.0:
             return body  # pure sector: byte-identical to the original map
         h = self.curvature
         # Entrance edge acts first: M = Edge(e2) @ Body @ Edge(e1).
         return _edge_matrix(h, self.e2) @ body @ _edge_matrix(h, self.e1)
+
+    def _taper_affine(self, ref: ReferenceParticle) -> tuple[np.ndarray, np.ndarray]:
+        r"""``(matrix, kick)`` of a tapered bend, by conjugating the design magnet (Q2).
+
+        The tapering symmetry (class docstring) says the tapered magnet's map **is** the
+        design magnet's, read through the momentum rescaling
+        ``S = diag(1, s, 1, s, 1, s)``. So the linear part is the similarity
+        ``S M_nominal S^-1`` -- symplectic for free, since ``S`` scales the whole form by
+        one factor -- and the constant part is what the rescaling does to ``delta``
+        alone: a magnet set for ``delta = s - 1`` is *mis-set* for the design particle by
+        exactly its own dispersion, ``k = M_nominal[:, delta] (1/s - 1)`` carried out
+        through ``S``.
+
+        **The expansion point is ``delta = s - 1``, not ``delta = 0``, and that is a
+        statement rather than a convenience:** a tapered magnet's linear map is the map
+        it presents to the beam it was tapered for. ``S M S^-1`` is the exact origin
+        Jacobian of :meth:`_track_body` *there* — see the class docstring for the
+        measured departure at ``delta = 0``.
+
+        The ``zeta`` row is the one the similarity does not carry (:meth:`_tapered_zeta`)
+        and is rebuilt here from ``r`` and ``dr/ddelta`` at that same point.
+        """
+        M = self._nominal_matrix(ref)
+        s = self.field_ratio
+        L = self.length
+        scaled = [PX, PY, DELTA]
+
+        A = M.copy()
+        A[:, scaled] /= s
+        k = M[:, DELTA] * (-self.taper / s)
+        A[scaled, :] *= s
+        k[scaled] *= s
+        # delta is untouched by the whole construction; assert it rather than divide it
+        # out and back, so the row is the identity to the last bit.
+        A[DELTA, :] = 0.0
+        A[DELTA, DELTA] = 1.0
+        k[DELTA] = 0.0
+
+        # zeta: r = beta(p/s)/beta(p) and its derivative, both at delta = s - 1.
+        m, pc = ref.mass_eV, ref.momentum_eV * s
+        big, small = math.hypot(pc, s * m), math.hypot(pc, m)
+        r = small / big
+        dr = r * ref.momentum_eV * pc * (s * s - 1.0) * m * m / (small * small * big * big)
+        A[ZETA, :] *= r
+        A[ZETA, ZETA] = 1.0
+        A[ZETA, DELTA] -= L * dr
+        k[ZETA] = L * (1.0 - r) - A[ZETA, DELTA] * self.taper
+        return A, k
+
+    def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
+        if not self.is_tapered:
+            return self._nominal_matrix(ref)
+        return self._taper_affine(ref)[0]
+
+    def _kick_body(self, ref: ReferenceParticle) -> np.ndarray:
+        """Zero unless the magnet is **tapered**, when its field is not its geometry and
+        the design particle is no longer a fixed point of it (Q2)."""
+        if not self.is_tapered:
+            return super()._kick_body(ref)
+        return self._taper_affine(ref)[1]
 
     def _alignment_exit(self, ref: ReferenceParticle) -> tuple[np.ndarray, np.ndarray]:
         """The rigid motion that puts a **rolled bend's** exit face back (K2).
@@ -1038,26 +1225,53 @@ class Dipole(Element):
         """
         self._refuse_misalignment()
         st = np.asarray(state, dtype=float)
+        if not self.is_tapered:
+            return self._track_nominal(st, self.k1, ref)
+
+        # Tapered (Q2): the design magnet of gradient k1/s, seen at the rescaled
+        # momentum. An exact symmetry of the bend Hamiltonian, so every map below --
+        # the exact circle, the expanded body, the faces, the wedges -- comes through
+        # untouched, and none of F2/L3/L4/P2/P3 needs to know a taper exists.
+        s, t = self.field_ratio, self.taper
+        scaled = st.copy()
+        scaled[PX] = st[PX] / s
+        scaled[PY] = st[PY] / s
+        scaled[DELTA] = (st[DELTA] - t) / s
+        out = self._track_nominal(scaled, self.nominal_k1, ref).copy()
+        out[PX] *= s
+        out[PY] *= s
+        out[DELTA] = st[DELTA]
+        out[ZETA] = st[ZETA] + self._tapered_zeta(out[ZETA] - st[ZETA], st[DELTA], s, ref)
+        return out
+
+    def _track_nominal(self, st: np.ndarray, k1: float, ref: ReferenceParticle) -> np.ndarray:
+        """:meth:`_track_body` for a magnet whose field **is** its geometry."""
         h = self.curvature
         if self.fringe:
-            st = self._face(st, self.e1, ref, exit_face=False)
+            st = self._face(st, self.e1, ref, k1, exit_face=False)
         elif self.e1 != 0.0:
             st = _edge_matrix(h, self.e1) @ st
-        if self.k1 == 0.0:
+        if k1 == 0.0:
             st = exact_sector_bend_map(st, self.length, h, ref)
         else:
             half = 0.5 * self.length
-            st = expanded_cfd_map(st, half, h, self.k1, ref)
-            st = curvature_sextupole_kick(st, h * self.k1 * self.length)
-            st = expanded_cfd_map(st, half, h, self.k1, ref)
+            st = expanded_cfd_map(st, half, h, k1, ref)
+            st = curvature_sextupole_kick(st, h * k1 * self.length)
+            st = expanded_cfd_map(st, half, h, k1, ref)
         if self.fringe:
-            st = self._face(st, self.e2, ref, exit_face=True)
+            st = self._face(st, self.e2, ref, k1, exit_face=True)
         elif self.e2 != 0.0:
             st = _edge_matrix(h, self.e2) @ st
         return st
 
     def _face(
-        self, state: np.ndarray, e: float, ref: ReferenceParticle, *, exit_face: bool
+        self,
+        state: np.ndarray,
+        e: float,
+        ref: ReferenceParticle,
+        k1: float,
+        *,
+        exit_face: bool,
     ) -> np.ndarray:
         r"""One nonlinear pole face: the rotation, the fringes, the wedges (P3).
 
@@ -1091,7 +1305,6 @@ class Dipole(Element):
         dispersion and the chromaticity are untouched. See the class docstring.
         """
         h = self.curvature
-        k1 = self.k1
         if exit_face:
             st = wedge_map(state, -e, h, ref)
             st = quad_wedge_map(st, -e, k1)
@@ -1118,13 +1331,14 @@ class Dipole(Element):
         The pole-face edges are thin, so they contribute no field here — a zero-length
         kick has no path to radiate over (see :mod:`accsim.radiation_kick`).
         """
-        h = self.curvature
-        return self.k1 * np.asarray(y, dtype=float), h + self.k1 * np.asarray(x, dtype=float)
+        return self.k1 * np.asarray(y, dtype=float), self.k0 + self.k1 * np.asarray(x, dtype=float)
 
     def __repr__(self) -> str:
+        field = f", k0={self.k0}" if self.is_tapered else ""
         grad = f", k1={self.k1}" if self.k1 else ""
         edges = f", e1={self.e1}, e2={self.e2}" if (self.e1 or self.e2) else ""
         fr = ", fringe=True" if self.fringe else ""
         return (
-            f"Dipole(length={self.length}, angle={self.angle}{grad}{edges}{fr}{self._repr_tail()})"
+            f"Dipole(length={self.length}, angle={self.angle}"
+            f"{field}{grad}{edges}{fr}{self._repr_tail()})"
         )
