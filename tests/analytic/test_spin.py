@@ -286,11 +286,11 @@ def test_a_quadrupole_at_a_vertical_offset_pins_the_one_plus_g_gamma_factor():
 def test_the_parallel_term_is_the_projection_of_omega_on_the_direction_of_motion():
     r"""``Omega . i_hat = -(1 + G) (b . i_hat) / (1 + delta)``, exactly.
 
-    Every element whose field this function can be handed is a purely transverse one, which
-    makes it tempting to read the ``(1 + G)`` term as dead code awaiting a solenoid. (S1
-    shipped a :class:`~accsim.elements.solenoid.Solenoid`, and it is the one element that
-    cannot be handed over: its ``normalized_field`` raises rather than report a silent zero
-    for a field the accessor has no component for. Spin in a solenoid is S2.) It is not:
+    Every element whose field this function is handed *here* is a purely transverse one,
+    which makes it tempting to read the ``(1 + G)`` term as dead code awaiting a solenoid.
+    (Since S2 the package has one, and ``precession_vector`` takes its longitudinal field
+    through the ``bs`` keyword — which is why this test still says what it said before, on
+    a hand-built transverse field, rather than being superseded by it.) It is not:
     ``b_par`` is the component of ``b`` along the **direction of motion**, and a
     transverse field has one as soon as the particle has an angle. Projecting ``Omega``
     back onto ``i_hat`` isolates that coefficient exactly, since ``b_perp . i_hat`` is
@@ -482,9 +482,11 @@ def test_a_straight_magnets_field_agrees_with_its_own_momentum_kick(make):
 
     Bends are excluded on purpose: there the curvilinear frame's own turn cancels the
     design field, so a sector bend's kick is zero while its field is ``h``. The
-    **solenoid** is excluded for the opposite reason and the exclusion is itself tested
-    below: it is as straight as any magnet here and it has a real momentum kick, but its
-    field is *longitudinal*, so there is no ``(bx, by)`` for this identity to be about.
+    **solenoid** is excluded for a different reason, and since S2 it is a reason with a
+    number attached rather than a missing accessor: its field is longitudinal, so the
+    two-component form of this identity has nothing to be about, and its *canonical*
+    momentum kick is only **half** the Lorentz force. The three-component restatement, and
+    that factor of two, are the test immediately below.
     """
     ref = electron()
     x, y = 2e-3, -1.3e-3
@@ -502,31 +504,73 @@ def test_a_straight_magnets_field_agrees_with_its_own_momentum_kick(make):
     assert residuals[-1] < 1e-4 * math.hypot(bx, by)
 
 
-def test_the_solenoid_is_the_straight_magnet_this_gate_cannot_reach():
-    """The scope line of the gate above, asserted rather than left in a docstring.
+def test_the_solenoid_joins_that_gate_in_three_components_and_at_half_the_kick():
+    r"""The scope line of the gate above, now that S2 has given it something to say.
 
-    A :class:`~accsim.elements.solenoid.Solenoid` is straight, has a momentum kick, and
-    would be the obvious fifth entry in that parametrisation — but its field points along
-    ``s``, and :meth:`~accsim.elements.element.Element.normalized_field` returns only the
-    transverse pair. It **raises** rather than answering ``(0, 0)``, which is what keeps
-    this whole axis from silently reporting no precession through a spin rotator, and that
-    refusal is what makes it uncheckable here rather than an omission.
+    The old version of this test asserted that a solenoid **could not** be checked: its
+    field points along ``s`` and :meth:`~accsim.elements.element.Element.normalized_field`
+    returned only the transverse pair, so it raised. Its own docstring promised that "if S2
+    ever gives the accessor an ``s`` component, this test fails and the solenoid can join
+    the list above with the identity restated in three components." That is what this is.
 
-    If S2 ever gives the accessor an ``s`` component, this test fails and the solenoid can
-    join the list above with the identity restated in three components.
+    In three components the identity is the Lorentz force itself,
+
+        ``d p_kin / ds -> v x b``,      ``v = (x', y', 1)``,
+
+    which for the transverse magnets above reduces to the ``(-b_y, +b_x)`` they are gated
+    on, since ``v x b = (−b_y, b_x, 0)`` for ``v ~ s_hat``. For a solenoid ``b = ks s_hat``
+    and it reduces instead to ``ks (y', -x')`` — nonzero only because the particle *has* a
+    transverse velocity, which off axis it does even entering with zero momentum.
+
+    And the discriminating half, which is S2 in one number: the **canonical** momentum's
+    rate is exactly *half* of that. The missing half is ``da/ds``, and a solenoid is the
+    only element in the package where it is not zero. A test that read the state vector's
+    ``px`` as the momentum would find the identity off by a factor of two and have nothing
+    to blame it on.
+
+    The convergence is **first** order here where the magnets above get second, and the
+    difference is the milestone again: those are entered at zero angle, so the leading
+    error cancels and the trajectory barely leaves the point the field was sampled at. A
+    solenoid entered with ``px = py = 0`` is *already moving*, at velocity ``-a``, so the
+    force starts changing immediately. A ratio of 2 per halving, measured, not 4.
     """
     from accsim import Solenoid
 
     ref = electron()
-    sol = Solenoid(1e-2, 0.6)
-    with pytest.raises(NotImplementedError, match="longitudinal"):
-        sol.normalized_field(2e-3, -1.3e-3)
+    ks = 0.6
+    x, y = 2e-3, -1.3e-3
+    state = np.array([x, 0.0, y, 0.0, 0.0, 0.0])
 
-    # ... and it is not that the magnet does nothing: it has a kick, in both planes.
-    state = np.array([2e-3, 0.0, -1.3e-3, 0.0, 0.0, 0.0])
-    out = sol._track_body(state, ref)
-    assert abs(out[1] - state[1]) > 1e-6
-    assert abs(out[3] - state[3]) > 1e-6
+    sol = Solenoid(1.0, ks)
+    bx, by = sol.normalized_field(x, y)
+    assert float(bx) == 0.0 and float(by) == 0.0  # nothing transverse to be about
+    bs = float(sol.longitudinal_field(x, y))
+    ax, ay = (float(v) for v in sol.normalized_vector_potential(x, y))
+
+    # entering with px = py = 0, the velocity is entirely the vector potential's doing
+    v = np.array([-ax, -ay, 1.0])
+    expected = np.cross(v, np.array([0.0, 0.0, bs]))[:2]
+
+    kinetic, canonical = [], []
+    for length in (1e-2, 5e-3, 2.5e-3):
+        out = Solenoid(length, ks)._track_body(state, ref)
+        a_out = np.array(
+            [float(t) for t in Solenoid(length, ks).normalized_vector_potential(out[0], out[2])]
+        )
+        d_can = np.array([out[1] - state[1], out[3] - state[3]]) / length
+        d_kin = (
+            np.array([out[1], out[3]]) - a_out - (np.array([state[1], state[3]]) - [ax, ay])
+        ) / length
+        kinetic.append(float(np.linalg.norm(d_kin - expected)))
+        canonical.append(float(np.linalg.norm(d_can - 0.5 * expected)))
+
+    for series in (kinetic, canonical):
+        for coarse, fine in zip(series, series[1:], strict=False):
+            assert coarse / fine == pytest.approx(2.0, rel=0.05)
+        assert series[-1] < 1e-2 * float(np.linalg.norm(expected))
+
+    # the factor of two is real, not a coincidence of these numbers
+    assert float(np.linalg.norm(expected)) > 1e-6
 
 
 def test_a_rolled_bend_refuses_rather_than_guessing():

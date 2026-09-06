@@ -113,13 +113,29 @@ class Solenoid(Element):
     behaves as K1 says: the matrix is untouched and the whole effect is the constant kick
     ``(I - M) d``.
 
+    The field, and the momentum that is not the velocity (S2)
+    ----------------------------------------------------------
+    S1 shipped this element with :meth:`normalized_field` **raising**, because the accessor
+    returns ``(bx, by)`` and had no ``s`` component to put a solenoid's field in. S2 gave
+    the package two sibling accessors instead of widening that one, and both are here:
+    :meth:`longitudinal_field` returns ``ks`` (read off xtrack's own analytic
+    ``Bz_T = ks * brho_0``, so it is not a choice made here), and
+    :meth:`normalized_vector_potential` returns the ``a`` the map above was derived from.
+    :meth:`normalized_field` now answers ``(0, 0)`` truthfully.
+
+    The second accessor is the milestone. A solenoid is the **first element in the package
+    whose stored momentum is not its velocity**: ``p_kin = p - a``, and ``a`` is first order
+    in the transverse amplitude — the same order as the perpendicular field. Both consumers
+    subtract it, and the statement that pins the sign needs no reference code at all: the
+    kinetic momentum reproduces the central-differenced tangent of this class's *own*
+    tracked trajectory to ``6.3e-11``, while the canonical momentum misses by ``|a|`` and
+    xtrack's ``magnet_spin`` (which flips the sign rather than dropping the term) by ``2|a|``.
+
     Refusals
     --------
-    :meth:`normalized_field` **raises**. The accessor returns ``(bx, by)`` and has no ``s``
-    component to put a solenoid's field in, so the honest answer is not ``(0, 0)`` — that
-    would make :mod:`accsim.spin` report no precession in the one magnet that is a spin
-    rotator, and :mod:`accsim.radiation_kick` report no radiation for an off-axis particle.
-    Spin (and radiation) in a solenoid is a separate milestone that changes the accessor.
+    Sokolov-Ternov polarization in a solenoid: :mod:`accsim.radiation`'s integrand builds
+    its field direction from the transverse pair and sums over **bends only**, which is its
+    stated scope rather than a gap opened here (an off-axis quadrupole is outside it too).
 
     A solenoid also trips, by design, the *measured* coupling guards in :mod:`accsim.twiss`:
     :func:`~accsim.twiss.closest_tune_approach` and
@@ -223,25 +239,53 @@ class Solenoid(Element):
     def normalized_field(
         self, x: np.ndarray | float, y: np.ndarray | float
     ) -> tuple[np.ndarray | float, np.ndarray | float]:
-        """Refused: a solenoid's field has no transverse component to return.
+        """``(0, 0)`` — an ideal uniform solenoid has no transverse field, and now says so.
 
-        The accessor's contract is ``(bx, by)``, the field *across* the beam, because that is
-        what bends light and what a radiation kick needs. An ideal uniform solenoid's field
-        is ``(0, 0, ks)`` — entirely along ``s`` — so the truthful transverse answer is zero
-        and the truthful *physical* answer is not representable here at all.
+        S1 **raised** here, and the refusal was not pedantry: with no
+        :meth:`~accsim.elements.element.Element.longitudinal_field` to carry ``ks``, a
+        silent zero would have made :mod:`accsim.spin` report no precession through a spin
+        *rotator*. Since S2 the longitudinal component has somewhere to go, so zero is the
+        honest answer rather than the missing one, and the two consumers are told about the
+        field through the sibling accessors below.
 
-        Returning ``(0, 0)`` would be the worse of the two errors, because it is silent:
-        :mod:`accsim.spin` would report **no precession** through the one magnet that is
-        built to rotate spins, and :mod:`accsim.radiation_kick` would report no radiation for
-        an off-axis particle, which does radiate (its transverse velocity crosses ``B_s``).
-        Both consumers reach an element only through this method, so one refusal covers both.
+        ``dks_ds = 0`` for a uniform solenoid, so the transverse components really are
+        exactly zero — the fringe of a *ramped* solenoid is where they would come from, and
+        that element is not in this package.
         """
-        raise NotImplementedError(
-            f"Solenoid {self.name!r} has a purely longitudinal field, and "
-            "normalized_field() returns only the transverse (bx, by) components. Spin "
-            "precession and radiation in a solenoid need a field accessor with an s "
-            "component, which is a separate milestone (S2); returning (0, 0) here would "
-            "silently report no precession in a spin rotator."
+        zero = np.zeros_like(np.asarray(x, dtype=float))
+        return zero, zero
+
+    def longitudinal_field(self, x: np.ndarray | float, y: np.ndarray | float) -> np.ndarray:
+        """``b_s = ks``, uniform, and carrying no charge factor.
+
+        Not a judgement call: xtrack computes a solenoid's field analytically from the
+        strengths as ``Bz_T = ks * brho_0`` with ``brho_0 = p0c / c / q0``, so in this
+        package's normalisation ``b = B/(B rho)_0`` the answer is ``ks`` exactly. The
+        absence of ``q`` extends S1's charge-free finding from :meth:`matrix` to the field:
+        the coupling sense lives in ``ks``, and if it lived here too it would be applied
+        twice.
+        """
+        return np.full_like(np.asarray(x, dtype=float), self.ks)
+
+    def normalized_vector_potential(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        r"""``a = (-ks y / 2, +ks x / 2)`` — the same potential the map was derived from.
+
+        Its curl is ``ks`` along ``s``, which is the field above; the class docstring's
+        Hamiltonian derivation starts from this expression, so the element cannot hold two
+        inconsistent statements of its own field. It is what makes the stored (canonical)
+        momentum differ from the velocity, and the factor of ``1/2`` in it is the same one
+        that makes the *orbit* rotate at the Larmor rate while a spin precesses at the
+        cyclotron rate.
+
+        Linear in ``(x, y)``, which is what lets both consumers evaluate it once at the
+        midpoint of a traversal instead of averaging the two endpoints — the two are equal
+        to round-off, and the analytic suite asserts that rather than assuming it.
+        """
+        return (
+            -0.5 * self.ks * np.asarray(y, dtype=float),
+            0.5 * self.ks * np.asarray(x, dtype=float),
         )
 
     def __repr__(self) -> str:

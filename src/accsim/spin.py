@@ -214,6 +214,8 @@ def precession_vector(
     py: np.ndarray | float,
     delta: np.ndarray | float,
     ref: ReferenceParticle,
+    *,
+    bs: np.ndarray | float = 0.0,
 ) -> np.ndarray:
     r"""``Omega`` [rad/m] — the Thomas-BMT precession rate per unit path length.
 
@@ -227,21 +229,34 @@ def precession_vector(
     as the particle has a transverse angle. The term therefore enters at ``O(px b_x)``, and
     the analytic suite gates it at that order rather than waiting for a solenoid.
 
-    Since S1 the package *has* a :class:`~accsim.elements.solenoid.Solenoid`, and it is the
-    one element that cannot be given: its field is purely longitudinal, and
-    :meth:`~accsim.elements.element.Element.normalized_field` — which returns ``(bx, by)``
-    and nothing else — **raises** for it rather than reporting a silent zero. Spin in a
-    solenoid is S2, and it is an interface change, not a coefficient.
+    ``bs`` is the **longitudinal** component
+    (:meth:`~accsim.elements.element.Element.longitudinal_field`), zero for every element
+    except a :class:`~accsim.elements.solenoid.Solenoid` and defaulted so that no existing
+    caller changed when S2 added it. Two things about that milestone belong here:
+
+    - It was **not** the interface change this docstring used to predict. The vector ``b``
+      below was already assembled as a 3-vector and the ``b_par``/``b_perp`` split was
+      already the full 3D one, so a solenoid needed a new *sibling* accessor and not a
+      wider :meth:`~accsim.elements.element.Element.normalized_field`.
+    - The coefficient it does need is not in this function at all. ``px``/``py`` here are
+      the **kinetic** momentum, and inside a solenoid that is not what the state vector
+      stores; :func:`spin_precession` subtracts
+      :meth:`~accsim.elements.element.Element.normalized_vector_potential` before calling
+      in. Everything a caller can get wrong about a solenoid is on that line, not this one.
+
+    With ``bs != 0`` the whole of ``Omega``'s *transverse* part is a multiple of ``i_hat``
+    and the BMT coefficients cancel from its direction, which is the sharpest gate on S2
+    and needs no reference code.
     """
     bx = np.asarray(bx, dtype=float)
     by = np.asarray(by, dtype=float)
     delta = np.asarray(delta, dtype=float)
 
     i_hat = direction_of_motion(px, py, delta)
-    b = np.stack(np.broadcast_arrays(bx, by, np.zeros_like(bx + by)))
-    # b_par is the projection onto the direction of motion; b_perp is what is left. The
-    # longitudinal field is zero, so the dot product has only two terms -- but i_hat's
-    # third component still matters, through b_par's own s-component below.
+    b = np.stack(np.broadcast_arrays(bx, by, bs + np.zeros_like(bx + by)))
+    # b_par is the projection onto the direction of motion; b_perp is what is left. A
+    # transverse-only field still needs i_hat's third component, through b_par's own
+    # s-component below; a solenoid needs the third row of b as well.
     b_dot_i = np.einsum("i...,i...->...", b, i_hat)
     b_par = b_dot_i * i_hat
     b_perp = b - b_par
@@ -373,11 +388,21 @@ def spin_precession(
         mid_x = 0.5 * (before[X] + after[X])
         mid_y = 0.5 * (before[Y] + after[Y])
         bx, by = element.normalized_field(mid_x, mid_y)
-        if not (np.all(bx == 0.0) and np.all(by == 0.0)):
-            mid_px = 0.5 * (before[PX] + after[PX])
-            mid_py = 0.5 * (before[PY] + after[PY])
+        bs = element.longitudinal_field(mid_x, mid_y)
+        if not (np.all(bx == 0.0) and np.all(by == 0.0) and np.all(bs == 0.0)):
+            # The direction of motion is built from the **kinetic** momentum, ``p - a``.
+            # For every element but a solenoid ``a`` is exactly zero and this subtraction
+            # is a no-op down to the bit; for a solenoid it is first order in the
+            # transverse amplitude -- the same order as the perpendicular field -- and it
+            # is the whole content of S2. Evaluated at the midpoint rather than averaged
+            # over the endpoints because ``a`` is linear, so the two are equal to
+            # round-off (asserted in tests/analytic/test_solenoid_spin.py) and this way
+            # ``a`` is sampled at the same point ``b`` is.
+            ax, ay = element.normalized_vector_potential(mid_x, mid_y)
+            mid_px = 0.5 * (before[PX] + after[PX]) - ax
+            mid_py = 0.5 * (before[PY] + after[PY]) - ay
             delta = after[DELTA]
-            omega = precession_vector(bx, by, mid_px, mid_py, delta, ref)
+            omega = precession_vector(bx, by, mid_px, mid_py, delta, ref, bs=bs)
             # The same path length the radiation kick integrates over: a longer
             # trajectory precesses further, and the two routes must not disagree about
             # how long the trajectory is.

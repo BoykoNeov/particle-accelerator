@@ -199,21 +199,28 @@ def _perpendicular_field(
     px: np.ndarray | float,
     py: np.ndarray | float,
     delta: np.ndarray | float,
+    bs: np.ndarray | float = 0.0,
 ) -> np.ndarray:
     r"""``|B_perp| / (B rho)_0`` — the part of the field the particle actually feels.
 
     Only the field component **perpendicular** to the velocity bends the trajectory and
-    so radiates. With the direction of motion ``i = (px, py, pz)/(1+delta)`` and a purely
-    transverse field ``(bx, by, 0)``, this is ``|b - (b.i) i|``. On the design orbit it
-    is just ``|b|``; the projection matters at the ``(x')^2`` level.
+    so radiates. With the direction of motion ``i = (px, py, pz)/(1+delta)`` and a field
+    ``(bx, by, bs)``, this is ``|b - (b.i) i|``. On the design orbit it is just ``|b|``;
+    the projection matters at the ``(x')^2`` level.
+
+    ``px``/``py`` are the **kinetic** momentum. ``bs`` is the longitudinal component (S2),
+    zero for everything but a solenoid — and there it is the *only* component, which
+    inverts the usual picture: a particle travelling straight down a solenoid's axis feels
+    no perpendicular field and radiates **exactly** zero, while one off axis radiates
+    because the field it crosses is entirely the one it is travelling along.
     """
     ix = np.asarray(px) / (1.0 + np.asarray(delta))
     iy = np.asarray(py) / (1.0 + np.asarray(delta))
     iz = np.sqrt(np.maximum(1.0 - ix * ix - iy * iy, 0.0))
-    b_par = bx * ix + by * iy  # the longitudinal field component is zero
+    b_par = bx * ix + by * iy + bs * iz
     ex = bx - b_par * ix
     ey = by - b_par * iy
-    ez = -b_par * iz
+    ez = bs - b_par * iz
     return np.sqrt(ex * ex + ey * ey + ez * ez)
 
 
@@ -347,11 +354,17 @@ def radiation_kick(
     mid_px = 0.5 * (before[PX] + after[PX])
     mid_py = 0.5 * (before[PY] + after[PY])
     bx, by = element.normalized_field(mid_x, mid_y)
-    if np.all(bx == 0.0) and np.all(by == 0.0):
+    bs = element.longitudinal_field(mid_x, mid_y)
+    if np.all(bx == 0.0) and np.all(by == 0.0) and np.all(bs == 0.0):
         return out  # no field, no radiation (a drift, or a bend switched off)
 
+    # The kinetic momentum, ``p - a`` -- exactly zero for every element but a solenoid,
+    # and there the same first-order term the spin precession subtracts (S2). It is
+    # xtrack's radiation path that this half agrees with; its *spin* path is the one that
+    # flips the sign, which is why the two halves of S2 have different reference legs.
+    ax, ay = element.normalized_vector_potential(mid_x, mid_y)
     delta = after[DELTA]
-    kappa = _perpendicular_field(bx, by, mid_px, mid_py, delta) / (1.0 + delta)
+    kappa = _perpendicular_field(bx, by, mid_px - ax, mid_py - ay, delta, bs) / (1.0 + delta)
 
     m = ref.mass_eV
     p = ref.momentum_eV * (1.0 + delta)

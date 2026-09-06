@@ -9031,14 +9031,15 @@ it should.
 
 ### Refusals, and the machinery that needed no change
 
-- **`normalized_field` raises.** The accessor's contract is `(bx, by)`, the field *across* the
-  beam, and an ideal solenoid's field is entirely along `s`. Returning `(0, 0)` would be the
-  worse error because it is silent: `accsim.spin` would report **no precession** through the
-  one magnet that is a spin rotator, and `accsim.radiation_kick` no radiation for an off-axis
-  particle (which does radiate — its transverse velocity crosses `B_s`). Both consumers reach
-  an element only through this method, so one raise covers both. **Spin and radiation in a
-  solenoid are S2**, and need a field accessor with an `s` component — an interface change
-  touching every element.
+- **`normalized_field` raised, until S2 — see the next section.** The accessor's contract is
+  `(bx, by)`, the field *across* the beam, and an ideal solenoid's field is entirely along
+  `s`. Returning `(0, 0)` would have been the worse error because it is silent: `accsim.spin`
+  would report **no precession** through the one magnet that is a spin rotator, and
+  `accsim.radiation_kick` no radiation for an off-axis particle (which does radiate — its
+  transverse velocity crosses `B_s`). S1 therefore raised; S2 gave the package somewhere to
+  put the longitudinal component, and the method now returns `(0, 0)` truthfully. S1's own
+  prediction that this would be "an interface change touching every element" was **wrong**,
+  and the correction is recorded below rather than quietly overwritten.
 - **`closest_tune_approach` and `resonance_driving_terms` raise `CoupledLatticeError`**, and
   that is correct rather than a gap. Both sum coupling sources by element *type*; a solenoid
   couples without being a skew quadrupole, so they would otherwise report `DeltaQ_min = 0` and
@@ -9108,8 +9109,161 @@ lengthening is quadratic, not linear.
 
 The **thin** solenoid (`ksi`), `VariableSolenoid` (a longitudinally varying `ks` and the
 transverse fringe fields its derivative implies), an **off-axis** solenoid (`x0`/`y0`), a
-solenoid carrying multipole components, a solenoid term in `closest_tune_approach`'s
-perturbative sum, and spin/radiation (S2).
+solenoid carrying multipole components, and a solenoid term in `closest_tune_approach`'s
+perturbative sum. Spin and radiation were on this list too; they are S2, in the section
+below, and everything else here is still out of scope.
+
+## The solenoid's field, spin and radiation (S2 — implemented)
+
+S1 shipped the solenoid's *map* and refused its *field*. S2 lands the field, the spin
+precession and the radiation built on it, and the taper the refusal cost. Two premises the
+roadmap carried into it were wrong, and both corrections are conventions rather than
+anecdotes.
+
+### It is two accessors, not a wider one — and the second is the milestone
+
+**`Element.longitudinal_field(x, y) -> b_s`** and
+**`Element.normalized_vector_potential(x, y) -> (a_x, a_y)`**, both defaulting to **exactly
+zero** on the base class. `normalized_field` keeps its two-component contract and **not one
+existing element file changed**. Widening it was never necessary: `accsim.spin`'s
+`precession_vector` already assembled `b` as a 3-vector and already did the full 3D
+`b_par`/`b_perp` split — the zero in its third slot was the only thing in the way.
+
+For a `Solenoid`: `b = (0, 0, ks)` and `a = (-ks y / 2, +ks x / 2)`.
+
+- **`b_s = ks` is not a judgement call.** xtrack computes a solenoid's field analytically
+  from the strengths — `evaluate_field_from_strengths` (`track_magnet_kick.h:368`) returns
+  `Bz_T = ks * brho_0` with `brho_0 = p0c / c / q0` — so in this package's normalisation
+  `b = B/(B rho)_0` the answer is `ks` exactly. It carries **no charge factor**, which
+  extends S1's charge-free finding from `matrix()` to the field; a `q` in both places would
+  apply the coupling sense twice.
+- **`dks_ds = 0`** for a uniform solenoid, so the transverse components really are exactly
+  zero. A *ramped* solenoid's fringe is where they would come from, and that element is not
+  in this package.
+- **`a` is the potential the S1 map was derived from**, so the element cannot hold two
+  inconsistent statements of its own field; `curl a = ks` is gated, not trusted.
+
+**The second accessor is the physics.** A solenoid is the **first element in the package
+whose stored momentum is not its velocity**. The 6D state carries *canonical* momenta;
+both consumers need the *kinetic* one, `p_kin = p - a`. Every element built before S2 has
+`a = 0` — a transverse field can be written with `A` along `s` — so the two had never
+disagreed and nothing caught the distinction. `a` is **first order in the transverse
+amplitude, the same order as the perpendicular field itself**, so this is not a small
+correction: it is comparable to the whole effect.
+
+### The sign is settled with no reference code, by S1's own map
+
+The trajectory's tangent, central-differenced from `Solenoid.track` at the magnet's
+midpoint, is reproduced by the **kinetic** momentum to **`6.3e-11`**, converging as the
+**cube** of the transverse amplitude (measured x8.00, x8.00, x7.99 — it is S1's recorded
+paraxial remainder and nothing else). The canonical momentum misses by `|a|` (**`5.46e-4`**)
+and xtrack's by `2|a|` (**`1.0921523557052653e-3`**, equal to `2|a_y|` to every digit), both
+**linear** in the amplitude. This leg routes through neither arbiter and is the milestone's
+sharpest statement.
+
+**The coefficient-free form, which is the end-to-end gate.** For a purely longitudinal
+field,
+
+    Omega = -(ks/(1+delta)) [ (1 + G gamma) s_hat - G (gamma - 1) i_z i_hat ],
+
+so `Omega`'s **transverse direction is the transverse direction of the motion and nothing
+else** — no `G`, no `gamma`, no path length, no `ks`. The axis extracted from the 3x3
+rotation `track_with_spin` applies therefore has to point along the finite-differenced
+tangent: measured **`1.2e-13`** at `L = 0.9`, rising to `6.3e-11` at `L = 0.056` as the
+central difference's own round-off grows. The canonical and xtrack momenta land **`1.4`-`1.6`
+away out of a maximum of `2`** — roughly a right angle out. Order-unity discrimination, and
+a test that re-implemented the BMT formula could not make the statement at all.
+
+### Two sampling conventions, and what each costs
+
+- **`a` is evaluated at the traversal midpoint**, the same point `b` is, rather than averaged
+  over the endpoints. The two are equal to round-off (`1e-19`) **because `a` is linear**, and
+  that linearity is asserted rather than assumed — it is the first thing to fail if a
+  non-uniform solenoid ever arrives.
+- **The precession is integrated over the *path* length, not the element length**, as every
+  other element's is. Against S1's paraxial map that is visible: at `G = 0` the identity "a
+  spin along the velocity stays along it" is **exact to round-off (`1.1e-19`) if integrated
+  over `L`**, and leaves **`3.86e-11`, third order in the amplitude (x8.00 per halving)**
+  over the path length. The path length is the correct Thomas-BMT statement — a spin
+  precesses per unit of arc — so the residual **is** S1's paraxial gap seen from the spin
+  side. Matching the map instead would have been the easier number and the wrong physics.
+
+### The `G = 0` identity is a blind control here, and the blindness is measured
+
+At `G = 0` the two BMT coefficients coincide, `Omega = -b/(1+delta)` whatever the direction
+of motion is, and the `b_par`/`b_perp` split drops out entirely. The three candidate momenta
+give **bit-identical** residuals at every amplitude. It remains a good control — it pins the
+sign of `Omega`, its magnitude and the path length, and it confirms S1's rigid rotation — but
+it **cannot** discriminate the question S2 is about. N1's catalogue of blind controls gains
+an entry.
+
+### xtrack uses the wrong momentum for spin in a solenoid, and this is asserted as a mechanism
+
+`magnet_spin` (`track_magnet_radiation.h:~143`) builds the direction of motion from
+`px + ax`, while **xtrack's own solenoid body** computes the kinetic momentum as
+`pk1 = px + sk*y` (= `px - ax`, `track_magnet_drift.h:427`) and **xtrack's own radiation
+path** uses `mean_kin_px` from `px - ax` (`track_magnet.h:97,108`). One code, two formulas
+for one quantity, and only the spin one disagrees with the definition of kinetic momentum.
+Three measurements identify it completely:
+
+| observation | value |
+| --- | --- |
+| the correct model's residual against xtrack | `2.883823e-03` |
+| the same residual at `n = 1, 2, 4, 8, 16` slices | `2.883823e-03` — **not a digit moves** |
+| its order in the transverse amplitude | **linear** (1.999, 2.000, 2.000) |
+| its order in `ks` | **quadratic**, but only asymptotically — see below |
+| accsim fed xtrack's own `px + ax` | reproduces xtrack to `5.235832e-06`, and that leftover is **second** order in the amplitude where the disagreement it replaces is first |
+
+Flat under refinement means a **model** difference, not a quadrature one; linear in
+amplitude and quadratic in `ks` is `ks (ks y)`, the shape of a vector-potential error rather
+than of a coefficient, a length or a quadrature. **No tolerance gate is pre-committed
+against xtrack's solenoid spin** — the disagreement is asserted the way N1 asserted
+xtrack's `sqrt(1 - ix*ix + iy*iy)`.
+
+**The `ks` exponent is contaminated, and by what.** xtrack's `magnet_spin` samples the
+momentum at the magnet's **exit**; accsim samples the traversal **mean**. Their difference
+is therefore `2a` *plus* an endpoint-sampling term of the same leading order and about
+**13%** of the size, so the ratio oscillates about 4 at working strengths (measured **4.44**
+then **3.60** over `ks = 0.6, 0.3, 0.15`) and settles on it only as `ks -> 0` (**3.955,
+3.978, 3.989** at `ks = 0.02, 0.01, 0.005`). Two consequences, both taken: the reference
+gate asserts a band that excludes 2 and 8 rather than a false `4.00`, and the sharp
+asymptotic law is gated **accsim-only** in the analytic suite, where the two candidate
+models can be swept to arbitrarily small `ks` without xtrack's own quadrature gap coming up
+underneath the signal. So the exponents establish that the error is **first order in the
+vector potential**; it is the **arbiter-free tangent** leg that identifies the *sign*.
+
+**One arbiter, and it is the disputed one.** MAD-X has no spin tracking, so N1-N5 all ran on
+xtrack alone; this is axis N's established condition rather than a new deficiency. It is why
+the discriminating gates above are arbiter-free.
+
+### Radiation is the clean half, and it unblocks the taper
+
+`|b_perp| = ks |i_t|` for a solenoid, so an **on-axis** particle radiates **exactly** zero —
+its velocity is parallel to the field — and an off-axis one radiates because its kinetic
+transverse momentum is `|a| = ks r / 2` even with zero canonical momentum. The loss is
+therefore **quadratic in the radius**, and an implementation that fed the *canonical*
+momentum to the perpendicular field would report zero off axis too. The on-axis half is the
+one a silent `(0, 0)` would have got right for the wrong reason; the off-axis half is the
+discriminating one.
+
+xtrack's radiation path uses the **correct** kinetic momentum, so radiation in a solenoid has
+an undisputed reference leg where spin has a disputed one.
+
+**`taper()` now works on a ring containing a solenoid**, which is what S1 recorded as the
+price of its refusal: `ks` scales by `1 + delta` at the magnet's own midpoint (Q2's fixed
+point, restated for a strength that is not a bend's), and the fixed-point solve still
+converges by orders per round with a solenoid in the ring.
+
+### What S2 still refuses
+
+- **`kinematic_slices` for the solenoid** — S1's paraxial gap, still open, still gated by its
+  cubic scaling.
+- **The thin solenoid, `VariableSolenoid`, an off-axis solenoid, multipole components on a
+  solenoid** — S1's list, unchanged.
+- **Sokolov-Ternov polarization in a solenoid.** `accsim.radiation`'s integrand builds its
+  field direction from the transverse pair and sums over **bends only**. That is its stated
+  scope rather than a gap opened here — an off-axis quadrupole is outside it too — and
+  extending it would need a statement about what `n_0` means in a spin rotator.
 
 ## Toolchain / environment notes
 

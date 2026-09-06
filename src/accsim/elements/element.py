@@ -394,6 +394,51 @@ class Element(abc.ABC):
         The default is no field at all, which is right for a drift, an aperture, a
         beam-beam kick and the RF cavity, and harmless for the thin elements (they have
         no length to radiate over — see :mod:`accsim.radiation_kick`).
+
+        The **longitudinal** component lives in :meth:`longitudinal_field`, which is a
+        sibling rather than a third return value: adding one would have broken every
+        caller and every existing implementation, and S2 measured that it did not need to
+        (:mod:`accsim.spin` already builds ``b`` as a 3-vector internally). A
+        :class:`~accsim.elements.solenoid.Solenoid` therefore answers ``(0, 0)`` here
+        truthfully, not evasively.
+        """
+        zero = np.zeros_like(np.asarray(x, dtype=float))
+        return zero, zero
+
+    def longitudinal_field(self, x: np.ndarray | float, y: np.ndarray | float) -> np.ndarray:
+        r"""The element's field **along** the beam at ``(x, y)``, normalised to ``(B rho)_0``.
+
+        Returns ``b_s`` in ``1/m``, the third component :meth:`normalized_field` has no
+        room for. Zero for every element in the package except the
+        :class:`~accsim.elements.solenoid.Solenoid`, which is the whole reason it exists
+        (S2) — and zero **exactly**, because both consumers use ``== 0.0`` to skip an
+        element with no field at all, and because gate 8 of that milestone is that no
+        existing number moves by a single bit.
+
+        A longitudinal field does not bend the design orbit, so nothing in the 6D map or
+        the survey reads this. What reads it is the spin precession (a solenoid is a spin
+        *rotator*) and the radiation kick (a particle with a transverse angle crosses
+        ``b_s`` and radiates).
+        """
+        return np.zeros_like(np.asarray(x, dtype=float))
+
+    def normalized_vector_potential(
+        self, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[np.ndarray, np.ndarray]:
+        r"""``(a_x, a_y)`` at ``(x, y)`` — the gap between the momentum the state vector
+        stores and the direction the particle actually travels.
+
+        The 6D state carries **canonical** momenta; the physics of both consumers is about
+        the **kinetic** one, ``p_kin = p - a``. For every element built before S2 the two
+        are identical, because a transverse field can be written with ``a`` pointing along
+        ``s`` and the transverse components vanish. A solenoid is the first element in the
+        package where they differ, and the difference ``a = (-ks y/2, +ks x/2)`` is *first
+        order in the transverse amplitude* — the same order as the perpendicular field
+        itself, so getting it wrong is not a small correction. It is also the term xtrack's
+        own ``magnet_spin`` gets the sign of wrong; see ``docs/ROADMAP.md`` under S2.
+
+        The default is zero, and it must be **exactly** zero for the same two reasons
+        :meth:`longitudinal_field`'s is.
         """
         zero = np.zeros_like(np.asarray(x, dtype=float))
         return zero, zero

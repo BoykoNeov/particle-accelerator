@@ -25,8 +25,12 @@ Ordered by how much each can catch:
     exact identity rather than a tolerance.
   * **Axial symmetry** — a roll does *nothing* to a solenoid, bit-for-bit. No other element
     in the package can say that.
-  * **The refusals**, each one a test: the field accessor, the two perturbative coupling
-    sums, and the uncoupled Courant-Snyder path.
+  * **The refusals**, each one a test: the two perturbative coupling sums and the
+    uncoupled Courant-Snyder path. The *field accessor* was a third until S2 landed it;
+    what stands in its place here is the assertion that it no longer refuses, and the
+    end-to-end taper that refusal used to cost. The physics S2 added — the longitudinal
+    field, the vector potential, and the spin and radiation built on them — is gated in
+    ``test_solenoid_spin.py``.
 
 The absolute conventions (the sign of the coupling, and that ``ks`` is charge-free) are
 pinned against xtrack and MAD-X in ``tests/reference/``; what is here is everything that can
@@ -462,23 +466,38 @@ def test_a_displacement_leaves_the_matrix_alone_and_lands_in_the_kick(
 
 
 # ==================================== the refusals ========================================
-def test_normalized_field_refuses(ref: ReferenceParticle) -> None:
-    """The field accessor raises rather than answering ``(0, 0)``.
+def test_the_field_accessor_no_longer_refuses_and_says_zero_truthfully(
+    ref: ReferenceParticle,
+) -> None:
+    """S1's refusal, and what became of it.
 
-    ``(bx, by)`` has no ``s`` component, and a solenoid's field is entirely along ``s``. A
-    silent zero would make :mod:`accsim.spin` report no precession through a spin *rotator*
-    and :mod:`accsim.radiation_kick` report no radiation for an off-axis particle. Both
-    consumers reach an element only through this method, so this one raise covers both — and
-    the two asserts below are what would fail if a future S2 gave the accessor an ``s``
-    component and forgot to revisit the refusal.
+    S1 made :meth:`~accsim.elements.solenoid.Solenoid.normalized_field` **raise**: ``(bx,
+    by)`` has no ``s`` component, a solenoid's field is entirely along ``s``, and a silent
+    zero would have made :mod:`accsim.spin` report no precession through a spin *rotator*.
+    S2 gave the package a sibling accessor for the longitudinal component, so ``(0, 0)`` is
+    now the honest transverse answer rather than the missing one, and this test is the
+    inverse of the one it replaces: **both** consumers must now do real work.
+
+    The physics is gated in ``test_solenoid_spin.py``; what is asserted here is only that
+    the refusal is gone and that nothing quietly took its place — a solenoid that returned
+    ``(0, 0)`` and *no* longitudinal field would pass the first three lines below and fail
+    the last two, which is exactly the failure the refusal existed to prevent.
     """
     sol = Solenoid(LENGTH, KS, name="ds")
-    with pytest.raises(NotImplementedError, match="longitudinal"):
-        sol.normalized_field(1e-3, 1e-3)
-    with pytest.raises(NotImplementedError):
-        sol.track(STATE, ref, radiation="mean")
-    with pytest.raises(NotImplementedError):
-        sol.track_with_spin(STATE, np.array([0.0, 1.0, 0.0]), ref)
+    bx, by = sol.normalized_field(1e-3, 1e-3)
+    assert float(bx) == 0.0 and float(by) == 0.0
+    assert float(sol.longitudinal_field(1e-3, 1e-3)) == KS
+
+    radiated = sol.track(STATE, ref, radiation="mean")
+    assert radiated[DELTA] < STATE[DELTA]  # off axis, so it really does radiate
+
+    # spin needs a reference with an anomalous moment: ``ref`` above deliberately has
+    # none, and :func:`accsim.spin.anomalous_moment` refuses to default it to zero.
+    spinning = ReferenceParticle.from_gamma(
+        MASS_E, GAMMA0, charge=-1.0, anomalous_moment=1.15965218128e-3
+    )
+    _, spin = sol.track_with_spin(STATE, np.array([1.0, 0.0, 0.0]), spinning)
+    assert float(np.linalg.norm(spin - np.array([1.0, 0.0, 0.0]))) > 0.1
 
 
 def _solenoid_ring(ks: float, ref: ReferenceParticle) -> Lattice:
@@ -622,20 +641,84 @@ def test_the_taper_classifies_a_solenoid_as_powered(ref: ReferenceParticle) -> N
     assert scaled.name == "ds"
 
 
-def test_tapering_a_ring_with_a_solenoid_is_refused_for_now(ref: ReferenceParticle) -> None:
-    """And the honest consequence: you cannot taper a ring that contains a solenoid.
+def _radiating_solenoid_ring(ks: float) -> Lattice:
+    """A real radiating ring — bends, quadrupoles, a cavity — with one solenoid spliced in.
 
-    A taper needs the ring's **radiating** closed orbit, radiation reaches an element through
-    :meth:`Solenoid.normalized_field`, and that refuses. So the refusal above is not free —
-    it costs the whole of axis Q on any machine with a solenoid in it, and saying so here is
-    better than discovering it. It is the right trade all the same: the alternative is a
-    silent zero, which on the *spin* side would be a wrong answer rather than a missing one.
-
-    This test is what fails, loudly, when S2 lands — at which point it becomes the end-to-end
-    taper gate instead.
+    The FODO above cannot be the taper's gate ring: it has no bends, so it radiates nothing,
+    the momentum profile is identically zero and the taper is the identity. Q1's own gate
+    ring with a solenoid inserted is the smallest machine on which "taper a ring containing
+    a solenoid" means anything at all.
     """
-    with pytest.raises(NotImplementedError, match="longitudinal"):
-        taper(_solenoid_ring(0.6, ref))
+    from accsim import Dipole, RFCavity, ThinQuadrupole
+    from accsim.reference import ELECTRON_MASS_EV as MASS_EV
+
+    cells, focal = 20, 2.5
+    lattice_ref = ReferenceParticle.from_total_energy(MASS_EV, 6.5e9)
+    angle = 2.0 * math.pi / (2 * cells)
+    cell = [
+        ThinQuadrupole(0.5 / focal),
+        Dipole(1.0, angle),
+        ThinQuadrupole(-1.0 / focal),
+        Dipole(1.0, angle),
+        ThinQuadrupole(0.5 / focal),
+    ]
+    elements: list = list(cell) * cells
+    elements.insert(3, Solenoid(0.4, ks, name="ds"))
+    plain = Lattice(elements, ref=lattice_ref)
+    # Q1's own gate-ring cavity, and its parameters rather than invented ones: the 6D
+    # closed orbit the taper's later rounds need is only found when the voltage actually
+    # covers the turn's loss with a bucket to spare.
+    cavity = RFCavity.from_harmonic(90.0e6, 20, plain.length, lattice_ref, phi_s=math.pi)
+    return Lattice([*elements, cavity], ref=lattice_ref)
+
+
+def test_tapering_a_ring_with_a_solenoid_works_end_to_end() -> None:
+    r"""What S1's refusal cost, now collected — the gate the refusal test said it would become.
+
+    S1 recorded the price of refusing the field accessor honestly: a taper needs the ring's
+    **radiating** closed orbit, radiation reaches an element through that accessor, so
+    :func:`accsim.taper` could not be applied to any machine containing a solenoid. That was
+    the whole of axis Q gone on a machine with a spin rotator in it. This is the same test
+    turned the right way up.
+
+    Three claims, and the middle one is the milestone's: the call succeeds; the solenoid's
+    ``ks`` is scaled by ``1 + delta`` **at its own midpoint**, which is Q2's fixed point
+    restated for a strength that is not a bend's; and iterating converges, so the solenoid
+    has not broken the fixed-point solve the way a mis-scaled magnet would.
+    """
+    from accsim.tapering import taper_profile
+
+    lattice = _radiating_solenoid_ring(0.6)
+    index = next(i for i, e in enumerate(lattice.elements) if isinstance(e, Solenoid))
+
+    profile = taper_profile(lattice)
+    once = taper(lattice, profile, rounds=1)
+    scaled = once.elements[index]
+    assert isinstance(scaled, Solenoid)
+    assert scaled.ks == pytest.approx(0.6 * (1.0 + profile.delta[index]), rel=1e-15)
+    assert scaled.length == 0.4  # geometry belongs to the ring
+    assert abs(profile.delta[index]) > 1e-6  # the taper is doing something
+
+    # ...and the fixed point converges on a ring that has a solenoid in it: the leftover
+    # sag orbit falls by orders per round, which is Q2's own statement (span^2 then span^3)
+    # restated as the only thing this test needs to claim -- that the solve still solves.
+    def excursion(ring: Lattice) -> float:
+        """``max |x|`` over the element boundaries, on the radiating closed orbit."""
+        from accsim import closed_orbit_6d
+
+        state = closed_orbit_6d(ring, radiation="mean").copy()
+        xs = [float(state[X])]
+        for elem in ring.elements:
+            state = elem.track(state, ring.ref, radiation="mean")
+            xs.append(float(state[X]))
+        return float(np.max(np.abs(xs)))
+
+    untapered = excursion(lattice)
+    round1 = excursion(taper(lattice, rounds=1))
+    round2 = excursion(taper(lattice, rounds=2))
+    assert untapered > 1e-3  # millimetres of sag, before
+    assert round1 < untapered / 100.0
+    assert round2 < round1 / 100.0
 
 
 # ============================ the second-order map it gets for free =======================
