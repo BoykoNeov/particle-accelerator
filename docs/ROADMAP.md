@@ -35,6 +35,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | P | the map beyond first order | **P1** (2026-09-02); **P2 (i)-(iv)** all four second-order gaps closed; **P3 (a)** the rotated face (2026-09-03); **P3 (b)** the gradient face (2026-09-05) | axis P complete |
 | Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06); **Q2** applying it (2026-09-06) | axis Q complete |
 | R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
+| S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06) | — |
 
 **Axis R shipped R1 on 2026-09-06** — the survey, the ring's geometry in laboratory
 coordinates, the candidate the last two filter runs recorded rather than sequenced. It is
@@ -5777,6 +5778,239 @@ unequal bends and adds three-fold symmetry, which supplies position closure exac
   `faulthandler` dump put it in pytest's own collection (`_in_venv` → `pathlib.is_file`),
   contended by another session — not anything in accsim. Both are recorded in
   `docs/CONVENTIONS.md` → *Test-suite cost*.
+
+### S. The solenoid — the magnet that rotates the beam instead of focusing a plane
+
+Every magnet in `src/accsim` is transverse. `Dipole`, `Quadrupole`, `Sextupole`, `Octupole`
+and their skew and thin siblings all have a field that lies in the `(x, y)` plane, and the
+package's one field accessor says so in its signature:
+`Element.normalized_field(x, y) -> (bx, by)` has **no `s` component to return**. The
+**solenoid** — the one core magnet whose field points along the beam — is therefore not
+merely missing from the element list, it is the element the package's own interfaces were
+written without. It is the field of every detector solenoid at every collider, the standard
+low-energy focusing element, and the canonical spin rotator.
+
+It is opened here on the user's choice, and unlike R it is **dynamics**: a new element, a new
+map, a new physical effect. The honest claim is that it is the last completely-absent core
+magnet, that both arbiters implement it and agree, and that everything it produces lands on
+machinery axes G, H, I and O already built.
+
+**Chosen on the project's usual filter, run the way O5, O6, P, Q and R established — every
+arbiter was executed on probe elements before a word of this entry was written.** What the
+run settled, none of it read out of documentation:
+
+- **Both codes implement the same map, and MAD-X agrees with the closed form to `2.2e-16`.**
+  `SOLENOID, L=0.9, KS=0.6` at `gamma0 = 20` returns, entry for entry in accsim's frame, the
+  hard-edge matrix below. `xtrack`'s `UniformSolenoid` agrees with it to `1.9e-10`, which is
+  the finite-difference truncation of the probe, not a disagreement — the sharp comparison
+  against xtrack is *tracking*, not a differenced matrix, and that is how the reference leg
+  is written.
+- **`xt.Solenoid` is deprecated and `xt.UniformSolenoid` replaces it; they give the same
+  map.** Both were probed; the shipped leg uses `UniformSolenoid`.
+- **`ks` is charge-free in both codes, and this is the convention trap the probe was run to
+  find.** An electron (`q0 = -1`) and a proton (`q0 = +1`) at the same `gamma0` and the same
+  `ks` get **bit-identical** maps in xtrack (`max|diff| = 0.0`) and identical `re<ij>` in
+  MAD-X. A solenoid's coupling sense is physically set by the charge, so the sign could
+  plausibly have lived in either place; both codes put it in `ks` itself. `_matrix_body`
+  therefore **must not read `ref.charge`**, and that is a gate rather than a remark.
+- **The sign of the coupling is pinned by six orders.** The map built with the opposite
+  vector-potential sign misses xtrack's tracked state by `1.6e-3` where the right one misses
+  by `3.9e-10`. There is nothing subtle to argue about here once the probe is run.
+- **The residual against xtrack is the paraxial kinematic term, and it says so by its
+  scaling.** Halving the transverse amplitude divides the residual by **8.000, 8.000,
+  8.000** across four amplitudes — exactly cubic, i.e. P2 (iv)'s `p^4/8` kinematic
+  remainder, the same gap `Quadrupole` had before `kinematic_slices` closed it.
+- **The momentum dependence is three orders above that floor.** At `delta = 1e-3` a
+  `delta`-independent solenoid map misses xtrack by `6.2e-7` against the `1.1e-10` floor — a
+  ratio of **5.6e3** (and `5.6e2` at `delta = 1e-4`, `5.7e4` at `delta = 1e-2`). So the
+  chromatic factor is not a refinement below the noise; it is the effect, and a test can see
+  it cleanly.
+
+**The map, derived rather than recalled.** From the paraxial Hamiltonian with the uniform
+solenoid's normalised vector potential `a = (-ks y/2, +ks x/2)`, `sympy`'s `dsolve` returns a
+map that is exactly
+
+    M4 = Rot(K L) . blockdiag(F(K^2, L), F(K^2, L)),    K = ks / (2 (1 + delta)),
+
+where `Rot` turns `(x, y)` and `(px, py)` together and `F` is **`_focusing_block`, the
+quadrupole's own 2x2**, at strength `K^2` — equal in *both* planes. The `1/2` is the whole
+physics of the element (a charge in a longitudinal field precesses at the cyclotron rate `ks`
+and its *orbit* rotates at the Larmor rate `ks/2`), and it is derived from the Hamiltonian in
+the test file, not pasted from a textbook: this project's memory index is a list of recalled
+coefficients that were wrong.
+
+**The same map in geometric angles is the sentence that explains the element**, and the
+derivation returns it: conjugating by the shear `J` that turns a canonical momentum into an
+angle inside the magnet (`x' = px/(1+delta) + K y`) gives
+
+    [[1, sin(2KL)/2K, 0, sin^2(KL)/K], [0, cos 2KL, 0, sin 2KL], ...]
+
+— the **angle rows contain no position at all**. A solenoid does not focus the velocity; it
+**rotates** it, rigidly, at `2K = ks/(1+delta)`, and every focusing entry in the matrix is
+the projection of that rotating velocity onto position. Two consequences are gates: `x'^2 +
+y'^2` is *exactly constant* through the body (so the path lengthening is a drift's,
+`L (x'^2 + y'^2)/2`, with the **inside** angles — derived, `d/ds = 0` symbolically), and the
+shear `J` **is** the hard edge. A code that treats `px` as the angle has silently dropped
+both fringes and gets a map that differs at first order in `ks`.
+
+- **S1 — the solenoid: the element, its map, and what it couples.** ✅ **DONE
+  (2026-09-06)**. Effort **M**, as estimated.
+
+  A new element `accsim.elements.solenoid.Solenoid(length, ks, ...)`, thick, hard-edge,
+  edges included (the boundary-to-boundary map both arbiters return), exact in `delta`,
+  paraxial in the angles. Always-on baseline: `numpy` only, no feature switch — it is a
+  magnet, not an addon.
+
+  **Pre-committed gates.**
+  1. **The coefficient is derived, not recalled.** `sympy` `dsolve` of the paraxial
+     Hamiltonian, compared entrywise to `_matrix_body`; the `K = ks/2` falls out of the
+     solve rather than being asserted into it.
+  2. **The Larmor factorisation, each factor checked alone**: `M4 = Rot(KL) .
+     blockdiag(F, F)` with `F = _focusing_block(K^2, L)` — the *quadrupole's* block, reused
+     rather than re-derived. `Rot` is asserted orthogonal with `det = 1` and identical in
+     both planes; `F` is asserted equal to the quadrupole's function. This is the gate that
+     catches a half-strength body or a body with the two planes treated differently, both of
+     which the composed matrix can hide.
+  3. **The hard edge is a factor and dropping it is visible.** The angle-frame map `J M J^-1`
+     is asserted to have zero position dependence in its angle rows (the rigid velocity
+     rotation), and the edge-dropped map is asserted to differ from the shipped one at first
+     order in `ks`.
+  4. **The drift limit, with no branch.** `ks = 0` gives a `Drift`'s matrix bit-for-bit, and
+     `ks = 1e-12` is continuous with it — the implementation never divides by `K`
+     (every `1/K` in the closed form is written `L sinc(KL) * {cos, sin}`), the same device
+     R1's survey and the exact bend use.
+  5. **Symplecticity** of `matrix()` and of the tracked map's numerical Jacobian at
+     `delta != 0`.
+  6. **The chromatic factor, gated by the ratio the probe measured.** A `delta`-independent
+     solenoid must fail: the gate asserts the tracked map's `delta` dependence is the
+     `1/(1+delta)` one, and separately that a frozen-`K` map misses xtrack by `>1e3` times
+     the paraxial floor at `delta = 1e-3`.
+  7. **Charge-free.** `matrix()` is bit-identical for an electron and a proton reference —
+     the measured convention of both codes.
+  8. **Axial symmetry is this element's own sharp gate.** A solenoid is invariant about its
+     axis, so `Solenoid(..., roll=phi)` must have a **bit-identical** matrix to `roll=0` for
+     any `phi`. No other element in the package can say that, and it gates the alignment
+     conjugation at the same time. A *displaced* solenoid, by contrast, must have the
+     ordinary `(I - M) d` kick and an unchanged matrix (K1).
+  9. **The refusals are tests, on both sides.**
+     - `normalized_field` **raises**: an ideal solenoid's field is purely longitudinal and
+       the accessor has no `s` component, so returning `(0, 0)` would make `accsim.spin`
+       report *no precession* in the one magnet that is a spin rotator, and
+       `accsim.radiation_kick` report no radiation for an off-axis particle. Both consumers
+       inherit the refusal from the one raise. Spin in a solenoid is **S2**.
+     - `closest_tune_approach` and `resonance_driving_terms` must raise
+       `CoupledLatticeError` — their measured "couples without being a skew quadrupole"
+       guard, which exists for exactly this, and which a solenoid is the first element to
+       trip other than a rolled magnet.
+     - The uncoupled Courant-Snyder path (`tunes`, `twiss`) must raise; the normal-mode path
+       (`normal_mode_tunes`, `coupled_twiss`) must **work**.
+  10. **`survey` is blind to `ks`** — a solenoid is straight. Bit-identical table, R1's
+      blind-to-the-taper gate in a new costume.
+  11. **`taper` scales `ks`, and the choice is forced rather than optional**: `_scaled`
+      raises `NotImplementedError` for an element on neither of its lists, so shipping the
+      solenoid *requires* the decision. It is a powered magnet whose strength is normalised
+      to the reference rigidity, so a sagging beam is over-rotated by a design-strength
+      solenoid exactly as it is over-focused by a design-strength quadrupole. Gate: Q2's
+      fixed point — a tapered solenoid at the local sagged momentum reproduces the design
+      magnet's map.
+  12. **Reference legs.** MAD-X `SOLENOID` R-matrix entrywise against `matrix()` (measured
+      `2.2e-16`), including the charge leg; `xtrack` `UniformSolenoid` **tracking** against
+      `track()` on a generic 6D state at the measured cubic floor, and the ring-level
+      normal-mode tunes of a ring with a solenoid in it.
+  13. **The ring-level effect is measured, not asserted**: inserting a solenoid into an
+      uncoupled ring must open the normal-mode tune split and move Edwards-Teng's `gamma_c`,
+      by an amount the entry records after measuring.
+
+  **What is refused.**
+  - **Spin in a solenoid (S2)**, as above — it needs a field accessor with an `s`
+    component, which is an interface change touching every element.
+  - **Radiation in a solenoid**, for the same reason and by the same raise.
+  - **The thin solenoid** (`ksi`, xtrack's zero-length form). One element per change.
+  - **`kinematic_slices`.** The paraxial gap is real, measured, and cubic; closing it needs
+    the kinematic remainder's flow *in a solenoid*, where it is a function of the
+    **mechanical** momenta and so is not P2 (iv)'s momentum-only drift. Recorded, gated by
+    its scaling, and left open.
+  - **A solenoid term in `closest_tune_approach`'s perturbative sum** — the sum walks
+    element types and refuses what it does not know, which is the correct behaviour and is
+    gated as such. The eigen path already sees the solenoid exactly.
+  - **`VariableSolenoid`** (a longitudinally varying `ks`, with the transverse fringe fields
+    its derivative implies), an **off-axis** solenoid (`x0`/`y0`), and a solenoid carrying
+    multipole components (`knl`/`ksl`).
+
+  ✅ **SHIPPED (2026-09-06).** `accsim.elements.solenoid.Solenoid`, exported at the package
+  top level; `tapering._STRENGTHS` gains one line. **Nothing else in `src/accsim` changed** —
+  no optics function, no twiss path, no new guard — which is itself the finding below. Effort
+  **M**, as estimated. Full detail in `docs/CONVENTIONS.md` → *The solenoid: the magnet whose
+  field points along the beam*.
+
+  **Every pre-committed gate was met, and three of them turned out to say something the entry
+  had not anticipated.**
+
+  **The package was already built to receive this element, and that is the surprise.** The
+  entry expected the solenoid to need work in `accsim.twiss`; it needed none. G1's *measured*
+  coupling guard (an element whose own matrix has a nonzero transverse off-block and is not a
+  skew quadrupole) catches a solenoid without knowing what one is, so
+  `closest_tune_approach` and `resonance_driving_terms` refuse it with their own message;
+  `_require_uncoupled` refuses the Courant-Snyder path the same way; and
+  `normal_mode_tunes` / `coupled_twiss` — the eigen route — get it *exactly right with no
+  change at all*, agreeing with xtrack's coupled Twiss on the ring's normal-mode tunes to
+  **`9.1e-14`**. Every one of those was written for skew quadrupoles and rolled magnets, and
+  every one of them holds for a magnet whose field points somewhere none of them contemplated.
+
+  **The refusal is not free, and the entry did not price it.** `normalized_field` raising is
+  the right call — a silent `(0, 0)` would report *no spin precession* through a spin
+  rotator — but radiation reaches an element through that same accessor, a taper needs the
+  ring's **radiating** closed orbit, and so **`taper()` cannot be applied to any ring
+  containing a solenoid**. Gate 11 was written as "a tapered solenoid reproduces the design
+  magnet's map" and shipped in two halves instead: the classification (`_scaled` scales `ks`,
+  leaves the length alone) and Q2's fixed point are gated directly, while the end-to-end call
+  is gated as a **refusal**, with a test that fails loudly when S2 lands. Saying so is better
+  than letting it be discovered; the trade is still right, because on the spin side the
+  alternative is a wrong answer rather than a missing one.
+
+  **The ring-level gate needed an off-resonance ring, and finding that out was the gate doing
+  its job.** The obvious fixture — four FODO cells and a solenoid — has `Q_x = Q_y` *exactly*,
+  i.e. it sits on the difference resonance, where any coupling at all mixes the modes fully
+  (`gamma_c -> 1/sqrt(2)`) and the mixing then **decreases** as the solenoid's own focusing
+  pushes the tunes apart. The first version of gate 13 asserted "mixing grows with `ks`" and
+  failed on a correct element. With a weak quadrupole splitting the tunes, the mixing has a
+  *law* rather than a direction: **`1 - gamma_c` grows as `ks^2`** (measured ratios 3.9957,
+  3.9828, 3.9326 for successive doublings from `ks = 0.0125`), because `C` is first order in
+  `ks` and `gamma_c^2 + det C = 1` makes the mixing angle's cosine second order. That is a
+  sharper gate than the one the entry pre-committed.
+
+  **The symbolic derivation had to be asked the right question.** "The orbit rotates at
+  `ks/2`" was first written as "the map is `-I` at `L = pi/ks`", which is simply false —
+  `Rot(pi/2)` composed with the focusing block at `KL = pi/2` is neither `I` nor `-I`. The
+  statement that *is* true, and that discriminates, is about the **period**: the map is the
+  identity at `L = 2 pi / ks` and not at `L = pi / ks`, which is exactly the difference
+  between the Larmor rate and the cyclotron rate. sympy's `dsolve` returns the flow, and the
+  4x4 it implies matches `_matrix_body` entrywise at `1e-15`.
+
+  **Everything the filter measured held in the shipped code.** MAD-X entrywise at
+  **`2.2e-16`** (electron *and* proton, identical); the tracked residual against xtrack
+  **`3.86e-10`**, falling by **exactly 8.000** for each halving of the transverse amplitude
+  (so it is the paraxial kinematic term and nothing else); a frozen-`K` map missing xtrack by
+  **5.6e2 / 5.6e3 / 5.7e4** times that floor at `delta = 1e-4 / 1e-3 / 1e-2`. The chromatic
+  law itself is gated as an **identity** (`D M4(ks/(1+delta)) D^-1`, to `1e-15`), not as a
+  tolerance.
+
+  **A roll really is a no-op, bit-for-bit**, at four angles including `pi/4` and `pi` — the
+  one element in the package that can be tested that way, and it gates the alignment
+  conjugation for free.
+
+
+  **P1's second-order machinery took the element for free too, and it says what the map is
+  made of.** `taylor_expand` differences `track` and knows nothing about element types, so a
+  solenoid arrives with a `T` tensor unasked. Every non-negligible entry of it either carries
+  a `delta` index or lies in the `zeta` row — the chromatic term and the path lengthening,
+  and *nothing else is second order*, because the transverse map is exactly linear at fixed
+  momentum. The largest entry outside those two sets is `5.4e-14` (the differencing floor);
+  the largest inside is `L/2`. The second-order symplectic identity holds in **both**
+  longitudinal pairs, unlike the sector bend's, because a solenoid's `R51..R54` are zero.
+  **Gates: `tests/analytic/test_solenoid.py` (37, all passing), `tests/reference/`
+  `test_solenoid_madx.py` (4) and `test_solenoid_xtrack.py` (6).** The xtrack file builds
+  exactly two lines, module-scoped, for its six tests, per R1's cost note.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

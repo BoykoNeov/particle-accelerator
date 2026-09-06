@@ -54,6 +54,7 @@ from .elements.quadrupole import Quadrupole, ThinQuadrupole
 from .elements.rfcavity import RFCavity
 from .elements.sextupole import Sextupole, ThinSextupole, ThinSkewSextupole
 from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
+from .elements.solenoid import Solenoid
 from .lattice import Lattice
 from .orbit import closed_orbit, closed_orbit_6d
 
@@ -177,6 +178,7 @@ _STRENGTHS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (Sextupole, ("k2",)),
     (ThinSextupole, ("k2l",)),
     (ThinSkewSextupole, ("k2sl",)),
+    (Solenoid, ("ks",)),
     (Octupole, ("k3",)),
     (ThinOctupole, ("k3l",)),
     (Corrector, ("kick_x", "kick_y")),

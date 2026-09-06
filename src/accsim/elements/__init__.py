@@ -13,6 +13,7 @@ from .quadrupole import Quadrupole, ThinQuadrupole
 from .rfcavity import RFCavity
 from .sextupole import Sextupole, ThinSextupole, ThinSkewSextupole
 from .skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
+from .solenoid import Solenoid
 
 __all__ = [
     "Element",
@@ -28,6 +29,7 @@ __all__ = [
     "SkewQuadrupole",
     "ThinSkewQuadrupole",
     "ThinSkewSextupole",
+    "Solenoid",
     "RFCavity",
     "AcceptanceElement",
     "Aperture",
