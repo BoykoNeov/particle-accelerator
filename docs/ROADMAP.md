@@ -5682,38 +5682,6 @@ unequal bends and adds three-fold symmetry, which supplies position closure exac
      rather than the incoming one, and one with `W` transposed. They are the controls that
      show gate 3 is nearly vacuous and gate 1 is not.
 
-  **What the implementation changed, beyond the gate 2 amendment.** Two of the
-pre-committed numbers were right and two statements around them were not; both were
-localised before being written into a test, and neither moved the code.
-
-- **The `G = 0` control is exact over the element length and third order over the *path*
-  length, and the shipped code integrates over the path.** Measured: `1.1e-19` (round-off)
-  against `L`, and `3.86e-11` converging x8.00 per halving against `l_path`. The path is
-  the correct Thomas-BMT statement — a spin precesses per unit of arc — so that residual
-  **is** S1's recorded paraxial gap seen from the spin side, and matching the map instead
-  would have been the easier number and the wrong physics. The gate is the cube, and the
-  pre-committed `3.9e-11` was right.
-- **The `ks` exponent against xtrack is contaminated, and gate 5 overstated what the two
-  orders prove.** xtrack's `magnet_spin` samples the momentum at the magnet's **exit**;
-  accsim samples the traversal **mean**. Their difference is therefore `2a` *plus* an
-  endpoint-sampling term of the same leading order and about **13%** of the size, so the
-  ratio oscillates about 4 at working strengths (measured **4.44** then **3.60** over
-  `ks = 0.6, 0.3, 0.15`) and reaches it only as `ks -> 0` (**3.955, 3.978, 3.989** at
-  `ks = 0.02, 0.01, 0.005`). Consequences, both taken: the reference gate asserts a band
-  that excludes 2 and 8 rather than a false `4.00`, and the sharp asymptotic law is gated
-  **accsim-only** in the analytic suite, where the two candidate models can be swept to
-  arbitrarily small `ks` without the reference's own quadrature gap coming up underneath
-  the signal. The claim "the signature of a `2a` error **and of nothing else**" is
-  withdrawn: the exponents establish that the error is first order in the vector potential,
-  and it is the **arbiter-free tangent** leg (gate 2 (a)) that identifies the *sign*.
-
-**Measured on the way in, and worth keeping.** The leftover after feeding accsim xtrack's
-own formula is `5.235832e-06` and is **second** order in the amplitude where the
-disagreement it replaces is first — so the swap turns a model difference into an ordinary
-quadrature one, which is the sharpest form of "the disagreement is in that one expression".
-Radiation agrees at `3.2e-7` relative (`1.496241e-10` lost, both codes) and is **exactly**
-`0.0` on axis in both.
-
 **What is refused.**
   - **Design tilt / out-of-plane geometry**, as above — the refusal is gate 6 plus a test.
   - **Element apertures, physical envelopes and machine drawings.** The survey is the
@@ -6217,6 +6185,39 @@ What the run settled, none of it read out of documentation:
 - **Sokolov-Ternov in a solenoid.** `accsim.radiation`'s polarization integrand builds
   `b_hat` from the transverse field; extending it needs the longitudinal component and a
   statement about what `n_0` means in a spin rotator, which is not this milestone.
+
+**What the implementation changed, beyond the gate 2 amendment.** Two of the
+pre-committed numbers were right and two statements around them were not; both were
+localised before being written into a test, and neither moved the code.
+
+- **The `G = 0` control is exact over the element length and third order over the *path*
+  length, and the shipped code integrates over the path.** Measured: `1.1e-19` (round-off)
+  against `L`, and `3.86e-11` converging x8.00 per halving against `l_path`. The path is
+  the correct Thomas-BMT statement — a spin precesses per unit of arc — so that residual
+  **is** S1's recorded paraxial gap seen from the spin side, and matching the map instead
+  would have been the easier number and the wrong physics. The gate is the cube, and the
+  pre-committed `3.9e-11` was right.
+- **The `ks` exponent against xtrack is contaminated, and gate 5 overstated what the two
+  orders prove.** xtrack's `magnet_spin` samples the momentum at the magnet's **exit**;
+  accsim samples the traversal **mean**. Their difference is therefore `2a` *plus* an
+  endpoint-sampling term of the same leading order and about **13%** of the size, so the
+  ratio oscillates about 4 at working strengths (measured **4.44** then **3.60** over
+  `ks = 0.6, 0.3, 0.15`) and reaches it only as `ks -> 0` (**3.955, 3.978, 3.989** at
+  `ks = 0.02, 0.01, 0.005`). Consequences, both taken: the reference gate asserts a band
+  that excludes 2 and 8 rather than a false `4.00`, and the sharp asymptotic law is gated
+  **accsim-only** in the analytic suite, where the two candidate models can be swept to
+  arbitrarily small `ks` without the reference's own quadrature gap coming up underneath
+  the signal. The claim "the signature of a `2a` error **and of nothing else**" is
+  withdrawn: the exponents establish that the error is first order in the vector potential,
+  and it is the **arbiter-free tangent** leg (gate 2 (a)) that identifies the *sign*.
+
+**Measured on the way in, and worth keeping.** The leftover after feeding accsim xtrack's
+own formula is `5.235832e-06` and is **second** order in the amplitude where the
+disagreement it replaces is first — so the swap turns a model difference into an ordinary
+quadrature one, which is the sharpest form of "the disagreement is in that one expression".
+Radiation agrees at `3.2e-7` relative (`1.496241e-10` lost, both codes) and is **exactly**
+`0.0` on axis in both.
+
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
