@@ -6120,11 +6120,39 @@ What the run settled, none of it read out of documentation:
    existing element file changes. The `Solenoid` returns `ks` and `(-ks y/2, +ks x/2)`,
    and its `normalized_field` **stops raising** and returns `(0, 0)` — truthfully now,
    because the longitudinal component has somewhere to go.
-2. **The direction of motion is the trajectory's tangent.** The arbiter-free gate:
-   central-difference `Solenoid.track` about the midpoint and assert the vector
-   `spin_precession` builds equals it, at the measured `6.3e-11`, **converging as the cube
-   of the amplitude**. Assert too that the canonical momentum misses by `|a|` and
-   xtrack's by `2|a|` — the orders, not the sizes.
+2. **The direction of motion is the trajectory's tangent.** The arbiter-free gate, and it
+   **splits in two** — see the amendment below, which is part of this entry rather than a
+   footnote to it.
+   - **2 (a) the formula.** Central-difference `Solenoid.track` about the midpoint and
+     assert the direction built from the **kinetic** momentum *at that midpoint state*
+     equals the tangent, at the measured `6.3e-11`, **converging as the cube of the
+     amplitude**. The canonical momentum misses by `|a|` (`5.46e-4`) and xtrack's by
+     `2|a|` (`1.09e-3`), both **linear** in the amplitude — the orders, not the sizes.
+   - **2 (b) the shipped function, with no coefficient in the statement.** For a purely
+     longitudinal field `Omega = -(ks/(1+delta)) [ (1 + G gamma) s_hat - G (gamma - 1) i_z
+     i_hat ]`, so the **transverse direction** of the precession axis is the transverse
+     direction of `i_hat` and *nothing else* — no BMT coefficient appears. Extract that
+     axis from the 3x3 rotation `track_with_spin` actually applies (three basis spins) and
+     compare with the finite-differenced tangent: measured `1.2e-13` at `L = 0.9` and
+     `<= 6.3e-11` down to `L = 0.056`, while the canonical and xtrack momenta land
+     **`1.4`-`1.6` away out of a maximum of `2`**, i.e. roughly 100 degrees off. This is
+     the gate a mirror of the formula cannot pass, and its discrimination is
+     **order-unity** rather than a tolerance.
+
+   **Amendment (before implementation, on measurement).** Gate 2 as first written asked one
+   assertion to compare two different vectors: the tangent *at the magnet's midpoint*, and
+   the momentum `spin_precession` actually builds, which is the **mean of the entry and exit
+   endpoints**. Those are not the same. A solenoid rotates the transverse velocity rigidly
+   through `2 K L`, so averaging the endpoints returns a vector shortened by exactly
+   `cos(K L)` — measured `0.9637708963658908` against `cos(KL) = 0.9637708963658905`, which
+   at `ks = 0.6, L = 0.9` is an error of `1.61e-05` against the pre-committed `6.3e-11`,
+   **five orders too tight**. The averaging converges as `L^2` (measured x4.41, x4.26,
+   x3.88, x3.94 per halving), which is the midpoint rule's own order and not a defect.
+   The saving grace, and the reason 2 (b) is an *identity* rather than an order gate: the
+   mean of two vectors related by a rotation **bisects** them, and so does the midpoint
+   velocity, so the averaging costs **magnitude only** and the *direction* is exact. The
+   entry is corrected here rather than the gate quietly re-cut, which is M2's rule applied
+   to this axis's own roadmap text.
 3. **`b_s = ks`, charge-free.** Bit-identical for an electron and a proton reference,
    S1's gate 7 extended to the field.
 4. **The `G = 0` control, *and* its blindness.** The identity holds to `3.9e-11` at third
