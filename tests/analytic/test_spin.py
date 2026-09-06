@@ -280,14 +280,17 @@ def test_a_quadrupole_at_a_vertical_offset_pins_the_one_plus_g_gamma_factor():
     assert abs(residuals[-1] / expected) < 3e-4
 
 
-# --- the (1 + G) parallel term, with no solenoid in the package ---------------------
+# --- the (1 + G) parallel term, without reaching for the solenoid -------------------
 
 
 def test_the_parallel_term_is_the_projection_of_omega_on_the_direction_of_motion():
     r"""``Omega . i_hat = -(1 + G) (b . i_hat) / (1 + delta)``, exactly.
 
-    Every element in this package has a purely transverse field, which makes it tempting
-    to read the ``(1 + G)`` term as dead code awaiting a solenoid. It is not:
+    Every element whose field this function can be handed is a purely transverse one, which
+    makes it tempting to read the ``(1 + G)`` term as dead code awaiting a solenoid. (S1
+    shipped a :class:`~accsim.elements.solenoid.Solenoid`, and it is the one element that
+    cannot be handed over: its ``normalized_field`` raises rather than report a silent zero
+    for a field the accessor has no component for. Spin in a solenoid is S2.) It is not:
     ``b_par`` is the component of ``b`` along the **direction of motion**, and a
     transverse field has one as soon as the particle has an angle. Projecting ``Omega``
     back onto ``i_hat`` isolates that coefficient exactly, since ``b_perp . i_hat`` is
@@ -478,7 +481,10 @@ def test_a_straight_magnets_field_agrees_with_its_own_momentum_kick(make):
     still an order gate, and it discriminates where a tolerance would not.
 
     Bends are excluded on purpose: there the curvilinear frame's own turn cancels the
-    design field, so a sector bend's kick is zero while its field is ``h``.
+    design field, so a sector bend's kick is zero while its field is ``h``. The
+    **solenoid** is excluded for the opposite reason and the exclusion is itself tested
+    below: it is as straight as any magnet here and it has a real momentum kick, but its
+    field is *longitudinal*, so there is no ``(bx, by)`` for this identity to be about.
     """
     ref = electron()
     x, y = 2e-3, -1.3e-3
@@ -494,6 +500,33 @@ def test_a_straight_magnets_field_agrees_with_its_own_momentum_kick(make):
     for coarse, fine in zip(residuals, residuals[1:], strict=False):
         assert coarse / fine == pytest.approx(4.0, rel=0.05)
     assert residuals[-1] < 1e-4 * math.hypot(bx, by)
+
+
+def test_the_solenoid_is_the_straight_magnet_this_gate_cannot_reach():
+    """The scope line of the gate above, asserted rather than left in a docstring.
+
+    A :class:`~accsim.elements.solenoid.Solenoid` is straight, has a momentum kick, and
+    would be the obvious fifth entry in that parametrisation — but its field points along
+    ``s``, and :meth:`~accsim.elements.element.Element.normalized_field` returns only the
+    transverse pair. It **raises** rather than answering ``(0, 0)``, which is what keeps
+    this whole axis from silently reporting no precession through a spin rotator, and that
+    refusal is what makes it uncheckable here rather than an omission.
+
+    If S2 ever gives the accessor an ``s`` component, this test fails and the solenoid can
+    join the list above with the identity restated in three components.
+    """
+    from accsim import Solenoid
+
+    ref = electron()
+    sol = Solenoid(1e-2, 0.6)
+    with pytest.raises(NotImplementedError, match="longitudinal"):
+        sol.normalized_field(2e-3, -1.3e-3)
+
+    # ... and it is not that the magnet does nothing: it has a kick, in both planes.
+    state = np.array([2e-3, 0.0, -1.3e-3, 0.0, 0.0, 0.0])
+    out = sol._track_body(state, ref)
+    assert abs(out[1] - state[1]) > 1e-6
+    assert abs(out[3] - state[3]) > 1e-6
 
 
 def test_a_rolled_bend_refuses_rather_than_guessing():

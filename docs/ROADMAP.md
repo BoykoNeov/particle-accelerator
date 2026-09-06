@@ -35,7 +35,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | P | the map beyond first order | **P1** (2026-09-02); **P2 (i)-(iv)** all four second-order gaps closed; **P3 (a)** the rotated face (2026-09-03); **P3 (b)** the gradient face (2026-09-05) | axis P complete |
 | Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06); **Q2** applying it (2026-09-06) | axis Q complete |
 | R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
-| S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06) | — |
+| S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06) | S2 (spin & radiation) recorded, not sequenced |
 
 **Axis R shipped R1 on 2026-09-06** — the survey, the ring's geometry in laboratory
 coordinates, the candidate the last two filter runs recorded rather than sequenced. It is

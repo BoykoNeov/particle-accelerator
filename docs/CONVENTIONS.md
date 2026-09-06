@@ -1425,7 +1425,8 @@ and would drown the gradient's share entirely.
 ### Scope, stated
 
 Soft-edge `fint`/`hgap` and measured field maps remain out (no closed form, no arbiter);
-the solenoid fringe (accsim has no solenoid); sextupole and octupole faces (`min_order`
+the solenoid fringe (S1 ships the solenoid's *body*, hard-edged; its soft fringe is not
+in scope there either); sextupole and octupole faces (`min_order`
 higher still, a fifth-order map with one arbiter); and the standalone `Quadrupole`'s
 *rotated* face — xtrack exposes no face angle for it at all, so it would ship with no
 reference. `ThinQuadrupole` has no faces, being zero-length. As with every face before it,

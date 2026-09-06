@@ -221,11 +221,17 @@ def precession_vector(
     (:meth:`~accsim.elements.element.Element.normalized_field`); ``(px, py, delta)`` is
     the particle's momentum. Returns ``(3,)`` or ``(3, n)`` in the element's own frame.
 
-    Every element in this package has a purely **transverse** field, so ``b_s = 0``.
-    That does *not* make the ``(1 + G)`` parallel term dead code: ``b_par`` is the
-    component of ``b`` **along the direction of motion**, which is non-zero as soon as
-    the particle has a transverse angle. The term therefore enters at ``O(px b_x)``, and
+    Every element this function can be *given* has a purely **transverse** field, so
+    ``b_s = 0``. That does *not* make the ``(1 + G)`` parallel term dead code: ``b_par``
+    is the component of ``b`` **along the direction of motion**, which is non-zero as soon
+    as the particle has a transverse angle. The term therefore enters at ``O(px b_x)``, and
     the analytic suite gates it at that order rather than waiting for a solenoid.
+
+    Since S1 the package *has* a :class:`~accsim.elements.solenoid.Solenoid`, and it is the
+    one element that cannot be given: its field is purely longitudinal, and
+    :meth:`~accsim.elements.element.Element.normalized_field` — which returns ``(bx, by)``
+    and nothing else — **raises** for it rather than reporting a silent zero. Spin in a
+    solenoid is S2, and it is an interface change, not a coefficient.
     """
     bx = np.asarray(bx, dtype=float)
     by = np.asarray(by, dtype=float)
