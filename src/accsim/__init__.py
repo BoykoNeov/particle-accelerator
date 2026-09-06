@@ -42,6 +42,7 @@ from .elements import (
     ThinSkewQuadrupole,
     ThinSkewSextupole,
 )
+from .geometry import SurveyTable, survey
 from .lattice import Lattice, matrix_of
 from .lifetime import quantum_lifetime, quantum_lifetime_exact
 from .longitudinal import (
@@ -348,6 +349,9 @@ __all__ = [
     "second_order_element_maps",
     "second_order_one_turn_map",
     "linearised_lattice",
+    # survey: the ring's geometry in laboratory coordinates (R1)
+    "survey",
+    "SurveyTable",
     # tapering: the sawtooth a radiating ring runs at (Q1), and applying it (Q2)
     "taper",
     "TaperProfile",

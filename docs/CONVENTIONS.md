@@ -8796,6 +8796,137 @@ metre of bend, where the shipped magnet leaves it there at `1e-17`.
   here that would change that, and its untapered `pt` column remains an arbiter for the
   *profile* only.
 
+## The survey: the ring's geometry in laboratory coordinates (R1 — implemented)
+
+`accsim.geometry.survey(lattice)` walks the reference curve through the laboratory and returns
+a `SurveyTable`: the position `(X, Y, Z)` and orientation `(theta, phi, psi)` plus the 3x3
+frame `W` at every element boundary. It is **geometry, not dynamics** — no particle is
+tracked and no map is evaluated — and it is the first thing in the package that asks where
+the reference curve actually *goes*.
+
+### The frame, and the sign that is not a choice
+
+Right-handed laboratory axes `(X, Y, Z)`; the walk starts at the origin pointing along `+Z`.
+`W` carries local beam coordinates `(x, y, s)` into the laboratory, and in the horizontal
+plane it is a single yaw `theta` about `Y`:
+
+```
+W = [[ cos theta, 0, sin theta],
+     [         0, 1,         0],
+     [-sin theta, 0, cos theta]]
+```
+
+A bend of angle `a` and length `L` advances the frame by `rho (cos a - 1, 0, sin a)` with
+`rho = L/a`, and turns it by `-a`. So **a positive bend angle moves the machine towards
+negative `X`**, and `theta` runs *against* the accumulated bend. That is not accsim's
+invention: both `xtrack` and MAD-X put a 90-degree, 1 m sector bend at
+`X = -0.636619772368`, `Z = +0.636619772368`, `theta = -pi/2`, agreeing with each other to
+`1e-16`, and both accsim legs are pinned against them.
+
+`theta` is **unwrapped** — a full turn reports `-2 pi`, not `0` — again matching both codes.
+A survey that wrapped it would disagree with both on the last row only, which is exactly the
+kind of mismatch that costs an hour to localise.
+
+### Nothing divides by the curvature
+
+Writing `1 - cos a = 2 sin^2(a/2)`, the step is
+
+```
+dv_x = -L (a/2) sinc(a/2)^2      dv_z = L sinc(a)
+```
+
+which is exactly `(0, 0, L)` at `a = 0` with no branch, and has no cancellation for a weak
+bend. This is the same device `exact_sector_bend_map` and `wedge_map` use, for the same
+reason — and here it matters more than usual, because **the naive closed form is the thing
+that breaks first**: `rho (cos a - 1)` at `a = 1e-8` returns *exactly zero* for a
+displacement that is really `-6.5e-9` m, since `cos(1e-8)` rounds to `1.0`. The analytic test
+therefore gates moderate angles against the closed form and weak ones against the series;
+that split is a statement about the reference expression, not about the module.
+
+### Rows are boundaries, and the two reference codes only differ in naming
+
+`SurveyTable` has `N + 1` rows for `N` elements and keeps the `N` names beside them rather
+than on them. This was decided from a measurement, not from documentation:
+
+- `xtrack`'s `line.survey()` returns `N + 1` rows, naming each after the element it
+  **begins**, and calls the last one `_end_point`.
+- MAD-X's `SURVEY` returns `N + 2`, opening with `$start` at the origin, naming each row
+  after the element it **ends**, and closing with a duplicate `$end`.
+
+On a three-drift line of 1, 2, 4 m *both* walk the poses `Z = 0, 1, 3, 7`. The arrays agree
+entry for entry; only the labels are offset by one element. Adopting either naming would have
+made the other code look wrong by half a magnet — Q1's half-step in a new costume — so
+accsim adopts neither, and both reference legs are direct row-for-row comparisons (MAD-X's
+with its trailing duplicate dropped).
+
+### What the survey is blind to, and why one of those is the sharp gate
+
+Only `length` and, for a bending element, `angle` are read.
+
+- **The field.** Since Q2 a `Dipole` carries `k0` separately from its geometry `h = angle/L`,
+  and a tapered ring has `k0 != h` in *every* magnet. `survey(taper(lattice))` is
+  bit-identical to `survey(lattice)`. This is the milestone's cheapest sharp gate, because a
+  survey that read `k0` would rescale the entire ring **while still closing exactly**. Both
+  reference codes were measured to be blind the same way (MAD-X's `SURVEY` ignores an
+  explicit `k0`; xtrack's ignores a `k0 != h` on `xt.Bend`).
+- **The pole faces.** `e1`/`e2` bound the field, not the reference curve — bit-identical
+  tables, and xtrack agrees.
+- **Misalignments.** `dx`, `dy`, `roll` move the magnet away from the design curve; they do
+  not move the curve. (A *bending* `Dipole` still refuses to be displaced at all — K2 — so
+  its misalignment leg is `roll`.)
+
+### Closure has two halves, and only one of them is nearly vacuous
+
+The **direction** closes when the bend angles sum to `2 pi`. That is a property of the
+lattice and of nothing else: any walker that accumulates rotations in a consistent order
+reproduces it.
+
+The **position** closing is a second, independent condition — the step vectors must cancel —
+and it is **not** implied by the first. This was found by building the obvious "no symmetry
+at all" fixture (six unequal bends summing to `2 pi`, six unequal drifts) and watching it end
+**2.1 m** from where it started. The shipped fixture is therefore three identical cells of
+three *different* bends: three-fold symmetry supplies position closure exactly
+(`v + R v + R^2 v = 0`), while every row inside a cell stays distinct.
+
+Even with both halves satisfied, closure sees almost nothing. **Three** deliberately wrong
+walkers close this ring to round-off, and they were measured rather than argued:
+
+- the *chord* walker, which replaces every arc by a straight line of the same length and so
+  has no sagitta at all — up to **0.48 m** off the true curve in between;
+- the *outgoing-frame* walker, which takes each step in the frame the element leaves in
+  rather than the one it enters — wrong by **0.95 m at the very first boundary**, 1.9 m at
+  worst;
+- the *transposed-frame* walker (equivalently, the sign of `theta` flipped), which is exact
+  at the first boundary — no turn has been composed yet — and up to **8.4 m** out after that.
+
+The reason is the same in all three cases: a walker that repeats one cell under a rotation
+closes whatever the cell is, so the symmetry that supplies position closure supplies it to
+right and wrong walkers alike. That is why the sharp gates are the per-element chord, the
+sagitta, and an element-by-element comparison inside the cell — and why all three of these
+walkers are in the analytic file as controls.
+
+### Planar by construction — a refusal, not an approximation
+
+`Y`, `phi` and `psi` are identically zero, because **nothing in `accsim` can bend out of the
+horizontal plane**. `Dipole` bends in `x` only, and `roll` is a *misalignment* (the magnet
+turns, the reference frame does not — xtrack's `rot_s_rad_no_frame`, MAD-X's `EALIGN`/`DPSI`)
+rather than a *design tilt* (MAD-X `TILT`, xtrack's plain `rot_s_rad`), which takes the frame
+with it. Measured: a 90-degree bend with `TILT = pi/2` sends MAD-X's ring straight out of the
+plane at `phi = -pi/2`.
+
+A design tilt is an element-level change touching every map in the package, so it is a
+separate milestone and this one refuses it — **with tests that fail if it ever arrives**: the
+analytic file asserts the planar columns are exactly zero, and the MAD-X leg asserts both
+that MAD-X is planar without a tilt *and* that it responds to one.
+
+### What is not gated
+
+- Element apertures, physical envelopes, machine drawings — the survey is the reference curve
+  and the local frame, not the hardware around it.
+- Placing a lattice at a given origin or start angle (MAD-X's `X0`/`THETA0`).
+- Geometric matching — solving for the bend angles that close a ring — which is axis H's
+  business.
+
 ## Toolchain / environment notes
 
 - **Linux (2026-09-02, P1's session):** the reference suite runs unchanged on Ubuntu with
@@ -8868,6 +8999,21 @@ metre of bend, where the shipped magnet leaves it there at `1e-17`.
   passing xtrack cross-check above.
 
 ## Test-suite cost (2026-08-10)
+
+- **An `xt.Line` build plus its first `survey()` cost 30-70 s each on 2026-09-06 (R1),
+  against the 12.2 s upper bound recorded below for a plain build.** Seven probe lines took
+  8.5 minutes of wall clock. The structural claim below is unchanged and is the reason —
+  nothing is ever cached — but the *number* is load-dependent and was measured on a box
+  shared with another long-running session; treat 12.2 s as a floor, not a budget. The
+  practical consequence is a rule for reference files: **build one line per fixture, at
+  module scope, and read every claim off the table it produces.** `tests/reference/
+  test_survey_xtrack.py` builds exactly two lines for six tests. A parametrised test that
+  rebuilds a line per case would cost minutes on its own.
+- **Collection itself can stall on this box.** During R1 a single-file `pytest` run that had
+  taken 16 s sat for minutes with near-zero CPU, and a `faulthandler` dump put it in
+  `_pytest.main._in_venv` -> `pathlib.is_file` — filesystem scanning, contended by another
+  session's process, not anything in accsim. If a run appears hung, dump the traceback
+  before hunting for a loop in the tests.
 
 Where the runtime goes, measured, and what was done about it. Recorded because the
 dominant term is **not** in accsim's code and is easy to misattribute.

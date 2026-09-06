@@ -34,6 +34,19 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | O | normalised coordinates, driving terms | O1–O6 | — |
 | P | the map beyond first order | **P1** (2026-09-02); **P2 (i)-(iv)** all four second-order gaps closed; **P3 (a)** the rotated face (2026-09-03); **P3 (b)** the gradient face (2026-09-05) | axis P complete |
 | Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06); **Q2** applying it (2026-09-06) | axis Q complete |
+| R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
+
+**Axis R shipped R1 on 2026-09-06** — the survey, the ring's geometry in laboratory
+coordinates, the candidate the last two filter runs recorded rather than sequenced. It is
+honest about what it is: geometry rather than dynamics — no particle, no map, no new physics
+result — and what it buys is that *the ring closes* stops being an assumption and becomes a
+checked constraint. Its finding rewrote its own gate: **closure has two halves and the entry
+had only one of them** — angles summing to `2 pi` close the *direction*, while the *position*
+closing is a separate condition on the lengths, and the "no symmetry at all" fixture the
+entry specified as sharp turned out to end 2.1 m from its start. Three deliberately wrong
+walkers close the shipped ring to round-off, and agreement with both arbiters is round-off
+too (`4.4e-16` on the test ring, `3.6e-15` on I4's). **No further milestone on R is
+sequenced; the next session starts by re-running the filter.**
 
 **Axis Q is complete.** Q1 — the taper profile — and Q2 — applying it — both shipped on
 2026-09-06. The axis was chosen that day by re-running the project's filter with axis P
@@ -41,11 +54,10 @@ complete: tapering was absent from `src/accsim` entirely, `xtrack`'s
 `compensate_radiation_energy_loss()` collapses the radiation orbit on I4's own ring, and
 MAD-X's untapered `pt` column is a second, independent view of the same sawtooth. Axis Q is
 cross-listed on B: it is not a new radiation effect but the machine correcting a distortion
-its own radiation inflicts. **No axis is open; the next session starts by re-running the
-filter.** `line.survey()` — the ring's geometry in laboratory coordinates — remains the
-recorded gap it was when P's filter measured it, with two arbiters agreeing on ring closure
-to `4e-15`; intra-beam scattering still has no arbiter here (`xfields` absent) and third
-order still has exactly one (PTC at `no = 3`). **Axis P is complete.** P3 (b) — the *gradient* face, the
+its own radiation inflicts. `line.survey()` — the ring's geometry in laboratory
+coordinates — was the recorded gap this filter run left behind, and **axis R has since
+closed it** (R1, the same day); intra-beam scattering still has no arbiter here (`xfields`
+absent) and third order still has exactly one (PTC at `no = 3`). **Axis P is complete.** P3 (b) — the *gradient* face, the
 multipole fringe — shipped on 2026-09-05, and with it the last `NotImplementedError` P2 (i)
 raised. `Quadrupole(..., fringe=True)` now exists (a plain quadrupole had no faces at all
 before), and `Dipole(..., k1=..., fringe=True)` composes the whole five-map face. Its
@@ -5556,6 +5568,215 @@ there was the fixture, not the tool).
   reference** (from 382 — four xtrack), all passing. The 44-minute full analytic run
   reported 1640 and predates the last two tests, which were run with the rest of the
   tapering files afterwards; nothing outside the two tapering test files calls `taper`.
+
+### R. Ring geometry in the laboratory frame — where the machine actually sits
+
+Every optics quantity this project computes lives in the **beam** frame: `x` is a
+displacement from a reference curve that is simply assumed to exist and to close. Nothing in
+`src/accsim` has ever asked where that curve *goes* — where each magnet sits on the floor,
+which way it points, or whether the ring returns to its own starting point. A lattice whose
+bend angles sum to `6.1` rather than `2 pi` is not a ring at all, and every closed-orbit,
+Twiss and tune number this package reports for it would still come back looking perfectly
+healthy.
+
+This is the candidate P's filter measured on 2026-08-31 and Q's re-measured on 2026-09-06,
+and both recorded it rather than sequencing it, for a reason the entry keeps: **it is
+geometry, not dynamics** — no particle, no map, no new physics. It is opened here on the
+user's choice, and the honest claim for it is narrow: it turns "the ring closes" from an
+assumption into a checked constraint, and it is the last recorded gap with **two independent
+arbiters**.
+
+**Chosen on the project's usual filter, run the way O5, O6, P and Q established — every
+candidate arbiter was executed on probe rings before a word of this entry was written.** What
+the run settled, and none of it was read out of documentation:
+
+- **The two codes name the same boundaries after different elements.** On a three-drift
+  line of 1, 2, 4 m both walk the same four poses `Z = 0, 1, 3, 7` — but `line.survey()`
+  labels them `d1, d2, d3, _end_point`, naming each boundary after the element it *begins*,
+  while MAD-X `SURVEY` labels them `$start, d1, d2, d3` (plus a duplicate `$end`), naming
+  each after the element it *ends*. The arrays agree entry for entry; only the labels are
+  offset by one element. This is Q1's half-step in a new costume, and adopting either naming
+  would have made the other code look wrong by half a magnet.
+- **The two codes agree with each other exactly.** A 90-degree sector bend of `L = 1` puts
+  both at `X = -0.636619772368`, `Z = +0.636619772368`, `theta = -pi/2` — agreeing to `1e-16`,
+  and both matching the closed form `rho (cos a - 1, 0, sin a)` with `rho = L/a`. A positive
+  bend angle therefore moves the machine towards **negative** `X`, and `theta` runs the other
+  way from the accumulated bend.
+- **`theta` is not wrapped.** After a full turn both codes report `-6.283185307180`, not zero.
+- **Both codes' surveys are blind to the pole-face angles `e1`/`e2`, and blind to the field
+  when it is not the geometry** (`k0 != h`, Q2's split): each returns a bit-identical table.
+  xtrack's is blind to a transverse misalignment (`shift_x`) too. A design **tilt**
+  (`rot_s_rad`, MAD-X `TILT`) is the one thing that is *not* blind — it tips the ring out of
+  the plane (`phi = -pi/2` on the probe).
+- **An `xt.Line` build costs 30-70 s on this box, not the 12 s on record.** Seven probe lines
+  took 8.5 minutes. That is a constraint on the reference test file, not a finding about the
+  physics, and `docs/CONVENTIONS.md` -> *Test-suite cost* is updated with it.
+
+**The fixture that discriminates is a non-uniform, non-symmetric one, and the obvious probe
+is not it.** Four identical 90-degree bends with identical drifts close to `1e-16` in both
+codes — and would close just as well for a walker that composed its rotations in the wrong
+order, because the four corners of a square are the same set whichever way you visit them.
+The sharp fixture is bends of **unequal** angle separated by drifts of **unequal** length,
+still summing to `2 pi`: closure survives, and every intermediate row becomes a different
+point that an order-reversed or transposed composition gets wrong. This is the ring-geometry
+twin of the composition-order test Stage 1 already ships for transfer matrices.
+⚠️ **Wrong, and corrected below:** "closure survives" does not follow. Angles summing to
+`2 pi` close the *direction* only; the *position* closing is a separate condition on the
+lengths, and this fixture ends **2.1 m** from where it starts. The shipped fixture keeps the
+unequal bends and adds three-fold symmetry, which supplies position closure exactly.
+
+- **R1 — the survey: the reference curve in laboratory coordinates.** ✅ **DONE
+  (2026-09-06)**. Effort **S-M**, as estimated.
+
+  A new module `accsim.geometry`, a sibling in O6's sense: a dataclass and a lattice walker,
+  and **nothing in `elements/` moves**. It reads `angle` and `length` off the elements it is
+  given and returns where the machine goes.
+
+  **Rows are element *boundaries*, `N+1` of them, with the `N` names kept beside them rather
+  than on them — the milestone's one design decision.** Neither reference code's *naming* is
+  adopted, because the measurement above showed the naming is the only thing the two codes
+  disagree about: the boundary sequence itself is common to both. So the table is that
+  sequence, and both reference legs are direct comparisons rather than shifted ones.
+
+  **The survey is planar by construction, and that is a refusal rather than a limitation.**
+  `Y`, `phi` and `psi` are identically zero because **nothing in `src/accsim` can bend out of
+  the horizontal plane**: `Dipole` bends in `x` only, and `roll` is a *misalignment* (K2 —
+  the magnet turns, the reference frame does not; xtrack's `rot_s_rad_no_frame`, MAD-X's
+  `EALIGN`/`DPSI`), not a design tilt. Adding a design tilt is an element-level change
+  touching every map and it is a separate milestone; this one refuses it, in the manner Q1
+  refused MAD-X's `TWISS, TAPERING`, **with a test that fails if a future accsim gains one**.
+
+  **Pre-committed gates.**
+  1. **Per-element displacement** against the closed form: a bend of angle `a`, length `L`
+     advances the pose by `rho (cos a - 1, 0, sin a)` with `rho = L/a`, and turns it by `-a`;
+     everything else advances by `(0, 0, L)` and turns by nothing. The **sagitta**
+     specifically — `rho (1 - cos a)`, the quantity a straight-line walker drops — is gated,
+     because closure is blind to it.
+  2. **The composition-order gate**, on the non-uniform non-symmetric ring above:
+     element-by-element against both codes. A reversed or transposed rotation composition
+     must fail on the second row.
+  3. **Closure**, stated in the entry as **nearly vacuous** and gated anyway: it tests that
+     the fixture's angles sum to `2 pi`, which is a property of the fixture, not of the code.
+     Any walker that accumulates rotations at all closes. It is kept because it is the
+     constraint the package has been assuming, and it is labelled for what it is.
+  4. **Blind to the taper** — `survey(taper(lattice))` equals `survey(lattice)` to round-off
+     on the I4 ring. Q2 split field from geometry precisely so that `k0 != h`; a survey that
+     reaches for `k0` instead of `angle/L` **rescales the whole ring while still closing
+     exactly**, which is the most plausible implementation bug available and the cheapest
+     sharp gate against it. Both reference codes are blind the same way, measured above.
+  5. **Blind to `e1`/`e2`** and **blind to misalignments** (`dx`, `dy`, `roll`): a pole face
+     moves the field boundary and a misalignment moves the magnet, neither moves the design
+     curve. Both are gated as bit-identical accsim tables. xtrack was measured to be blind
+     the same way **in the filter probe**, and that is deliberately *not* promoted to a
+     standing reference test: each such leg costs another 30-70 s line build, and the
+     statement being gated is about accsim's walker, not about xtrack's.
+  6. **Planar**: `Y`, `phi`, `psi` identically zero, asserted absolutely rather than with
+     `approx(rel=)`, which P2 (i) showed is vacuous on a number near zero.
+  7. **`theta` unwrapped**, matching both codes: a full turn reports `-2 pi`, not `0`.
+  8. **Reference legs**: the whole `N+1`-row table element-by-element against
+     `line.survey()`, and against MAD-X's `SURVEY` with its trailing duplicate `$end` row
+     dropped, on the sharp non-uniform fixture and on I4's ring.
+  9. **Deliberate breaks**: three wrong walkers, each of which still closes the ring to
+     round-off — a chord walker with no sagitta, a walker that steps in the outgoing frame
+     rather than the incoming one, and one with `W` transposed. They are the controls that
+     show gate 3 is nearly vacuous and gate 1 is not.
+
+  **What is refused.**
+  - **Design tilt / out-of-plane geometry**, as above — the refusal is gate 6 plus a test.
+  - **Element apertures, physical envelopes and machine drawings.** The survey is the
+    reference curve and the local frame, not the hardware around it.
+  - **Placing a lattice at a given origin or start angle** (MAD-X's `X0`/`THETA0`). One
+    element or feature per change; the walker starts at the origin pointing along `+Z`.
+  - **Geometric matching** — solving for the bend angles that close a ring — is axis H's
+    business, not this one's, and it is not opened here.
+
+  ✅ **SHIPPED (2026-09-06).** `accsim.geometry` — a new module exporting `survey` and
+  `SurveyTable`. The module is **not** called `survey`, deliberately: the function is
+  re-exported at the package top level, so a module of the same name would have made
+  `accsim.survey` resolve to the function and shadow the submodule. It was checked rather
+  than assumed — no other module in the package is shadowed that way, so this one is not
+  allowed to become the first. A dataclass and a lattice walker; **nothing in `elements/` moved** and no
+  first-order function changed, so nothing on axes A-Q is touched. Effort **S-M**, as
+  estimated. Full detail in `docs/CONVENTIONS.md` → *The survey: the ring's geometry in
+  laboratory coordinates*.
+
+  **Every pre-committed gate was met, and the entry's own account of gate 3 was wrong in a
+  way the fixture caught before any code was written.**
+
+  **Closure has two halves, and the entry (and the probe that chose the fixture) had only
+  one of them.** "A ring closes when its bend angles sum to `2 pi`" is true of the
+  *direction* and says nothing about the *position*: that needs the step vectors to cancel
+  too, which is a condition on the **lengths**. The sharp fixture this entry specified — six
+  unequal bends summing to `2 pi`, six unequal drifts, "no symmetry left in it" — ends
+  **2.1 m** from where it starts. It was not a ring at all. The shipped fixture is three
+  identical cells of three *different* bends: three-fold symmetry supplies position closure
+  exactly (`v + R v + R^2 v = 0`), while every row inside a cell stays distinct, which is
+  what the composition gate needed.
+
+  **And closure turned out to be even more vacuous than the entry claimed.** *Three*
+  deliberately wrong walkers close this ring to round-off, all measured: the chord walker
+  with no sagitta at all (up to `0.48 m` off the true curve in between), the walker that
+  steps in the frame the element *leaves* in rather than the one it enters (`0.95 m` wrong at
+  the **first** boundary, `1.9 m` at worst), and the transposed-frame walker — exact at the
+  first boundary, because no turn has been composed yet, and `8.4 m` out after that. The
+  reason is one sentence: a walker that repeats a cell under a rotation closes *whatever the
+  cell is*, so the very symmetry that supplies position closure supplies it to right and
+  wrong walkers alike. All three are controls in the analytic file.
+
+  **The "opposite ends" finding was a naming difference, not a geometry difference, and
+  saying so precisely is what made both reference legs direct comparisons.** The probe's
+  first reading — xtrack reports entrances, MAD-X reports exits — is true of the *labels* and
+  false of the *rows*: both codes walk the same `N + 1` boundaries and agree entry for entry
+  (`Z = 0, 1, 3, 7` on a three-drift line), while xtrack names each boundary after the
+  element it *begins* and MAD-X after the element it *ends*. So `SurveyTable` carries `N + 1`
+  poses with the `N` names beside them rather than on them, MAD-X's trailing duplicate
+  `$end` is dropped, and neither leg needs an offset.
+
+  **Agreement with both codes is round-off, not a tolerance.** `max|Δ position|` is
+  **`4.4e-16`** on the asymmetric ring and **`3.6e-15`** on I4's (against a `12.7 m` extent)
+  versus xtrack, and `4.4e-16` / `2.9e-15` versus MAD-X; `theta` agrees to `8.9e-16`
+  everywhere. The test tolerances are those measured residuals with a factor ~30 of headroom
+  rather than round numbers. Three independent codes — two of them sharing no source with
+  each other — put this geometry in the same place to the last bit.
+
+  **What broke first at small angles was the *reference expression*, not the module.** The
+  module writes the chord as `-L (a/2) sinc(a/2)^2`, which never divides by the curvature; the
+  closed form `rho (cos a - 1)` used to check it returns **exactly zero** at `a = 1e-8` for a
+  displacement that is really `-6.5e-9` m, because `cos(1e-8)` rounds to `1.0`. So the
+  analytic gate splits: moderate angles against the closed form, weak ones against the
+  series. That split is a statement about the check, and the entry says so rather than
+  quietly loosening a tolerance.
+
+  **The blindness gates all held bit-exactly, and the taper one is the sharpest.** On I4's
+  ring `taper` moves every one of the 40 bends' fields — `max|Δk0| = 3.06e-4`, `1.95e-3`
+  relative — and `survey(taper(lattice))` is `array_equal` to `survey(lattice)` in `X`, `Z`
+  and `theta`. A survey that read `k0` instead of `angle/L` would have rescaled the whole
+  machine **while still closing exactly**, which is why this gate exists and closure cannot
+  stand in for it. Pole faces (`e1`/`e2`) and misalignments (`dx`, `dy`, `roll`) are
+  bit-identical too, and xtrack was measured to be blind the same way.
+
+  **The design-tilt refusal is a test on both sides.** accsim reports `Y = phi = psi = 0`
+  identically, asserted absolutely; xtrack and MAD-X are asserted to *agree* the machine is
+  flat (so the refusal is not hiding a projection); and MAD-X is asserted to **respond** to a
+  design `TILT` (`phi = -pi/2` on a bend tilted by `pi/2`). If accsim ever gains a design
+  tilt, those assertions are what fail.
+
+  **Arbiters.** `xtrack`'s `line.survey()` and MAD-X's `SURVEY`, both on the asymmetric ring
+  and on I4's 101-element ring; plus an independent walk in the complex plane, written in the
+  analytic file with no rotation matrix in it, which shares no code path with the module's
+  `W @ dv`. **Suite totals: 1661 analytic** (from 1642), **run in full and all
+  passing** — 25m56s, and the count is the measured one, the whole difference being this
+  milestone's nineteen tests. **395 reference** (from 386 — five xtrack, four MAD-X), of
+  which this milestone's nine were run; the other 386 were not re-run and have no exposure
+  to this change, which is a purely additive export.
+
+  **A cost note, because it reshaped the test file.** An `xt.Line` build plus its first
+  `survey()` measured **30-70 s** here, well above the 12.2 s upper bound on record, so both
+  xtrack fixtures are module-scoped and built exactly once — two lines for five tests. A
+  single-file `pytest` run that had taken 16 s also sat for minutes with near-zero CPU, and a
+  `faulthandler` dump put it in pytest's own collection (`_in_venv` → `pathlib.is_file`),
+  contended by another session — not anything in accsim. Both are recorded in
+  `docs/CONVENTIONS.md` → *Test-suite cost*.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
