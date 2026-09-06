@@ -6235,8 +6235,10 @@ Radiation agrees at `3.2e-7` relative (`1.496241e-10` lost, both codes) and is *
 `0.0` on axis in both.
 
 **Suite totals: 1725 analytic** (from S1's recorded 1699) and **412 reference** (from
-405) — S2 added **26** collected analytic items, from 15 new test functions expanded by
-parametrisation, and **7** reference tests, one per new function. Both figures are
+405) — S2 added **26** collected analytic items, from a **net 12** test functions (15 added
+and 3 removed, one of them S1's `..._is_refused_for_now` taper test, rewritten as the
+`..._works_end_to_end` gate S2 promised) expanded by parametrisation, and **7** reference
+tests, one per new function. Both figures are
 **collected counts, measured on 2026-09-07 after the fact** (`--collect-only`, 8m13s and
 6m43s on a loaded box): they are the size of the suite, not a claim that it was re-run.
 What was run and passing is what the gates above record — this milestone's own tests,
@@ -6357,10 +6359,15 @@ get the plane wrong, in opposite directions.
 
 **Pre-committed gates.**
 
-1. **The reference trajectory closes.** An integer number of periods leaves the exit offset
-   and angle at zero: `|x_out|` and `|px_out|` at machine precision for an on-axis
-   particle, with the orbit inside given by `x'(s) = -(h0/k) sin(ks)` and peak angle
-   `theta_max = 7.157018e-03`. This is what makes it a wiggler rather than a bend.
+1. **The reference trajectory closes, stated at the element level.** An integer number of
+   periods leaves the exit offset and angle at zero — `|x_out|` and `|px_out|` at machine
+   precision for an on-axis particle — and the horizontal block equals a drift of the same
+   length. That is what makes it a wiggler rather than a bend. Deliberately **not** gated
+   here: the sub-period orbit `x'(s) = -(h0/k) sin(ks)`, peak angle
+   `theta_max = 7.157018e-03`. It is the *reason* the trajectory closes and it is stated in
+   the prose above, but T1 ships the **period-averaged** map — horizontally a drift, whose
+   `x'` is constant — so nothing T1 ships reproduces that sine. Gating it would quietly
+   commit T1 to the per-period tracking that T2 explicitly refuses.
 2. **Maxwell holds for the shipped field model** — `div b = 0` for
    `(0, h0 cos(ks) cosh(ky), -h0 sin(ks) sinh(ky))`, symbolically and numerically — **and
    it is blind to the coefficient.** Recorded as a gate *and* as a blindness, the way J1
@@ -6411,17 +6418,27 @@ emittance through machinery axis B already built.
    machine precision.
 3. **The discriminating radiation gate: the staircase separation, with its direction.**
    Against a hard-edge stack matched to the **same `I2`**, the wiggler's `I3` must be
-   **higher** by exactly `8 sqrt(2)/(3 pi) = 1.200422` — asserted to `1e-12`, and asserted
-   as a *ratio*, so it cannot be passed by a uniformly mis-scaled field. Consequence gated
+   **higher** by exactly `8 sqrt(2)/(3 pi) = 1.200422` — asserted to `1e-14`, and asserted
+   as a *ratio*, so it cannot be passed by a uniformly mis-scaled field. The bound is real
+   rather than vacuous, which P2 (i) requires be checked: the ratio of the two closed forms
+   evaluates to `1.2004217548761418` against `1.2004217548761416`, an error of `2.22e-16` —
+   **one ulp** — so `1e-14` sits two orders above round-off and is a bound the assertion can
+   actually fail. Consequence gated
    end-to-end: `sigma_delta` is **9.56% higher** than the staircase gives.
 4. **`I4` is the control, and it is gated as an exact zero.** From constant ring dispersion
    a wiggler contributes `eta0 * int h^3 ds = 0` **exactly** (an odd power of an
    odd-symmetric field) — asserted at machine precision — while the self-dispersion part is
    `O(theta_max^2)` (`-1.735e-05` on the probe machine, moving `J_z` by `8.7e-04 %`). This
    is what licenses gate 3 to be attributed to `I3` alone, and it is written down as such.
-5. **A damping wiggler damps.** Adding a wiggler to a ring raises `I2` without materially
-   moving `I4`, so all three damping times **shorten** and `J_x` is unchanged to
-   `O(theta_max^2)`. The end-to-end statement the milestone exists for.
+5. **A damping wiggler damps — and the statement is exact, not a measured direction.**
+   The damping *rates* are `J_x I2 = I2 - I4`, `J_y I2 = I2` and `J_z I2 = 2 I2 + I4`, so a
+   wiggler that contributes `dI2 > 0` and `dI4 = 0` (gates 2 and 4) **strictly increases
+   all three**, for *either* sign of the ring's own `I4` and with no smallness assumption.
+   Hence all three damping times shorten. Note what this corrects: `J_x` itself is **not**
+   unchanged — it is `1 - I4/I2` and moves toward 1 as `I2` rises — but the *product* that
+   sets the damping rate moves the right way regardless, which is why the gate is put on
+   the rates rather than on the partition numbers. The end-to-end statement the milestone
+   exists for.
 6. **The tracking gap is refused loudly, not papered over.** `radiation_kick` samples the
    field once per traversal and cannot see a field that reverses inside the element, so a
    `Wiggler` under any `radiation_model` other than `"off"` **raises** rather than silently
