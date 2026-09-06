@@ -33,8 +33,9 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | N | spin | N1–N5 | — |
 | O | normalised coordinates, driving terms | O1–O6 | — |
 | P | the map beyond first order | **P1** (2026-09-02); **P2 (i)-(iv)** all four second-order gaps closed; **P3 (a)** the rotated face (2026-09-03); **P3 (b)** the gradient face (2026-09-05) | axis P complete |
+| Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06) | **Q2** — applying it, which needs a bend whose field is separable from its geometry |
 
-**Axis P is complete, and there is no open candidate.** P3 (b) — the *gradient* face, the
+**Axis Q is open. Q1 — the taper profile — shipped on 2026-09-06, and Q2 — applying it — is the candidate to read.** It was chosen on 2026-09-06 by re-running the project's filter with axis P complete: tapering is absent from `src/accsim` entirely, `xtrack`'s `compensate_radiation_energy_loss()` collapses the radiation orbit on I4's own ring by a factor **14,300**, and MAD-X's untapered `pt` column is a second, independent view of the same sawtooth. Axis Q is cross-listed on B: it is not a new radiation effect but the machine correcting a distortion its own radiation inflicts. **Axis P is complete.** P3 (b) — the *gradient* face, the
 multipole fringe — shipped on 2026-09-05, and with it the last `NotImplementedError` P2 (i)
 raised. `Quadrupole(..., fringe=True)` now exists (a plain quadrupole had no faces at all
 before), and `Dipole(..., k1=..., fringe=True)` composes the whole five-map face. Its
@@ -5281,6 +5282,189 @@ was executed on a probe ring before a word of this entry was written. What the r
   analytic** (from 1557 — the whole difference is this milestone's twenty-five tests) **and
   371 reference** (from 363 — eight xtrack), both run in full and both passing. See `docs/CONVENTIONS.md` → *The
   gradient pole face: the multipole fringe and the quadrupole wedge*.
+
+### Q. Tapering — the machine that compensates its own energy loss (core accelerator)
+
+A ring that radiates is not the machine its lattice file describes. The beam bleeds energy
+continuously around the arc and gets it back in one lump at the cavity, so the particle is
+at a *different momentum in every magnet* — a sawtooth in `delta` whose peak-to-peak height
+is exactly the fractional turn loss `U_0/E_0`. Every magnet is therefore mis-set relative to
+the beam it is steering: the design orbit is no longer a fixed point, and the ring closes on
+a dispersion orbit instead. On I4's own 6.5 GeV ring, where `U_0/E_0 = 3.816e-3`, that orbit
+is **7.09 mm** wide — three orders above every misalignment axis K ever modelled.
+
+**Tapering** is what real electron machines do about it: scale each magnet's field by the
+local energy so that a particle at `delta(s)` feels exactly the nominal magnet. Opened
+2026-09-06 as a **new axis** rather than an extension of B: it is not a new radiation effect
+(B1-B5 deliver the emission, the damping and the quantum limit; nothing here changes what a
+magnet radiates) and it is not a solve for caller-specified optics targets (axis H), it is
+the machine correcting a distortion it inflicts on itself. Cross-listed on B in the status
+index, the way P2 (i) and P3 (a)-(b) are cross-listed on F.
+
+**Chosen on the project's usual filter, run the way O5, O6 and P upgraded it — every
+candidate arbiter was executed on a probe ring before a word of this entry was written.**
+With axis P complete, `xtrack`'s `Line` and `TwissTable` APIs were re-enumerated and diffed
+against `accsim`'s exports. What the run settled:
+
+- **Tapering** is absent from `src/accsim` entirely (`grep` finds no `taper` anywhere) and
+  `line.compensate_radiation_energy_loss()` works here: on the I4 ring it collapses the
+  radiation orbit from `7.0898e-3` to `4.9599e-7`, a factor **14,300**.
+- **`line.survey()`** — the ring's geometry in laboratory coordinates — remains the real gap
+  it was when P's filter measured it, with two arbiters that agree on ring closure to
+  `4e-15`. It is still geometry rather than dynamics, and it is still recorded rather than
+  sequenced.
+- **Intra-beam scattering** still has no arbiter in this environment (`xfields` absent), and
+  **third order** still has exactly one (PTC at `no = 3`), which is why P refused it.
+
+**The fixture is I4's ring, and the probe ring that came before it is the cautionary tale.**
+A first pass used an 8-cell 1 GeV toy where `U_0/E_0 = 6.9e-5` and MAD-X's taper-on/taper-off
+tune difference was `2e-7`: against a `1e-6` reference gate a **30% coefficient error would
+have been invisible**, exactly the trap P2 (iv) and P3 (b) each hit from the other side. I4's
+`ring()` at 6.5 GeV needs no sweeping at all — `U_0/E_0 = 3.816e-3` already — and it has the
+RF cavity the compensation routine requires (the toy ring had none, and the routine's failure
+there was the fixture, not the tool).
+
+- **Q1 — the taper profile: `delta(s)`, and where it is centred.** ✅ **DONE (2026-09-06)**.
+
+  A new module `accsim.tapering`, whose whole content is the sawtooth: the per-element energy
+  deviation a radiating ring runs at, computed by **forward tracking with the cavity kick
+  suppressed** — deliberately *not* from I4's 6D closed orbit, so that the agreement between
+  the two is a gate rather than a dependency. No element is touched, no map changes, nothing
+  on axes A-P moves.
+
+  **The centring is the milestone, not the amplitude.** The span is fixed by conservation —
+  it is `U_0/E_0` whatever else is wrong — so a profile running `0 -> -U_0/E_0` has *exactly
+  the same span* as the correct one and is wrong by half the effect everywhere. Span gates
+  the amplitude; only the **mean** gates the centring, and the two are separate gates.
+  Measured on both reference codes before this was written: xtrack's `delta_taper` has mean
+  `-6.35e-12` over the bends against a span of `3.816478e-3`, and MAD-X's untapered `pt`
+  column has mean `3.61e-5` against a span of `3.816191e-3`. Those are the *same statement
+  arrived at differently* and they get different tolerances for that stated reason —
+  xtrack **imposes** zero mean as a convention (`delta0='zero_mean'`, a documented argument
+  that can be given a number instead), while MAD-X's untapered `pt` is just where the ring
+  runs, centred by physics and round-off. accsim follows xtrack's convention and asserts
+  MAD-X's loosely.
+
+  **The claim worth recording, and it is I4's finding restated by two other codes.** I4
+  established that a radiating ring's fixed point is *where the sag is centred* — the
+  design-route loss integral departs from the tracked loss at first order about the design
+  orbit and at **second** order about the closed one (fitted exponents 0.999 and 2.003). The
+  zero-mean profile is that same centring, reached by an entirely different route. So the
+  gate is: the forward-tracked profile and `closed_orbit_6d(radiation="mean")`'s own
+  `delta(s)` agree, and neither is used to build the other.
+
+  **Pre-committed gates.**
+  1. **Span** equals `energy_loss_per_turn / (beta0^2 E_0)` — the design-route radiation
+     integral, an independent calculation — and the *residual* is gated, not just the value.
+  2. **Mean** is zero to round-off, asserted absolutely against the span rather than with
+     `approx(rel=)`, which P2 (i) showed is vacuous on a number near zero.
+  3. **Monotone**: `delta` falls across every radiating element and is flat across every
+     other one. A magnet cannot hand energy back.
+  4. **The uniform-ring closed form**: with identical bends uniformly spaced, `delta(s)` is
+     linear in `s` with slope `-U_0/(beta0^2 E_0 C)`, and the departure from the straight
+     line is the arc/straight-section structure, not an error.
+  5. **Order gate**: the span scales as `E^3` (`U_0 ~ E^4`), swept over the four energies I4
+     already sweeps. Gate the **exponent**, as J2 established, not a tolerance.
+  6. **The sag orbit itself**: accsim's `closed_orbit_6d(radiation="mean")` reproduces the
+     `7.09 mm` excursion that *both* reference codes independently produce
+     (`7.0898e-3` xtrack, `7.0882e-3` MAD-X, agreeing to `2e-4` relative). This anchors the
+     profile's consequence before any tapering exists.
+  7. **Reference legs**: element-by-element against xtrack's `delta_taper`, and against
+     MAD-X's untapered `pt` column.
+  8. **Deliberate breaks**: an uncentred profile (`delta0=0`) misses gate 2 by half the span;
+     a profile built from the design orbit rather than the tracked one misses gate 1 by I4's
+     `4.4e-3`.
+
+  **What is refused, in the manner O2 established.**
+  - **MAD-X's `TWISS, TAPERING` is not a leg, and the measurement says so.** On this ring
+    `ktap` reads identically zero with tapering on *and* off, and `|x|max` moves
+    `7.0882e-3 -> 7.0352e-3` — under 1%, where xtrack collapses the same orbit by 14,300.
+    Its untapered `pt` column is an arbiter for the **profile**; its tapering is not an
+    arbiter for anything. This is P3 (b)'s refusal of PTC in the same shape: naming which
+    half of a reference code can see the milestone is worth more than counting the codes.
+  - **The horizontal tune shift is not this milestone's, and that was measured rather than
+    assumed.** Radiation moves `Q_x` by `3.154e-4` on this ring; tapering — which removes the
+    sag orbit by four orders — removes `1%` of it, and with radiation **off** the shift is
+    exactly `0.0`. So it is the radiation kick's own contribution to the one-turn map, not
+    the sag, and nothing on this axis will move it. `Q_y` behaves the other way
+    (`2.37e-6 -> -9.5e-8`), which is the sag's share and is small because a centred profile
+    has no first-order chromatic tune shift *by construction* — the centring gate and this
+    number are the same fact.
+  - **Applying the profile is Q2, not Q1** (below), and the reason is a coefficient, not
+    tidiness.
+
+  ✅ **SHIPPED (2026-09-06).** `accsim.tapering` — a new module, exporting `taper_profile`
+  and `TaperProfile`. No element changed, no first-order function moved, and the whole
+  milestone is one object: the momentum ramp, per element, with its centring. Effort **S-M**,
+  as estimated. Full detail in `docs/CONVENTIONS.md` → *The taper profile*.
+
+  **Every pre-committed gate was met, and three of the entry's numbers were corrected by
+  measurement on the way** — each of them a tolerance written from the wrong ring, which is
+  the failure mode this axis's own opening paragraph warned about.
+
+  **The centring gate is the milestone and it behaved as promised.** The length-weighted mean
+  lands at `3e-17` of the span, asserted absolutely against the span rather than with
+  `approx(rel=)`; the uncentred control misses it by half. The centring turned out to be a
+  **contraction rather than a solve** — each round divides the mean by `4.51e-3`, the same
+  constant to eight digits over four rounds, because the profile depends on its own starting
+  momentum only through the radiated power's `E^2`. The *ratio* is the test, so an
+  implementation that reached zero mean some other way would not pass it.
+
+  **The independent pair delivered a closed form nobody had asked for.** I4's
+  `closed_orbit_6d(radiation="mean")` and this forward-tracked profile differ by **exactly
+  half a magnet's share of the loss**, `span/(2 N_bends)`: ratios `1.000007`, `1.000320`,
+  `1.001086` at 20, 40 and 80 bends. One centres on the ramp's midpoints and the other on its
+  boundaries, and half a step is the whole difference — so I4's fixed point, which *arrives*
+  at its centring from periodicity, and xtrack's `delta0='zero_mean'`, which *imposes* it, are
+  the same statement. The shape residual after that constant falls as `1/N^2`.
+
+  **The xtrack disagreement is a law, not a tolerance, and that is the sharpest result here.**
+  Element by element the two profiles differ by `0.1446 span^2` — constant to `0.5%` across a
+  factor eight in span — of which three quarters is a parabola in `s` of sagitta
+  `0.0946 span^2`. It is *second* order in the sag, so it vanishes quadratically as the ring
+  stops radiating; a wrong coefficient in the radiation kick would be first order and would
+  survive. Two energies are run for exactly that reason, because one could only ever have
+  produced a tolerance. The constant component is `1.7e-9` of the span: the codes place the
+  ramp identically and only distribute the loss along it differently.
+
+  **Three tolerances were written from the wrong ring and corrected by running them.** The
+  half-step ratio, the shape residual and the uncentred control's span all turned out to
+  carry a correction *first order in the sag itself* — `5.4 x span` on the half-step,
+  `-1.20 x span` on the control's height (a ramp that runs entirely low radiates less, since
+  the power goes as `E^2`). Each was re-pinned as the measured law rather than loosened, and
+  the sharp `1/N` form of the half-step claim was moved to the 1.6 GeV sweep where that
+  correction is negligible.
+
+  **Arbiters.** xtrack's `compensate_radiation_energy_loss` (span to `6.4e-6`, both centrings
+  round-off independently, the `span^2` law at two energies, and the uncentred control missing
+  by half the span); MAD-X's untapered `pt` column (span to `1.7e-4`, element by element
+  `6.7e-4` of the span, and centred to within a percent *without being asked*); accsim's own
+  I4 fixed point. **MAD-X's `TWISS, TAPERING` is refused as a leg and the refusal is a test**
+  — `ktap` reads identically zero with tapering on and off and the orbit it should remove
+  moves by under 1%, so if a future MAD-X fixes it the test fails and this entry gets
+  rewritten. **Suite totals: 1601 analytic** (from 1582 — the whole difference is this
+  milestone's nineteen tests) **and 382 reference** (from 371 — seven xtrack, four MAD-X),
+  all run in full and all passing. The MAD-X refusal test needs a *second* subprocess and
+  skips rather than fails when a loaded box cannot launch one, which it did once and did not
+  on the re-run.
+
+- **Q2 (candidate) — the tapered lattice: a bending magnet whose field is not its geometry.**
+  Effort **M**. What Q1 computes, applied: `taper(lattice) -> Lattice`, a new-lattice sibling
+  in O6's sense (the idiom already exists twice — `orbit._with_offset`,
+  `radiation._coupling_off_lattice`), with the pre-committed gate that
+  `closed_orbit_6d(radiation="mean")` on the tapered ring falls from **7.09 mm to below a
+  micron**, plus the `1.01` deliberate break moving the residual by `1%` of the untapered
+  distortion.
+
+  **Its central object is named, and it is why it is not Q1.** `Dipole` stores `angle`, so
+  its field and its curvature are the same number: `k0 = h = angle/L`. A tapered bend has
+  `k0 = h(1+delta_t)` with `h` **unchanged** — the geometry is the ring's, not the magnet's,
+  and the bends must still sum to `2 pi`. The shortcut of evaluating the existing map at an
+  effective momentum was checked symbolically and **refuted**: it reproduces the drive term
+  `G = h - k0/(1+delta)` exactly but scales the weak-focusing `h^2` along with the gradient,
+  leaving `h^2 delta_t/(1+delta)` — `1.2e-4` relative on `K_x`, a hundred times a `1e-6`
+  gate. So Q2 is surgery on the element carrying F2, P2 (i), P3 (a) and P3 (b), and it gets
+  its own milestone for the same reason I2 and J3 did.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 

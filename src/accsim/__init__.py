@@ -119,6 +119,7 @@ from .symplectic import (
     jacobian,
     pzeta_from_delta,
 )
+from .tapering import TaperProfile, taper_profile
 from .taylor import (
     TaylorMap,
     canonical_map,
@@ -347,6 +348,9 @@ __all__ = [
     "second_order_element_maps",
     "second_order_one_turn_map",
     "linearised_lattice",
+    # tapering: the sawtooth a radiating ring runs at (Q1)
+    "TaperProfile",
+    "taper_profile",
     # misalignments & the statistical orbit (K1)
     "misalignment_response",
     "orbit_statistics",

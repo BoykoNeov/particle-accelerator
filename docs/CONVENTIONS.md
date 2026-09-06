@@ -8534,6 +8534,119 @@ The fringe's own third-order content — the `1/(1+δ)` factors inside Φ and th
 fifth-order face-pair leftover — has one arbiter, xtrack's `full` edge model, and is
 gated by tracking rather than by a map entry.
 
+## The taper profile: the sawtooth a radiating ring runs at (Q1 — implemented)
+
+`accsim.taper_profile(lattice, *, delta0="zero_mean", rounds=6)` → `TaperProfile`, in the
+new module `accsim.tapering`. It returns the momentum deviation the beam actually runs at in
+every element of a ring that radiates: `delta` (one value per element, the midpoint of its
+entrance and exit momenta), `boundary` (the raw ramp, one entry more), `s_mid`, `lengths`,
+`delta_start`, `loss_eV`, and the derived `span` and `mean`.
+
+**The physics in one line.** The beam loses energy continuously through the arcs and is paid
+back in one lump at the cavity, so it sits at a different momentum in every magnet. The
+sawtooth's peak-to-peak height is `U_0 / (beta0^2 E_0)` — `3.8161e-3` on I4's 6.5 GeV ring —
+and through the ring's dispersion that momentum spread is a **7.09 mm** closed orbit, three
+orders above anything axis K models. Q2 removes it by scaling each magnet to the local
+energy; Q1 is the profile alone.
+
+**Where the profile is centred is the physics; its height is bookkeeping.** The span is
+fixed by conservation whatever else is wrong, so a profile running `0 → −U_0/E_0` has
+*exactly the same span* as the right one and is wrong by half the effect in every magnet.
+Span gates the amplitude, the **mean** gates the centring, and they are separate tests. The
+mean is asserted absolutely against the span (`< 1e-12` of it; measured `3e-17`), not with
+`approx(rel=)`, which P2 (i) showed is vacuous on a quantity whose true value is zero.
+
+**The convention: `delta0="zero_mean"`.** The length-weighted mean of the profile is put at
+zero, so the ring runs as far above the design momentum as below. This is xtrack's default
+(`compensate_radiation_energy_loss(delta0='zero_mean')`) and it is a *choice* — the argument
+accepts a number instead. Thin elements carry zero weight: they are places the profile is
+read, not places it is spent, and weighting them equally with a metre of dipole would make
+the answer depend on how finely the lattice happens to be written.
+
+**The centring is a contraction, not a solve.** The profile depends on its own starting
+momentum only through the radiated power's `E^2`, so each re-centring round divides the mean
+by a constant — measured at `4.5e-3` per round on I4's ring, reaching round-off (`1.6e-17`)
+by the sixth, which is why `rounds` defaults to 6. The *ratio* is a test; an implementation
+that reached zero mean by some other route would not have it.
+
+**The cavity is stepped over, not tracked.** The profile is what the momentum does *between*
+refills; tracking the cavity would fold the RF's restoring kick into the ramp and hide the
+teeth. xtrack does the same (`XS_FLAG_KILL_CAVITY_KICK`) for the same reason.
+
+### I4's fixed point reaches the same profile, and the constant between them has a closed form
+
+`taper_profile` tracks forward from the transverse closed orbit and *imposes* the zero mean.
+I4's `closed_orbit_6d(radiation="mean")` solves the whole turn's fixed point, cavity
+included, and *arrives* at its own centring from periodicity — which is I4's own finding that
+the fixed point is where the sag is centred (its fitted exponents 0.999 about the design
+orbit and 2.003 about the closed one). Neither is used to build the other, so their agreement
+is a gate rather than a dependency, and it is sharp:
+
+| N_bends | 6D orbit's mean ÷ span | `−1/(2 N_bends)` | ratio | shape residual ÷ span |
+|---|---|---|---|---|
+| 20 | `−2.500018e-2` | `−2.50e-2` | `1.000007` | `8.6e-6` |
+| 40 | `−1.250400e-2` | `−1.25e-2` | `1.000320` | `1.6e-6` |
+| 80 | `−6.256786e-3` | `−6.25e-3` | `1.001086` | `3.4e-7` |
+
+**The two centrings differ by exactly half a magnet's share of the loss** — one is centred on
+the ramp's midpoints, the other on its boundaries, and half a step is the whole difference.
+After that constant is removed the shapes agree to `1.6e-6` of the span on the 1.6 GeV rings
+of that sweep, and the residual falls as `1/N^2`. On I4's own 6.5 GeV ring it is `1.05e-4` —
+the residual, like the departure from an exact half-step, is first order in the sag itself,
+so the sharp form of the claim belongs at the energy where that correction is negligible. A constant that happened to be right on one ring would be a
+coincidence; one that tracks `1/N` over a factor four is the discretisation it is claimed to
+be.
+
+### The reference legs, and which half of MAD-X can see this
+
+**xtrack (`compensate_radiation_energy_loss`) is the primary leg.** Same convention, same
+route, and B2's rule governs the comparison: `integrator="uniform"` and
+`num_multipole_kicks=1` on every bend, or the codes integrate different maps and disagree by
+`7/8` of the loss. Measured: the span agrees to `6.4e-6` relative, both means are round-off
+independently, and the difference between the profiles has **no constant component**
+(`1.7e-9` of the span over the radiating elements, `2.3e-7` over all of them — the thin
+quadrupoles sample the ramp at its steps rather than across them) — the two codes place the
+ramp identically.
+
+**What is left is a law, not a tolerance.** Element by element the profiles differ by
+`0.1446 span^2` — *second* order in the sag — measured to `0.5%` across a factor eight in
+span (`6.9e-5` of the span at 3.25 GeV, `5.5e-4` at 6.5 GeV), and three quarters of it is a
+parabola in `s` of sagitta `0.0946 span^2`. That is what evaluating the same `E^2` power law
+at a slightly different point along each magnet produces, and it *vanishes quadratically* as
+the ring stops radiating, which a wrong coefficient in the radiation kick would not: that
+would be first order and would survive. Two energies are run for exactly that reason. The
+control is the uncentred profile, which misses the same comparison by half the span.
+
+**MAD-X's untapered `pt` column is a second, independent view of the same sawtooth.** Span
+`3.816191e-3` against accsim's `3.816837e-3` (`1.7e-4`), element by element `6.7e-4` of the
+span, and its mean is within a percent of centre *without being asked to be* — the physics
+centring again, where xtrack's is imposed. Both codes also produce the untapered orbit
+independently: `7.0898e-3` (xtrack) and `7.0882e-3` (MAD-X), agreeing to `2.2e-4`.
+
+**MAD-X's `TWISS, TAPERING` is not a leg, and the measurement is why.** On this ring `ktap`
+reads identically zero with tapering on *and* off, and `|x|max` moves `7.0882e-3 → 7.0352e-3`
+— under 1%, where xtrack collapses the same orbit by a factor 14,300. Naming which half of a
+reference code can see a milestone is worth more than counting the codes, which is P3 (b)'s
+refusal of PTC in the same shape.
+
+### Two things this axis does not touch, both measured rather than assumed
+
+**The horizontal tune shift is not the sag.** Radiation moves `Q_x` by `3.154e-4` on this
+ring. Tapering — which removes the sag orbit by four orders — removes `1%` of it, and with
+radiation off the shift is exactly `0.0`. So it belongs to the radiation kick's own
+contribution to the one-turn map, and nothing on axis Q will move it. `Q_y` behaves the other
+way (`2.37e-6 → −9.5e-8`): that is the sag's share, and it is small *because* the profile is
+centred — a centred profile has no first-order chromatic tune shift, so the centring gate and
+this number are one fact.
+
+**Applying the profile needs a bending magnet whose field is separable from its geometry**,
+which `Dipole` does not have: it stores `angle`, so `k0 = h = angle/L`. A tapered bend has
+`k0 = h(1+delta_t)` with `h` unchanged — the geometry belongs to the ring and the bends must
+still sum to `2 pi`. The shortcut of evaluating the existing map at an effective momentum was
+checked and **refuted**: it reproduces the drive `G = h − k0/(1+delta)` exactly but scales the
+weak-focusing `h^2` along with the gradient, leaving `h^2 delta_t/(1+delta)`, `1.2e-4`
+relative on `K_x` and a hundred times a `1e-6` gate. That is Q2.
+
 ## Toolchain / environment notes
 
 - **Linux (2026-09-02, P1's session):** the reference suite runs unchanged on Ubuntu with
