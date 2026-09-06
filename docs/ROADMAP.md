@@ -35,7 +35,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | P | the map beyond first order | **P1** (2026-09-02); **P2 (i)-(iv)** all four second-order gaps closed; **P3 (a)** the rotated face (2026-09-03); **P3 (b)** the gradient face (2026-09-05) | axis P complete |
 | Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06); **Q2** applying it (2026-09-06) | axis Q complete |
 | R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
-| S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06) | S2 (spin & radiation) recorded, not sequenced |
+| S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06) | **S2 OPEN** — the field accessor, spin, radiation, and the taper it unblocks |
 
 **Axis R shipped R1 on 2026-09-06** — the survey, the ring's geometry in laboratory
 coordinates, the candidate the last two filter runs recorded rather than sequenced. It is
@@ -6027,6 +6027,134 @@ both fringes and gets a map that differs at first order in `ks`.
   own files. **405 reference** (from 395 — four MAD-X, six xtrack), of which this
   milestone's ten were run; the rest were not re-run and have no exposure to this change,
   which adds one element and one line to the taper's strength table.
+
+**S2 — the solenoid's field becomes visible to the package: spin, radiation, and the
+taper it unblocks.** Effort **M**.
+
+S1 shipped the solenoid's *map* and, deliberately, refused its *field*:
+`normalized_field` returns `(bx, by)` and an ideal solenoid has neither, so rather than
+report a silent zero — which would make `accsim.spin` say *no precession* in the one
+magnet built to rotate spins — it raises. That refusal is not free, and S1 priced it
+honestly: radiation reaches an element through the same accessor, a taper needs the
+ring's radiating closed orbit, and so **`taper()` cannot be applied to any ring
+containing a solenoid**. `tests/analytic/test_solenoid.py::
+test_tapering_a_ring_with_a_solenoid_is_refused_for_now` asserts that refusal today and
+is written to fail, loudly, the day this milestone lands.
+
+This is the milestone that lands it. It is one milestone rather than three because the
+two consumers take the *same* two hooks, and because splitting them would leave the
+package in a state where a solenoid radiates but does not precess — which is exactly the
+silent-wrong-answer S1 refused to ship.
+
+**Chosen on the project's usual filter, run the way O5, O6, P, Q, R and S1 established —
+every arbiter was executed on probe elements before a word of this entry was written.**
+What the run settled, none of it read out of documentation:
+
+- **The roadmap's own premise for S2 was wrong, twice.** This entry previously said spin
+  in a solenoid "needs a field accessor with an `s` component, which is an interface
+  change touching every element." It is **not a signature break**:
+  `accsim.spin.precession_vector` already stacks `b` as a **3-vector** and does the full
+  3D `b_par`/`b_perp` split — the zero in its third slot is the only thing standing
+  between it and a solenoid — so a default-zero *sibling* accessor reaches both consumers
+  with no edit to any of the five existing `normalized_field` implementations and no
+  churn in the ~8 test call sites that unpack two values. And it is **not one hook but
+  two**: the second, which nothing in the roadmap priced, is the **vector potential**.
+- **The field value is not a judgement call.** xtrack computes the solenoid's field
+  analytically from the strengths — `evaluate_field_from_strengths`
+  (`track_magnet_kick.h:368`) returns `Bz_T = ks * brho_0` with
+  `brho_0 = p0c / c / q0` — so in this package's normalisation `b = B/(B rho)_0`, the
+  answer is **`b_s = ks` exactly**. It carries no charge factor, which extends S1's
+  gate 7 (`matrix()` is charge-free) to the field accessor unchanged. For a *uniform*
+  solenoid `dks_ds = 0`, so the transverse components are exactly zero too: the field is
+  `(0, 0, ks)` and nothing about it is chosen here.
+- **A solenoid is the first element in the package whose stored momentum is not its
+  velocity**, and that is the physics of this milestone. `direction_of_motion` treats its
+  argument as the direction of travel; inside a solenoid the canonical momentum differs
+  from the kinetic one by the vector potential `a = (-ks y/2, +ks x/2)`, which is
+  first order in the transverse amplitude — *the same order as the perpendicular field
+  itself*. Getting it wrong is not a small correction.
+- **xtrack precesses spin in a solenoid, and it does so with the wrong momentum.** Its
+  `magnet_spin` (`track_magnet_radiation.h:~143`) builds the direction of motion from
+  `px + ax`, while **its own solenoid body** computes the kinetic momentum as
+  `pk1 = px + sk*y` (= `px - ax`, `track_magnet_drift.h:427`) and **its own radiation
+  path** uses `mean_kin_px` from `px - ax` (`track_magnet.h:97,108`). One code, two
+  formulas for one quantity, and only the spin one disagrees with the definition of
+  kinetic momentum. Every element the project has validated so far has `a = 0`, so the
+  two have never disagreed — the solenoid is the first element that can tell them apart.
+- **The sign is settled without an arbiter, by S1's own validated map.** The trajectory's
+  actual tangent, central-differenced from `Solenoid.track` at the magnet's midpoint,
+  is reproduced by the **kinetic** momentum to `6.3e-11`, converging as the **cube** of
+  the amplitude (measured ×8.00, ×8.00, ×7.99); the canonical momentum misses it by
+  `5.46e-4` and xtrack's `px + ax` by `1.0921523557052653e-3`, which is
+  `2 |a_y| = 1.0921523557052653e-3` to every digit. First order in the amplitude, both.
+  This leg routes through neither reference code, and it is the milestone's sharpest
+  statement.
+- **The `G = 0` identity is provably blind to that question, and the blindness is
+  measured rather than argued.** At `G = 0` the coefficients `(1 + G gamma)` and
+  `(1 + G)` coincide, `Omega = -b/(1+delta)` whatever the direction of motion is, and the
+  `b_par`/`b_perp` split drops out entirely: the three candidate momenta give
+  **bit-identical** residuals (`3.8584e-11`, `4.8230e-12`, `6.0287e-13`, ... converging at
+  third order) at every amplitude. It is a good control — it pins the sign of `Omega`, its
+  magnitude and the path length, and it confirms S1's rigid rotation (the velocity turns
+  by exactly `-ks L` and `|v|` is exactly constant) — but it cannot be the discriminating
+  gate, and N1's catalogue of blind controls gains an entry.
+- **The disagreement with xtrack does not converge away under slicing, and that is the
+  headline gate.** Splitting the same solenoid into `n = 1, 2, 4, 8, 16` slices leaves the
+  residual at **exactly `2.883823e-03`** — not a digit moves. A quadrature or
+  sampling difference shrinks with refinement; this does not, because it is a systematic
+  model difference. Its two orders complete the identification: **linear in the transverse
+  amplitude** (ratios 1.999, 2.000, 2.000) and **quadratic in `ks`** (~4 per halving),
+  i.e. exactly `ks * (ks y)` — the signature of a `2a` error and of nothing else.
+- **Radiation is the clean half.** xtrack's radiation path feeds `compute_b_perp_mod` the
+  *correct* kinetic momentum, so radiation in a solenoid has an undisputed reference leg
+  where spin has a disputed one. It is also the half that unblocks `taper()`.
+- **One arbiter, and it is the disputed one.** MAD-X has no spin tracking; N1-N5 all ran
+  on xtrack alone, so this is axis N's established condition rather than a new deficiency.
+  MAD-X remains available for the *radiation* half.
+
+**Pre-committed gates.**
+
+1. **Two hooks, both defaulting to zero on `Element`.** `longitudinal_field(x, y) -> b_s`
+   and `normalized_vector_potential(x, y) -> (a_x, a_y)`. Gate: every existing element
+   returns the defaults, `normalized_field` keeps its two-component signature, and no
+   existing element file changes. The `Solenoid` returns `ks` and `(-ks y/2, +ks x/2)`,
+   and its `normalized_field` **stops raising** and returns `(0, 0)` — truthfully now,
+   because the longitudinal component has somewhere to go.
+2. **The direction of motion is the trajectory's tangent.** The arbiter-free gate:
+   central-difference `Solenoid.track` about the midpoint and assert the vector
+   `spin_precession` builds equals it, at the measured `6.3e-11`, **converging as the cube
+   of the amplitude**. Assert too that the canonical momentum misses by `|a|` and
+   xtrack's by `2|a|` — the orders, not the sizes.
+3. **`b_s = ks`, charge-free.** Bit-identical for an electron and a proton reference,
+   S1's gate 7 extended to the field.
+4. **The `G = 0` control, *and* its blindness.** The identity holds to `3.9e-11` at third
+   order; and the three candidate momenta give bit-identical residuals. The second half is
+   the gate that stops a future session from mistaking the control for a discriminator.
+5. **The disagreement with xtrack is asserted as a mechanism, not a tolerance**, the way
+   N1 asserted xtrack's `sqrt(1 - ix*ix + iy*iy)`: accsim fed xtrack's own momentum
+   reproduces xtrack to `5.2e-6` (converging quadratically), while the physically correct
+   model differs by a residual that is **flat under slicing** and carries the two measured
+   orders. No tolerance gate is pre-committed against xtrack's solenoid spin.
+6. **Radiation in a solenoid**: `radiation_kick` sees `b_perp` built from `(0, 0, ks)` and
+   the kinetic momentum, so an **on-axis** particle radiates **exactly zero** (its velocity
+   is parallel to the field) and an off-axis one radiates at `O(angle^2)`. Both are gates,
+   and the first is the one a silent `(0, 0)` would have got right for the wrong reason.
+   Reference leg: xtrack's radiation path, which uses the correct momentum.
+7. **The taper unblock.** `test_tapering_a_ring_with_a_solenoid_is_refused_for_now` is
+   rewritten as the end-to-end gate S1 said it would become: `taper()` on a ring
+   containing a solenoid converges, and Q2's fixed point holds for the solenoid's `ks`.
+8. **Nothing else moves.** Every element with no longitudinal field and no vector
+   potential — which is all of them — must produce bit-identical spin and radiation to
+   before this milestone.
+
+**What is refused.**
+- **`kinematic_slices` for the solenoid** — S1's recorded paraxial gap, still open, still
+  gated by its cubic scaling.
+- **The thin solenoid, `VariableSolenoid`, an off-axis solenoid, and multipole components
+  on a solenoid** — S1's list, unchanged.
+- **Sokolov-Ternov in a solenoid.** `accsim.radiation`'s polarization integrand builds
+  `b_hat` from the transverse field; extending it needs the longitudinal component and a
+  statement about what `n_0` means in a spin rotator, which is not this milestone.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
