@@ -5999,7 +5999,6 @@ both fringes and gets a map that differs at first order in `ks`.
   one element in the package that can be tested that way, and it gates the alignment
   conjugation for free.
 
-
   **P1's second-order machinery took the element for free too, and it says what the map is
   made of.** `taylor_expand` differences `track` and knows nothing about element types, so a
   solenoid arrives with a `T` tensor unasked. Every non-negligible entry of it either carries
@@ -6008,9 +6007,26 @@ both fringes and gets a map that differs at first order in `ks`.
   momentum. The largest entry outside those two sets is `5.4e-14` (the differencing floor);
   the largest inside is `L/2`. The second-order symplectic identity holds in **both**
   longitudinal pairs, unlike the sector bend's, because a solenoid's `R51..R54` are zero.
-  **Gates: `tests/analytic/test_solenoid.py` (37, all passing), `tests/reference/`
-  `test_solenoid_madx.py` (4) and `test_solenoid_xtrack.py` (6).** The xtrack file builds
-  exactly two lines, module-scoped, for its six tests, per R1's cost note.
+  **Gates: `tests/analytic/test_solenoid.py` (37), `tests/reference/`
+  `test_solenoid_madx.py` (4) and `test_solenoid_xtrack.py` (6), plus one added to
+  `tests/analytic/test_spin.py` (38 -> 39, see below).** The xtrack file builds exactly two
+  lines, module-scoped, for its six tests, per R1's cost note.
+
+  **The one test elsewhere that this milestone had to touch, and why it is an addition rather
+  than an edit.** `test_a_straight_magnets_field_agrees_with_its_own_momentum_kick` claims to
+  cover *every straight magnet*, and a solenoid is straight and has a real momentum kick in
+  both planes — but it cannot satisfy the identity, because the identity is about `(bx, by)`
+  and a solenoid has neither. Adding it to that parametrisation would have been wrong; adding
+  it as a **named exclusion with its own test** turns a sentence in a docstring into a gate,
+  and that gate fails — correctly — the day S2 gives the accessor an `s` component. Three
+  statements of the form "accsim has no solenoid" (in `spin.py`, in `test_spin.py`, and in
+  CONVENTIONS' fringe scope list) were made false by this milestone and are restated.
+
+  **Suite totals: 1699 analytic** (from 1661), of which the full 1696 that existed at the time
+  were **run in full and all passing** — 38m41s — and the three added since are green in their
+  own files. **405 reference** (from 395 — four MAD-X, six xtrack), of which this
+  milestone's ten were run; the rest were not re-run and have no exposure to this change,
+  which adds one element and one line to the taper's strength table.
 
 ## Out of scope (unless a milestone explicitly calls for it)
 
