@@ -93,12 +93,31 @@ class Wiggler(Element):
 
         R56 = L / gamma0^2  +  (L theta^2 / 4) (2 + 1 / gamma0^2),
 
-    whose second term is ``2.56e-05`` on the probe magnet against a drift's ``2.61e-07``:
-    **98 times larger**, at 1 GeV, and growing with energy while the drift term shrinks. A
-    wiggler in a dispersion-free straight therefore changes the ring's momentum compaction
-    and its synchrotron tune. This term was found by the package's own contract that
-    :meth:`matrix` be the origin Jacobian of :meth:`track` — it was missing from the first
-    draft of this class, and nothing else in the milestone would have caught it.
+    and **the ratio of those two terms is the wiggler parameter, squared and halved**:
+
+        wiggle / drift = (theta^2 / 4) gamma0^2 (2 + 1/gamma0^2) = K^2 / 2 + theta^2 / 4,
+
+    with ``K = gamma0 theta`` — the conventional parameter this class otherwise avoids,
+    arriving on its own. ``K`` is a property of the *magnet* (field and period) and carries
+    no energy, so that ratio is the **same at every energy**: ``98.08`` on the probe magnet
+    at 1 GeV, and still ``98.08`` at 200 MeV and at 5 GeV. Both terms fall as
+    ``1/gamma0^2`` together.
+
+    So the longitudinal map of a wiggler is dominated, by two orders for any ``K`` worth
+    building, by a term a straight element is not supposed to have at all. This term was
+    found by the package's own contract that :meth:`matrix` be the origin Jacobian of
+    :meth:`track` — it was missing from the first draft of this class, and nothing else in
+    the milestone would have caught it.
+
+    **This is a contribution to the ring's momentum compaction that
+    :func:`~accsim.radiation.radiation_integrals` does not see, and the distinction matters
+    for T2.** The ``alpha_c = I1/C`` that ``I1`` "links to" is the *dispersion-driven* part,
+    ``int D_x h ds`` — a wiggler contributes nothing to it, because it has no net curvature
+    and generates no dispersion. What it contributes here is **geometric**: the wiggle path
+    itself shortening with momentum, which lives in ``R56`` and in no lattice integral. Both
+    statements are true at once, and a session that opens ``radiation_integrals`` to the
+    wiggler in T2 will still not have made ``alpha_c = I1/C`` complete for a ring with one
+    in it.
 
     Momentum dependence: the **second** power
     -----------------------------------------

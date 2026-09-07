@@ -56,10 +56,14 @@ than by the physics:
   is the approximation class the shipped map is in — but the entry's gate 4 second clause
   ("the horizontal block equals a drift of the same length" to `1e-10`) is true only there.
 - **`R56` is not a straight element's.** The wiggle is a longer road and a stiffer particle
-  wiggles less, so `R56 = L/gamma0^2 + (L theta^2/4)(2 + 1/gamma0^2)` — whose second term is
-  **98x the first** at 1 GeV and does not shrink with energy. A wiggler in a dispersion-free
-  straight changes the ring's momentum compaction. Found by the contract that `matrix()` be
-  the origin Jacobian of `track()`; nothing in the entry's eight gates would have caught it.
+  wiggles less, so `R56 = L/gamma0^2 + (L theta^2/4)(2 + 1/gamma0^2)`. The **ratio** of those
+  two terms is `K^2/2 + theta^2/4` — the conventional wiggler parameter, squared and halved,
+  arriving on its own in the axis that deliberately set it aside — and since `K` carries no
+  energy it is the *same at every energy*: `98.08` at 200 MeV, 1 GeV and 5 GeV alike. Found by
+  the contract that `matrix()` be the origin Jacobian of `track()`; nothing in the entry's
+  eight gates would have caught it. The **exponent** inside it has exactly one witness (the
+  integrated trajectory off momentum) — symplecticity is structurally blind to a `zeta` term
+  with no transverse derivative, and the `R56` gate is circular with respect to it.
 - **`zeta` needs a term no other element in the package has.** The averaged Hamiltonian's
   *potential* carries its own `1/(1+delta)` — a quadrupole's does not — so `dzeta/ds` picks up
   the potential's momentum derivative, `(k_y/2) y^2`, which integrates for free because it is
@@ -6446,6 +6450,13 @@ the day T2 lands, in the manner of S1's
 **T2 — the wiggler becomes visible to the radiation integrals, and the tracking gap is
 priced.** Effort **M**. **OPEN — the rest of the axis.**
 
+> **A gap T2 will inherit and should not absorb silently:** a wiggler contributes to the
+> ring's momentum compaction *geometrically* (its own path shortening with momentum, in
+> `R56`), and that contribution appears in **no lattice integral**. Opening
+> `radiation_integrals` to the wiggler does not make `alpha_c = I1/C` complete for a ring
+> with one in it, because `I1` is the dispersion-driven part and a wiggler generates no
+> dispersion. State which mechanism is which rather than letting the two read as one.
+>
 > **Gate 6 is already done.** T1 shipped the raise rather than the silent zero, so
 > `radiation_kick` through a `Wiggler` already refuses loudly and the test asserting it
 > exists. **Gate 7 is half done**: `taper()` already refuses, through that same accessor,

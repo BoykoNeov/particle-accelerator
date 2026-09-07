@@ -9357,12 +9357,37 @@ Because that path depends on momentum — a stiffer particle wiggles *less* — 
 
     R56 = L / gamma0^2  +  (L theta^2 / 4) (2 + 1 / gamma0^2)
 
-whose second term is `2.56e-05` on the probe magnet against the drift term's `2.61e-07`:
-**98 times larger** at 1 GeV, and it does not shrink with energy while the drift term does. So
-a wiggler in a dispersion-free straight changes the ring's momentum compaction and its
-synchrotron tune. **This term was missing from the first draft and the package's own contract
-that `matrix()` be the origin Jacobian of `track()` is what refused it** — nothing else in the
-milestone would have caught it.
+and **the ratio of those two terms is the wiggler parameter, squared and halved**:
+
+    wiggle / drift = (theta^2/4) gamma0^2 (2 + 1/gamma0^2) = K^2/2 + theta^2/4
+
+with `K = gamma0 theta` — the conventional parameter this axis otherwise avoids, arriving on
+its own. `K` is a property of the *magnet* (field and period) and carries no energy, so the
+ratio is the **same at every energy**: `98.08` on the probe magnet at 1 GeV, and still `98.08`
+at 200 MeV and at 5 GeV. Both terms fall as `1/gamma0^2` together. (An earlier draft of this
+section said the wiggle term "grows with energy while the drift term shrinks"; that was wrong,
+and forming the ratio is what corrected it.)
+
+So a wiggler's longitudinal map is dominated, by two orders for any `K` worth building, by a
+term a straight element is not supposed to have. **This term was missing from the first draft
+and the package's own contract that `matrix()` be the origin Jacobian of `track()` is what
+refused it** — nothing else in the milestone would have caught it.
+
+**It is a momentum-compaction contribution that `radiation_integrals` does not see, and the
+distinction is T2's to inherit.** The `alpha_c = I1/C` that `I1` links to is the
+*dispersion-driven* part, `int D_x h ds`, and a wiggler contributes exactly nothing to it —
+no net curvature, no dispersion generated. What it contributes is **geometric**: the wiggle
+path shortening with momentum, which lives in `R56` and in no lattice integral. Both are true
+at once, and opening `radiation_integrals` to the wiggler in T2 will *not* by itself make
+`alpha_c = I1/C` complete for a ring with one in it.
+
+**The exponent inside that term has exactly one witness, and it is not symplecticity.** The
+wiggle path is a function of `delta` alone, so its transverse derivatives all vanish and it
+drops out of every symplectic condition involving `zeta` — unlike the `(k_y/2) y^2` term
+beside it, which those conditions pin exactly. The `R56` gate cannot see it either: closed
+form, `_matrix_body` and the tracked slope are the same expression. The integrated
+trajectory at `delta = 0.05` is the only arbiter, and it is a sharp one (it reproduces the
+`delta = 0` closed form to `3e-12` relative, so the first power misses by ~5 orders).
 
 ### The momentum dependence is the SECOND power
 

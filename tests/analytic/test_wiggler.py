@@ -407,6 +407,41 @@ def test_the_path_lengthening_is_a_constant_and_is_l_theta_squared_over_four(
     assert Drift(wig.length).track(np.zeros(6), ref)[ZETA] == 0.0
 
 
+@pytest.mark.parametrize("delta", [0.05, -0.05])
+def test_the_wiggle_path_carries_the_second_power_of_the_rigidity_too(
+    wig: Wiggler, delta: float
+) -> None:
+    r"""``Delta s = L theta^2 / (4 (1+delta)^2)`` — and **nothing structural can see it**.
+
+    This gate exists because of what it is the *only* witness to. The wiggle path is a
+    function of ``delta`` alone, so its transverse derivatives are all zero — and every
+    symplectic condition involving ``zeta`` pairs a transverse derivative of ``zeta`` against
+    the transverse map. A term with none therefore drops out of all of them:
+    :func:`~accsim.symplectic.is_symplectic_map_canonical` **cannot see this exponent**, in
+    contrast to the ``(k_y/2) y^2`` term beside it, which it pins exactly.
+
+    Nor can the ``R56`` gate: that compares the closed form against ``_matrix_body`` and
+    against the tracked slope, both of which evaluate the same expression. Both legs are
+    circular with respect to the exponent. The integrated trajectory is not, and since it
+    reproduces the ``delta = 0`` closed form to ``3e-12`` relative, the discrimination here
+    is about **six orders**: the first power misses by ~5% of the quantity.
+
+    That matters because this term is the whole source of the ``R56`` finding — get the
+    exponent wrong and the wiggler's contribution to momentum compaction is wrong by 5% at
+    ``delta = 0.05``, with every other gate in the file still green.
+    """
+    integrated = _integrate(wig, np.zeros(4), delta, path=True)[4]
+    L, theta = wig.length, wig.deflection
+
+    shipped = 0.25 * L * (theta / (1.0 + delta)) ** 2
+    assert integrated == pytest.approx(shipped, rel=1e-8)
+
+    # ...and the plausible alternatives are nowhere near, on an arbiter this sharp.
+    for power in (0, 1):
+        wrong = 0.25 * L * theta**2 / (1.0 + delta) ** power
+        assert abs(wrong - integrated) > 1e5 * abs(shipped - integrated)
+
+
 def test_the_averaging_remainder_and_the_path_lengthening_are_the_same_quantity(
     wig: Wiggler, ref: ReferenceParticle
 ) -> None:
@@ -518,20 +553,39 @@ def test_r56_is_not_a_drift_s_and_the_wiggle_dominates_it(
     ``theta/(1+delta)``, so a stiffer particle wiggles *less* and travels a shorter road —
     a path-length dependence on momentum with no dispersion and no bend anywhere in sight.
 
-    The second term is ``2.56e-05`` here against the drift term's ``2.61e-07``: **98 times
-    larger** at 1 GeV, and it does not shrink with energy while the drift term does. So a
-    wiggler in a dispersion-free straight changes the ring's momentum compaction and its
-    synchrotron tune, which is a real design consequence of installing one.
+    **The ratio of the two terms is the wiggler parameter, squared and halved.** Dividing
+    them out, ``wiggle/drift = (theta^2/4) gamma0^2 (2 + 1/gamma0^2) = K^2/2 + theta^2/4``
+    where ``K = gamma0 theta`` is the conventional wiggler parameter — the quantity the
+    roadmap entry deliberately set aside in favour of ``theta``, arriving here on its own.
+    Since ``K`` depends on the field and the period but **not on the energy**, that ratio is
+    the *same at every energy* for a given magnet: ``98.08`` here, and still ``98.08`` at
+    200 MeV and at 5 GeV, which this test asserts rather than describes. It is what corrects
+    the first version of this docstring, which said the term "grows with energy".
 
     The term was found by the package's contract that ``matrix()`` be the origin Jacobian of
     ``track()`` — the first draft of the element shipped a drift's ``R56`` and that test is
-    what refused it. Gated here against both the closed form and the tracked map.
+    what refused it. The *exponent* inside it is gated separately and elsewhere, in
+    :func:`test_the_wiggle_path_carries_the_second_power_of_the_rigidity_too`, because
+    nothing here can see it: this test compares the closed form against ``_matrix_body`` and
+    against the tracked slope, and all three are the same expression.
     """
     M = wig.matrix(ref)
     drift_term = wig.length / ref.gamma0**2
     wiggle_term = 0.25 * wig.length * wig.deflection**2 * (2.0 + 1.0 / ref.gamma0**2)
 
     assert M[ZETA, DELTA] == pytest.approx(drift_term + wiggle_term, rel=1e-15)
+
+    # The ratio is K^2/2 + theta^2/4, and K is an energy-free property of the magnet -- so
+    # the same physical wiggler gives the same ratio across a 25x range of beam energy.
+    for energy_eV in (2.0e8, 1.0e9, 5.0e9):
+        beam = ReferenceParticle.from_total_energy(0.51099895069e6, energy_eV, charge=-1.0)
+        w = Wiggler.from_peak_field(PERIOD, PEAK_FIELD_T, PERIODS, beam)
+        K = beam.gamma0 * w.deflection
+        drift = w.length / beam.gamma0**2
+        assert (w.matrix(beam)[ZETA, DELTA] - drift) / drift == pytest.approx(
+            0.5 * K * K + 0.25 * w.deflection**2, rel=1e-12
+        )
+        assert abs(K) == pytest.approx(14.006, rel=1e-4)  # ...and K itself barely moves
     assert wiggle_term > 90 * drift_term  # the wiggle dominates, and by two orders
 
     # ...and it is the tracked map's own derivative, not an independent formula.
