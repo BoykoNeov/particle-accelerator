@@ -79,6 +79,14 @@ no server — open the file in a browser. Its optics core (`editor/accsim-optics
 is a port of this package's linear optics, and `tests/analytic/test_scenario.py`
 holds it against the package to 1e-9 on every bundled preset (under Node).
 
+It also explains itself, at a level you choose in the header — **Novice**, **Student**
+or **Physicist** (or off). The level rewrites the palette captions, the captions beside
+each plot, the error and empty-state messages and a live strip that reads the machine
+currently on screen; hovering any tile, magnet, curve title or parameter label gives the
+matching explanation, and the **Learn** tab is a short guided path written for the same
+reader. The text lives in `editor/teach.js` and computes nothing — every claim in it is
+traceable to a map in the optics core or to `docs/CONVENTIONS.md`.
+
 The editor reads and writes **scenario files** (`accsim-scenario/1` JSON), which the
 package loads directly:
 

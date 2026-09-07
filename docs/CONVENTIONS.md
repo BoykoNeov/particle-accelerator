@@ -9554,7 +9554,22 @@ slice, a wiggler's fractional-length slice is legal there because its matrix and
 are both linear in `L` — so the boundary values are bit-for-bit those of the unsliced
 element and only the curve between them gains points.
 
-**Build products stay out of the tree.** `scripts/build_editor.py` inlines the two
+**The teaching layer is content, and its prose is untested code.** `editor/teach.js`
+carries the explanations only — three self-contained rungs (`novice` / `student` /
+`physicist`) per key, plus the palette caption, the plot-panel sub-caption, the levelled
+replacements for the optics-error and empty-state prose, the live guide strip and the
+Learn cards. It computes nothing: every number it mentions is read off `analyse()`.
+Because no test can check English, the rule is that **every physics claim in it must
+trace to a map in `accsim-optics.js`, to a line of this document, or to text the editor
+already showed** — the entries were written with the source open, which is why they name
+`focusingBlock(h² + k₁)`, the `−(1/4π)∮β k₁ ds` sign, `η = α_c − 1/γ₀²` and the drift's
+`L/γ₀²` rather than the remembered versions. Where the linear core genuinely cannot see
+something (an octupole, an aperture clipping, the fringe flag) the text says so instead
+of implying the page draws it. The level is a UI preference stored beside the tab under
+`STORE_KEY`; it is never part of a scenario, so it does not travel in an export or a
+share link.
+
+**Build products stay out of the tree.** `scripts/build_editor.py` inlines the three
 scripts into one self-contained HTML file (default output under `W:/temp/claude`);
 `editor/presets.js` is *generated* by `scripts/make_presets.py` (fully expanded — a
 24-cell ring is 216 records — so the JSON needs no expansion rule) and is read as JSON

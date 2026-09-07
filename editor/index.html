@@ -147,6 +147,10 @@
       grid-template-areas: "head" "work" "palette" "inspect" "status";
     }
     #work { min-height: 640px; }
+    /* The header row is `auto` here, so it may wrap rather than overflow — with the
+       teaching control added, one row no longer fits at this width. */
+    header { flex-wrap: wrap; padding: 8px 16px; row-gap: 8px; }
+    #name { min-width: 140px; }
   }
 
   /* ---- header ---- */
@@ -367,6 +371,45 @@
   dialog .row .spacer { flex: 1; }
   dialog .note { font-size: 12px; color: var(--ink-3); }
 
+  /* ---- teaching layer ---- */
+  #teach { max-width: 158px; min-width: 0; }   /* the header is already tight at 1100px */
+  [data-tip] { cursor: help; }
+  .field label[data-tip] { text-decoration: underline dotted var(--line); text-underline-offset: 3px; }
+  .field label[data-tip]:hover, .field label[data-tip]:focus-visible { text-decoration-color: var(--accent); color: var(--ink); }
+  .tile[data-tip]:hover { background: var(--panel-2); }
+  .tab[data-tip] { cursor: pointer; }
+  #plotarea .paneltitle[data-tip] { pointer-events: auto; cursor: help; }
+  #plotarea .panelsub { font-family: var(--font-body); font-size: 11px; fill: var(--ink-3); text-transform: none; letter-spacing: 0; }
+  #tip {
+    position: fixed; z-index: 40; display: none; max-width: 340px;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: var(--shadow); padding: 10px 12px; pointer-events: none;
+  }
+  #tip h4 { margin: 0 0 5px; font-family: var(--font-cond); font-weight: 600; font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); }
+  #tip p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+  #tip p + p { margin-top: 7px; }
+  #tip b { color: var(--ink); font-weight: 500; }
+  #tip .try, #tip .try b { color: var(--accent); }
+  #tip .src { color: var(--ink-3); font-size: 11.5px; }
+  #guide {
+    display: none; gap: 10px; align-items: baseline;
+    padding: 7px 12px 8px; border-bottom: 1px solid var(--line); background: var(--accent-soft);
+    font-size: 12.5px; line-height: 1.5;
+  }
+  #guide .label { flex: 0 0 auto; padding-top: 1px; }
+  #guide .body { flex: 1; color: var(--ink); }
+  #guide .body .mono { font-size: 11.5px; color: var(--ink-2); }
+  #guide .x { flex: 0 0 auto; border: none; background: transparent; color: var(--ink-3); padding: 0 2px; line-height: 1; font-size: 15px; }
+  #guide .x:hover { color: var(--ink); }
+  #learn { position: absolute; inset: 0; overflow: auto; padding: 16px 20px 28px; }
+  #learn .lead { color: var(--ink-2); max-width: 72ch; margin: 0 0 14px; font-size: 12.5px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 12px 14px; margin: 0 0 10px; max-width: 74ch; }
+  .card h3 { margin: 0 0 6px; font-size: 13.5px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+  .card h3 .n { color: var(--ink-3); font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; }
+  .card p { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.55; }
+  .card .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+  .card .note { color: var(--ink-3); font-size: 11.5px; flex-basis: 100%; }
+
   @media (prefers-reduced-motion: no-preference) {
     .tile .v { transition: color 0.2s; }
   }
@@ -383,6 +426,7 @@
     </div>
     <div class="spacer"></div>
     <div class="group">
+      <select id="teach" class="btn" aria-label="Teaching level" title="How much the page explains itself"></select>
       <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)">Undo</button>
       <button class="btn" id="btn-redo" title="Redo (Ctrl+Y)">Redo</button>
       <button class="btn" id="btn-share" title="Copy a link that carries this machine">Share link</button>
@@ -400,12 +444,14 @@
 
   <main id="work">
     <div id="summary"></div>
+    <div id="guide"></div>
     <nav id="tabs" role="tablist">
-      <button class="tab" role="tab" data-tab="optics">Optics</button>
-      <button class="tab" role="tab" data-tab="envelope">Beam size</button>
-      <button class="tab" role="tab" data-tab="orbit">Orbit</button>
-      <button class="tab" role="tab" data-tab="floor">Floor plan</button>
-      <button class="tab" role="tab" data-tab="matrix">Matrices</button>
+      <button class="tab" role="tab" data-tab="optics" data-tip="tab:optics">Optics</button>
+      <button class="tab" role="tab" data-tab="envelope" data-tip="tab:envelope">Beam size</button>
+      <button class="tab" role="tab" data-tab="orbit" data-tip="tab:orbit">Orbit</button>
+      <button class="tab" role="tab" data-tab="floor" data-tip="tab:floor">Floor plan</button>
+      <button class="tab" role="tab" data-tab="matrix" data-tip="tab:matrix">Matrices</button>
+      <button class="tab" role="tab" data-tab="learn" data-tip="tab:learn">Learn</button>
       <div class="spacer"></div>
       <div class="zoom"><span>zoom</span><input id="zoom" type="range" min="1" max="12" step="0.5" value="1" aria-label="Horizontal zoom"></div>
     </nav>
@@ -415,6 +461,7 @@
       <div id="plotmsg"><div></div></div>
       <div id="floor" hidden></div>
       <div id="matrix" hidden></div>
+      <div id="learn" hidden></div>
     </div>
   </main>
 
@@ -459,13 +506,17 @@
   </div>
 </dialog>
 
+<div id="tip" role="tooltip"></div>
+
 <script src="accsim-optics.js"></script>
 <script src="presets.js"></script>
+<script src="teach.js"></script>
 <script>
 (function () {
   "use strict";
   const O = window.AccsimOptics;
   const PRESETS = window.ACCSIM_PRESETS;
+  const TEACH = window.AccsimTeach;
   const TWO_PI = 2 * Math.PI;
   const STORE_KEY = "accsim-editor:v1";
 
@@ -529,7 +580,8 @@
   };
 
   // ------------------------------------------------------------- state
-  const state = { scenario: null, sel: [], anchor: null, tab: "optics", zoom: 1, result: null, hoverS: null };
+  const state = { scenario: null, sel: [], anchor: null, tab: "optics", zoom: 1, result: null, hoverS: null,
+    level: "novice", guideHidden: false };
   const history = [], future = [];
   const $ = (id) => document.getElementById(id);
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -594,9 +646,62 @@
     if (msg) status(msg);
   }
   function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify({ scenario: state.scenario, tab: state.tab })); } catch (e) { /* storage unavailable */ }
+    // The teaching level is a UI preference, so it lives beside the tab here and
+    // never inside the scenario — it does not travel in an export or a share link.
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ scenario: state.scenario, tab: state.tab, level: state.level })); } catch (e) { /* storage unavailable */ }
   }
   function status(msg, kind) { const el = $("status"); el.textContent = msg || ""; el.className = "msg" + (kind ? " " + kind : ""); }
+
+  // ------------------------------------------------------------- teaching layer
+  // One delegated popover serves every [data-tip] target. The editor rebuilds most
+  // of its DOM on each keystroke, so no listener may live on an individual target;
+  // `data-tiphead` overrides the entry's own title (already escaped by the caller).
+  let tipTarget = null, tipTimer = 0;
+  function hideTip() {
+    clearTimeout(tipTimer);
+    if (tipTarget) { tipTarget.removeAttribute("aria-describedby"); tipTarget = null; }
+    $("tip").style.display = "none";
+  }
+  function showTip(el) {
+    const html = TEACH.tip(el.dataset.tip, state.level, el.dataset.tiphead || null);
+    if (!html) return hideTip();
+    const t = $("tip");
+    t.innerHTML = html;
+    t.style.left = "0px"; t.style.top = "0px";
+    t.style.display = "block";
+    const r = el.getBoundingClientRect(), b = t.getBoundingClientRect();
+    const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - b.width - 8));
+    let top = r.bottom + 8;
+    if (top + b.height > window.innerHeight - 8) top = Math.max(8, r.top - b.height - 8);
+    t.style.left = left + "px"; t.style.top = top + "px";
+    tipTarget = el;
+    el.setAttribute("aria-describedby", "tip");
+  }
+  function onTipEnter(e) {
+    if (state.level === "off") return;
+    const el = e.target.closest ? e.target.closest("[data-tip]") : null;
+    if (!el) { if (tipTarget) hideTip(); return; }
+    if (el === tipTarget) return;
+    clearTimeout(tipTimer);
+    const delay = e.type === "focusin" ? 0 : 140;
+    tipTimer = setTimeout(() => showTip(el), delay);
+  }
+  function setLevel(level, msg) {
+    state.level = level;
+    hideTip();
+    $("teach").value = level;
+    document.body.dataset.level = level;
+    renderPalette();
+    renderAll();
+    renderInspector();
+    save();
+    if (msg !== false) status(level === "off" ? "Explanations off" : `Explaining at the ${level} level — hover anything with a dotted underline`);
+  }
+  /** `data-tip` markup for a target, or "" when teaching is off. */
+  function tipAttr(key, head) {
+    if (state.level === "off" || !key) return "";
+    return ` data-tip="${key}"${head ? ` data-tiphead="${esc(head)}"` : ""}`;
+  }
 
   // ------------------------------------------------------------- compute
   function recompute() {
@@ -649,8 +754,13 @@
   function renderPalette() {
     for (const group of ["magnets", "beamline"]) {
       const host = $("pal-" + group);
-      host.innerHTML = Object.entries(TYPES).filter(([, t]) => t.group === group).map(([type, t]) =>
-        `<button class="pal" data-type="${type}" title="Add ${t.label}">${paletteIcon(type)}<span><b>${t.label}</b><small>${t.hint}</small></span></button>`).join("");
+      host.innerHTML = Object.entries(TYPES).filter(([, t]) => t.group === group).map(([type, t]) => {
+        // The caption line is the level's own one-liner; the native title would
+        // fight the popover, so it only survives while teaching is off.
+        const brief = TEACH.brief(type, state.level) || t.hint;
+        const native = state.level === "off" ? ` title="Add ${t.label}"` : "";
+        return `<button class="pal" data-type="${type}"${native}${tipAttr("el:" + type)}>${paletteIcon(type)}<span><b>${t.label}</b><small>${brief}</small></span></button>`;
+      }).join("");
       host.querySelectorAll(".pal").forEach((b) => b.addEventListener("click", () => addElement(b.dataset.type)));
     }
   }
@@ -737,8 +847,8 @@
   }
 
   // ------------------------------------------------------------- summary tiles
-  function tile(label, value, unit, sub, cls) {
-    return `<div class="tile ${cls || ""}"><span class="label">${label}</span><span class="v">${value}<span class="u">${unit || ""}</span></span>${sub ? `<span class="sub">${sub}</span>` : ""}</div>`;
+  function tile(label, value, unit, sub, cls, key) {
+    return `<div class="tile ${cls || ""}"${tipAttr(key)}><span class="label">${label}</span><span class="v">${value}<span class="u">${unit || ""}</span></span>${sub ? `<span class="sub">${sub}</span>` : ""}</div>`;
   }
   function tuneDiagram(qx, qy) {
     const fx = qx - Math.floor(qx), fy = qy - Math.floor(qy);
@@ -768,38 +878,50 @@
   function renderSummary() {
     const r = state.result, sc = state.scenario, host = $("summary");
     if (!r || r.errors.length) {
-      host.innerHTML = tile("Elements", sc.elements.length, "") + `<div class="tile" style="grid-column: span 3"><span class="label">Problems</span><span class="chip bad">${r ? r.errors.length : 0} to fix</span><span class="sub">${esc(r ? r.errors[0] : "")}</span></div>`;
+      host.innerHTML = tile("Elements", sc.elements.length, "") + `<div class="tile" style="grid-column: span 3"${tipAttr("tile:problems")}><span class="label">Problems</span><span class="chip bad">${r ? r.errors.length : 0} to fix</span><span class="sub">${esc(r ? r.errors[0] : "")}</span></div>`;
       return;
     }
     const ring = r.periodic;
-    let tiles = tile(ring ? "Circumference" : "Length", fmt(r.length, 6), "m", `${sc.elements.length} elements`);
+    let tiles = tile(ring ? "Circumference" : "Length", fmt(r.length, 6), "m", `${sc.elements.length} elements`, "", "tile:length");
     if (ring) {
       const turns = r.totalAngle / TWO_PI;
       const closed = Math.abs(r.totalAngle - TWO_PI) < 1e-9 || Math.abs(r.totalAngle) < 1e-12;
-      tiles += tile("Bend closure", fmt(turns, 5), "turns", closed ? (r.totalAngle === 0 ? "no bends" : "Σθ = 2π: closes") : `Σθ − 2π = ${fmt(r.totalAngle - TWO_PI, 3)} rad`);
+      tiles += tile("Bend closure", fmt(turns, 5), "turns", closed ? (r.totalAngle === 0 ? "no bends" : "Σθ = 2π: closes") : `Σθ − 2π = ${fmt(r.totalAngle - TWO_PI, 3)} rad`, "", "tile:closure");
     }
     let stab;
     if (r.opticsError) stab = `<span class="chip bad">${r.opticsError.code}</span>`;
     else if (r.coupled) stab = `<span class="chip warn">coupled</span>`;
     else stab = `<span class="chip good">${ring ? "stable" : "line"}</span>`;
     const ht = r.halfTrace;
-    tiles += `<div class="tile"><span class="label">${ring ? "Stability" : "Mode"}</span>${stab}<span class="sub">½Tr: ${fmt(ht.x, 3)} · ${fmt(ht.y, 3)}</span></div>`;
+    tiles += `<div class="tile"${tipAttr("tile:stability")}><span class="label">${ring ? "Stability" : "Mode"}</span>${stab}<span class="sub">½Tr: ${fmt(ht.x, 3)} · ${fmt(ht.y, 3)}</span></div>`;
     if (r.tunes) {
-      tiles += tile(ring ? "Tunes Qₓ · Qᵧ" : "Phase advance /2π", `${fmt(r.tunes[0], 5)} · ${fmt(r.tunes[1], 5)}`, "", ring ? `fractional ${fmt(r.tunes[0] % 1, 3)} · ${fmt(r.tunes[1] % 1, 3)}` : "");
-      if (ring) tiles += `<div class="tile tune"><span class="label">Working point</span>${tuneDiagram(r.tunes[0], r.tunes[1])}</div>`;
+      tiles += tile(ring ? "Tunes Qₓ · Qᵧ" : "Phase advance /2π", `${fmt(r.tunes[0], 5)} · ${fmt(r.tunes[1], 5)}`, "", ring ? `fractional ${fmt(r.tunes[0] % 1, 3)} · ${fmt(r.tunes[1] % 1, 3)}` : "", "", "tile:tunes");
+      if (ring) tiles += `<div class="tile tune"${tipAttr("tile:workingpoint")}><span class="label">Working point</span>${tuneDiagram(r.tunes[0], r.tunes[1])}</div>`;
     }
-    if (r.chromaticity) tiles += tile("Chromaticity ξₓ · ξᵧ", `${fmt(r.chromaticity[0], 4)} · ${fmt(r.chromaticity[1], 4)}`, "", `natural ${fmt(r.naturalChromaticity[0], 3)} · ${fmt(r.naturalChromaticity[1], 3)}`);
-    if (r.alpha_c != null) tiles += tile("Momentum compaction αc", fmt(r.alpha_c, 4), "", r.gamma_t ? `γₜ = ${fmt(r.gamma_t, 4)} · η = ${fmt(r.eta, 3)}` : `η = ${fmt(r.eta, 3)}`);
+    if (r.chromaticity) tiles += tile("Chromaticity ξₓ · ξᵧ", `${fmt(r.chromaticity[0], 4)} · ${fmt(r.chromaticity[1], 4)}`, "", `natural ${fmt(r.naturalChromaticity[0], 3)} · ${fmt(r.naturalChromaticity[1], 3)}`, "", "tile:chroma");
+    if (r.alpha_c != null) tiles += tile("Momentum compaction αc", fmt(r.alpha_c, 4), "", r.gamma_t ? `γₜ = ${fmt(r.gamma_t, 4)} · η = ${fmt(r.eta, 3)}` : `η = ${fmt(r.eta, 3)}`, "", "tile:alphac");
     if (ring) {
       const rf = sc.elements.some((e) => e.type === "RFCavity");
-      tiles += tile("Synchrotron tune Qₛ", rf ? (r.Qs == null ? '<span class="chip bad">no bucket</span>' : fmt(r.Qs, 4)) : '<span class="empty">no RF</span>', "", rf && r.Qs != null && r.eta != null ? (r.eta > 0 ? "above transition" : "below transition") : "");
+      tiles += tile("Synchrotron tune Qₛ", rf ? (r.Qs == null ? '<span class="chip bad">no bucket</span>' : fmt(r.Qs, 4)) : '<span class="empty">no RF</span>', "", rf && r.Qs != null && r.eta != null ? (r.eta > 0 ? "above transition" : "below transition") : "", "", "tile:qs");
     }
     if (r.twiss0) {
       const t = ring ? r.twiss0 : r.twissEnd;
-      tiles += tile(ring ? "β at start" : "β at exit", `${fmt(t.beta_x, 4)} · ${fmt(t.beta_y, 4)}`, "m", `Dₓ = ${fmt(t.disp_x, 3)} m`);
+      tiles += tile(ring ? "β at start" : "β at exit", `${fmt(t.beta_x, 4)} · ${fmt(t.beta_y, 4)}`, "m", `Dₓ = ${fmt(t.disp_x, 3)} m`, "", "tile:beta");
     }
-    tiles += tile("Beam", `${fmt(r.ref.total_energy_eV / 1e9, 4)}`, "GeV", `${r.ref.species} · γ = ${fmt(r.ref.gamma0, 4)} · Bρ = ${fmt(r.ref.brho, 4)} T·m`);
+    tiles += tile("Beam", `${fmt(r.ref.total_energy_eV / 1e9, 4)}`, "GeV", `${r.ref.species} · γ = ${fmt(r.ref.gamma0, 4)} · Bρ = ${fmt(r.ref.brho, 4)} T·m`, "", "tile:beam");
     host.innerHTML = tiles;
+  }
+
+  // ------------------------------------------------- the live guide strip
+  // A sentence or two that reads the machine currently on screen, pitched at the
+  // chosen level. It never computes anything: every number comes from analyse().
+  function renderGuide() {
+    const host = $("guide");
+    const g = state.guideHidden ? null : TEACH.guide(state.level, state.result, state.scenario, { fmt });
+    if (!g) { host.style.display = "none"; host.innerHTML = ""; return; }
+    host.style.display = "flex";
+    host.innerHTML = `<span class="label">${esc(g.title)}</span><span class="body">${g.html}</span><button class="x" id="guide-x" title="Hide this strip" aria-label="Hide the guide strip">×</button>`;
+    $("guide-x").addEventListener("click", () => { state.guideHidden = true; renderGuide(); status("Guide strip hidden — change the teaching level to bring it back"); });
   }
 
   // ------------------------------------------------------------- plots
@@ -817,18 +939,18 @@
     const r = state.result;
     const t = state.tab;
     if (t === "optics") return [
-      { key: "beta", title: "β functions", h: LAY.mainH, unit: "m", series: [
+      { key: "beta", tip: "panel:beta", title: "β functions", h: LAY.mainH, unit: "m", series: [
         { name: "βₓ", color: "var(--bx)", pick: (p) => p.beta_x }, { name: "βᵧ", color: "var(--by)", pick: (p) => p.beta_y }] },
-      { key: "disp", title: "Dispersion", h: LAY.subH, unit: "m", zero: true, series: [
+      { key: "disp", tip: "panel:disp", title: "Dispersion", h: LAY.subH, unit: "m", zero: true, series: [
         { name: "Dₓ", color: "var(--dx)", pick: (p) => p.disp_x }, { name: "Dᵧ", color: "var(--c-skew)", pick: (p) => p.disp_y, onlyIf: r && r.twiss && r.twiss.some((p) => Math.abs(p.disp_y) > 1e-12) }] },
     ];
     if (t === "envelope") {
       const b = state.scenario.beam;
-      return [{ key: "sigma", title: "rms beam size", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, series: [
+      return [{ key: "sigma", tip: "panel:sigma", title: "rms beam size", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, series: [
         { name: "σₓ", color: "var(--bx)", pick: (p) => 1e3 * Math.sqrt(Math.max(0, b.emit_x * p.beta_x + (b.sigma_delta * p.disp_x) ** 2)) },
         { name: "σᵧ", color: "var(--by)", pick: (p) => 1e3 * Math.sqrt(Math.max(0, b.emit_y * p.beta_y + (b.sigma_delta * p.disp_y) ** 2)) }] }];
     }
-    if (t === "orbit") return [{ key: "orbit", title: r && r.periodic ? "closed orbit" : "trajectory", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, orbit: true, series: [
+    if (t === "orbit") return [{ key: "orbit", tip: "panel:orbit", title: r && r.periodic ? "closed orbit" : "trajectory", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, orbit: true, series: [
       { name: "x", color: "var(--orbit-x)", pick: (p) => 1e3 * p.o[0] }, { name: "y", color: "var(--orbit-y)", pick: (p) => 1e3 * p.o[2] }] }];
     return [];
   }
@@ -849,10 +971,12 @@
     const optTab = ["optics", "envelope", "orbit"].includes(state.tab);
     $("floor").hidden = state.tab !== "floor";
     $("matrix").hidden = state.tab !== "matrix";
+    $("learn").hidden = state.tab !== "learn";
     $("yaxis").style.display = optTab ? "" : "none";
     $("plotscroll").style.display = optTab ? "" : "none";
     if (state.tab === "floor") { plotMessage(""); renderFloor(); return; }
     if (state.tab === "matrix") { plotMessage(""); renderMatrix(); return; }
+    if (state.tab === "learn") { plotMessage(""); renderLearn(); return; }
     const { W, sx } = sScale();
     // Fill the panel: the main plot takes whatever height the tab area offers.
     const avail = $("plotarea").clientHeight || 0;
@@ -877,17 +1001,23 @@
       const x0 = sx(s), x1 = sx(s + L);
       const sel = state.sel.includes(i) ? " sel" : "";
       const hit = L > 0 ? `<rect class="hit" x="${x0}" y="${LAY.top}" width="${Math.max(1, x1 - x0)}" height="${LAY.synH}"/>` : `<rect class="hit" x="${x0 - 5}" y="${LAY.top}" width="10" height="${LAY.synH}"/>`;
-      out += `<g class="elem${sel}" data-i="${i}"><title>${esc(el.name || el.type)} · ${TYPES[el.type].label}${L ? ` · ${fmt(L, 4)} m` : ""}</title>${hit}${glyphSVG(el, x0, Math.max(1.5, x1 - x0), yMid, hh)}</g>`;
+      // The native <title> and the teaching popover would both fire on hover, so
+      // only one of them is emitted; the popover carries the same identification.
+      const head = `${el.name || el.type} · ${TYPES[el.type].label}${L ? ` · ${fmt(L, 4)} m` : ""}`;
+      const native = state.level === "off" ? `<title>${esc(head)}</title>` : "";
+      out += `<g class="elem${sel}" data-i="${i}"${tipAttr("el:" + el.type, head)}>${native}${hit}${glyphSVG(el, x0, Math.max(1.5, x1 - x0), yMid, hh)}</g>`;
       s += L; bounds.push(s);
     });
-    yout += `<text x="54" y="${yMid + 4}" text-anchor="end" class="paneltitle">lattice</text>`;
+    yout += `<text x="54" y="${yMid + 4}" text-anchor="end" class="paneltitle"${tipAttr("view:synoptic")}>lattice</text>`;
     // --- panels
     let y = LAY.top + LAY.synH;
     const pts = r && (state.tab === "orbit" ? r.orbit : r.twiss);
     plotMessage("");
     if (!r || r.errors.length) plotMessage(`<b>Nothing to plot yet.</b><br>${esc(r && r.errors.length ? r.errors[0] : "Add elements from the palette.")}`);
     else if (r.opticsError && state.tab !== "orbit") plotMessage(opticsErrorText(r.opticsError));
-    else if (state.tab === "orbit" && !pts) plotMessage(r.periodic ? "<b>The closed orbit is the design axis.</b><br>Nothing steers it: add a corrector, or displace a magnet (dx, dy) to see the orbit move." : "<b>The trajectory is the design axis.</b><br>Add a corrector kick to see it move.");
+    else if (state.tab === "orbit" && !pts) plotMessage(r.periodic
+      ? TEACH.message("empty:orbit-ring", state.level, "<b>The closed orbit is the design axis.</b><br>Nothing steers it: add a corrector, or displace a magnet (dx, dy) to see the orbit move.")
+      : TEACH.message("empty:orbit-line", state.level, "<b>The trajectory is the design axis.</b><br>Add a corrector kick to see it move."));
     for (const p of panels) {
       y += LAY.gap;
       const series = p.series.filter((sr) => sr.onlyIf !== false);
@@ -905,12 +1035,15 @@
       for (const tv of ticks) { out += `<line class="grid" x1="${LAY.padL}" x2="${W - LAY.padR}" y1="${sy(tv)}" y2="${sy(tv)}"/>`; yout += `<text x="54" y="${sy(tv) + 3.5}" text-anchor="end">${fmt(tv, 3)}</text>`; }
       if (p.zero && lo < 0 && hi > 0) out += `<line class="axis" x1="${LAY.padL}" x2="${W - LAY.padR}" y1="${sy(0)}" y2="${sy(0)}"/>`;
       yout += `<text x="54" y="${y + 12}" text-anchor="end" class="paneltitle">${p.unit}</text>`;
-      out += `<text class="paneltitle" x="${LAY.padL + 8}" y="${y + 14}">${p.title}</text>`;
+      out += `<text class="paneltitle" x="${LAY.padL + 8}" y="${y + 14}"${tipAttr(p.tip)}>${p.title}</text>`;
       // legend
       let lx = LAY.padL + 8 + p.title.length * 7.2 + 16;
       out += `<g class="legend">`;
       series.forEach((sr) => { out += `<rect x="${lx}" y="${y + 7}" width="10" height="3" fill="${sr.color}"/><text x="${lx + 14}" y="${y + 14}">${sr.name}</text>`; lx += 14 + sr.name.length * 7 + 16; });
       out += `</g>`;
+      // A plain-language caption beside the legend, for the levels that want one.
+      const sub = TEACH.panelSub(p.tip, state.level);
+      if (sub && lx + sub.length * 5.6 < W - LAY.padR - 90) out += `<text class="panelsub" x="${lx}" y="${y + 14}"${tipAttr(p.tip)}>${esc(sub)}</text>`;
       if (pts) {
         series.forEach((sr, k) => {
           const d = data[k];
@@ -941,10 +1074,12 @@
     });
   }
   function opticsErrorText(e) {
-    if (e.code === "unstable") return `<b>No periodic solution.</b><br>${esc(e.message)}. The one-turn map has |½ trace| ≥ 1 in a plane, so no matched β exists. Weaken the focusing or change the cell length; the ½Tr readouts above tell you which plane.`;
-    if (e.code === "coupled") return `<b>The planes are coupled.</b><br>A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant-Snyder optics would be wrong. accsim's <span class="mono">coupled_twiss</span> handles it in Python; the editor shows the geometry, the matrices and the orbit only.`;
-    if (e.code === "resonant") return `<b>Integer tune.</b><br>The dispersion cannot close on an integer tune.`;
-    return `<b>${esc(e.code)}</b><br>${esc(e.message)}`;
+    let fallback;
+    if (e.code === "unstable") fallback = `<b>No periodic solution.</b><br>${esc(e.message)}. The one-turn map has |½ trace| ≥ 1 in a plane, so no matched β exists. Weaken the focusing or change the cell length; the ½Tr readouts above tell you which plane.`;
+    else if (e.code === "coupled") fallback = `<b>The planes are coupled.</b><br>A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant-Snyder optics would be wrong. accsim's <span class="mono">coupled_twiss</span> handles it in Python; the editor shows the geometry, the matrices and the orbit only.`;
+    else if (e.code === "resonant") fallback = `<b>Integer tune.</b><br>The dispersion cannot close on an integer tune.`;
+    else return `<b>${esc(e.code)}</b><br>${esc(e.message)}`;
+    return TEACH.message("err:" + e.code, state.level, fallback);
   }
 
   // drag to reorder inside the synoptic strip; click selects
@@ -983,6 +1118,8 @@
   // hover tooltip
   function onPlotMove(e) {
     const plot = $("plot"), tip = $("tooltip");
+    // A teaching popover and the numeric readout would overlap; the popover wins.
+    if (state.level !== "off" && e.target.closest && e.target.closest("[data-tip]")) { tip.style.display = "none"; return; }
     if (!plot._pts || !plot._panels.length) { tip.style.display = "none"; return; }
     const rect = plot.getBoundingClientRect();
     const sHere = sScale().invert(e.clientX - rect.left);
@@ -1027,6 +1164,7 @@
     for (const g of gt) out += `<line x1="${px(g)}" x2="${px(g)}" y1="${cy}" y2="${cy + (maxX - minX) * scale}" stroke="var(--line-2)"/><text x="${px(g)}" y="${cy + (maxX - minX) * scale + 14}" text-anchor="middle">${fmt(g, 3)}</text>`;
     for (const g of niceTicks(minX, maxX, 6)) out += `<line y1="${py(g)}" y2="${py(g)}" x1="${cx}" x2="${cx + (maxZ - minZ) * scale}" stroke="var(--line-2)"/><text x="${cx - 4}" y="${py(g) + 3.5}" text-anchor="end">${fmt(g, 3)}</text>`;
     out += `<text x="${cx + (maxZ - minZ) * scale}" y="${cy + (maxX - minX) * scale + 14}" text-anchor="end" class="paneltitle">Z [m]</text><text x="${cx + 4}" y="${cy + 12}" class="paneltitle">X [m]</text>`;
+    out += `<text x="8" y="14" class="paneltitle"${tipAttr("view:floor")}>floor plan</text>`;
     // segments per element, sliced
     const byElem = new Map();
     for (let k = 1; k < sv.s.length; k++) { const i = sv.elem[k]; if (!byElem.has(i)) byElem.set(i, []); byElem.get(i).push(k); }
@@ -1035,15 +1173,17 @@
       const ks = byElem.get(i) || [];
       const sel = state.sel.includes(i) ? " sel" : "";
       const color = `var(${TYPES[el.type].color})`;
-      const title = `<title>${esc(el.name || el.type)} · ${TYPES[el.type].label}</title>`;
+      const head = `${el.name || el.type} · ${TYPES[el.type].label}`;
+      const title = state.level === "off" ? `<title>${esc(head)}</title>` : "";
+      const tp = tipAttr("el:" + el.type, head);
       if (O.elementLength(el) > 0 && ks.length) {
         const k0 = ks[0] - 1;
         const d = [`M${px(sv.Z[k0])},${py(sv.X[k0])}`].concat(ks.map((k) => `L${px(sv.Z[k])},${py(sv.X[k])}`)).join("");
-        out += `<path class="seg${sel}" data-i="${i}" d="${d}" stroke="${color}" ${el.type === "Drift" ? 'stroke-width="2.5"' : ""}>${title}</path>`;
+        out += `<path class="seg${sel}" data-i="${i}"${tp} d="${d}" stroke="${color}" ${el.type === "Drift" ? 'stroke-width="2.5"' : ""}>${title}</path>`;
       } else {
         const k = sb.elem.indexOf(i);
         const kk = k >= 0 ? k : 0;
-        out += `<circle class="thin${sel}" data-i="${i}" cx="${px(sb.Z[kk])}" cy="${py(sb.X[kk])}" r="${sel ? 6 : 4}" fill="${color}" stroke="${sel ? "var(--accent)" : "var(--panel)"}" stroke-width="1.5">${title}</circle>`;
+        out += `<circle class="thin${sel}" data-i="${i}"${tp} cx="${px(sb.Z[kk])}" cy="${py(sb.X[kk])}" r="${sel ? 6 : 4}" fill="${color}" stroke="${sel ? "var(--accent)" : "var(--panel)"}" stroke-width="1.5">${title}</circle>`;
       }
     });
     // start marker & closure
@@ -1067,7 +1207,7 @@
   function renderMatrix() {
     const r = state.result, host = $("matrix");
     if (!r || r.errors.length) { host.innerHTML = `<p class="empty">Nothing to show.</p>`; return; }
-    let h = `<p>6×6 linear maps on (x, px, y, py, ζ, δ) — the Xsuite / MAD-X ordering, momenta normalised to P₀, δ = Δp/p₀, ζ = s − β₀ct. Elements compose right to left along the beam.</p>`;
+    let h = `<p${tipAttr("view:matrix")}>6×6 linear maps on (x, px, y, py, ζ, δ) — the Xsuite / MAD-X ordering, momenta normalised to P₀, δ = Δp/p₀, ζ = s − β₀ct. Elements compose right to left along the beam.</p>`;
     h += matTable(r.oneTurn, r.periodic ? "One-turn matrix" : "Transfer matrix, entrance to exit");
     if (r.oneTurnKick.some((v) => v !== 0)) h += `<h3>Constant kick over one pass</h3><p class="mono">(${r.oneTurnKick.map((v) => fmt(v, 4)).join(", ")})</p>`;
     for (const i of state.sel.slice(0, 3)) {
@@ -1079,29 +1219,84 @@
     host.innerHTML = h;
   }
 
+  // ------------------------------------------------------------- the Learn tab
+  // Cards come from teach.js; the buttons are handled here. The two that change
+  // the lattice go through commit(), so Ctrl+Z takes them back like any edit.
+  function learnAct(act, arg) {
+    if (act === "preset") {
+      const p = PRESETS.find((x) => x.id === arg);
+      if (p) loadScenario(clone(p), `Loaded preset "${p.name}"`);
+    } else if (act === "tab") { state.tab = arg; renderAll(); save(); }
+    else if (act === "level") setLevel(arg);
+    else if (act === "export") openExport(arg);
+    else if (act === "flipquad") {
+      const i = state.scenario.elements.findIndex((e) => e.type === "Quadrupole" || e.type === "ThinQuadrupole");
+      if (i < 0) { status("No quadrupole in this machine to flip", "bad"); return; }
+      commit(() => {
+        const e = state.scenario.elements[i];
+        if (e.type === "Quadrupole") e.k1 = -(+e.k1 || 0); else e.k1l = -(+e.k1l || 0);
+        state.sel = [i]; state.anchor = i;
+      }, `Flipped the sign of ${state.scenario.elements[i].name || "the first quadrupole"} — Ctrl+Z puts it back`);
+      renderInspector();
+    } else if (act === "zerosext") {
+      const hits = state.scenario.elements.filter((e) => e.type === "Sextupole" || e.type === "ThinSextupole");
+      if (!hits.length) { status("No sextupole in this machine", "bad"); return; }
+      commit(() => {
+        for (const e of state.scenario.elements) {
+          if (e.type === "Sextupole") e.k2 = 0;
+          else if (e.type === "ThinSextupole") e.k2l = 0;
+        }
+      }, `Switched off ${hits.length} sextupole${hits.length > 1 ? "s" : ""} — watch the chromaticity tile; Ctrl+Z puts them back`);
+      renderInspector();
+    }
+  }
+  function renderLearn() {
+    const host = $("learn");
+    if (state.level === "off") {
+      host.innerHTML = `<p class="lead">Explanations are switched off. Pick a level from the box in the header and this tab fills with a short guided path written for that reader — while every tile, magnet and curve on the other tabs grows a hover explanation at the same level.</p>` +
+        `<div class="card"><h3>Choose a starting point</h3><p>Novice assumes nothing at all. Student assumes you have met β functions and want the working definitions. Physicist gives the conventions, the formulas and where each one lives in accsim.</p><div class="acts">` +
+        ["novice", "student", "physicist"].map((l) => `<button class="btn" data-act="level" data-arg="${l}">${l[0].toUpperCase() + l.slice(1)}</button>`).join("") + `</div></div>`;
+    } else {
+      const cards = TEACH.lessons(state.level);
+      const lead = { novice: "Five short pages, no background assumed. Every button here is undoable with Ctrl+Z, so change things freely.",
+        student: "Six pages on what the numbers above actually are, and where this editor stops.",
+        physicist: "What this core is, what it is held to, and where it deliberately stops." }[state.level];
+      host.innerHTML = `<p class="lead">${lead}</p>` + cards.map((c, i) => {
+        const acts = (c.a || []).map((a) => `<button class="btn" data-act="${a.act}" data-arg="${esc(a.arg || "")}">${esc(a.label)}</button>`).join("");
+        const notes = (c.a || []).filter((a) => a.note).map((a) => `<span class="note">${esc(a.label)} — ${esc(a.note)}</span>`).join("");
+        return `<div class="card"><h3><span class="n">${i + 1}</span>${esc(c.t)}</h3><p>${c.h}</p>${acts || notes ? `<div class="acts">${acts}${notes}</div>` : ""}</div>`;
+      }).join("");
+    }
+    host.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => learnAct(b.dataset.act, b.dataset.arg)));
+  }
+
   // ------------------------------------------------------------- inspector
   function field(key, label, value, unit, opts) {
     opts = opts || {};
     const type = opts.type || "number";
     const attrs = type === "number" ? `type="number" step="${opts.step || "any"}"` : `type="text"`;
-    return `<div class="field"><label for="f-${key}">${label}${unit ? `<small>${unit}</small>` : ""}</label><input id="f-${key}" ${attrs} data-key="${key}" data-scope="${opts.scope || "element"}" value="${esc(value ?? "")}" ${opts.disabled ? "disabled" : ""}>${opts.aside ? `<div class="aside" data-aside="${key}">${opts.aside}</div>` : ""}</div>`;
+    // The label is the teaching target. A <label> is not focusable, so it takes a
+    // tabindex when teaching is on, which is the only way a keyboard reaches it.
+    const tp = tipAttr(opts.tip || "p:" + key);
+    const lab = `<label for="f-${key}"${tp}${tp ? ' tabindex="0"' : ""}>${label}${unit ? `<small>${unit}</small>` : ""}</label>`;
+    return `<div class="field">${lab}<input id="f-${key}" ${attrs} data-key="${key}" data-scope="${opts.scope || "element"}" value="${esc(value ?? "")}" ${opts.disabled ? "disabled" : ""}>${opts.aside ? `<div class="aside" data-aside="${key}">${opts.aside}</div>` : ""}</div>`;
   }
   function renderMachine() {
     const sc = state.scenario, ref = sc.reference, r = state.result;
     const custom = ref.species === "custom" || !O.SPECIES[ref.species];
     const gev = ref.energy_eV / 1e9;
-    let h = `<h2><span class="label">Machine</span><span class="seg" role="group" aria-label="Ring or line"><button data-periodic="1" aria-pressed="${sc.periodic}">Ring</button><button data-periodic="0" aria-pressed="${!sc.periodic}">Line</button></span></h2>`;
-    h += `<div class="field"><label for="f-species">particle</label><select id="f-species" data-scope="reference" data-key="species"><option value="electron" ${ref.species === "electron" ? "selected" : ""}>electron</option><option value="positron" ${ref.species === "positron" ? "selected" : ""}>positron</option><option value="proton" ${ref.species === "proton" ? "selected" : ""}>proton</option><option value="custom" ${custom ? "selected" : ""}>custom</option></select></div>`;
+    let h = `<h2><span class="label">Machine</span><span class="seg" role="group" aria-label="Ring or line"${tipAttr("m:ringline")}><button data-periodic="1" aria-pressed="${sc.periodic}">Ring</button><button data-periodic="0" aria-pressed="${!sc.periodic}">Line</button></span></h2>`;
+    h += `<div class="field"><label for="f-species"${tipAttr("m:species")}${state.level === "off" ? "" : ' tabindex="0"'}>particle</label><select id="f-species" data-scope="reference" data-key="species"><option value="electron" ${ref.species === "electron" ? "selected" : ""}>electron</option><option value="positron" ${ref.species === "positron" ? "selected" : ""}>positron</option><option value="proton" ${ref.species === "proton" ? "selected" : ""}>proton</option><option value="custom" ${custom ? "selected" : ""}>custom</option></select></div>`;
     if (custom) { h += field("mass_eV", "mass", ref.mass_eV ?? O.PROTON_MASS_EV, "eV", { scope: "reference" }); h += field("charge", "charge", ref.charge ?? 1, "e", { scope: "reference" }); }
-    h += `<div class="field"><label for="f-energy_mode">energy</label><div class="inline"><select id="f-energy_mode" data-scope="reference" data-key="energy_mode" style="width:auto"><option value="total" ${ref.energy_mode === "total" ? "selected" : ""}>total</option><option value="kinetic" ${ref.energy_mode === "kinetic" ? "selected" : ""}>kinetic</option><option value="momentum" ${ref.energy_mode === "momentum" ? "selected" : ""}>pc</option></select><input id="f-energy_GeV" type="number" step="any" data-scope="reference" data-key="energy_GeV" value="${esc(String(+gev.toPrecision(10)))}" aria-label="energy in GeV"><small class="mono" style="color:var(--ink-3)">GeV</small></div></div>`;
+    h += `<div class="field"><label for="f-energy_mode"${tipAttr("m:energy")}${state.level === "off" ? "" : ' tabindex="0"'}>energy</label><div class="inline"><select id="f-energy_mode" data-scope="reference" data-key="energy_mode" style="width:auto"><option value="total" ${ref.energy_mode === "total" ? "selected" : ""}>total</option><option value="kinetic" ${ref.energy_mode === "kinetic" ? "selected" : ""}>kinetic</option><option value="momentum" ${ref.energy_mode === "momentum" ? "selected" : ""}>pc</option></select><input id="f-energy_GeV" type="number" step="any" data-scope="reference" data-key="energy_GeV" value="${esc(String(+gev.toPrecision(10)))}" aria-label="energy in GeV"><small class="mono" style="color:var(--ink-3)">GeV</small></div></div>`;
     if (r && r.ref) h += `<div class="readout"><span>γ₀ · β₀</span><span>${fmt(r.ref.gamma0, 5)} · ${fmt(r.ref.beta0, 7)}</span><span>p₀c</span><span>${fmt(r.ref.momentum_eV / 1e9, 5)} GeV</span><span>Bρ</span><span>${fmt(r.ref.brho, 5)} T·m</span></div>`;
     if (!sc.periodic) {
       const t = sc.initial_twiss;
-      h += `<h2 style="margin-top:12px"><span class="label">Entrance Twiss</span></h2>`;
+      h += `<h2 style="margin-top:12px"><span class="label"${tipAttr("m:twiss0")}>Entrance Twiss</span></h2>`;
       h += field("beta_x", "βₓ", t.beta_x, "m", { scope: "twiss" }) + field("alpha_x", "αₓ", t.alpha_x, "", { scope: "twiss" }) + field("beta_y", "βᵧ", t.beta_y, "m", { scope: "twiss" }) + field("alpha_y", "αᵧ", t.alpha_y, "", { scope: "twiss" }) + field("disp_x", "Dₓ", t.disp_x, "m", { scope: "twiss" }) + field("disp_px", "D′ₓ", t.disp_px, "", { scope: "twiss" });
     }
     const b = sc.beam;
-    h += `<h2 style="margin-top:12px"><span class="label">Beam (for sizes)</span></h2>`;
+    h += `<h2 style="margin-top:12px"><span class="label"${tipAttr("m:emit")}>Beam (for sizes)</span></h2>`;
     h += field("emit_x_nm", "εₓ", +(b.emit_x * 1e9).toPrecision(8), "nm·rad", { scope: "beam" }) + field("emit_y_nm", "εᵧ", +(b.emit_y * 1e9).toPrecision(8), "nm·rad", { scope: "beam" }) + field("sigma_delta_pm", "σδ", +(b.sigma_delta * 1e3).toPrecision(8), "×10⁻³", { scope: "beam" });
     $("machine").innerHTML = h;
     $("machine").querySelectorAll("[data-periodic]").forEach((btn) => btn.addEventListener("click", () => {
@@ -1122,14 +1317,14 @@
     }
     const i = state.sel[0], el = sc.elements[i], T = TYPES[el.type], spec = O.CATALOGUE[el.type];
     const errs = O.validateElement(el);
-    let h = `<h2><span id="elhead"><svg viewBox="0 0 34 26"><line x1="0" x2="34" y1="13" y2="13" stroke="var(--line)"/>${glyphSVG(el, O.elementLength(el) ? 7 : 17, 20, 13, 10)}</svg><span><span class="label" style="color:var(--ink)">${T.label}</span><br><span class="type">element ${i + 1} of ${sc.elements.length}${state.result && state.result.twissBoundaries ? ` · s = ${fmt(state.result.twissBoundaries[i].s, 5)} m` : ""}</span></span></span></h2>`;
+    let h = `<h2><span id="elhead"${tipAttr("el:" + el.type, T.label)}><svg viewBox="0 0 34 26"><line x1="0" x2="34" y1="13" y2="13" stroke="var(--line)"/>${glyphSVG(el, O.elementLength(el) ? 7 : 17, 20, 13, 10)}</svg><span><span class="label" style="color:var(--ink)">${T.label}</span><br><span class="type">element ${i + 1} of ${sc.elements.length}${state.result && state.result.twissBoundaries ? ` · s = ${fmt(state.result.twissBoundaries[i].s, 5)} m` : ""}</span></span></span></h2>`;
     h += field("name", "name", el.name || "", "", { type: "text" });
     if (el.type === "Aperture" || el.type === "Collimator") {
-      h += `<div class="field"><label for="f-shape">shape</label><select id="f-shape" data-key="shape"><option ${el.shape === "circular" ? "selected" : ""}>circular</option><option ${el.shape === "elliptical" ? "selected" : ""}>elliptical</option><option ${el.shape === "rectangular" ? "selected" : ""}>rectangular</option></select></div>`;
+      h += `<div class="field"><label for="f-shape"${tipAttr("p:shape")}${state.level === "off" ? "" : ' tabindex="0"'}>shape</label><select id="f-shape" data-key="shape"><option ${el.shape === "circular" ? "selected" : ""}>circular</option><option ${el.shape === "elliptical" ? "selected" : ""}>elliptical</option><option ${el.shape === "rectangular" ? "selected" : ""}>rectangular</option></select></div>`;
     }
     if (el.type === "RFCavity") {
       const byH = el.harmonic != null && el.harmonic !== "";
-      h += `<div class="field"><label>tune by</label><span class="seg"><button data-rfmode="harmonic" aria-pressed="${byH}">harmonic</button><button data-rfmode="frequency" aria-pressed="${!byH}">frequency</button></span></div>`;
+      h += `<div class="field"><label${tipAttr("p:harmonic")}${state.level === "off" ? "" : ' tabindex="0"'}>tune by</label><span class="seg"><button data-rfmode="harmonic" aria-pressed="${byH}">harmonic</button><button data-rfmode="frequency" aria-pressed="${!byH}">frequency</button></span></div>`;
       if (byH) {
         const C = state.result ? state.result.length : 0;
         const f = state.result && state.result.elements ? state.result.elements[i].frequency : 0;
@@ -1143,10 +1338,10 @@
     if (el.type === "Dipole") {
       const rho = el.angle ? el.length / el.angle : Infinity;
       h += `<div class="field"><label></label><div class="inline"><button class="btn sm" data-act="rect">rectangular faces</button><button class="btn sm" data-act="sector">sector faces</button></div><div class="aside">ρ = ${fmt(rho, 5)} m · h = ${fmt(el.length ? el.angle / el.length : 0, 4)} /m${el.fringe ? " · hard-edge fringe on" : ""}</div></div>`;
-      h += `<div class="field"><label for="f-fringe">fringe</label><div class="inline"><input id="f-fringe" type="checkbox" data-key="fringe" ${el.fringe ? "checked" : ""}><small style="color:var(--ink-3)">hard-edge fringe (tracking only; the linear map is blind to it)</small></div></div>`;
+      h += `<div class="field"><label for="f-fringe"${tipAttr("p:fringe")}${state.level === "off" ? "" : ' tabindex="0"'}>fringe</label><div class="inline"><input id="f-fringe" type="checkbox" data-key="fringe" ${el.fringe ? "checked" : ""}><small style="color:var(--ink-3)">hard-edge fringe (tracking only; the linear map is blind to it)</small></div></div>`;
     }
     if (spec.align && spec.align.length && !(el.type === "Dipole")) {
-      h += `<h2 style="margin-top:10px"><span class="label">Misalignment</span></h2>`;
+      h += `<h2 style="margin-top:10px"><span class="label"${tipAttr("p:align")}>Misalignment</span></h2>`;
       if (spec.align.includes("dx")) h += field("dx", "dx", el.dx ?? 0, "m", { step: 1e-4 }) + field("dy", "dy", el.dy ?? 0, "m", { step: 1e-4 });
       if (spec.align.includes("roll")) h += field("roll", "roll", el.roll ?? 0, "rad", { step: 1e-3 });
     }
@@ -1228,7 +1423,7 @@
   }
   function renderInspector() { renderMachine(); renderElement(); renderSeq(); }
   function renderAll() {
-    renderSummary(); renderPlot(); renderSeq();
+    renderSummary(); renderGuide(); renderPlot(); renderSeq();
     $("btn-undo").disabled = !history.length; $("btn-redo").disabled = !future.length;
     $("name").value = state.scenario.name || "";
     document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === state.tab)));
@@ -1351,6 +1546,15 @@
 
   // ------------------------------------------------------------- wiring
   function wire() {
+    $("teach").innerHTML = TEACH.LEVELS.map((l) => `<option value="${l.id}">${esc(l.label)}</option>`).join("");
+    $("teach").addEventListener("change", () => { state.guideHidden = false; setLevel($("teach").value); });
+    // One delegated pair of listeners: the DOM under them is rebuilt constantly.
+    document.addEventListener("pointerover", onTipEnter);
+    document.addEventListener("focusin", onTipEnter);
+    document.addEventListener("pointerdown", hideTip);
+    window.addEventListener("scroll", hideTip, true);
+    window.addEventListener("blur", hideTip);
+
     $("presets").innerHTML = `<option value="">Presets…</option>` + PRESETS.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
     $("presets").addEventListener("change", () => {
       const p = PRESETS.find((x) => x.id === $("presets").value);
@@ -1398,18 +1602,29 @@
         else if (state.sel.length) select(Math.max(0, Math.min(state.scenario.elements.length - 1, (state.anchor ?? state.sel[0]) + d)));
         else if (state.scenario.elements.length) select(0);
       }
-      if (e.key === "Escape") { state.sel = []; renderAll(); renderInspector(); }
+      if (e.key === "Escape") { hideTip(); state.sel = []; renderAll(); renderInspector(); }
     });
   }
 
   function boot() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch (e) { saved = null; }
+    // The level is restored before anything renders, so the palette captions and
+    // the tips come up at the right level on the first paint. A share link never
+    // carries it: it is a preference of this browser, not of the machine.
+    if (saved && saved.level && TEACH.LEVELS.some((l) => l.id === saved.level)) state.level = saved.level;
+    document.body.dataset.level = state.level;
     renderPalette();
     wire();
+    $("teach").value = state.level;
     let data = fromHash(), msg = "Loaded the machine carried by this link";
+    if (!data && saved && saved.scenario) { data = saved.scenario; state.tab = saved.tab || "optics"; msg = "Restored your last machine"; }
     if (!data) {
-      try { const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); if (saved && saved.scenario) { data = saved.scenario; state.tab = saved.tab || "optics"; msg = "Restored your last machine"; } } catch (e) { /* ignore */ }
+      data = clone(PRESETS.find((p) => p.id === "electron-ring"));
+      msg = state.level === "off"
+        ? "Loaded the electron storage ring preset — pick another under Presets"
+        : "Loaded the electron storage ring preset — hover anything to have it explained, or open the Learn tab";
     }
-    if (!data) { data = clone(PRESETS.find((p) => p.id === "electron-ring")); msg = "Loaded the electron storage ring preset — pick another under Presets"; }
     state.scenario = normalise(data);
     recompute(); renderAll(); renderInspector(); status(msg);
     if (location.hash) history.length = 0;
