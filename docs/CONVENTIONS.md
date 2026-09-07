@@ -9350,7 +9350,20 @@ coordinate-dependent piece and a constant
 
 closed-form exact (`3e-12` relative against the integrated trajectory). This makes `Wiggler`
 **the only aligned, on-design element in the package with a nonzero `kick()`** — everything
-else there is a corrector or a misalignment.
+else there is a corrector or a misalignment. `element.py`'s `kick()` docstring names it as
+the exception to "exactly zero for a perfectly aligned linear element", because a ring with
+a wiggler really does have `transfer_map != transfer_matrix`.
+
+**What that kick does to a ring, measured rather than asserted:** with the RF frequency fixed
+to the design circumference, the longer closed orbit makes the beam run **off momentum**,
+`delta_co ~ -k_zeta/R56` (within 10% of the linear prediction on an 8-cell probe ring), and
+dispersion carries that into a transverse orbit distortion of `2e-05 m`. **The synchronous
+phase does not move** — `zeta` stays at the cavity's zero-crossing to `1e-21`, which is where
+a non-radiating ring's synchronous particle sits whatever the path length. An earlier draft
+of this section called it "a real effect on the synchronous phase"; that was wrong, and
+actually solving the orbit is what corrected it. Without an RF cavity `closed_orbit_6d`
+**raises** — nothing reads `zeta`, so a constant `zeta` kick has no restoring force — which
+is N5's guard firing on a case it was not written for.
 
 Because that path depends on momentum — a stiffer particle wiggles *less* — `R56` is not
 `L/gamma0^2`:

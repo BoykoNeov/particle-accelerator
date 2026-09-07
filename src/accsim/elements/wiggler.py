@@ -81,10 +81,19 @@ class Wiggler(Element):
 
     which is closed-form exact (it reproduces the integrated trajectory to ``3.3e-12``
     relative) and makes this the only magnet in the package whose *aligned, on-design* map
-    has a nonzero :meth:`~accsim.elements.element.Element.kick`. A wiggler lengthens the
-    closed orbit, which is a real effect on the synchronous phase and not a rounding term:
+    has a nonzero :meth:`~accsim.elements.element.Element.kick` — the constant term
+    :func:`~accsim.orbit.closed_orbit_6d` consumes and every other element leaves at zero.
     ``1.3e-05 m`` for the 1 m probe magnet. The roadmap entry did not name it; it is gated
     against the same integration as everything else.
+
+    **What it does to a ring, measured:** with the RF frequency fixed to the design
+    circumference, the longer closed orbit makes the beam run **off momentum** —
+    ``delta_co ~ -k_zeta/R56`` — and dispersion carries that into a transverse orbit
+    distortion. The synchronous phase does *not* move: ``zeta`` stays at the cavity's
+    zero-crossing, which is where a non-radiating ring's synchronous particle sits whatever
+    the path length. (An earlier draft of this docstring said the opposite; solving the
+    orbit is what corrected it.) Without an RF cavity there is no restoring force for a
+    constant ``zeta`` kick at all, and the 6D solve raises.
 
     **And that path depends on momentum, so ``R56`` is not a drift's.** The deflection is
     ``theta/(1+delta)``, so a stiffer particle wiggles less and travels a shorter road —

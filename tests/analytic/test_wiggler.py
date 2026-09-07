@@ -442,6 +442,85 @@ def test_the_wiggle_path_carries_the_second_power_of_the_rigidity_too(
         assert abs(wrong - integrated) > 1e5 * abs(shipped - integrated)
 
 
+def test_the_design_kick_reaches_the_closed_orbit_and_moves_the_momentum(
+    ref: ReferenceParticle,
+) -> None:
+    r"""End to end for the constant kick: a wiggler shifts the ring's **momentum**, not its
+    synchronous phase.
+
+    This is the only test in the suite that puts a wiggler in front of the machinery its new
+    constant term actually feeds. Everything else reaches optics through
+    ``one_turn_matrix``, which cannot see a ``kick()`` at all: the tune tests, the radiation
+    integrals and the taper refusal all stop short of a closed-orbit solve. ``Wiggler`` is
+    the package's first *aligned, on-design* element with a nonzero ``kick()``, and I1 made
+    the element map affine precisely so a solver could consume one.
+
+    **What it does, measured rather than assumed.** With the RF frequency fixed to the
+    design circumference, a wiggler makes the closed orbit longer, and the ring answers by
+    running **off momentum** — ``delta_co`` moves to roughly ``-k_zeta/R56``, and dispersion
+    carries that into a transverse orbit distortion. ``zeta`` does **not** move: the cavity's
+    zero-crossing is still where a non-radiating ring's synchronous particle sits. An earlier
+    draft of the class docstring called this "a real shift of the synchronous phase"; it is
+    not, and this test is what corrected it.
+
+    Without RF the 6D solve **raises**, cleanly and with its reason — nothing reads ``zeta``,
+    so a constant ``zeta`` kick has no restoring force to balance it. That is N5's guard
+    doing its job on a case it was not written for, and it is asserted here rather than
+    left to be discovered.
+    """
+    from accsim import Dipole, RFCavity, closed_orbit, closed_orbit_6d
+    from accsim.orbit import ClosedOrbitError
+
+    n_cell = 8
+    angle = np.pi / n_cell  # two bends per cell, 2 pi over the ring
+
+    def ring(insert: object, cavity: object | None = None) -> Lattice:
+        els: list[object] = []
+        for _ in range(n_cell):
+            els += [
+                Quadrupole(0.3, 1.5, "qf"),
+                Dipole(1.0, angle),
+                Quadrupole(0.3, -1.5, "qd"),
+                Dipole(1.0, angle),
+                insert() if callable(insert) else insert,
+            ]
+        if cavity is not None:
+            els.append(cavity)
+        return Lattice(els, ref)  # type: ignore[arg-type]
+
+    def a_wiggler() -> Wiggler:
+        return Wiggler(PERIOD, 0.449689, PERIODS)
+
+    circumference = sum(e.length for e in ring(a_wiggler).elements)
+    cavity = RFCavity(2.0e6, 200 * ref.beta0 * 299792458.0 / circumference, name="rf")
+
+    # Without RF: the guard fires, and says why.
+    with pytest.raises(ClosedOrbitError, match="no RF cavity"):
+        closed_orbit_6d(ring(a_wiggler))
+    # ...while the purely transverse solve is untroubled: the kick is longitudinal only.
+    assert np.array_equal(closed_orbit(ring(a_wiggler)), np.zeros(4))
+
+    # With RF: it converges, and the design ring it is compared against is exactly zero.
+    bare = np.asarray(closed_orbit_6d(ring(lambda: Drift(a_wiggler().length), cavity)))
+    assert np.array_equal(bare, np.zeros(6))
+
+    orbit = np.asarray(closed_orbit_6d(ring(a_wiggler, cavity)))
+    lattice = ring(a_wiggler, cavity)
+    R56 = lattice.transfer_matrix()[ZETA, DELTA]
+    k_zeta = lattice.transfer_map()[1][ZETA]
+
+    # The ring's whole constant term is n_cell wigglers' worth, and nothing else's.
+    assert k_zeta == pytest.approx(n_cell * a_wiggler().kick(ref)[ZETA], rel=1e-12)
+
+    # zeta stays at the cavity's zero-crossing; delta is what moves.
+    assert abs(orbit[ZETA]) < 1e-15
+    assert orbit[DELTA] == pytest.approx(-k_zeta / R56, rel=0.1)
+    assert abs(orbit[DELTA]) > 1e-6  # not a rounding term
+
+    # ...and dispersion turns that momentum shift into a real transverse orbit.
+    assert abs(orbit[X]) > 1e-5
+
+
 def test_the_averaging_remainder_and_the_path_lengthening_are_the_same_quantity(
     wig: Wiggler, ref: ReferenceParticle
 ) -> None:

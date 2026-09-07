@@ -52,7 +52,14 @@ LENGTH = PERIOD * PERIODS
 
 
 def _ref() -> ReferenceParticle:
-    return ReferenceParticle.from_total_energy(MASS0, ENERGY0, charge=-1.0)
+    """``q0 = +1``, matching ``xt.Particles`` below — as the other reference files do.
+
+    The charge is irrelevant to every assertion here (the map is even in ``h0`` and
+    ``gamma0`` is charge-blind), but pairing accsim's ``-1`` with xtrack's ``+1`` would be a
+    difference a later reader has to rule out. `H0` is quoted directly rather than converted
+    from tesla for the same reason.
+    """
+    return ReferenceParticle.from_total_energy(MASS0, ENERGY0, charge=1.0)
 
 
 def _rmatrix(elements: list[object]) -> np.ndarray:

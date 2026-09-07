@@ -24,9 +24,11 @@ class Element(abc.ABC):
     its coordinates, which no 6x6 acting on ``(x, px, ...)`` can express. The
     constant part lives in :meth:`kick`, so the homogeneous ``matrix`` remains the
     whole story for optics (beta, tune, chromaticity, dispersion) — a constant kick
-    moves the closed orbit, not the map about it. Two things put something there: a
-    :class:`~accsim.elements.corrector.Corrector`, and a **transverse
-    misalignment** (below).
+    moves the closed orbit, not the map about it. Three things put something there: a
+    :class:`~accsim.elements.corrector.Corrector`, a **transverse misalignment**
+    (below), and — the only one of the three that is neither an error nor a
+    steering element — a :class:`~accsim.elements.wiggler.Wiggler`, whose wiggle is
+    a longer road than the straight line even on the design orbit.
 
     Misalignment: ``(dx, dy)`` [m]
     ------------------------------
@@ -199,10 +201,17 @@ class Element(abc.ABC):
         """Constant (inhomogeneous) part of the affine map, ``(6,)``.
 
         The element's own constant part (:meth:`_kick_body`) carried through the
-        alignment, ``M_out (body k_in + k_body) + k_out``. Exactly zero for a
-        perfectly aligned linear element, which is what keeps
+        alignment, ``M_out (body k_in + k_body) + k_out``. Zero for a perfectly
+        aligned linear element with **one exception**, which is what keeps
         :meth:`~accsim.lattice.Lattice.transfer_map` equal to
         :meth:`~accsim.lattice.Lattice.transfer_matrix` on a design lattice.
+
+        The exception is :class:`~accsim.elements.wiggler.Wiggler` (T1): its wiggle
+        is a longer road than the straight line even for a particle entering exactly
+        on axis at exactly the reference momentum, so it carries a constant
+        ``zeta`` kick, ``-L theta^2/4``, while perfectly aligned and on design. A
+        ring containing one therefore has ``transfer_map != transfer_matrix``, and
+        its 6D closed orbit sits off momentum rather than at the origin.
 
         For a pure displacement this collapses to K1's ``(I - matrix) d``, and the
         offset-only path still evaluates that form so a displaced element's kick is
