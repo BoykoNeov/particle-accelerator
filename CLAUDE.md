@@ -70,7 +70,7 @@ still produces convincing plots. Everything below defends against that.
   Measured 2026-08-10: `-n 8` on the analytic suite ran *slower* than serial and
   OOM-failed four tests, because the costly ones are sympy derivations whose peak
   memory multiplies per worker. See `docs/CONVENTIONS.md` → *Test-suite cost*.
-- **The default selection is `-m "not reference"`** (pyproject `addopts`) — 1780 of 2196
+- **The default selection is `-m "not reference"`** (pyproject `addopts`) — 1803 of 2223
   tests (measured 2026-09-07). A command-line `-m` overrides it, which is how the
   second line above works.
   Why: every `xt.Line` build JIT-compiles a fresh C kernel — xobjects names each module

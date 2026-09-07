@@ -750,20 +750,30 @@ def test_the_field_accessor_refuses_rather_than_reporting_no_field(wig: Wiggler)
     assert wig.normalized_vector_potential(0.0, 0.0) == (0.0, 0.0)
 
 
-def test_radiation_tracking_through_a_wiggler_refuses(wig: Wiggler, ref: ReferenceParticle) -> None:
-    """A wiggler tracks with ``radiation="off"`` and refuses every other model.
+def test_radiation_tracking_through_a_wiggler_used_to_refuse_and_no_longer_does(
+    wig: Wiggler, ref: ReferenceParticle
+) -> None:
+    """T1's and T2's refusal, **lifted by T3** — and kept here as the record of it.
 
-    The refusal reaches the caller through the field accessor, which is the right place for
-    it: the tracking gap is not that the physics is unknown but that the interface cannot
-    express an ``s``-dependent field. T2 gate 6 pre-commits this raise; it arrives here
-    because shipping the silent alternative for one milestone was not worth it.
+    This test asserted a raise for two milestones. The refusal reached the caller through
+    the field accessor, which was the right place for it: the gap was never that the physics
+    was unknown but that the interface could not express an ``s``-dependent field. T3 gave
+    it one (``Element.field_at``), and all three radiation models now run.
+
+    What is asserted now is the opposite, with the full gate list in
+    ``tests/analytic/test_wiggler_radiation_tracking.py``. This stays because the *shape* of
+    the refusal — loud, at the interface, rather than a silent zero — is what made it
+    cheap to lift.
     """
     state = np.array([1e-4, 0.0, 1e-4, 0.0, 0.0, 0.0])
-    wig.track(state, ref)  # radiation="off": fine
+    assert wig.track(state, ref)[5] == 0.0  # radiation="off": still does not radiate
 
     for model in ("mean", "quantum", "photons"):
-        with pytest.raises(NotImplementedError, match="magnet built to radiate"):
-            wig.track(state, ref, radiation=model, rng=np.random.default_rng(0))
+        assert wig.track(state, ref, radiation=model, rng=np.random.default_rng(0))[5] < 0.0
+
+    # ...and the accessor that used to carry the refusal still carries one, for spin (T4).
+    with pytest.raises(NotImplementedError, match="spin through a wiggler is"):
+        wig.normalized_field(0.0, 0.0)
 
 
 def test_the_radiation_integrals_now_see_the_wiggler_and_t1_did_not(
@@ -811,10 +821,10 @@ def test_the_radiation_integrals_now_see_the_wiggler_and_t1_did_not(
     assert 0.5 * wig.h0**2 * wig.length > 2.0 * without.i2
 
 
-def test_tapering_a_ring_with_a_wiggler_is_refused_for_one_remaining_reason(
+def test_tapering_a_ring_with_a_wiggler_is_no_longer_refused_for_being_a_wiggler(
     ref: ReferenceParticle,
 ) -> None:
-    """``taper()`` still refuses a wiggler ring — but for **one** reason now, not two.
+    """``taper()`` refused a wiggler ring for two reasons, then one, and now for none.
 
     A taper needs the ring's *radiating* closed orbit, and it also needs to know how to
     scale every powered magnet. T1 failed both, and **which one fired first was measured
@@ -827,13 +837,17 @@ def test_tapering_a_ring_with_a_wiggler_is_refused_for_one_remaining_reason(
     refusal is the honest one and it is the tracking gap: ``radiation_kick`` samples the
     field once per traversal and a wiggler's reverses twenty times inside itself.
 
-    Written to fail the day per-period tracking through the real field lands.
+    **T3 answered the first**, and this test was written to fail the day it did. Both
+    reasons are gone: what a wiggler ring meets now is the ordinary requirement every
+    radiating ring meets, that it have an RF cavity to close the 6D orbit against. The
+    refusal that is left is not about wigglers at all.
     """
     from accsim import Dipole
+    from accsim.orbit import ClosedOrbitError
     from accsim.tapering import _scaled
 
     lattice = Lattice([Dipole(2.0, 0.3), Wiggler(PERIOD, 0.449689, PERIODS, "w")], ref)
-    with pytest.raises(NotImplementedError, match="no s-independent field"):
+    with pytest.raises(ClosedOrbitError, match="no RF cavity"):
         taper(lattice)
 
     # the half that lifted, asserted as lifted (T2 gate 7)

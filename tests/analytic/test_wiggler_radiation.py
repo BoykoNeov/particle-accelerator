@@ -610,25 +610,29 @@ def test_a_wiggler_is_a_powered_magnet_and_its_focusing_tapers_as_the_square(
         assert wig.h0 == H0  # and the original is not mutated
 
 
-def test_tapering_a_whole_ring_still_refuses_and_now_for_one_reason(
+def test_tapering_a_whole_ring_refused_for_one_reason_and_t3_removed_it(
     ref: ReferenceParticle,
 ) -> None:
-    """What did **not** lift, and the measurement that says which refusal is left.
+    """What did not lift in T2, and did in T3 — kept as the record of both steps.
 
     T1's version of this test asserted *two* refusals: the field accessor (reached first,
     because ``taper`` builds the radiating closed orbit before it scales anything) and
-    ``_scaled``'s own guard. The second is gone — a wiggler is a powered magnet now — so the
-    refusal collapses to one, and it is the honest one: a taper needs the ring's radiating
-    orbit, ``radiation_kick`` samples the field once per traversal, and a wiggler's field
-    reverses twenty times inside itself. That is the gap T2 prices rather than papers over,
-    and closing it is a milestone of its own (per-period tracking through the real field).
+    ``_scaled``'s own guard. T2 removed the second — a wiggler is a powered magnet — leaving
+    the honest one: a taper needs the ring's radiating orbit, ``radiation_kick`` sampled the
+    field once per traversal, and a wiggler's field reverses twenty times inside itself.
+    T2 priced closing that as a milestone of its own and said this test was written to fail
+    the day it landed.
 
-    Written to fail the day that lands.
+    **T3 landed it.** What this ring meets now is the ordinary requirement of every
+    radiating ring — an RF cavity to close the 6D orbit against — which has nothing to do
+    with wigglers. ``tests/analytic/test_wiggler_radiation_tracking.py`` tapers a ring that
+    has one.
     """
+    from accsim.orbit import ClosedOrbitError
     from accsim.tapering import _scaled
 
     lattice = Lattice([Dipole(2.0, 0.3), Wiggler(PERIOD, H0, PERIODS, "w")], ref)
-    with pytest.raises(NotImplementedError, match="no s-independent field"):
+    with pytest.raises(ClosedOrbitError, match="no RF cavity"):
         taper(lattice)
 
     # the refusal that lifted, asserted as lifted rather than left implied

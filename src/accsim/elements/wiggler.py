@@ -118,15 +118,17 @@ class Wiggler(Element):
     :meth:`track` — it was missing from the first draft of this class, and nothing else in
     the milestone would have caught it.
 
-    **This is a contribution to the ring's momentum compaction that
-    :func:`~accsim.radiation.radiation_integrals` does not see, and the distinction matters
-    for T2.** The ``alpha_c = I1/C`` that ``I1`` "links to" is the *dispersion-driven* part,
-    ``int D_x h ds`` — a wiggler contributes nothing to it, because it has no net curvature
-    and generates no dispersion. What it contributes here is **geometric**: the wiggle path
-    itself shortening with momentum, which lives in ``R56`` and in no lattice integral. Both
-    statements are true at once, and a session that opens ``radiation_integrals`` to the
-    wiggler in T2 will still not have made ``alpha_c = I1/C`` complete for a ring with one
-    in it.
+    **This looks like a contribution to momentum compaction that lives outside every lattice
+    integral, and T2 measured that it is not.** An earlier draft of this docstring said a
+    wiggler "generates no dispersion", so that its compaction contribution was purely
+    geometric and appeared in no integral. Both halves are wrong: a wiggler generates its
+    **own** dispersion, ``eta = (h0/k^2)(1 - cos ks)``, which closes in both coordinates at
+    the exit, and ``int eta h ds = -L theta^2 / 2`` is **exactly** the ``gamma``-free part of
+    the ``R56`` term above. The geometric picture and the dispersion picture are one
+    mechanism seen from two sides, and :func:`~accsim.radiation.radiation_integrals` now
+    carries it, so ``I1 == alpha_c * C`` holds on a ring with a wiggler in it. What is left
+    over, ``(L theta^2/4)/gamma0^2``, is not compaction at all but velocity slip along the
+    longer path.
 
     Momentum dependence: the **second** power
     -----------------------------------------
@@ -155,7 +157,42 @@ class Wiggler(Element):
     building it in would make the horizontal block something other than a drift and there
     is no reference code to arbitrate it.
 
-    Also refused, and loudly: **radiation** (T2). See :meth:`normalized_field`.
+    Radiation, and where it comes from
+    ----------------------------------
+    T1 refused radiation outright. T2 gave the period-averaged ``<h^2>`` and ``<|h|^3>`` to
+    :func:`~accsim.radiation.radiation_integrals`, so a wiggler damped a ring on the design
+    route while still radiating **nothing** in tracking. T3 closes that: :meth:`field_at`
+    is the field with the ``s`` :meth:`normalized_field` has no room for, and
+    :meth:`radiation_sample_positions` says where along the body to look. The map is
+    untouched — it is still T1's period average — because a sub-period piece of it has no
+    wiggle in it at all (``y'' = -h0^2 y sin^2(ks)`` is Mathieu-like and has no closed form
+    on a partial period). What T3 resolves is the **sampling**, not the map.
+
+    ``radiation_slices`` is how many field samples the traversal takes **per period** — not
+    per element, and the distinction is a finding rather than a convenience: the integrand
+    repeats every period, so a count fixed per element silently under-resolves a long magnet
+    (T2's ``slices = 64`` on this ten-period probe wiggler is 6.4 per period, where
+    ``int |kappa|^3 ds`` is already ~1.5% wrong). The three moments radiation needs converge
+    at three *different* rates under mid-point sampling, measured rather than assumed:
+
+    * ``int kappa^2 ds`` — the **mean loss** — is **exact at every n >= 3**, because
+      ``cos^2 = (1 + cos 2ks)/2`` and the uniform mid-point sum of ``cos 2ks`` vanishes
+      identically. So the headline gate, "the tracked loss equals ``C_gamma E^4 I2 / 2 pi``",
+      cannot see this number at all.
+    * ``int |kappa| ds`` — the **photon count** — converges as ``n^-2``: ``|cos|`` has a jump
+      in its first derivative.
+    * ``int kappa^3 ds`` — the **excitation variance**, T2's ``I3`` — converges as ``n^-4``:
+      near its zero ``|cos|^3 ~ |u|^3`` is ``C^2``, so the jump is in the *third* derivative,
+      two orders later than the kink suggests.
+
+    The default 32 leaves the variance at ``1.6e-05`` and the count at ``1.6e-03``, with the
+    mean exact; the floor of 3 is where the mean stops being exact. It is deliberately **not**
+    part of :mod:`accsim.scenario`: that format describes the *machine* — geometry and
+    strengths — and this is a property of the integration, so a saved scenario reloads at the
+    default however it was tracked. Nothing the format does describe depends on it, since the
+    map is untouched.
+
+    Still refused, and loudly: **spin** (T4). See :meth:`normalized_field`.
     """
 
     def __init__(
@@ -168,6 +205,7 @@ class Wiggler(Element):
         dx: float = 0.0,
         dy: float = 0.0,
         roll: float = 0.0,
+        radiation_slices: int = 32,
     ) -> None:
         if period <= 0.0:
             raise ValueError(f"wiggler period must be > 0, got {period}")
@@ -176,10 +214,18 @@ class Wiggler(Element):
                 f"wiggler periods must be a positive integer, got {periods!r}: a partial "
                 "period leaves the beam deflected on exit, which is a bend, not a wiggler"
             )
+        if radiation_slices != int(radiation_slices) or radiation_slices < 3:
+            raise ValueError(
+                f"radiation_slices must be an integer >= 3, got {radiation_slices!r}: "
+                "below three samples per period the mid-point rule no longer integrates "
+                "cos^2 exactly and the mean energy loss itself becomes wrong"
+            )
         super().__init__(float(period) * int(periods), name=name, dx=dx, dy=dy, roll=roll)
         self.period = float(period)
         self.h0 = float(h0)
         self.periods = int(periods)
+        # Per *period*, not per element -- see the class docstring's *Radiation* section.
+        self.radiation_slices = int(radiation_slices)
 
     @classmethod
     def from_peak_field(
@@ -303,6 +349,72 @@ class Wiggler(Element):
         out[ZETA] = st[ZETA] + slip - path * E_over_E0 / one_plus
         return out
 
+    def field_at(
+        self, s: np.ndarray | float, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[
+        np.ndarray | float,
+        np.ndarray | float,
+        np.ndarray | float,
+        np.ndarray | float,
+        np.ndarray | float,
+    ]:
+        r"""The real field, at ``s`` metres into the body — and the wiggle in ``a_x`` (T3).
+
+        The three components are T1's, now with the ``s`` they were always about::
+
+            b_x = 0,   b_y = h0 cos(ks) cosh(ky),   b_s = -h0 sin(ks) sinh(ky)
+
+        and the **vector potential is where the milestone actually lives**. All of the
+        above comes from a single component,
+
+            ``a_x = (h0/k) sin(ks) cosh(ky) = theta sin(ks) cosh(ky)``,   ``a_y = 0``,
+
+        since ``curl a`` gives ``b_y = da_x/ds`` and ``b_s = -da_x/dy``. The consequence
+        is not bookkeeping: the state vector carries **canonical** momentum, the physics
+        wants the **kinetic** one, and
+
+            ``px - a_x = px - theta sin(ks) cosh(ky)``
+
+        is *exactly* the sub-period orbit ``x'(s) = -theta sin(ks)`` that
+        :meth:`_track_body` deliberately does not carry. That is *why* the shipped map
+        holds ``px`` constant through the magnet — the wiggle lives in ``a``, not in
+        ``p`` — and it means
+        :func:`~accsim.radiation_kick.radiation_kick` reconstructs the wiggle orbit
+        through the ``p - a`` subtraction S2 already put there, with no orbit code of its
+        own.
+
+        **The transverse *position* excursion is not here, and does not need to be.**
+        ``x(s) = x0 + (theta/k)(cos ks - 1)`` is the other half of the sub-period orbit
+        and equally absent from the state — but ``b_y`` carries no ``x`` dependence at
+        all and the wiggle is horizontal, so it moves the curvature by nothing. Only the
+        angle enters, through the perpendicular projection, at ``O(theta^2)``. That is
+        what makes "resolve the sampling, not the map" sufficient rather than merely
+        convenient.
+
+        ``s`` broadcasts against ``x`` and ``y``: a column of sample positions against a
+        row of particles returns the whole grid.
+        """
+        del x  # a planar wiggler's field does not depend on x -- see the docstring
+        s_arr = np.asarray(s, dtype=float)
+        ky = self.wavenumber * np.asarray(y, dtype=float)
+        ks = self.wavenumber * s_arr
+        by = self.h0 * np.cos(ks) * np.cosh(ky)
+        bs = -self.h0 * np.sin(ks) * np.sinh(ky)
+        ax = self.deflection * np.sin(ks) * np.cosh(ky)
+        zero = np.zeros_like(by)
+        return zero, by, bs, ax, zero
+
+    def radiation_sample_positions(self) -> np.ndarray:
+        """The mid-points of :attr:`radiation_slices` uniform steps **per period**.
+
+        ``radiation_slices * periods`` samples across the body, each standing for an equal
+        share of the path. Uniform in ``s`` and mid-point rather than end-point because
+        that is what makes ``int cos^2 ds`` exact — see :attr:`radiation_slices` for the
+        three different convergence rates this choice buys.
+        """
+        n = self.radiation_slices * self.periods
+        return (np.arange(n) + 0.5) * (self.length / n)
+
     def normalized_field(
         self, x: np.ndarray | float, y: np.ndarray | float
     ) -> tuple[np.ndarray | float, np.ndarray | float]:
@@ -320,18 +432,24 @@ class Wiggler(Element):
 
         Raising rather than returning zero is S1's precedent, and it is deliberately louder
         than the roadmap asked for: a silent zero here is the exact failure the axis-T entry
-        identifies as the hazard. The consequence is that a ``Wiggler`` cannot be tracked
-        with any radiation model other than ``"off"``, cannot be spin-tracked, and cannot be
-        :func:`~accsim.tapering.taper`-ed — each of which is a refusal the analytic suite
-        asserts, and each of which T2 lifts by giving the period average a place to go.
+        identifies as the hazard.
+
+        **It still raises after T3, and that is the point.** Radiation no longer comes
+        through here — it goes through :meth:`field_at`, which has the ``s`` this one
+        lacks — so ``radiation="mean"``, ``"quantum"`` and ``"photons"`` all work, and so
+        does :func:`~accsim.tapering.taper`. What still arrives here is
+        :mod:`accsim.spin`, which samples the field once at the mid-point exactly as
+        radiation used to, and would precess a spin through a field that averages to zero.
+        Spin through a wiggler is T4; until it lands, this refusal is what stands between
+        a caller and a silently wrong polarisation.
         """
         raise NotImplementedError(
             f"Wiggler({self.name!r}) has no s-independent field: b_y = h0 cos(k s) cosh(k y) "
-            f"reverses {2 * self.periods} times inside it and averages to zero, so the "
-            "single mid-point sample radiation_kick() and spin_precession() take would "
-            "report no radiation from the magnet built to radiate. The period-averaged "
-            "<h^2> and <|h|^3> reach the radiation integrals in T2; until then a wiggler "
-            "tracks only with radiation='off'."
+            f"reverses {2 * self.periods} times inside it and averages to zero, so a single "
+            "mid-point sample would report no field at all from the magnet built to "
+            "radiate. Radiation tracking no longer comes through here (it uses field_at(), "
+            "which has the s); what does is spin precession, and spin through a wiggler is "
+            "T4. Until then a wiggler can be tracked and tapered but not spin-tracked."
         )
 
     def __repr__(self) -> str:

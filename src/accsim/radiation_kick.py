@@ -353,16 +353,32 @@ def radiation_kick(
     mid_y = 0.5 * (before[Y] + after[Y])
     mid_px = 0.5 * (before[PX] + after[PX])
     mid_py = 0.5 * (before[PY] + after[PY])
-    bx, by = element.normalized_field(mid_x, mid_y)
-    bs = element.longitudinal_field(mid_x, mid_y)
+
+    # Where along the body to look. ``None`` -- every element but a wiggler -- is the
+    # single mid-point sample this function has always taken; a wiggler answers with the
+    # mid-points of uniform steps *per period*, because its field reverses inside its own
+    # body and averages to exactly zero over one (T3). The sample positions carry their
+    # own leading axis so a column of them broadcasts against a row of particles.
+    positions = element.radiation_sample_positions()
+    if positions is None:
+        s_at: np.ndarray | float = 0.5 * length
+        n_samples = 1
+    else:
+        positions = np.asarray(positions, dtype=float)
+        s_at = positions.reshape((-1,) + (1,) * np.ndim(mid_x))
+        n_samples = positions.size
+
+    bx, by, bs, ax, ay = element.field_at(s_at, mid_x, mid_y)
     if np.all(bx == 0.0) and np.all(by == 0.0) and np.all(bs == 0.0):
         return out  # no field, no radiation (a drift, or a bend switched off)
 
-    # The kinetic momentum, ``p - a`` -- exactly zero for every element but a solenoid,
-    # and there the same first-order term the spin precession subtracts (S2). It is
+    # The kinetic momentum, ``p - a`` -- exactly zero for every element but a solenoid and
+    # a wiggler. For the solenoid it is the same first-order term the spin precession
+    # subtracts (S2); for the wiggler it is the whole sub-period orbit, because a planar
+    # wiggler's ``a_x = (h0/k) sin(ks) cosh(ky)`` makes ``px - a_x`` exactly the wiggle
+    # angle ``-theta sin(ks)`` that its period-averaged map does not carry (T3). It is
     # xtrack's radiation path that this half agrees with; its *spin* path is the one that
     # flips the sign, which is why the two halves of S2 have different reference legs.
-    ax, ay = element.normalized_vector_potential(mid_x, mid_y)
     delta = after[DELTA]
     kappa = _perpendicular_field(bx, by, mid_px - ax, mid_py - ay, delta, bs) / (1.0 + delta)
 
@@ -370,15 +386,23 @@ def radiation_kick(
     p = ref.momentum_eV * (1.0 + delta)
     energy = np.sqrt(p * p + m * m)
     rvv = (p / energy) / ref.beta0  # beta/beta0
-    l_path = rvv * (length - (after[ZETA] - before[ZETA]))
+    # Each sample stands for an equal share of the traversal; with one sample this is the
+    # whole of it, divided by an exact 1.
+    l_path = rvv * (length - (after[ZETA] - before[ZETA])) / n_samples
+
+    def total(a: np.ndarray | float) -> np.ndarray | float:
+        """Sum a per-sample quantity over the body. A sum, never an average."""
+        return a if positions is None else np.sum(a, axis=0)
 
     u = radiation_constant_cgamma(ref) / (2.0 * math.pi) * energy**4 * kappa * kappa * l_path
     if model == "quantum":
         # Light comes in photons: the loss is a compound-Poisson sum, and this is the
         # Gaussian with its mean and its variance. Deliberately NOT clamped at zero --
-        # see the module docstring's *The model can draw an energy gain*.
+        # see the module docstring's *The model can draw an energy gain*. Independent
+        # samples along the body add their variances, and one draw covers the element.
         assert rng is not None  # guaranteed above; narrows the type
-        u = u + rng.normal(0.0, np.sqrt(photon_energy_variance(u, energy, kappa, ref)))
+        sigma = np.sqrt(total(photon_energy_variance(u, energy, kappa, ref)))
+        u = total(u) + rng.normal(0.0, sigma)
     elif model == "photons":
         # ...and this is the sum itself: a Poisson count of photons, each drawn from the
         # synchrotron spectrum. It REPLACES the classical loss rather than perturbing it
@@ -390,7 +414,9 @@ def radiation_kick(
         rate = photon_rate(energy, kappa, l_path, ref)
         shape = np.shape(u)
         drawn = sample_photon_sum(np.broadcast_to(rate, shape) if shape else rate, rng)
-        u = u_c * (drawn.reshape(shape) if shape else drawn[0])
+        u = total(u_c * (drawn.reshape(shape) if shape else drawn[0]))
+    else:
+        u = total(u)
     # On shell: f = P_new/P with E_new = E - U, rationalised so no two numbers of size E
     # are subtracted (the trap L1 recorded for the drift, L3 for the bend).
     shrink = u * (2.0 * energy - u) / (energy * energy - m * m)

@@ -9492,13 +9492,13 @@ The roadmap's T1 specified "invisible to `radiation_kick`" and deferred the rais
   when the true `I2 = h0^2 L / 2` is more than twice a 2 m dipole's on the probe machine.
   **Lifted by T2** — see *The wiggler's radiation integrals* below.
 - **Tracking with any radiation model** other than `"off"` raises, through the field accessor.
-  So does a spin track, for the same reason. **Still refused**, and it is the axis's remaining
-  gap: a wiggler radiates in the integrals and not in tracking.
+  So does a spin track, for the same reason. **Radiation lifted by T3**, which gave the field
+  an `s` (`Element.field_at`); the spin half is still refused and is T4.
 - **`taper()` refuses**, and *which* refusal fires first was measured rather than predicted:
   the field accessor gets there before `taper`'s own `_STRENGTHS` guard, because the radiating
   closed orbit is built before any magnet is scaled. Both were loud. **T2 lifted the second
   half** — a wiggler is a powered magnet whose strength is `h0` — so the ring-level refusal
-  now has exactly one cause, the accessor.
+  now has exactly one cause, the accessor. **T3 removed that one too.**
 
 ### Out of scope for T1
 
@@ -9672,17 +9672,186 @@ optics scales as the square of the taper factor** where every other magnet's is 
 closed orbit is built before any magnet is scaled, and `_scaled`'s own guard — and the second is
 gone. What remains is the honest one, and it is the tracking gap.
 
-### What T2 still refuses, and what it costs
+### What T2 still refused, and what T3 did with it
 
-**`radiation_kick` through a wiggler still raises.** The accessor has no `s` and the field
-reverses `2 * periods` times inside the element, so a single mid-point sample cannot see it.
-The consequence, stated rather than implied: a wiggler **radiates in the integrals and not in
-tracking**, so `taper()`, radiation tracking and spin tracking all refuse. Closing that is
-per-period tracking through the real field — an `s`-dependent accessor plus a slicing model,
-and a milestone of its own.
+**`radiation_kick` through a wiggler raised.** The accessor had no `s` and the field reverses
+`2 * periods` times inside the element, so a single mid-point sample could not see it. The
+consequence, stated rather than implied: a wiggler **radiated in the integrals and not in
+tracking**, so `taper()`, radiation tracking and spin tracking all refused. T2 priced closing
+that as "an `s`-dependent accessor plus a slicing model, a milestone of its own" — and **T3
+did it, with a different architecture from the one that phrase implies**: the sampling is
+resolved, the map is not. Radiation tracking and `taper()` work; spin is still refused, and is
+T4. See *The wiggler radiating in tracking* below.
 
 Also refused: undulator spectra and coherence (light-source physics rather than beam dynamics),
 and any claim about a limit under slicing that was not measured.
+
+## The wiggler radiating in tracking (T3 — implemented)
+
+T2 left the package radiating a wiggler on the **design** route and not on the **tracked** one:
+`radiation_integrals` carried `<h^2>` and `<|h|^3>`, while a particle crossing the same magnet
+lost nothing, because `radiation_kick` samples the field once per traversal and
+`Wiggler.normalized_field` raised rather than answering the zero that sample would give. T3
+closes it, and the closing is smaller than its own description suggested.
+
+### Slice the sampling, not the map — and T1 is the reason
+
+T2's own summary priced the fix as "an `s`-dependent accessor plus a **slicing model**", which
+reads as *cut the element into sub-elements and track through each*. That construction is
+wrong here. The wiggler's vertical focusing exists **only** as a period average:
+`y'' = -h0^2 y sin^2(ks)` is Mathieu-like and has no closed form on a partial period, and a
+sub-period piece of the shipped map has no wiggle in it at all (horizontally the map is a
+drift, whose `x'` is constant). So T3 resolves the **radiation sampling** and leaves the
+transfer map exactly as T1 shipped it. `matrix()`, `kick()` and every optics quantity are
+bit-identical, and `radiation_slices` cannot move one of them.
+
+### The seam: `Element.field_at(s, x, y)` and `radiation_sample_positions()`
+
+Two new hooks on `Element`, both defaulting to today's behaviour:
+
+- **`field_at(s, x, y) -> (bx, by, bs, ax, ay)`** — the field *and* the vector potential at
+  `s` metres into the body, in the element's own frame. The default composes the three
+  `s`-independent accessors at the same arguments and ignores `s`, so every element built
+  before T3 answers with the same arithmetic. `s` broadcasts against `x`/`y`: a column of
+  sample positions against a row of particles returns the grid.
+- **`radiation_sample_positions() -> ndarray | None`** — `None` (the default) is the single
+  mid-point sample. An override returns `s` positions, each standing for an **equal** share
+  of the traversal's path length; the loss, the excitation variance and the photon count are
+  each **summed** over them, never averaged.
+
+This is the fourth interface finding on this line: S1 found no place for a field *along* the
+beam, S2 none for the *vector potential*, T1 none for a field that varies along the magnet,
+T3 gives that one a home.
+
+### The wiggle angle *is* the vector potential
+
+A planar wiggler's whole field comes from one component,
+
+    a_x = (h0/k) sin(ks) cosh(ky) = theta sin(ks) cosh(ky),   a_y = 0,
+
+since `curl a` gives `b_y = da_x/ds` and `b_s = -da_x/dy`. The consequence is the
+implementation: the state vector carries **canonical** momentum, the physics wants the
+**kinetic** one, and `px - a_x = px - theta sin(ks)` on axis is *exactly* the sub-period orbit
+`x'(s) = -theta sin(ks)` that the period-averaged map deliberately does not carry. That is
+**why** the shipped map holds `px` constant through the magnet — the wiggle lives in `a`, not
+in `p` — and it means `radiation_kick` reconstructs the sub-period orbit through the `p - a`
+subtraction S2 already put there, with no orbit-reconstruction code at all.
+
+The transverse **position** excursion `x(s) = x0 + (theta/k)(cos ks - 1)` is equally absent
+from the state and does **not** need synthesising: `b_y` carries no `x` dependence, so it
+moves the curvature by nothing. Only the angle enters, and only through the perpendicular
+projection.
+
+**And that projection barely notices it.** The wiggle is horizontal and `b_y` is vertical, so
+the velocity is *always* perpendicular to the field in the plane of the motion: `|B_perp|`
+does not contain the wiggle angle. Deleting `a` changes the on-axis loss by **not one bit** at
+any `delta`, and moves it by `5.794e-07` at `y = 2 mm` (through `b_s`, which vanishes on the
+mid-plane). The finding is elegant and, for radiation, nearly inert; where the wiggle angle
+will matter is the spin precession axis, which is T4. Both ends are gated — the bit-exact zero
+and the `5.8e-07`.
+
+### Three moments, three convergence rates, and the headline gate is the vacuous one
+
+Sampling the field at the mid-points of `n` uniform steps **per period**:
+
+| quantity | integral | order in `h0` | convergence |
+|---|---|---|---|
+| mean energy loss | `int kappa^2 ds` | `h0^2` | **exact at every `n >= 3`** |
+| photon count | `int abs(kappa) ds` | `h0` | `n^-2` (measured 4.01, 4.00, 4.00) |
+| excitation variance (`I3`) | `int kappa^3 ds` | `h0^3` | `n^-4` (measured 16.51, 16.12, 16.03) |
+
+The mean is exact because `cos^2 = (1 + cos 2ks)/2` and the uniform mid-point sum of
+`cos 2ks` vanishes identically — so *"the tracked loss equals `C_gamma E^4 I2 / 2 pi`"* passes
+the moment the machinery exists, at any resolution anyone would choose, and says nothing about
+whether the sampling is right. It is recorded as a **blindness** beside the gate it makes
+vacuous, as J1 recorded that the structural gates cannot see a kick coefficient.
+
+The two odd moments are the discriminating gates, asserted as **orders** rather than
+tolerances (J2's lesson). `|cos|` has a jump in its first derivative, hence `n^-2`; `|cos|^3`
+behaves as `|u|^3` near its zero and is `C^2`, so its jump is in the *third* derivative and it
+converges two orders faster than the kink suggests. The three carry `h0^2`, `h0`, `h0^3`, so a
+uniformly mis-scaled field cannot hide in all of them.
+
+**The resolution that matters is per *period*, not per element.** `radiation_slices` is
+therefore specified per period, default **32** (variance `1.6e-05`, count `1.6e-03`, mean
+exact), with a floor of 3 — below which the mean itself stops being exact, and at `n = 2` the
+samples land on the zeros of the cosine and the answer is 100% wrong. T2 paid for this lesson
+without naming it: `slices = 64` on the ten-period probe magnet is 6.4 samples per period.
+
+### The tracked loss is the integral's times the wiggle's own path lengthening
+
+`U_tracked / U(I2) = 1 + theta^2/4` exactly, `1.280574e-05` on the probe magnet — and that
+factor is the **same number** T1 ships as the element's `kick()` on `zeta`, divided by the
+length. `I2 = int kappa^2 ds` integrates along the reference coordinate; a particle radiates
+along the road it actually travels, and a wiggler is the only magnet in the package whose
+on-design road is longer than its length (a bend's reference orbit *is* the arc, so its
+`Delta zeta` is zero and it has no such factor). Two milestones' worth of unrelated machinery
+landing on one number.
+
+**The pre-committed gate 2 said the two agree at machine precision. They do not**, and the
+difference is not an error in either. It also propagates: T2's staircase separation, carried
+into the tracked variance, is `8 sqrt2/(3 pi) * (1 + theta^2/4) = 1.2004371` rather than the
+bare `1.2004218`, because the staircase's own design orbit is exactly its length so the whole
+of the path factor lands on the wiggler's side.
+
+The uniform path-length share is *exact* at this order rather than approximate, and that is a
+coincidence worth naming: the exact answer weights the local stretching by the local `kappa^2`,
+`int cos^2 (1 + theta^2 sin^2/2) ds`, and `<cos^2 sin^2>/<cos^2> = 1/4` happens to equal
+`<sin^2>/2`, which is the uniform factor.
+
+### xtrack *can* arbitrate a wiggler's radiation — the first external check on axis T
+
+T1 recorded that neither reference code has this magnet, and that is true of the **map**.
+It is **not** true of the radiation: radiated energy needs only `|B_perp|` along the path, not
+the plane the focusing lands in, and a stack of curved bends following the **segment mean** of
+`h0 cos(ks)` *is* the wiggler's trajectory, discretised. So the arbiter that was structurally
+blind to T1's physics is not blind to T3's.
+
+- **On the shared stack the two codes agree at `5.33e-07`, constant in the pole count** across
+  40 → 320 poles (measured `5.328, 5.325, 5.326, 5.324` in units of `1e-07`). That is the sum
+  of the two owners already on record on xtrack's side — its pre-2019 elementary charge
+  (`1.064e-08`) and its ultra-relativistic approximations (`2/gamma0^2 = 5.223e-07`). Nothing
+  new appears when the field alternates twenty times, and nothing accumulates over 320
+  elements. Both codes must be pinned to one kick per element (`integrator='uniform'`,
+  `num_multipole_kicks=1`) first, exactly as B2's own cross-check requires.
+- **The stack reaches the wiggler by a law.** The segment mean keeps `int h ds` (the geometry,
+  and hence the closing of the trajectory) exact at every resolution but under-counts
+  `int h^2 ds` by the field's own variance across a segment, so the loss approaches
+  `C_gamma E^4 I2 / 2 pi` **from below** as `(k ds)^2/12`. Measured deficit/law:
+  `0.9797, 0.9950, 0.9992` at 8, 16, 32 poles per period.
+- **And the arbiter's reach is stated rather than implied.** A Richardson step on two
+  resolutions lands on the shipped wiggler's tracked loss to `3.1e-05`, a hundredfold
+  improvement on the raw `3.2e-03`; a *second* stage only reaches `1.4e-05`, so the remainder
+  is not a clean `ds^4` — the segment mean is taken across a field that changes sign twenty
+  times, and at those zeros there is no smooth even expansion. The consequence: **xtrack is
+  blind to the `theta^2/4` path lengthening**, which stays an accsim-internal statement gated
+  in the analytic suite. A clean reference half and a half the arbiter cannot see — S2's and
+  T1's shape on this axis.
+
+### What lifted, and the one refusal left standing
+
+- **Radiation tracking** through a `Wiggler` works in all three physical models
+  (`"mean"`, `"quantum"`, `"photons"`). The graininess is a sum over the body: independent
+  per-sample variances add, and the photon counts are per-sample Poissons.
+- **`taper()`** on a ring containing a wiggler works. Its last cause was this accessor,
+  verified rather than assumed — `taper()` reaches `closed_orbit_6d(radiation="mean")`, which
+  tracks — and T2 had already put `Wiggler` in `tapering._STRENGTHS`. What such a ring meets
+  now is the ordinary requirement of every radiating ring, an RF cavity to close the 6D orbit
+  against.
+- **`normalized_field` still raises**, and the message now names the reason: what arrives
+  there is `accsim.spin`, which samples the field once at the mid-point exactly as radiation
+  used to, and would precess a spin through a field that averages to zero. **Spin through a
+  wiggler is T4** — radiation is an integral along the path, spin is a composition of
+  rotations in which order matters and the net over a period is not the average field. Same
+  accessor, different physics, different gates. The test asserting the refusal is written to
+  fail the day T4 lands.
+
+### Out of scope for T3
+
+Spin (T4). Sub-period tracking of the *trajectory* — the map stays the period average, for the
+reason at the top of this section. Undulator radiation spectra and coherence, which are
+light-source physics rather than beam dynamics. And any convergence claim that was not
+measured.
 
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 

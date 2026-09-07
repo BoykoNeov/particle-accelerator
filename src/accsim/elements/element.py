@@ -452,6 +452,59 @@ class Element(abc.ABC):
         zero = np.zeros_like(np.asarray(x, dtype=float))
         return zero, zero
 
+    def field_at(
+        self, s: np.ndarray | float, x: np.ndarray | float, y: np.ndarray | float
+    ) -> tuple[
+        np.ndarray | float,
+        np.ndarray | float,
+        np.ndarray | float,
+        np.ndarray | float,
+        np.ndarray | float,
+    ]:
+        r"""``(bx, by, bs, ax, ay)`` at ``s`` metres into the body — the field with an ``s``.
+
+        The three accessors above answer for a body whose field is the same everywhere
+        along it, which is every element in this package but one. A
+        :class:`~accsim.elements.wiggler.Wiggler`'s field **reverses inside its own body**,
+        so a single sample of it is not merely imprecise: ``b_y`` averages to exactly zero
+        over a period, and radiation goes as the field squared, so no choice of sample
+        point repairs it. This is where such an element puts its answer, and it is the
+        fourth interface finding on this line of work — S1 found no place for a field
+        *along* the beam, S2 none for the *vector potential*, T1 none for a field that
+        varies along the magnet, and T3 gives that one a home.
+
+        ``s`` is measured from the element's **entrance**, in metres, in its own body
+        frame — the same frame :func:`~accsim.radiation_kick.radiation_kick` is handed
+        ``before`` and ``after`` in, so a misaligned magnet's field is sampled where the
+        magnet really is. It broadcasts against ``x`` and ``y``, so a caller may pass a
+        column of sample positions against a row of particles and get the whole grid back.
+
+        The default composes the three ``s``-independent accessors at the same arguments
+        and **ignores ``s``**, which is exactly what they mean, so every element built
+        before T3 answers here with the same arithmetic it answered with before.
+        """
+        del s  # an element with a constant body has the same field everywhere in it
+        bx, by = self.normalized_field(x, y)
+        bs = self.longitudinal_field(x, y)
+        ax, ay = self.normalized_vector_potential(x, y)
+        return bx, by, bs, ax, ay
+
+    def radiation_sample_positions(self) -> np.ndarray | None:
+        """Where along the body radiation must sample the field, or ``None`` for once.
+
+        ``None`` — the default, and right for every element with a constant body — means
+        the single **mid-point** sample :func:`~accsim.radiation_kick.radiation_kick` has
+        always taken, which is the one-step midpoint rule for
+        ``U = (C_gamma/2 pi) E^4 int kappa^2 ds`` and the convention xtrack shares.
+
+        An element that overrides this returns the ``s`` positions, in metres from its
+        entrance, at which the field is to be sampled; each stands for an **equal** share
+        of the traversal's path length, so the positions are expected to be the mid-points
+        of uniform steps. The loss, the excitation variance and the photon count are then
+        each summed over them — a sum of independent contributions, not an average.
+        """
+        return None
+
     def _radiate(
         self,
         before: np.ndarray,
