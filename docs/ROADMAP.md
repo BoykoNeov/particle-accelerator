@@ -36,22 +36,56 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06); **Q2** applying it (2026-09-06) | axis Q complete |
 | R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
-| T | the wiggler — the magnet built to radiate | — (opened 2026-09-07) | **T1** the element and its map; **T2** its radiation integrals |
+| T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07) | **T2** its radiation integrals |
 
-**Axis T is open as of 2026-09-07 — nothing shipped yet.** The wiggler, chosen by
-re-running the project's filter with axis S complete, and specified as two milestones
-before any code: **T1** the element and its map, **T2** its radiation integrals. The
-filter run settled three things that shaped the entry. Neither reference code has the
-element at all (xtrack has no wiggler among 110 classes; MAD-X *crashes the process* on
-the keyword), so T opens with at most one arbiter, which is axis N's condition rather
-than a new deficiency. A wiggler's focusing lands in the **vertical** plane at `k_y =
-h0^2/2`, and both natural ways to spell it in xtrack get the plane wrong in opposite
-directions — a straight-reference sliced line gives `R43` identically zero at 8, 64 and
-256 slices (it does not converge; the gap is asserted as a **mechanism**), while
-alternating curved bends put the same-sized term in the horizontal plane. And a
-hard-edge staircase matched to the same `I2` still understates `sigma_delta` by
-**8.73%**, a separation that survives the matching and that `I4` was checked not to
-contaminate.
+**Axis T shipped T1 on 2026-09-07** — the wiggler's element and its map. The headline held:
+the focusing lands in the **vertical** plane at `k_y = h0^2/2`, where a flat bend has exactly
+zero, and it is a *drift* horizontally where every bend-shaped intuition puts it. The shipped
+map reproduces a direct integration of the real field to `1.264e-05` against a drift's
+`9.94e-02` — ~7900x, order-unity — while `k_y = h0^2` and `h0^2/4` miss by `9.6e-02` and
+`4.9e-02` and pass the Maxwell and symplecticity gates identically, exactly as the entry
+warned.
+
+Four things the entry did not have, three of them found by the package's own contracts rather
+than by the physics:
+
+- **The entry's own arbiter was the *paraxial* Lorentz force, not the exact one**, and that
+  had to be rediscovered before a single number could be reproduced. Integrating the fully
+  non-paraxial equations gives a different vertical residual (`3.44e-06`, not `1.264e-05`) and
+  a horizontal `R12` that is **not** `L`. The paraxial integration is the right arbiter — it
+  is the approximation class the shipped map is in — but the entry's gate 4 second clause
+  ("the horizontal block equals a drift of the same length" to `1e-10`) is true only there.
+- **`R56` is not a straight element's.** The wiggle is a longer road and a stiffer particle
+  wiggles less, so `R56 = L/gamma0^2 + (L theta^2/4)(2 + 1/gamma0^2)` — whose second term is
+  **98x the first** at 1 GeV and does not shrink with energy. A wiggler in a dispersion-free
+  straight changes the ring's momentum compaction. Found by the contract that `matrix()` be
+  the origin Jacobian of `track()`; nothing in the entry's eight gates would have caught it.
+- **`zeta` needs a term no other element in the package has.** The averaged Hamiltonian's
+  *potential* carries its own `1/(1+delta)` — a quadrupole's does not — so `dzeta/ds` picks up
+  the potential's momentum derivative, `(k_y/2) y^2`, which integrates for free because it is
+  the vertical oscillator's conserved energy. **Dropping it makes the map non-symplectic**;
+  `is_symplectic_map_canonical` refused the first draft.
+- **The momentum dependence is the SECOND power**, `h0^2/(2(1+delta)^2)`, where a quadrupole
+  and a solenoid both carry the first. Every gate the entry pre-committed is at `delta = 0`
+  and blind to it; the first power misses by `4.4e-03` at `delta = 0.05` against the second's
+  `1.1e-05`.
+
+Two smaller corrections to the entry. Gates 1 and 4 as written are **vacuous on the shipped
+map** — a linear map with no transverse kick sends the origin to the origin identically, and a
+drift block's `R21` is exactly `0.0` — so both are gated on the integration instead, where
+they can fail. And **the field accessor raises rather than returning zero**, which is T2's
+gate 6 arriving a milestone early: shipping the silent zero the entry itself identifies as the
+hazard was not worth one milestone's tidiness. `taper()` therefore refuses too, and *which* of
+its two refusals fires first was measured rather than predicted.
+
+The xtrack leg is a mechanism, as pre-committed, and it turned out to carry one real
+cross-check: the sliced line focuses in **no** plane (`R43` identically `0.0` at 8, 64 and 256
+slices) while alternating curved bends put the same-sized term in the **horizontal** plane —
+but both constructions' *drift lengths* reproduce accsim's own non-paraxial coefficients
+`3 theta^2/4` and `theta^2/4` to `1e-3`. So the arbiter validates the approximation accsim
+made and is structurally blind to the physics accsim added. Full detail in
+`docs/CONVENTIONS.md` -> *The wiggler*. **T2 — the radiation integrals — is the open
+candidate.**
 
 **Axis R shipped R1 on 2026-09-06** — the survey, the ring's geometry in laboratory
 coordinates, the candidate the last two filter runs recorded rather than sequenced. It is
@@ -6348,8 +6382,15 @@ none of it read out of documentation:
 It is split on the S1/S2 line, for the reason that split was right there: the map and the
 radiation take different arbiters and different work.
 
-**T1 — the wiggler's map, and the focusing that lands in the vertical plane.**
-Effort **M**.
+**T1 — the wiggler's map, and the focusing that lands in the vertical plane.** ✅ **SHIPPED 2026-09-07.** Effort **M**.
+
+> **Shipped, with four additions and two corrections to the gates below** — the paraxial
+> arbiter, the `R56` term, the `zeta` term symplecticity demanded, and the squared
+> momentum dependence; gates 1 and 4 rewritten against the integration because they are
+> vacuous on the shipped map, and the field accessor raising rather than answering zero.
+> See the axis-T summary at the top of this file and `docs/CONVENTIONS.md` -> *The
+> wiggler* for all of it. The gate list below is kept as written, as the record of what
+> was pre-committed.
 
 A new `Wiggler` element with a period, a peak field and an integer number of periods, whose
 map is the averaged thick block: a **drift horizontally** and a **focusing block
@@ -6403,7 +6444,14 @@ the day T2 lands, in the manner of S1's
 `test_tapering_a_ring_with_a_solenoid_is_refused_for_now`.
 
 **T2 — the wiggler becomes visible to the radiation integrals, and the tracking gap is
-priced.** Effort **M**.
+priced.** Effort **M**. **OPEN — the rest of the axis.**
+
+> **Gate 6 is already done.** T1 shipped the raise rather than the silent zero, so
+> `radiation_kick` through a `Wiggler` already refuses loudly and the test asserting it
+> exists. **Gate 7 is half done**: `taper()` already refuses, through that same accessor,
+> and `Wiggler` is deliberately absent from `tapering._STRENGTHS` — T2 owes the decision
+> about whether a wiggler is a powered magnet a taper should scale, not the discovery
+> that it currently is not.
 
 The magnet exists to radiate, so this is where the milestone pays. `radiation_integrals`
 learns a second contributing element type, and the wiggler's period-averaged `<h^2>` and

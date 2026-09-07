@@ -9265,6 +9265,207 @@ converges by orders per round with a solenoid in the ring.
   scope rather than a gap opened here — an off-axis quadrupole is outside it too — and
   extending it would need a statement about what `n_0` means in a spin rotator.
 
+## The wiggler: the magnet built to radiate (T1 — implemented)
+
+`Wiggler(period, h0, periods)` — `accsim.elements.wiggler`. The first element in the package
+whose field varies **along** `s`. Its vertical field alternates so that the beam leaves
+travelling as it arrived: no net bend, no net deflection, and its whole purpose is the light
+emitted on the way through. T1 ships the map; **T2 owes the radiation.**
+
+### The field, and why it cannot be purely vertical
+
+    b_x = 0,   b_y = h0 cos(k s) cosh(k y),   b_s = -h0 sin(k s) sinh(k y),   k = 2 pi / period
+
+`div b = 0` and `curl b = 0`, both checked symbolically. A planar pole face forces the
+**longitudinal** component: making `b_y` fall off as `cosh(k y)` in the gap forces `b_s`, and
+that `b_s` is the entire source of the vertical focusing. So Maxwell is the *reason* for this
+milestone's physics — and it is **not a gate on it**, because `k_y` is not a symbol of the
+field at all. `h0^2`, `h0^2/2` and `h0^2/4` pass the Maxwell check identically, and they pass
+symplecticity identically too. Recorded as a gate *and* as a blindness, the way J1 recorded
+the same about a kick coefficient.
+
+### Parameters
+
+- **`h0`** [1/m] is the **peak** normalised curvature `B_peak/(B rho)_0`, in the same
+  normalisation `k1` and `ks` use. `Wiggler.from_peak_field(period, B_T, periods, ref)`
+  converts from tesla with `(B rho)_0 = p0c / c / q0`.
+- **`periods` is a positive integer and `length` is derived** as `periods * period`. An
+  independent length is exactly how the closing of the reference trajectory gets broken with
+  nothing noticing: a magnet cut off at a quarter period leaves the beam deflected by
+  `theta`, and the constructor refuses it.
+- **`deflection`** = `theta = h0/k`, the peak angle of the reference trajectory. **Not** the
+  conventional wiggler parameter `K = gamma theta`; the two differ by `gamma`, and it is
+  `theta` the orbit expansions are actually in. On the probe magnet (`B0 = 1.5 T`,
+  `lambda_w = 0.1 m`, `N = 10`, 1 GeV) `theta = 7.157e-03` while `K = 14.01`.
+
+### The focusing is VERTICAL, and that is the milestone
+
+The paraxial equations separate. Horizontally `b_y` does not depend on `x` or `x'` at all, so
+the reference trajectory is `x'(s) = -(h0/k) sin(ks)` and the map about it is a **drift** —
+a wiggler has no weak focusing, because its reference trajectory is straight. Vertically that
+sine orbit crosses `b_s`, giving `y'' = -h0^2 y sin^2(ks)`, whose period average is
+
+    y'' = -(h0^2 / 2) y,      i.e.  k_y = h0^2 / 2 = 1 / (2 rho_peak^2).
+
+**A flat sector bend has `k_y = 0` exactly, so every bend-shaped intuition puts this in the
+other plane.** Derived symbolically end to end, not recalled.
+
+Consequence worth stating on its own: **a wiggler focuses one plane without defocusing the
+other**, which no quadrupole can do. Vertically it *is* `Quadrupole(L, k1 = -h0^2/2)` — the
+tunes agree to `1e-12` — but that quadrupole moves `Qx` by `0.033` where the wiggler moves it
+by nothing at all. There is no contradiction with a quadrupole's antisymmetry: a wiggler's
+focusing is not a transverse gradient but the period average of the **square** of a field
+that integrates to zero, so it enters the equations of motion where a gradient cannot.
+
+### The arbiter is an ODE, and it is deliberately paraxial
+
+Neither reference code has the element (xtrack: no wiggler among 110 classes; MAD-X takes the
+*process* down on the keyword), so the arbiter is a direct `solve_ivp` integration of the
+Lorentz force through the real `cos`/`sinh` field, at `rtol = 1e-12` with `max_step` a
+twentieth of a period — an adaptive integrator handed the whole magnet will step over the
+oscillation and return a precise answer to the wrong problem.
+
+**It integrates the paraxial equations**, `x'' = -b_y + y' b_s`, `y'' = -x' b_s`, dropping only
+the `sqrt(1 + x'^2 + y'^2)` factors. That is the same approximation class the shipped map is
+in, so it isolates the **averaging** error — which is what T1 is about — from the kinematic
+one, which is P2 (iv)'s subject. The axis-T roadmap entry's own numbers were all measured this
+way, which had to be rediscovered: the fully non-paraxial integration gives a *different*
+vertical residual (`3.44e-06`, not `1.264e-05`) and a horizontal `R12` that is **not** `L`.
+
+Against that arbiter, on the probe magnet: the shipped `k_y = h0^2/2` lands at `1.264e-05`;
+`k_y = h0^2` at `9.606e-02`; `k_y = h0^2/4` at `4.929e-02`; and a drift — what a bend-based
+model gives vertically — at `9.942e-02`. ~7900x discrimination: order-unity, not a tolerance.
+
+And the residual is **physics, not noise** — it is exactly `L theta^2/4`, the same quantity as
+the path lengthening below, and the ratio tends to 1 as the wiggle weakens (`0.9992`, `0.9968`,
+`0.9874` at a quarter, a half and the full probe field).
+
+### The path lengthening is a constant, and it makes `R56` not a straight element's
+
+The wiggle is a longer road. Over an **integer** number of periods the cross term with the
+particle's own angle integrates to zero, so the extra path separates into the ordinary
+coordinate-dependent piece and a constant
+
+    Delta s = L <x'^2> / 2 = L theta^2 / 4,      theta -> theta/(1+delta) off momentum,
+
+closed-form exact (`3e-12` relative against the integrated trajectory). This makes `Wiggler`
+**the only aligned, on-design element in the package with a nonzero `kick()`** — everything
+else there is a corrector or a misalignment.
+
+Because that path depends on momentum — a stiffer particle wiggles *less* — `R56` is not
+`L/gamma0^2`:
+
+    R56 = L / gamma0^2  +  (L theta^2 / 4) (2 + 1 / gamma0^2)
+
+whose second term is `2.56e-05` on the probe magnet against the drift term's `2.61e-07`:
+**98 times larger** at 1 GeV, and it does not shrink with energy while the drift term does. So
+a wiggler in a dispersion-free straight changes the ring's momentum compaction and its
+synchrotron tune. **This term was missing from the first draft and the package's own contract
+that `matrix()` be the origin Jacobian of `track()` is what refused it** — nothing else in the
+milestone would have caught it.
+
+### The momentum dependence is the SECOND power
+
+    k_y(delta) = h0^2 / (2 (1 + delta)^2)
+
+**Squared**, where a `Quadrupole` carries `k1/(1+delta)` and a `Solenoid` carries
+`ks/(1+delta)`: `h0` is normalised to the reference rigidity, so an off-momentum particle is
+deflected by `theta/(1+delta)`, and the focusing is the *square* of that deflection. The first
+power is the plausible thing to write and it is wrong by `4.4e-03` at `delta = 0.05` where the
+second power sits at `1.1e-05` (the averaging remainder, unchanged) — a factor of ~390.
+
+**Every gate the roadmap pre-committed for T1 is at `delta = 0` and so is blind to this.** It
+is gated against the integrated field, and the comparison needs a basis change that is itself
+a `delta`-sized effect: the ODE carries the geometric angle `y'`, the state vector the
+canonical `py = (1+delta) y'`, so the tracked Jacobian is the field's block conjugated by
+`diag(1, 1+delta)`.
+
+### `zeta` needs a term no other element in the package has
+
+The averaged Hamiltonian is
+
+    H = -(1+delta) + (px^2 + py^2)/(2(1+delta)) + (h0^2 / (4(1+delta))) (y^2 + 1/k^2)
+
+and its **potential carries its own `1/(1+delta)`** — a quadrupole's `(k1/2)(x^2 - y^2)` does
+not, which is precisely why a quadrupole's focusing is `k1/(1+delta)` and a wiggler's is the
+square. Hamilton's equation `dzeta/ds = dH/dp_zeta` therefore picks up the potential's own
+momentum derivative, and the bracket to integrate is
+
+    (x'^2 + y'^2)/2  +  (k_y/2) y^2  +  theta^2/(4(1+delta)^2)
+
+where a quadrupole has only the first term. The middle one needs no integral: `y'^2 + k_y y^2`
+is the vertical oscillator's conserved energy, so its integral over the body is `L` times its
+entrance value. **Dropping it makes the map non-symplectic** — it is not a small correction to
+a longitudinal coordinate, it is the term that keeps `(zeta, p_zeta)` conjugate to the
+transverse pair. `is_symplectic_map_canonical` is what refused the first draft.
+
+### What the shipped map is not exact in
+
+Paraxial in the angles, like every thick element here. Restoring the
+`sqrt(1 + x'^2 + y'^2)` factors moves the drift lengths, and the two coefficients are
+measured and identified by their `theta^2` scaling rather than papered over:
+
+    R12 = L (1 + 3 theta^2 / 4),     R34 = L (1 + theta^2 / 4),     R21 = R43 = 0 still.
+
+Neither is shipped: building them in would make the horizontal block something other than a
+drift, and this is P2 (iv)'s subject rather than T1's.
+
+### The reference leg is a mechanism, and it validates only the approximation
+
+`tests/reference/test_wiggler_xtrack.py`. **No tolerance gate is pre-committed against either
+xtrack construction**, because a tolerance would be a claim that one of them approximates the
+magnet, and neither does:
+
+- **Straight-reference slices** (`angle = 0`, alternating `k0`) focus in **no plane**. `R43`
+  is `+0.000000e+00` at 8, 64 and 256 slices alike, and `R33 = R44 = 1.0` bit for bit. It does
+  not converge slowly — it is structurally incapable, because the vertical focusing comes from
+  `dby/dy = -dbs/ds`, which any piecewise-constant-in-`s` model sets to exactly zero inside
+  every slice.
+- **Alternating curved bends** (`h = k0`) put a focusing term of the *same size* in the
+  **horizontal** plane, and still leave `R43 = 0`. The two spellings are near mirror images
+  and neither is the magnet.
+
+What xtrack **can** see, it confirms: the sliced line's drift lengths carry `3 theta^2/4` and
+`theta^2/4` to within `1e-3` of accsim's own non-paraxially integrated coefficients — its
+drift is exact where accsim's element is paraxial. That is the honest summary of what a
+reference code buys this milestone: **it validates the approximation accsim made; it cannot
+validate the physics accsim added.**
+
+### The field accessor raises — louder than T1 was asked to be
+
+`normalized_field` **raises** `NotImplementedError`. All three field accessors take `(x, y)`
+and no `s`, and `radiation_kick` samples the field **once per traversal, at the mid-point**. A
+wiggler's field reverses `2 * periods` times inside the element and averages to exactly zero
+over a period, so the inherited `(0, 0)` would report **no radiation from the magnet whose
+only purpose is to radiate** — and radiation goes as the field *squared*, so no choice of
+sample point repairs it. The accessor's *shape* is wrong for this element, not merely its
+argument list. This is the third interface finding on this line of work: S1 found no place for
+a field along the beam, S2 none for the vector potential, T none for a field that varies along
+the magnet.
+
+The roadmap's T1 specified "invisible to `radiation_kick`" and deferred the raise to T2 gate
+6; shipping the silent zero for one milestone was not worth it, so the raise landed here.
+`longitudinal_field` and `normalized_vector_potential` are honestly zero.
+
+### Refusals, each with a test written to fail the day T2 lands
+
+- **`radiation_integrals` returns bit-identical integrals** with and without a wiggler — it
+  keys on `isinstance(elem, Dipole)`, so the element is not approximated there but *absent*,
+  when the true `I2 = h0^2 L / 2` would be a fifth of a 2 m dipole's on the probe machine.
+- **Tracking with any radiation model** other than `"off"` raises, through the field accessor.
+  So does a spin track, for the same reason.
+- **`taper()` refuses**, and *which* refusal fires first was measured rather than predicted:
+  the field accessor gets there before `taper`'s own `_STRENGTHS` guard, because the radiating
+  closed orbit is built before any magnet is scaled. Both are loud. `Wiggler` is deliberately
+  **not** added to `_STRENGTHS` in T1; that is a T2 decision.
+
+### Out of scope for T1
+
+Radiation of every kind (T2); per-period tracking through the real field (an `s`-dependent
+accessor plus a slicing model, a milestone of its own); undulator spectra and coherence, which
+are light-source physics rather than beam dynamics; and any claim about a limit under slicing
+that was not measured.
+
 ## Toolchain / environment notes
 
 - **Linux (2026-09-02, P1's session):** the reference suite runs unchanged on Ubuntu with

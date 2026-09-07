@@ -42,6 +42,7 @@ from .elements import (
     ThinSextupole,
     ThinSkewQuadrupole,
     ThinSkewSextupole,
+    Wiggler,
 )
 from .geometry import SurveyTable, survey
 from .lattice import Lattice, matrix_of
@@ -217,6 +218,7 @@ __all__ = [
     "ThinSkewQuadrupole",
     "ThinSkewSextupole",
     "Solenoid",
+    "Wiggler",
     "RFCavity",
     "AcceptanceElement",
     "Aperture",

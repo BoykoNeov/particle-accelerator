@@ -14,6 +14,7 @@ from .rfcavity import RFCavity
 from .sextupole import Sextupole, ThinSextupole, ThinSkewSextupole
 from .skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
 from .solenoid import Solenoid
+from .wiggler import Wiggler
 
 __all__ = [
     "Element",
@@ -30,6 +31,7 @@ __all__ = [
     "ThinSkewQuadrupole",
     "ThinSkewSextupole",
     "Solenoid",
+    "Wiggler",
     "RFCavity",
     "AcceptanceElement",
     "Aperture",
