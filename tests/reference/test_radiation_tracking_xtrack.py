@@ -246,12 +246,15 @@ def test_xtracks_perpendicular_projection_has_a_sign_error_that_only_bites_at_la
 
     original = rk._perpendicular_field
 
-    def with_xtracks_sign(bx, by, px, py, delta):  # type: ignore[no-untyped-def]
+    # Mirrors the shipped signature exactly, ``bs`` included (S2 added it, and this stub
+    # has to keep taking it or it stops being a substitution for the shipped one); the
+    # only difference is the sign this test is about.
+    def with_xtracks_sign(bx, by, px, py, delta, bs=0.0):  # type: ignore[no-untyped-def]
         ix = np.asarray(px) / (1.0 + np.asarray(delta))
         iy = np.asarray(py) / (1.0 + np.asarray(delta))
         iz = np.sqrt(np.maximum(1.0 - ix * ix + iy * iy, 0.0))  # xtrack's '+'
-        b_par = bx * ix + by * iy
-        ex, ey, ez = bx - b_par * ix, by - b_par * iy, -b_par * iz
+        b_par = bx * ix + by * iy + bs * iz
+        ex, ey, ez = bx - b_par * ix, by - b_par * iy, bs - b_par * iz
         return np.sqrt(ex * ex + ey * ey + ez * ez)
 
     monkeypatch.setattr(rk, "_perpendicular_field", with_xtracks_sign)
