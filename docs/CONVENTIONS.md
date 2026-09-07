@@ -9485,17 +9485,20 @@ The roadmap's T1 specified "invisible to `radiation_kick`" and deferred the rais
 6; shipping the silent zero for one milestone was not worth it, so the raise landed here.
 `longitudinal_field` and `normalized_vector_potential` are honestly zero.
 
-### Refusals, each with a test written to fail the day T2 lands
+### Refusals, each with a test written to fail the day T2 lands — **two of three have**
 
-- **`radiation_integrals` returns bit-identical integrals** with and without a wiggler — it
-  keys on `isinstance(elem, Dipole)`, so the element is not approximated there but *absent*,
-  when the true `I2 = h0^2 L / 2` would be a fifth of a 2 m dipole's on the probe machine.
+- **`radiation_integrals` returned bit-identical integrals** with and without a wiggler — it
+  keyed on `isinstance(elem, Dipole)`, so the element was not approximated there but *absent*,
+  when the true `I2 = h0^2 L / 2` is more than twice a 2 m dipole's on the probe machine.
+  **Lifted by T2** — see *The wiggler's radiation integrals* below.
 - **Tracking with any radiation model** other than `"off"` raises, through the field accessor.
-  So does a spin track, for the same reason.
+  So does a spin track, for the same reason. **Still refused**, and it is the axis's remaining
+  gap: a wiggler radiates in the integrals and not in tracking.
 - **`taper()` refuses**, and *which* refusal fires first was measured rather than predicted:
   the field accessor gets there before `taper`'s own `_STRENGTHS` guard, because the radiating
-  closed orbit is built before any magnet is scaled. Both are loud. `Wiggler` is deliberately
-  **not** added to `_STRENGTHS` in T1; that is a T2 decision.
+  closed orbit is built before any magnet is scaled. Both were loud. **T2 lifted the second
+  half** — a wiggler is a powered magnet whose strength is `h0` — so the ring-level refusal
+  now has exactly one cause, the accessor.
 
 ### Out of scope for T1
 
@@ -9503,6 +9506,183 @@ Radiation of every kind (T2); per-period tracking through the real field (an `s`
 accessor plus a slicing model, a milestone of its own); undulator spectra and coherence, which
 are light-source physics rather than beam dynamics; and any claim about a limit under slicing
 that was not measured.
+
+## The wiggler's radiation integrals (T2 — implemented)
+
+T1 shipped the magnet's map; this is what the magnet is *for*. `radiation_integrals` had
+keyed on `isinstance(elem, Dipole)` since Stage 7, so a ring with a wiggler in it reported
+the damping of a ring without one. It now dispatches on a second element type, and every
+entry a wiggler contributes is **closed form** — `slices` never enters that branch.
+
+### The two averages, and the one gate that discriminates
+
+`h(s) = h0 cos(k s)`, so `<cos^2> = 1/2` and `<|cos|^3> = 4/(3 pi)` give
+
+    I2 = h0^2 L / 2,        I3 = 4 h0^3 L / (3 pi),
+
+both derived in sympy (`tests/analytic/test_wiggler_radiation.py`), never recalled.
+
+The discriminating gate is a **ratio**, because a ratio is what a uniformly mis-scaled field
+cannot pass. Against a hard-edge staircase matched to the same `I2` — which forces
+`|h| = h0/sqrt(2)` — the wiggler's `I3` is higher by exactly
+
+    8 sqrt(2) / (3 pi) = 1.2004217548761416,
+
+measured on the last bit. The two closed forms land one ulp apart, so the `1e-14` bound sits
+two orders above round-off and is a bound the assertion can actually fail. A sinusoid dwells
+near its peak curvature where a square wave of the same mean square never exceeds it, and
+`I3` is the odd power that notices.
+
+**The comparator must be a stack, not a single dipole.** A lone bend of the same `I2` is a
+0.32 rad bend on the probe machine: it moves the ring's geometry, its dispersion and every
+integral, and the comparison means nothing. `2 * periods` alternating hard-edge poles bend the
+ring by exactly nothing and can be swapped in for the wiggler in place. The first draft of the
+gate used one dipole and gave a `sigma_delta` ratio that moved the *wrong way* as the ring's own
+bend was weakened — that is how the flaw was found.
+
+### The finding: a wiggler's own dispersion, and T1's `R56`, are one mechanism
+
+The axis-T entry said a wiggler contributes to momentum compaction **geometrically** — its
+wiggle path shortening with momentum, living in `R56` — and that this "appears in no lattice
+integral, because a wiggler generates no dispersion". Both halves are wrong, and the error is
+measurable to eleven digits.
+
+A wiggler generates its **own** dispersion. It solves `eta'' = h` with `eta(0) = eta'(0) = 0`
+— the element starts at a field *maximum*, which is exactly what makes the reference orbit
+close over an integer number of periods — so
+
+    eta(s) = (h0 / k^2) (1 - cos k s),      eta'(s) = (h0 / k) sin(k s),
+
+and both vanish at the exit, which is why a wiggler does not perturb the ring's dispersion
+downstream and why its `matrix()` has no dispersive kick. The excursion is **one sided**:
+`eta >= 0` throughout, with mean `theta/k`, because a plain wiggler has no half-strength end
+poles to centre it. That one-sidedness is the whole reason the `I5` cross term below exists.
+
+Then
+
+    int eta h ds   = -L theta^2 / 2,
+    int eta h^3 ds = -(3/8) L h0^2 theta^2,
+
+and the first of those is **exactly** the geometric `R56` term T1 shipped, seen from the other
+side. T1's `R56 = L/gamma0^2 + (L theta^2/4)(2 + 1/gamma0^2)`: the `gamma`-free part of the
+wiggle term is `L theta^2/2 = -int eta h ds`, and what is left, `(L theta^2/4)/gamma0^2`, is
+not compaction at all but the *velocity* slip along the extra path length — the ring's `C` is
+the design circumference and does not include the wiggle.
+
+**The gate is a contract the module has always claimed:** `I1 == alpha_c * C`. Those two are
+about as disjoint as routes get — `alpha_c` by the identity route is read off the one-turn
+**longitudinal** row, `I1` is a dispersion integral over the **transverse** plane — and before
+T2 they disagreed on the probe ring by `2.56e-05`, which is 100% of the wiggler's own term.
+Nothing had ever compared them on a lattice with a wiggler in it. With the term shipped the
+break falls to `3.3e-12`: the ring's own dipole quadrature error and nothing more.
+
+`momentum_compaction(method="quadrature")` in `twiss.py` needed the same term for the same
+reason, and it is there now. Leaving it out would have made the package's two routes to
+`alpha_c` disagree by exactly the amount `I1` had just been taught.
+
+### `I4` is the control, and the assertion had to move to survive it
+
+The roadmap gated `I4` as an exact zero at machine precision. That is right about the *ring's*
+dispersion and wrong about the total, so the assertion moved to the statement that survives:
+`h` and `h^3` are odd about each half period, and horizontally a wiggler is a **drift**, so the
+incoming `D_x` is *linear* across the body. The constant and linear moments of `cos(k s)` both
+vanish over an integer number of periods, so the ring's dispersion cancels **whatever it is**.
+
+That is gated by *invariance* — the same wiggler in rings focused three different ways
+contributes the same `I1` and `I4`, with the premise (that the three rings really do present
+different `D_x` at the magnet) checked rather than assumed — plus the closed forms above for
+what is left. Either half alone would pass with a term omitted.
+
+This is what licenses the `I3` ratio to be attributed to `I3` alone, and it is also why the
+end-to-end `9.56%` is *approached* rather than hit: the staircase's own dispersion gives it an
+`I4` (`-7.1e-06`) the wiggler's does not match (`-3.9e-06`), and that moves `J_z`.
+
+### `I5` factorises exactly — and it takes two facts, not one
+
+    I5_wiggler (ring part) = <|cos|^3> |h0|^3 curlyH L,
+
+with **no quadrature at all**. Two independent facts have to hold together:
+
+- **curly-H is a drift invariant, and a wiggler is a drift horizontally**, so curlyH is
+  constant across the body — checked entrance against exit to `4.4e-16` while `beta_x` more
+  than doubles. Had this failed, `I5` would need the `slices` sub-stepping the dipole branch
+  uses.
+- **The constant *and linear* moments of `|cos|^3` vanish** about a period, so even a linear
+  curlyH would factorise. It is the **quadratic** moment that does not — and curlyH has no
+  quadratic content under a drift, which is the first fact again. Checking only the constant
+  moment would have looked like a complete answer.
+
+The wiggler's **own** dispersion does not factorise: `eta` correlates with `|h|^3` by
+construction. That part is a per-period closed form — four terms: a cross term in
+`gamma D_x + alpha D_x'` (itself drift-invariant, which is why it can be written this way),
+plus `alpha`, `beta` and `gamma` terms in `theta^2` — summed over the periods with the optics
+drift-transported between them. Its arbiter is the same integral by resolved trapezoid, and
+what is gated is that the brute force **converges onto** the shipped value (`-2.3e-07` at 40k
+steps, `-2.2e-09` at 400k) rather than sitting at a fixed distance from it. A trapezoid on
+`|cos|^3` converges slowly — the kinks at the zeros are derivative discontinuities — which is
+exactly why the closed form is shipped instead: at the default `slices = 64` a quadrature would
+be wrong by ~18%.
+
+On the probe ring the own-dispersion share of `I5` is `9.4e-04` of the ring part. That is small
+*here* only because this ring has dispersion at the wiggler. In the dispersion-free straight a
+damping wiggler actually lives in it is the **whole** of `I5`, and it is what limits how far a
+damping wiggler can pull the equilibrium emittance down.
+
+### Why the integrals see a wiggle the map does not
+
+The shipped map is period-averaged: horizontally a drift, tracked orbit straight, no dispersive
+kick. The integrals nonetheless use `h(s) = h0 cos(k s)` and the wiggling orbit's own `eta`.
+That is not an inconsistency — it is the rule these integrals have always followed. They are
+integrals over the **real trajectory in the real field**, because that is what radiates; the
+averaged map is a separate object, and the two differ by exactly the wiggle. Every other
+bending element in `radiation_integrals` already includes its own dispersion (a dipole's is
+simply carried in its transported `D_x`), so refusing the wiggler's would have made it the one
+exception, for no physical reason.
+
+### Damping: the gate is on the rates, not on the partition numbers
+
+`J_x I2 = I2 - I4`, `J_y I2 = I2`, `J_z I2 = 2 I2 + I4`. A wiggler contributes `dI2 > 0` with
+`dI4` small and negative, so all three rates strictly increase and all three damping times
+shorten — by more than 3x on the probe ring. `J_x` itself is **not** unchanged: it is
+`1 - I4/I2` and moves toward 1 as `I2` rises (`0.906 -> 0.971`, measured), which is why the gate
+is put on the products rather than on the partition numbers.
+
+`J_y = 1` still holds exactly. A wiggler adds a vertical **gradient**, which is what
+`damping_partition_numbers`' own caveat warns about, but not vertical *bending*: the partitions
+are set by `I4`, which is weighted by horizontal dispersion, and a focusing block contributes to
+neither.
+
+The end-to-end `sigma_delta` consequence is gated twice — as the exact identity
+
+    (sigma_w/sigma_s)^2 (J_z,w / J_z,s) (I2_w / I2_s) == I3_w / I3_s,
+
+which holds to round-off at any ring strength and needs no limit, and as the entry's `1.0956`
+in the weak-bend limit (`1.0776 -> 1.0955 -> 1.09562` as the ring's own bend goes
+`0.3 -> 0.05 -> 0.01` rad).
+
+### Tapering: a wiggler is a powered magnet, and its optics scales as the square
+
+`Wiggler` is now in `tapering._STRENGTHS` with `h0` as its strength. That is Q2's statement in
+the form this element takes it — a tapered magnet *is* the design magnet at a rescaled momentum
+— and it lands somewhere no other entry in that table does: the focusing is `h0^2/2`, so **the
+optics scales as the square of the taper factor** where every other magnet's is linear in it.
+
+`taper()` on a whole ring still refuses, and the refusal has collapsed from two reasons to
+**one**. T1's test asserted both — the field accessor, reached first because the radiating
+closed orbit is built before any magnet is scaled, and `_scaled`'s own guard — and the second is
+gone. What remains is the honest one, and it is the tracking gap.
+
+### What T2 still refuses, and what it costs
+
+**`radiation_kick` through a wiggler still raises.** The accessor has no `s` and the field
+reverses `2 * periods` times inside the element, so a single mid-point sample cannot see it.
+The consequence, stated rather than implied: a wiggler **radiates in the integrals and not in
+tracking**, so `taper()`, radiation tracking and spin tracking all refuse. Closing that is
+per-period tracking through the real field — an `s`-dependent accessor plus a slicing model,
+and a milestone of its own.
+
+Also refused: undulator spectra and coherence (light-source physics rather than beam dynamics),
+and any claim about a limit under slicing that was not measured.
 
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 

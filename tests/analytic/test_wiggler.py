@@ -32,10 +32,13 @@ Ordered by how much each can catch:
     the package with a nonzero ``kick()``.
   * **The reference trajectory closes**, gated on the integration rather than on the
     shipped map — where it would be true by construction and would test nothing.
-  * **The refusals**, each one a test: the field accessor raises, and the radiation
-    integrals, the radiation kick, the spin track and ``taper()`` all refuse rather than
-    silently reporting that the magnet built to radiate does not radiate. Each is written
-    to fail the day T2 lands.
+  * **The refusals.** The field accessor raises rather than quietly answering "no field",
+    and the radiation kick and the spin track refuse through it. T2 has since lifted two of
+    them — the radiation *integrals* now see the wiggler
+    (``tests/analytic/test_wiggler_radiation.py``), and ``_scaled`` knows a wiggler is a
+    powered magnet — so the two tests at the foot of this file are the record of what T1
+    refused and what it cost, not the refusal itself. ``taper()`` on a whole ring still
+    refuses, through the accessor, and that one is the tracking gap.
 """
 
 from __future__ import annotations
@@ -763,18 +766,22 @@ def test_radiation_tracking_through_a_wiggler_refuses(wig: Wiggler, ref: Referen
             wig.track(state, ref, radiation=model, rng=np.random.default_rng(0))
 
 
-def test_the_wiggler_contributes_exactly_nothing_to_the_radiation_integrals(
+def test_the_radiation_integrals_now_see_the_wiggler_and_t1_did_not(
     ref: ReferenceParticle,
 ) -> None:
-    """T1's refusal, asserted as an exact zero — and it is the T2 milestone in negative.
+    """T1's refusal, **lifted** by T2 — and kept here as the record of what it cost.
 
-    ``radiation_integrals`` keys on ``isinstance(elem, Dipole)``, so a wiggler is not merely
-    approximated there, it is *absent*: a ring with a 1 m wiggler in it returns integrals
-    bit-identical to the same ring with a 1 m drift, when the true ``i2 = h0^2 L/2 = 0.101``
-    would dominate a weak ring entirely. That is a silent zero, and the only thing standing
-    between it and a wrong damping time is this test.
+    This test used to assert an exact zero. ``radiation_integrals`` keyed on
+    ``isinstance(elem, Dipole)``, so a wiggler was not merely approximated there, it was
+    *absent*: a ring with a 1 m wiggler in it returned integrals bit-identical to the same
+    ring with a 1 m drift, when the true ``i2 = h0^2 L/2 = 0.101`` is more than twice the
+    dipole's. T1 shipped that as a loud refusal (the field accessor raises) rather than a
+    silent zero, and said this test was written to fail the day T2 landed.
 
-    Written to fail the day T2 lands. It is the milestone's own statement of what it owes.
+    T2 landed. What is asserted now is the opposite — that the zero is gone, and that what
+    replaced it is the closed form — with the full gate list in
+    ``tests/analytic/test_wiggler_radiation.py``. This one stays because the *size* of what
+    was being silently dropped is the reason the refusal was worth making loud.
     """
     from accsim import Dipole
 
@@ -796,40 +803,43 @@ def test_the_wiggler_contributes_exactly_nothing_to_the_radiation_integrals(
     with_wig = radiation_integrals(ring(wig))
     without = radiation_integrals(ring(Drift(wig.length)))
 
-    for name in ("i1", "i2", "i3", "i4", "i5"):
-        assert getattr(with_wig, name) == getattr(without, name), name
+    assert with_wig.i2 - without.i2 == pytest.approx(0.5 * wig.h0**2 * wig.length, rel=1e-15)
+    assert with_wig.i3 > without.i3
+    assert with_wig.i5 > without.i5
+    # ...and what T1 was refusing was never small: the wiggler's own i2 is a factor of two
+    # more than the dipole's, so the silent zero would have been a 3x error in energy loss.
+    assert 0.5 * wig.h0**2 * wig.length > 2.0 * without.i2
 
-    # ...and what it is refusing is not small: the wiggler's own i2 would be a fifth of the
-    # dipole's, so this is a 20% error in the energy loss, silently.
-    assert 0.5 * wig.h0**2 * wig.length > 0.15 * without.i2
 
-
-def test_tapering_a_ring_with_a_wiggler_is_refused_for_now(ref: ReferenceParticle) -> None:
-    """``taper()`` refuses a wiggler loudly, and says why — the S1 pattern.
+def test_tapering_a_ring_with_a_wiggler_is_refused_for_one_remaining_reason(
+    ref: ReferenceParticle,
+) -> None:
+    """``taper()`` still refuses a wiggler ring — but for **one** reason now, not two.
 
     A taper needs the ring's *radiating* closed orbit, and it also needs to know how to
-    scale every powered magnet. A wiggler fails both today, and **which one fires first was
-    measured rather than predicted**: this test was first written expecting ``taper``'s own
-    ``_STRENGTHS`` guard ("does not know whether a Wiggler carries a field"), and the field
-    accessor gets there first, because the radiating orbit is built before any magnet is
-    scaled. Both are loud, so the ordering costs nothing — but asserting the guess would
-    have been asserting a guess.
+    scale every powered magnet. T1 failed both, and **which one fired first was measured
+    rather than predicted**: this test was first written expecting ``taper``'s own
+    ``_STRENGTHS`` guard, and the field accessor got there first, because the radiating
+    orbit is built before any magnet is scaled.
 
-    T2 gate 7 owes an answer here: whichever way it falls, it is to be measured and stated.
-    This test fails the day it is.
+    T2 answered the second question — a wiggler *is* a powered magnet and ``h0`` is its
+    strength, so ``_scaled`` no longer raises — which leaves only the first. The remaining
+    refusal is the honest one and it is the tracking gap: ``radiation_kick`` samples the
+    field once per traversal and a wiggler's reverses twenty times inside itself.
+
+    Written to fail the day per-period tracking through the real field lands.
     """
     from accsim import Dipole
+    from accsim.tapering import _scaled
 
     lattice = Lattice([Dipole(2.0, 0.3), Wiggler(PERIOD, 0.449689, PERIODS, "w")], ref)
     with pytest.raises(NotImplementedError, match="no s-independent field"):
         taper(lattice)
 
-    # The second refusal, reached directly: taper's own guard has never been told whether a
-    # wiggler is a powered magnet, and it refuses rather than leaving it at design strength.
-    from accsim.tapering import _scaled
-
-    with pytest.raises(NotImplementedError, match="does not know whether a Wiggler"):
-        _scaled(Wiggler(PERIOD, 0.449689, PERIODS, "w"), 1.001)
+    # the half that lifted, asserted as lifted (T2 gate 7)
+    scaled = _scaled(Wiggler(PERIOD, 0.449689, PERIODS, "w"), 1.001)
+    assert scaled.h0 == pytest.approx(1.001 * 0.449689, rel=1e-15)
+    assert scaled.focusing == pytest.approx(1.001**2 * 0.5 * 0.449689**2, rel=1e-14)
 
 
 def test_nothing_else_moves(ref: ReferenceParticle) -> None:

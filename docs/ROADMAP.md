@@ -36,8 +36,78 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | Q | tapering: the machine that compensates its own energy loss | **Q1** the profile (2026-09-06); **Q2** applying it (2026-09-06) | axis Q complete |
 | R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
-| T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07) | **T2** its radiation integrals |
+| T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07) | axis T complete; per-period tracking through the real field is unsequenced |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07) | — |
+
+**Axis T shipped T2 on 2026-09-07** — the wiggler's radiation integrals, the milestone the
+magnet exists for. `radiation_integrals` had keyed on `isinstance(elem, Dipole)` since Stage 7,
+so a ring with a wiggler in it reported the damping of a ring without one; it now dispatches on
+a second element type, and **every entry a wiggler contributes is closed form** — `slices` never
+enters that branch. The pre-committed headline held on the last bit: against a hard-edge
+staircase matched to the same `I2`, the wiggler's `I3` is higher by exactly
+`8 sqrt(2)/(3 pi) = 1.2004217548761416`, and the closed forms `I2 = h0^2 L/2`,
+`I3 = 4 h0^3 L/(3 pi)` land at machine precision.
+
+The finding rewrites the entry's own momentum-compaction note, and it is worth stating first:
+
+- **A wiggler generates its own dispersion, and it is exactly T1's "geometric" `R56` term.**
+  The entry said the wiggler's contribution to momentum compaction is geometric — its wiggle
+  path shortening with momentum — and "appears in no lattice integral, because a wiggler
+  generates no dispersion". Both halves are wrong. `eta'' = h` with `eta(0) = eta'(0) = 0` gives
+  `eta = (h0/k^2)(1 - cos k s)`, which closes in both coordinates at the exit, and
+  `int eta h ds = -L theta^2/2` is **exactly** the `gamma`-free part of the `R56` term T1
+  shipped. (What is left, `(L theta^2/4)/gamma0^2`, is not compaction at all but velocity slip
+  along the extra path.) The two mechanisms the entry told this session to keep apart are one
+  mechanism seen from two sides. The gate is a contract the module has always claimed,
+  `I1 == alpha_c * C`, whose two routes are as disjoint as they get — the one-turn
+  **longitudinal** row against a **transverse** dispersion integral. Before T2 they disagreed
+  on the probe ring by `2.56e-05`, 100% of the wiggler's own term, and nothing had ever compared
+  them on a lattice with a wiggler in it; the break is now `3.3e-12`, the ring's own dipole
+  quadrature error. `momentum_compaction(method="quadrature")` needed the same term and has it.
+
+Three more, two of them corrections to the gate list:
+
+- **Gate 4's "exact zero" had to move to survive.** It is right about the *ring's* dispersion
+  and wrong about the total, so the assertion is now **invariance**: `h` and `h^3` are odd about
+  each half period and `D_x` is linear across the body, so the ring's dispersion cancels
+  *whatever it is* — the same wiggler in three differently-focused rings contributes the same
+  `I1` and `I4`, with the premise that the three really do present different `D_x` checked
+  rather than assumed — plus the closed forms `-L theta^2/2` and `-(3/8) L h0^2 theta^2` for
+  what is left. Either half alone passes with a term omitted.
+- **`I5` was never in the gate list, is not zero, and factorises exactly — for two reasons that
+  must hold together.** curly-H is a *drift* invariant and a wiggler is a drift horizontally, so
+  curlyH is constant across the body (`4.4e-16` entrance-to-exit while `beta_x` more than
+  doubles); *and* the constant **and linear** moments of `|cos|^3` both vanish. Checking only
+  the constant moment would have looked complete. The wiggler's **own** dispersion does not
+  factorise — `eta` correlates with `|h|^3` by construction — and is a per-period closed form
+  summed with the optics drift-transported between periods, gated by a resolved quadrature that
+  *converges onto* it (`-2.3e-07` at 40k steps, `-2.2e-09` at 400k). Shipping a quadrature
+  instead was not an option: a trapezoid on `|cos|^3` has kinks at every zero, and at the
+  default `slices = 64` it is wrong by ~18%.
+- **The staircase comparator has to be a stack, not a dipole.** A single bend of the same `I2`
+  is a 0.32 rad bend that moves the whole ring; the first draft used one and produced a
+  `sigma_delta` ratio that walked the *wrong way* as the ring's own bend weakened. With
+  `2 * periods` alternating poles the end-to-end consequence is gated twice: as an exact
+  identity at any ring strength, and as the entry's `9.56%` in the weak-bend limit
+  (`1.0776 -> 1.0955 -> 1.09562` as the bend goes `0.3 -> 0.05 -> 0.01` rad). It is *approached*
+  rather than hit because the staircase's own dispersion gives it an `I4` the wiggler does not
+  — which is gate 4 doing exactly the job it was written for.
+
+Gate 7 is decided: **a wiggler is a powered magnet**, `h0` is its strength, and it is in
+`tapering._STRENGTHS`. That lands somewhere no other entry does — the focusing is `h0^2/2`, so
+its optics scales as the **square** of the taper factor. `taper()` on a ring still refuses, but
+the refusal has collapsed from two causes to one. Gate 5 holds as written (all three damping
+rates strictly increase, times shorten >3x; `J_x` moves `0.906 -> 0.971`, which is why the gate
+is on the rates), gate 6 was already done by T1, and `J_y = 1` still holds exactly — a wiggler's
+gradient is vertical *focusing*, not vertical bending. Full detail in `docs/CONVENTIONS.md` ->
+*The wiggler's radiation integrals*.
+
+**What axis T still refuses, and it is the one real gap:** a wiggler now **radiates in the
+integrals and not in tracking**. `radiation_kick` samples the field once per traversal and
+cannot see a field that reverses twenty times inside the element, so radiation tracking, spin
+tracking and `taper()` all raise. Closing it is per-period tracking through the real field — an
+`s`-dependent accessor plus a slicing model, a milestone of its own, **not sequenced**. **The
+next session starts by re-running the project's filter.**
 
 **Axis T shipped T1 on 2026-09-07** — the wiggler's element and its map. The headline held:
 the focusing lands in the **vertical** plane at `k_y = h0^2/2`, where a flat bend has exactly
@@ -6449,7 +6519,17 @@ the day T2 lands, in the manner of S1's
 `test_tapering_a_ring_with_a_solenoid_is_refused_for_now`.
 
 **T2 — the wiggler becomes visible to the radiation integrals, and the tracking gap is
-priced.** Effort **M**. **OPEN — the rest of the axis.**
+priced.** ✅ **SHIPPED 2026-09-07.** Effort **M**.
+
+> **Shipped, with one finding and three corrections to the gates below.** The finding: a
+> wiggler *does* generate dispersion — its own — and `int eta h ds` is exactly the geometric
+> `R56` term T1 shipped, so the two mechanisms the note below tells the session to keep apart
+> are one mechanism. Gate 4's exact zero moved to an invariance statement (it is true of the
+> ring's dispersion, not of the total); `I5` was missing from the gate list entirely and is not
+> zero; and gate 3's staircase had to become a non-bending *stack* before it meant anything.
+> Gate 7 is decided: a wiggler is a powered magnet whose strength is `h0`. See the axis-T
+> summary at the top of this file and `docs/CONVENTIONS.md` -> *The wiggler's radiation
+> integrals*. The gate list below is kept as written, as the record of what was pre-committed.
 
 > **A gap T2 will inherit and should not absorb silently:** a wiggler contributes to the
 > ring's momentum compaction *geometrically* (its own path shortening with momentum, in

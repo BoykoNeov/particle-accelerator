@@ -1029,6 +1029,12 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
     **no** ``gamma0`` dependence — it is geometry only (the ``1/gamma0^2`` below
     cancels against the ``R56`` it is paired with).
 
+    A :class:`~accsim.elements.wiggler.Wiggler` is a bending magnet for this purpose even
+    though it has no *net* bend: the ring's dispersion cancels across it exactly, but its
+    **own** dispersion does not, and ``∮ eta h ds = -L theta^2/2`` is exactly the geometric
+    term the wiggler's ``R56`` already carries. Both routes below therefore need it, and
+    before T2 only the identity route had it — which is how it was found.
+
     Two routes to the same number, selected by ``method``:
 
     ``"identity"`` (default)
@@ -1061,6 +1067,7 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
         raise ValueError(f"method must be 'identity' or 'quadrature', got {method!r}")
 
     from .elements.dipole import Dipole
+    from .elements.wiggler import Wiggler
 
     tw0 = closed_twiss(lattice)
     if method == "identity":
@@ -1084,6 +1091,17 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
                 acc += w * disp[0]
             integral += h * acc * ds
             continue
+        if isinstance(elem, Wiggler) and elem.h0 != 0.0 and elem.length > 0.0:
+            # A wiggler contributes to ``∮ D_x h ds`` through its **own** dispersion and
+            # not at all through the ring's: ``h = h0 cos(k s)`` is odd about each half
+            # period and the incoming ``D_x`` is linear across the body (horizontally a
+            # wiggler is a drift), so the ring's part vanishes identically. What is left is
+            # the closed form ``∮ eta h ds = -L theta^2 / 2`` — the same term
+            # :func:`accsim.radiation.radiation_integrals` puts in ``I1``, and the same
+            # term T1 already carries in the wiggler's ``R56``. Without it the two routes
+            # below would disagree by exactly that amount on any ring with a wiggler in it,
+            # which is how it was found.
+            integral += -0.5 * elem.length * elem.deflection**2
         disp = _transverse_4d(M) @ disp + _dispersive_kick(M)
     return integral / lattice.length
 

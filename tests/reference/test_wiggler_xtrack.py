@@ -28,6 +28,19 @@ So the two natural spellings are near mirror images of each other and neither is
 magnet: one focuses in no plane, the other in the wrong one. The arbiter that decides the
 coefficient is the direct field integration in ``tests/analytic/test_wiggler.py``.
 
+**T2 looked for a radiation leg here and there is none either.** The obvious one — read
+xtrack's own ``I1..I5`` off the cos-sampled stack above, which *does* converge to the
+wiggler's curvature distribution — does not exist: this xtrack exposes no radiation-integral
+accessor on the twiss table at all (no ``get_radiation_integrals``, no ``rad_int_*``). What it
+does have is ``radiation_analysis=True``, which needs a 6D twiss with a cavity and returns the
+**damped-map eigenanalysis**, a route ``accsim.radiation``'s own docstring already records as
+differing from the integral method at the ~1% level — a second approximation to argue with
+rather than an independent leg. And it reports ``eneloss_turn = 0.0`` for the straight
+construction anyway: with ``angle = 0`` there is no curvature for it to radiate on, whatever
+``k0`` says. That is the same structural blindness as ``R43`` above, in the one quantity T2
+cared about, so T2's arbiters are its closed forms, a resolved quadrature, and the
+``I1 == alpha_c * C`` identity — all in ``tests/analytic/test_wiggler_radiation.py``.
+
 **Cost.** Each ``xt.Line`` build JIT-compiles a fresh C kernel (~12 s, one leaked ``.pyd``),
 so the lines here are module-scoped and built exactly once. Run this file with ``-n 8``.
 """

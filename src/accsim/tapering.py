@@ -55,6 +55,7 @@ from .elements.rfcavity import RFCavity
 from .elements.sextupole import Sextupole, ThinSextupole, ThinSkewSextupole
 from .elements.skew_quadrupole import SkewQuadrupole, ThinSkewQuadrupole
 from .elements.solenoid import Solenoid
+from .elements.wiggler import Wiggler
 from .lattice import Lattice
 from .orbit import closed_orbit, closed_orbit_6d
 
@@ -182,6 +183,12 @@ _STRENGTHS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (Octupole, ("k3",)),
     (ThinOctupole, ("k3l",)),
     (Corrector, ("kick_x", "kick_y")),
+    # A wiggler is a powered magnet like any other, and ``h0`` is its strength
+    # (T2). Scaling it is the Q2 statement in the form this element takes: a
+    # tapered wiggler **is** the design wiggler seen at a rescaled momentum, and
+    # because its focusing is ``h0^2/2`` that focusing scales as the *square* of
+    # the factor — the only entry in this table whose optics is not linear in it.
+    (Wiggler, ("h0",)),
 )
 
 #: Elements a taper deliberately leaves alone, and the list is short because each entry is

@@ -57,7 +57,8 @@ from .twiss import _blocks, _dispersive_kick, _propagate_block, _transverse_4d, 
 class RadiationIntegrals:
     r"""The synchrotron-radiation lattice integrals (Sands / Chao conventions).
 
-    - ``i1 = ∮ D_x h ds``           — links to momentum compaction ``alpha_c = I1/C``.
+    - ``i1 = ∮ D_x h ds``           — links to momentum compaction ``alpha_c = I1/C``
+      (including a wiggler's own dispersion, without which that link is broken).
     - ``i2 = ∮ h^2 ds``             — sets the energy loss ``U0`` (and radiated power).
     - ``i3 = ∮ |h|^3 ds``           — sets the quantum-excitation / energy spread.
     - ``i4 = ∮ D_x h^3 ds``         — the damping-partition redistribution term.
@@ -103,16 +104,73 @@ def quantum_constant_cq(ref: ReferenceParticle) -> float:
     return _cq(ref)
 
 
+#: ``<|cos|^3> = 4/(3 pi)`` -- the period average that sets a wiggler's ``I3`` and
+#: ``I5``, against the ``<cos^2> = 1/2`` that sets its ``I2``. Derived in sympy in
+#: ``tests/analytic/test_wiggler_radiation.py``, not recalled.
+_AVG_ABS_COS3 = 4.0 / (3.0 * math.pi)
+
+
 def _curly_h(beta: float, alpha: float, dx: float, dpx: float) -> float:
     r"""The dispersion invariant ``curlyH = gamma D_x^2 + 2 alpha D_x D_x' + beta D_x'^2``."""
     gamma = (1.0 + alpha * alpha) / beta
     return gamma * dx * dx + 2.0 * alpha * dx * dpx + beta * dpx * dpx
 
 
+#: Per-period coefficients of a wiggler's **own**-dispersion contribution to ``I5``,
+#: derived in sympy (``tests/analytic/test_wiggler_radiation.py``) by integrating
+#: ``|cos(k s)|^3 (curlyH[D + eta] - curlyH[D])`` over one period with the optics
+#: drifting across it. In order: the ``(gamma D_x + alpha D_x') theta/k^2`` term, the
+#: ``alpha theta^2/k^2`` term, the ``beta theta^2/k`` term and the ``gamma theta^2/k^3``
+#: term. There is no ``D_x'``-only or ``eta eta'`` term: ``<|cos|^3 sin> = 0``.
+_W5_CROSS = (3.0 * math.pi + 16.0) / 3.0
+_W5_ALPHA = -16.0 * math.pi / 15.0
+_W5_BETA = 8.0 / 15.0
+_W5_GAMMA = 149.0 * math.pi / 225.0 + 15656.0 / 3375.0 + 2.0 * math.pi**2 / 3.0
+
+
+def _wiggler_own_curly_h(
+    elem: Element, ref: ReferenceParticle, bx: float, ax: float, disp: np.ndarray
+) -> float:
+    r"""``∮ |cos(k s)|^3 (curlyH[D_x + eta] - curlyH[D_x]) ds`` across a wiggler [m].
+
+    The part of ``I5`` that comes from the wiggler's **own** dispersion ``eta``, with
+    ``|h|^3 = |h0|^3 |cos|^3`` factored out by the caller. Exact: the per-period integral
+    is closed form (the constants above), and the ``periods`` periods are summed with the
+    optics drift-transported between them — because ``beta_x`` and ``D_x`` vary across the
+    body while ``eta`` is periodic, and the product of the two does not factorise.
+
+    Checked against a resolved trapezoidal quadrature of the same integral, which
+    converges onto this value as the step shrinks (``-2.3e-07`` at 40k steps,
+    ``-2.2e-09`` at 400k) — the residual is the quadrature's, not this formula's.
+    """
+    from .elements.drift import Drift
+
+    k, th, per = elem.wavenumber, elem.deflection, elem.periods  # type: ignore[attr-defined]
+    dm = Drift(elem.length / per).matrix(ref)
+    xblock, d4 = _blocks(dm)[0], _transverse_4d(dm)
+    d = np.asarray(disp, dtype=float)
+    total = 0.0
+    for _ in range(per):
+        gx = (1.0 + ax * ax) / bx
+        total += (
+            _W5_CROSS * (th / k**2) * (gx * d[0] + ax * d[1])
+            + _W5_ALPHA * ax * th * th / k**2
+            + _W5_BETA * bx * th * th / k
+            + _W5_GAMMA * gx * th * th / k**3
+        )
+        d = d4 @ d  # a drift has no dispersive kick
+        bx, ax, _ = _propagate_block(xblock, bx, ax)
+    return total
+
+
 def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegrals:
     r"""Compute ``I1..I5`` for a periodic ``lattice``.
 
-    Only bending magnets contribute (``h = 0`` elsewhere). Inside each thick dipole
+    **Two element types contribute.** A :class:`~accsim.elements.dipole.Dipole`, whose
+    curvature is constant across its body, and a :class:`~accsim.elements.wiggler.Wiggler`
+    (T2), whose curvature *is* its body: ``h(s) = h0 cos(k s)``. Everywhere else ``h = 0``.
+    The wiggler branch is entirely **closed form** and ignores ``slices``; see "A wiggler's
+    five entries" below. Inside each thick dipole
     the matched dispersion ``D_x(s)`` **and** the beta functions ``beta_x,
     alpha_x`` are co-transported by ``slices``-fold trapezoidal sub-stepping of the
     sub-bend map (the dispersion machinery of
@@ -129,12 +187,45 @@ def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegral
     local ``beta_x, alpha_x, D_x, D_x'``. The ``h``-only pieces ``∮ h^2 ds`` /
     ``∮ |h|^3 ds`` are ``h^2 L`` / ``|h|^3 L`` per dipole (gradient/edge-independent).
 
+    **A wiggler's five entries** are period averages of the same integrals, and all five are
+    closed form. ``<cos^2> = 1/2`` and ``<|cos|^3> = 4/(3 pi)`` give ``I2 = h0^2 L / 2`` and
+    ``I3 = 4 h0^3 L / (3 pi)``. The ring's own dispersion contributes **exactly zero** to
+    ``I1`` and ``I4``: ``h`` and ``h^3`` are odd about each half period and ``D_x`` is linear
+    across the body (horizontally a wiggler is a drift), so both the constant and the linear
+    moment of ``cos(k s)`` vanish over an integer number of periods, for *any* incoming
+    dispersion.
+
+    What is left in ``I1`` and ``I4`` is the wiggler's **own** dispersion, and it is not
+    optional: these are integrals over the real trajectory in the real field, and that
+    trajectory wiggles even though T1's period-averaged *map* does not (every other bending
+    element here already carries its own dispersion, simply because it is in the transported
+    ``D_x``). ``eta'' = h`` with ``eta(0) = eta'(0) = 0`` gives ``eta = (h0/k^2)(1 - cos k s)``,
+    a **one-sided** excursion since a plain wiggler has no half-strength end poles, and hence
+
+        ∮ eta h ds = -L theta^2 / 2,      ∮ eta h^3 ds = -(3/8) L h0^2 theta^2.
+
+    The first of those is **exactly** the geometric ``R56`` term
+    :class:`~accsim.elements.wiggler.Wiggler` already ships, and it is what makes
+    ``I1 == alpha_c * C`` hold on a ring with a wiggler in it. The roadmap's axis-T entry said
+    a wiggler's momentum-compaction contribution "appears in no lattice integral, because a
+    wiggler generates no dispersion"; it generates its own, and this is where it appears.
+
+    ``I5`` splits exactly in two. The **ring** part factorises, ``<|cos|^3> |h0|^3 curlyH L``,
+    and needs two facts together: curly-``H`` is a *drift* invariant and a wiggler is a drift
+    horizontally, so curlyH is constant across the body; and the constant **and linear**
+    moments of ``|cos|^3`` both vanish (it is the quadratic moment that does not, and a drift
+    gives curlyH no quadratic content). The **own-dispersion** part does not factorise —
+    ``eta`` correlates with ``|h|^3`` by construction — and is :func:`_wiggler_own_curly_h`.
+    That part is small only where the ring has dispersion at the wiggler; in the
+    dispersion-free straight a damping wiggler lives in, it is the whole of ``I5``.
+
     ``I1 == alpha_c * C`` cross-checks the dispersion transport within the baseline;
     ``I5`` (curly-``H``, needing the co-transported ``beta``) has no clean within-baseline
     absolute check, so it is gated by energy-scaling (``eps_x ∝ gamma^2``) + xtrack
     (``tests/analytic/test_radiation.py``, ``tests/reference/``).
     """
     from .elements.dipole import Dipole, _edge_matrix
+    from .elements.wiggler import Wiggler
 
     tw0 = closed_twiss(lattice)
     bx, ax = tw0.beta_x, tw0.alpha_x
@@ -183,6 +274,53 @@ def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegral
             i4 -= h * h * (dx_entrance * math.tan(elem.e1) + dx_exit * math.tan(elem.e2))
             i5 += abs(h) ** 3 * acc_h * ds  # ∮ curlyH |h|^3 ds
             continue
+        if isinstance(elem, Wiggler) and elem.h0 != 0.0 and elem.length > 0.0:
+            # The second contributing element type (T2), and nothing here is the dipole's
+            # ``h^2 L``: a wiggler's curvature is not constant across its body, it *is* the
+            # body. ``h(s) = h0 cos(k s)``, so every entry below is a period average — and
+            # all five are closed form, so ``slices`` does not enter this branch at all.
+            h0, wl, th = elem.h0, elem.length, elem.deflection
+            i2 += 0.5 * h0 * h0 * wl  # <cos^2> = 1/2
+            i3 += _AVG_ABS_COS3 * abs(h0) ** 3 * wl  # <|cos|^3> = 4/(3 pi)
+
+            # The **ring's** dispersion contributes exactly zero to i1 and i4, and that is
+            # a result rather than an omission: ``h`` and ``h^3`` are odd about each half
+            # period, and horizontally a wiggler is a drift, so the incoming ``D_x`` is
+            # *linear* in ``s`` across the body. Both the constant and the linear moment of
+            # ``cos(k s)`` vanish over an integer number of periods, so ``∮ D_x h ds`` and
+            # ``∮ D_x h^3 ds`` are zero for **any** incoming dispersion whatsoever.
+            #
+            # What is left is the wiggler's **own** dispersion. It is not zero, and it is
+            # not optional: these integrals run along the real trajectory in the real
+            # field, and that trajectory wiggles even though T1's period-averaged *map*
+            # does not. ``eta'' = h`` with ``eta(0) = eta'(0) = 0`` (the element starts at
+            # a field maximum, which is what makes the orbit close) gives
+            # ``eta = (h0/k^2)(1 - cos k s)`` — a **one-sided** excursion, since a plain
+            # wiggler has no half-strength end poles to centre it — and hence
+            #
+            #     ∮ eta h ds   = -L theta^2 / 2,        ∮ eta h^3 ds = -(3/8) L h0^2 theta^2.
+            #
+            # The first of those is **exactly** the geometric ``R56`` term T1 shipped, seen
+            # from the other side: it is what makes ``i1 == alpha_c * C`` hold for a ring
+            # with a wiggler in it. See the docstring's "A wiggler's own dispersion".
+            i1 += -0.5 * wl * th * th
+            i4 += -0.375 * wl * h0 * h0 * th * th
+
+            # i5 = ∮ |h|^3 curlyH ds, in two exactly-separable pieces.
+            #
+            # The **ring** piece factorises exactly, for two reasons that have to hold
+            # together: curly-H is a *drift invariant* and a wiggler is a drift
+            # horizontally, so curlyH is constant across the body; and the constant moment
+            # of ``|cos|^3`` is ``4/(3 pi)``. (The linear moment vanishes too, so the
+            # factorisation would survive a linear curlyH; it is the quadratic moment that
+            # does not factorise, and curlyH has no quadratic content under a drift.)
+            i5 += _AVG_ABS_COS3 * abs(h0) ** 3 * _curly_h(bx, ax, disp[0], disp[1]) * wl
+            # The **own-dispersion** piece does not factorise — ``eta`` correlates with
+            # ``|h|^3`` by construction — and it is summed period by period in closed form.
+            i5 += abs(h0) ** 3 * _wiggler_own_curly_h(elem, lattice.ref, bx, ax, disp)
+            # ...and then fall through: the wiggler's own transport of beta/alpha and
+            # dispersion is a drift horizontally and a focusing block vertically, which is
+            # exactly what its ``matrix()`` already says.
         # Non-dipole: co-transport beta/alpha and dispersion across the element.
         bx, ax, _ = _propagate_block(_blocks(M)[0], bx, ax)
         disp = _transverse_4d(M) @ disp + _dispersive_kick(M)
@@ -206,7 +344,9 @@ def damping_partition_numbers(lattice: Lattice) -> tuple[float, float, float]:
     They apportion the radiated damping among the three planes. **Robinson's
     theorem** ``J_x + J_y + J_z = 4`` is exact by construction (the ``I4/I2`` cancels)
     — the structural gate on the integrals. ``J_y = 1`` holds for a flat lattice with
-    no vertical bending or gradient (this module's scope).
+    no vertical **bending** (this module's scope); a vertical *gradient* does not break
+    it, which is why a :class:`~accsim.elements.wiggler.Wiggler` — whose focusing is
+    entirely vertical — leaves ``J_y`` at exactly 1 while moving the other two.
     """
     ri = radiation_integrals(lattice)
     d = ri.i4 / ri.i2
