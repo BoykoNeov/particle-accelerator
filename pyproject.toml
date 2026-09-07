@@ -34,7 +34,12 @@ dependencies = [
 dev = [
     "pytest>=7.4",
     "pytest-xdist>=3.5",
-    "ruff>=0.4",
+    # Pinned to a minor series on purpose: CI installs the dev extra fresh on every
+    # push, so an unpinned `ruff` lets the formatter drift away from the venv's and
+    # turns unrelated commits red. 0.16 formats Python blocks inside Markdown, which
+    # 0.15 did not scan at all — see docs/CONVENTIONS.md → Toolchain / environment
+    # notes. Bump this deliberately, in a commit that carries the reformat.
+    "ruff>=0.16.6,<0.17",
     "sympy>=1.12",
 ]
 # Interactive phase-space plotting.

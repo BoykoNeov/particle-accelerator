@@ -10144,6 +10144,41 @@ comment must not be parsed, which is why the reader anchors on the declaration l
   the **symbolic derivation** (two independent routes agree) — itself a gold-standard
   analytic check. That derivation still stands and is now *also* corroborated by the
   passing xtrack cross-check above.
+- **`ruff` is pinned, because CI installs it fresh on every run (2026-09-08).** The dev
+  extra used to say `ruff` unversioned, so CI resolved whatever was newest while the venv
+  kept whatever it was installed with. On 2026-09-07 the two drifted across a **format
+  behaviour change**: ruff **0.16** formats Python code blocks *inside Markdown*, ruff
+  0.15 does not scan `.md` at all (249 files locally vs 258 on CI). Every push went red on
+  a `README.md` code block that `ruff format --check .` could not see locally, on commits
+  that had not touched it. The extra now pins a range, so `ruff format` is the same
+  program in both places and a formatter upgrade is a deliberate commit that lands with
+  its reformat. **If CI's format check fails on a file your local run calls clean, compare
+  the two `ruff --version`s before looking at the file.**
+
+## Capture-platform goldens (2026-09-08)
+
+A "nothing else moved" gate — freeze the package's output from *before* a milestone as
+decimal literals, then assert `array_equal` after it — is the only kind of test that can
+catch a silent re-association of shared arithmetic, because every tolerance-based test in
+the suite is blind to a few ulp. `tests/analytic/test_solenoid_spin.py`'s gate 8 is the
+one instance in the suite (`_PRE_S2_*`), and it is worth keeping. But:
+
+- **Bit-exactness does not cross a C library.** `sin`, `cos`, `sqrt`, `atan2` are not
+  correctly rounded, so glibc and the Windows CRT disagree in the last place. Literals
+  captured on one are an artifact of *that environment*, not a property of the code.
+  S2's gate was captured on Windows and was therefore **red on every CI run from the day
+  it shipped** (2026-09-06) — unnoticed, because `assert` short-circuits (only the second
+  of its four tuples ever got evaluated on Linux) and because a later lint failure started
+  killing the job before the suite ran at all.
+- **The fix is to scope it, not to loosen it.** An ulp budget would convert an exact gate
+  into a tolerance gate — the move this repo forbids — and would need one budget per
+  frozen tuple, measured on a platform/glibc/numpy combination that the next runner image
+  can change. The gate is instead `skipif`-ed to the platform the numbers were captured
+  on, where it keeps its full catching power.
+- **So: a frozen-literal golden is a local gate by construction.** Capture it, say in the
+  file which platform it came from and why, and skip it elsewhere. Do not expect CI to
+  run it, and do not put a physics claim behind one — this idiom guards *arithmetic
+  stability*, never a number the physics depends on.
 
 ## Test-suite cost (2026-08-10)
 

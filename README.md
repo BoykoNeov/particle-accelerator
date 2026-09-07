@@ -92,7 +92,8 @@ package loads directly:
 
 ```python
 import accsim as ac
-lattice = ac.load_scenario("my-ring.accsim.json").lattice   # editor -> package
+
+lattice = ac.load_scenario("my-ring.accsim.json").lattice  # editor -> package
 ac.dump_scenario(lattice, "my-ring.accsim.json", name="my ring")  # package -> editor
 ```
 
