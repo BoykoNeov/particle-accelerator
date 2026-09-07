@@ -37,7 +37,103 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
+| U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07) | — |
+
+**Axis U opened and shipped U1 on 2026-09-07** — momentum compaction beyond first order:
+the ring's path length as a *series* in momentum, `C(delta)/C = 1 + alpha_0 delta +
+alpha_1 delta^2 + alpha_2 delta^3`, plus the transition energy `gamma_t` that
+`acceleration.py` had listed as explicitly out of scope. `momentum_compaction` had
+answered the question once, at `delta = 0`, and a derivative is the whole story only where
+the curve is straight.
+
+**Chosen by re-running the project's filter with axis T complete, and the filter was
+applied by *executing* every candidate arbiter on probe rings before a word of this entry
+was written.** What that run settled first was the shape of the arbiter landscape:
+`xfields` is not installed, so intra-beam scattering and space charge still have **no**
+arbiter here (xtrack's `get_ibs_growth_rates` is a thin forwarder into it, so that record
+is unchanged rather than stale); `pymadng` is absent, so xtrack's MAD-NG bridge cannot
+run and there is no third code. Of what remained, this candidate was the only one with an
+arbiter that emits the number *directly*.
+
+The findings, in the order they changed the milestone:
+
+- **Four routes across two codes give four different answers, and one code contradicts
+  itself.** Asked for "the slope of the momentum compaction" on one 4-cell FODO ring:
+  MAD-X differencing `summ.alfa` over a `twiss, deltap=` scan says `+4.155670e-01`;
+  xtrack differencing `momentum_compaction_factor` over `twiss(delta0=)` says
+  `+1.176978e-02`; PTC differencing its **own** `alpha_c` over a `deltap` scan says
+  `+1.603332e-03`; and PTC's directly emitted `alpha_c_p` says `-3.478566e-03`. Every one
+  is stable to 5–6 digits under halving the step, so none of it is noise, and the last two
+  come out of the *same run* with **opposite signs**. The resolution: a `deltap`/`delta0`
+  argument re-references the machine rather than moving a particle along its off-momentum
+  closed orbit. Only the directly emitted coefficient means what this milestone means, and
+  accsim decides which half of MAD-X is the right half — it lands on `alpha_c_p` to
+  `4.8e-7` on a sextupole-free ring. This is M2's three-code split in a new costume, and
+  the trap is now asserted (`test_madx_twiss_scan_is_a_different_quantity`) so a future
+  session does not spend a milestone hunting it.
+- **The sharpest gate is an identity outside every code, and the lattice it lives on has
+  no closed orbit to solve for.** A ring that is one full circle of sector bends has an
+  off-momentum closed orbit that is *exactly* the concentric circle of radius
+  `rho (1 + delta)` — so `x = rho delta` with no higher-order part, and the length is
+  `2 pi rho (1 + delta)` with none either: `alpha_0 = 1` and **every** further coefficient
+  is exactly zero, for every `rho`, at every `delta`. accsim reproduces it to `1e-12` out
+  to `delta = 5e-2`, and a package expanding in the wrong variable could not. But that ring
+  has no vertical focusing, so its vertical tune is zero, `I - M4` is singular and
+  `closed_orbit_nonlinear` correctly refuses it — which is why
+  `closed_orbit_path_length` grew an explicit `orbit` argument. The milestone's best
+  fixture is a lattice whose orbit the package cannot solve for.
+- **The two routes had to be *made* disjoint, and the first design was not.** The obvious
+  second route — the closed form `alpha_1 = (1/C) ∮ [h D_2 + D_px^2/2] ds` from
+  `second_order_dispersion` — is not independent at all: `second_order_dispersion` is
+  itself a central difference of the same tracked closed orbit, so a sign error in the
+  orbit solver would move both routes together. What ships instead is `method="map"`,
+  closed form from P1's **second-order one-turn Taylor map**: substituting
+  `w = D delta + E delta^2/2` into the fixed-point condition gives the same operator
+  `I - R_ww` at both orders, driven at second order by the map's own curvature `T`, and
+  the `zeta` row reads off the slip. No Newton iteration, no differencing in `delta`. The
+  two share `Element.track` and the `zeta` convention and nothing else, and agree to
+  `4.2e-6`.
+- **The factor of two is PTC's, not physics, and it was calibrated rather than recalled.**
+  `alpha_c_p = 2 alpha_1` and `alpha_c_p2 = 6 alpha_2`, because accsim ships the Taylor
+  coefficients of the *path length* while PTC reports derivatives of the *local*
+  compaction. Both were measured on a sextupole-free ring where the two codes implement the
+  same maps — the same trap as PTC's `anhx` being `dQ/d(2J)`.
+- **The arbiter's reach is stated, not implied.** `alpha_c_p`/`alpha_c_p2` appear only
+  under `icase=56` **and** `deltap_dependency`; `icase=5` and `icase=6` return the `-1e6`
+  "not computed" sentinel for all three while `alpha_c` itself stays correct — so a
+  comparison written from the manual would have silently compared against a sentinel. And
+  `alpha_c_p3` is that sentinel even at `no=3`: **PTC reaches second order in `delta` and
+  no further**, so `alpha_2` is the last coefficient anything outside accsim can see.
+- **The one real disagreement left is accsim's sextupole body, and it obeys the slice
+  law.** With sextupoles on, the codes part by `0.086%` against the `4.8e-7` they agree to
+  without. Not PTC's integration — its `alpha_c_p` is identical from `nst=5` to `nst=80` to
+  ten digits. It is the single-slice thick sextupole, and refining `n_slices` closes the
+  gap as `1/n^2` (measured ratios `4.005, 3.970`), the second-order-integrator law
+  P2 (ii) established. `alpha_0` does not move under that refinement at all, which is the
+  control.
+- **The two routes' floors differ by five orders, and that sets the default.** On a
+  dispersion-free straight lattice — where `alpha_1 = 0` is a *cancellation*, the velocity
+  factor's `b2 - b1^2` against the drifts' and quadrupoles' own `zeta` curvature, not an
+  absence — the map route lands at `1.6e-14` while the tracked route cannot resolve
+  `alpha_1` below `~eps/h^2 ≈ 1e-9`. The tracked route is kept because it is the only one
+  that reaches `alpha_2`: `accsim.taylor` is second order, so `order=3` **raises** on
+  `method="map"` rather than quietly returning `None`. The velocity factor's own second
+  coefficient `b2 = -3 beta_0^2/(2 gamma_0^2)` is not any power of the familiar
+  `b1 = 1/gamma_0^2`, and is derived with sympy rather than trusted.
+
+**What U1 refuses.** Transition **crossing** — the phase jump and the loss of adiabaticity
+through it — as opposed to the transition *energy*, which now exists. Alpha buckets and
+quasi-isochronous rings, which need `alpha_1` inside the longitudinal Hamiltonian rather
+than merely reported. `alpha_3` and beyond, which no installed arbiter can see. And a
+higher-order *slip factor* series, which is this content plus the velocity expansion in a
+second spelling. Full detail in `docs/CONVENTIONS.md` -> *Higher-order momentum
+compaction*. **No further milestone on U is sequenced; the next session starts by
+re-running the filter.** The candidates that run recorded and did not open, both with two
+arbiters: a **design tilt** (no element here can bend out of the plane — `geometry.py`
+says so as a documented refusal, and R1's `phi`/`psi` columns are identically zero because
+of it), and the **AC dipole** (xtrack has the element, MAD-X parses `hacdipole` but was
+never made to emit a driven tune, so call it one arbiter and a half).
 
 **Axis T shipped T3 on 2026-09-07** — the wiggler radiates in *tracking*, closing the one gap
 T2 named as its own. A wiggler had been damping rings on the design route while a particle

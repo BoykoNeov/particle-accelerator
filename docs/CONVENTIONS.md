@@ -9853,6 +9853,155 @@ reason at the top of this section. Undulator radiation spectra and coherence, wh
 light-source physics rather than beam dynamics. And any convergence claim that was not
 measured.
 
+## Higher-order momentum compaction (U1 — implemented)
+
+`momentum_compaction` reports one number, the slope at `delta = 0`. The closed orbit is
+not straight in `delta` and the path length along it is not straight either, so the
+honest object is the series
+
+    C(delta) / C = 1 + alpha_0 delta + alpha_1 delta^2 + alpha_2 delta^3 + ...
+
+shipped as `momentum_compaction_series`, with `transition_gamma` and
+`closed_orbit_path_length` beside it. `alpha_0` is exactly `momentum_compaction`.
+
+### These are Taylor coefficients of the path length, NOT derivatives of the compaction
+
+The distinction is a factor, and it is where this milestone can be silently wrong. The
+*local* compaction — the slope a code reports when asked for `alpha_c` at finite
+momentum — is
+
+    d(C/C_0)/ddelta = alpha_0 + 2 alpha_1 delta + 3 alpha_2 delta^2,
+
+so a code emitting `d alpha_c/ddelta` emits **`2 alpha_1`**, and one emitting the second
+derivative emits **`6 alpha_2`**. MAD-X PTC does exactly that: `alpha_c_p = 2 alpha_1`
+and `alpha_c_p2 = 6 alpha_2`. Both factors were *calibrated on a sextupole-free ring*
+(`tests/reference/test_compaction_series_ptc.py`), not read out of documentation — the
+same trap as PTC's `anhx` being `dQ/d(2J)` rather than `dQ/dJ`.
+
+### Four routes, four answers — and only one of them means this
+
+This is the finding, and it was measured before a line of the implementation was written.
+On the same 4-cell FODO ring (10 GeV proton, eight sector bends, thick sextupoles), the
+"slope of the momentum compaction" comes out as:
+
+| route | value |
+|---|---|
+| MAD-X, differencing `summ.alfa` over a `twiss, deltap=` scan | `+4.155670e-01` |
+| `xtrack`, differencing `momentum_compaction_factor` over a `twiss(delta0=)` scan | `+1.176978e-02` |
+| PTC, differencing its **own** `alpha_c` over a `ptc_twiss ... deltap=` scan | `+1.603332e-03` |
+| PTC, `alpha_c_p`, emitted directly | `-3.478566e-03` |
+
+Each is stable to 5–6 digits under halving the step, so none of it is numerical noise —
+and **PTC contradicts itself, with opposite signs, in the same run**. The resolution is
+that a `deltap` / `delta0` argument *re-references the machine* rather than moving a
+particle along its off-momentum closed orbit; those scans are answering a different and
+perfectly reasonable question. Only the directly emitted `alpha_c_p` is `2 alpha_1`.
+accsim's tracked route agrees with it to `4.8e-7` on a sextupole-free ring, which is how
+we know which half of MAD-X is the right half.
+
+**Do not "fix" a disagreement with an xtrack or MAD-X `deltap` scan.** It is recorded
+here, and asserted in `test_madx_twiss_scan_is_a_different_quantity`, precisely so a
+future session does not spend a milestone hunting it.
+
+### The arbiter's reach, stated rather than implied
+
+`alpha_c_p` and `alpha_c_p2` appear **only** under `ptc_twiss, closed_orbit, icase=56,
+deltap_dependency`. With `icase=5` or `icase=6` all three coefficients come back as the
+`-1e6` "not computed" sentinel while `alpha_c` itself is still correct — so a comparison
+written from the manual would have compared against a sentinel and seen a spectacular
+disagreement. And `alpha_c_p3` is that sentinel **even at `no=3`**: PTC reaches second
+order in `delta` and no further, so `alpha_2` is the last coefficient anything outside
+accsim can see.
+
+### The exactly-solvable ring: a full circle of sector bends
+
+The analytic gate that involves no reference code and no fitted coefficient. In a uniform
+vertical field a particle of momentum `p_0 (1 + delta)` moves on a circle of radius
+`rho (1 + delta)`; requiring that circle to be *concentric* with the design circle fixes
+the closed orbit at `x = rho delta` **exactly**, with no higher-order part, and its length
+is `2 pi rho (1 + delta)` — also with no higher-order part. So
+
+    alpha_0 = 1,   alpha_1 = alpha_2 = ... = 0,   exactly, for every rho.
+
+accsim reproduces it to `1e-12` at `delta` up to `5e-2`. A package expanding in the wrong
+variable (energy rather than momentum, say) cannot pass this, because the change of
+variables would put a nonzero `alpha_1` there.
+
+**The ring has no vertical focusing**, so its vertical tune is zero, `I - M4` is singular
+and `closed_orbit_nonlinear` correctly refuses it. That is why
+`closed_orbit_path_length` takes an explicit `orbit` argument — the sharpest analytic
+fixture in the milestone is a lattice whose orbit cannot be solved for.
+
+### The path length is read off `zeta`, with no path integral
+
+Over one turn the tracked coordinate `zeta = s - beta_0 c t` slips by
+`Delta zeta = C - (beta_0/beta) L_path`, because the particle covers `L_path` at its own
+speed while the reference covers `C` at `beta_0`. Inverting gives `L_path` exactly, and
+every element already tracks `zeta` exactly (axis L), so the milestone inherits that and
+adds nothing of its own. The velocity factor is the exact
+`beta/beta_0 = (1 + delta)/sqrt(1 + beta_0^2 (2 delta + delta^2))`, not a paraxial stand-in.
+
+Its expansion carries a constant worth naming:
+
+    beta/beta_0 = 1 + b1 delta + b2 delta^2 + ...,
+    b1 = 1/gamma_0^2,        b2 = -3 beta_0^2 / (2 gamma_0^2).
+
+`b1` is the familiar `1/gamma_0^2` that turns `alpha_c` into the slip factor. `b2` is
+**not any power of `b1`** — it is larger by `3 beta_0^2/2`, so at 10 GeV it exceeds `b1^2`
+by three orders. Both are re-derived with sympy in the analytic suite rather than trusted
+to the two lines that hard-code them.
+
+### Two routes, and they are genuinely disjoint
+
+`method="map"` (default) is closed form: substituting `w = D delta + 1/2 E delta^2` into
+the fixed-point condition of the **second-order one-turn Taylor map** (P1) gives the same
+linear operator `I - R_ww` at both orders, driven at second order by the map's own
+curvature `T`; the `zeta` row then reads off the slip. No Newton iteration and no
+differencing in `delta`. `method="tracked"` runs the closed-orbit solver at `+-h` and
+`+-h/2` and splits the path length into even and odd parts — the even part *is* `alpha_1`
+with the odd orders removed exactly.
+
+They share `Element.track` and the definition of `zeta`, and nothing else: one goes
+through the Newton solver and finite differences, the other through per-element expansion,
+the composition rule and two linear solves. Measured agreement on the probe ring:
+**`4.2e-6` relative**, which is the tracked route's own floor.
+
+**The two floors differ by five orders, and that is why `"map"` is the default.** On a
+dispersion-free straight lattice (where `alpha_1 = 0` is a *cancellation* — the velocity's
+`b2 - b1^2` against the drifts' and quadrupoles' own `zeta` curvature — not an absence),
+the map route lands at `1.6e-14` while the tracked route cannot resolve `alpha_1` below
+`~eps/h^2 ≈ 1e-9`. The tracked route is kept because it is the only one that reaches
+`alpha_2`: `accsim.taylor` is a second-order expansion, and `alpha_2` is third order, so
+`order=3` raises on `method="map"` rather than quietly returning `None`.
+
+### The remaining PTC gap is accsim's sextupole body, and it obeys the slice law
+
+With sextupoles switched on the two codes differ by **0.086%** — much larger than the
+`4.8e-7` they agree to without. It is *not* PTC's integration: `alpha_c_p` is unchanged
+from `nst=5` to `nst=80` (10 digits). It is accsim's single-slice thick sextupole against
+PTC's converged one, and refining `Sextupole(n_slices=n)` closes it as **`1/n^2`**
+(measured gap ratios `4.005, 3.970` per doubling) — the second-order-integrator law P2 (ii)
+established, gated on the *order* rather than on a tolerance. `alpha_0` does not move
+under that refinement at all, which is the control: a slice count that changed the linear
+number would mean the refinement was altering the lattice rather than integrating it.
+
+### `transition_gamma`
+
+`gamma_t = 1/sqrt(alpha_c)`, first order by construction — it is a statement about
+`alpha_0`. It **raises** for `alpha_c <= 0` rather than returning `nan`: a
+negative-compaction ring never crosses transition, and a silent `nan` would propagate into
+a synchronous-phase branch. `acceleration.py` had listed transition crossing as explicitly
+out of scope; the energy is now computable, the *crossing* (the phase jump and the
+loss of adiabaticity through it) still is not.
+
+### Out of scope for U1
+
+Transition **crossing** itself. Alpha buckets and quasi-isochronous rings, which need
+`alpha_1` in the longitudinal Hamiltonian rather than merely reported. `alpha_3` and
+beyond, which no installed arbiter can see. And the higher-order *slip factor* series
+`eta(delta)`, which is `alpha(delta)` plus the velocity expansion above and is a
+presentation of the same content — deliberately not shipped as a second spelling.
+
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 
 **The scenario format** (`accsim-scenario/1`, `src/accsim/scenario.py`) is the seam

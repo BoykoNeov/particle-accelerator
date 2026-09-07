@@ -1123,6 +1123,248 @@ def slip_factor(lattice: Lattice, slices: int = 64) -> float:
     return momentum_compaction(lattice, slices) - 1.0 / lattice.ref.gamma0**2
 
 
+@dataclass(frozen=True)
+class CompactionSeries:
+    r"""The ring's path length as a series in ``delta`` — compaction beyond first order.
+
+    :func:`momentum_compaction` answers *how much longer is the orbit, per unit momentum
+    error*, and answers it once, at ``delta = 0``. That is a derivative, and a derivative
+    is the whole story only where the curve is straight. It is not: the closed orbit at
+    ``delta`` is itself nonlinear in ``delta`` (that is :func:`second_order_dispersion`),
+    and the path length is nonlinear in the orbit. So
+
+        C(delta) / C = 1 + alpha_0 delta + alpha_1 delta^2 + alpha_2 delta^3 + ...
+
+    and this object carries the coefficients. ``alpha_0`` is exactly
+    :func:`momentum_compaction`.
+
+    **These are the Taylor coefficients of the path length, not derivatives of the
+    compaction**, and the distinction is a factor. The *local* compaction — the slope a
+    code reports when asked for ``alpha_c`` at finite momentum — is
+
+        d(C/C_0)/ddelta = alpha_0 + 2 alpha_1 delta + 3 alpha_2 delta^2,
+
+    so a code emitting ``d alpha_c / ddelta`` emits ``2 alpha_1``, and one emitting the
+    second derivative emits ``6 alpha_2``. MAD-X PTC does exactly that: ``alpha_c_p`` is
+    ``2 alpha_1`` and ``alpha_c_p2`` is ``6 alpha_2``, both **measured** rather than
+    recalled (``tests/reference/test_compaction_series_ptc.py``, and
+    ``docs/CONVENTIONS.md`` -> *Higher-order momentum compaction*). Same trap as PTC's
+    ``anhx`` being ``dQ/d(2J)``.
+
+    ``alpha_2`` is ``None`` unless third order was asked for, and it is reachable only
+    from the tracked route — the map route stops at second order because
+    :mod:`accsim.taylor` does.
+    """
+
+    alpha_0: float
+    """``d(C/C_0)/ddelta`` at ``delta = 0`` — :func:`momentum_compaction`."""
+    alpha_1: float
+    """The ``delta^2`` coefficient of ``C(delta)/C_0``. PTC's ``alpha_c_p`` is twice it."""
+    alpha_2: float | None = None
+    """The ``delta^3`` coefficient, or ``None``. PTC's ``alpha_c_p2`` is six times it."""
+
+
+def closed_orbit_path_length(
+    lattice: Lattice,
+    delta: float = 0.0,
+    orbit: Sequence[float] | None = None,
+) -> float:
+    r"""The **geometric** length of one turn of the closed orbit at momentum ``delta`` [m].
+
+    Not the circumference: an off-momentum particle rides its dispersion orbit, and where
+    that orbit is curved (or merely tilted) it covers a different distance. This is the
+    quantity :class:`CompactionSeries` expands.
+
+    It is read off ``zeta``, exactly — no path integral, no quadrature. Over one turn the
+    tracked coordinate ``zeta = s - beta_0 c t`` slips by
+
+        Delta zeta = C - (beta_0 / beta) L_path,
+
+    because the particle covers ``L_path`` at its own speed ``beta`` while the reference
+    covers ``C`` at ``beta_0``. Inverting,
+
+        L_path = (C - Delta zeta) * beta / beta_0,
+        beta / beta_0 = (1 + delta) / sqrt(1 + beta_0^2 (2 delta + delta^2)),
+
+    which is exact for ``delta = Delta p / p_0`` — not a paraxial stand-in. Every element
+    in this package already tracks ``zeta`` exactly (axis L), so this inherits that and
+    adds nothing of its own.
+
+    ``orbit`` is the ``(x, px, y, py)`` closed orbit at this ``delta``, solved for with
+    :func:`~accsim.orbit.closed_orbit_nonlinear` when not given. Pass it explicitly for a
+    lattice that has no *linear* closed orbit to solve for — the analytic suite's
+    exactly-solvable ring (a full circle of sector bends, whose vertical tune is zero, so
+    ``I - M4`` is singular) is the case that matters, and it is why this argument exists.
+    """
+    from .orbit import closed_orbit_nonlinear
+    from .tracking import Particle, Tracker
+
+    d = float(delta)
+    ref = lattice.ref
+    co = np.asarray(closed_orbit_nonlinear(lattice, delta=d) if orbit is None else orbit, float)
+    if co.shape != (4,):
+        raise ValueError(f"orbit must be a length-4 (x, px, y, py) vector, got shape {co.shape}")
+    state = Particle(x=co[0], px=co[1], y=co[2], py=co[3], zeta=0.0, delta=d)
+    out = Tracker(lattice).track(state, nonlinear=True)
+    beta_over_beta0 = (1.0 + d) / math.sqrt(1.0 + ref.beta0**2 * (2.0 * d + d * d))
+    return float((lattice.length - out.state[ZETA]) * beta_over_beta0)
+
+
+def _velocity_coefficients(ref: object) -> tuple[float, float]:
+    r"""``(b1, b2)`` of ``beta/beta_0 = 1 + b1 delta + b2 delta^2 + O(delta^3)``.
+
+    Derived, not recalled: from
+    ``beta/beta_0 = (1 + delta) / sqrt(1 + beta_0^2 (2 delta + delta^2))``,
+    differentiating twice at ``delta = 0`` gives
+
+        b1 = 1 - beta_0^2 = 1 / gamma_0^2,      b2 = -3 beta_0^2 / (2 gamma_0^2).
+
+    ``b1`` is the familiar one — the ``1/gamma_0^2`` that turns ``alpha_c`` into the slip
+    factor. ``b2`` is not, and it is *not* any power of ``b1``: it is larger than ``b1``
+    by ``3 beta_0^2 / 2``, so it dominates the velocity's second-order share at every
+    energy above rest. The analytic suite re-derives both with sympy rather than trusting
+    these two lines.
+    """
+    return 1.0 / ref.gamma0**2, -1.5 * ref.beta0**2 / ref.gamma0**2
+
+
+def _series_from_map(lattice: Lattice, step: float | np.ndarray) -> tuple[float, float]:
+    """``(alpha_0, alpha_1)`` from the second-order one-turn map — the closed-form route."""
+    from .taylor import second_order_one_turn_map
+
+    tm = second_order_one_turn_map(lattice, step=step)
+    R, T, C = tm.R, tm.T, lattice.length
+    w = _TRANSVERSE
+    eye_minus_R = np.eye(4) - R[np.ix_(w, w)]
+    # First order: the dispersion, (I - R_ww) D = R_{w,delta}.
+    disp = np.linalg.solve(eye_minus_R, R[w, DELTA])
+    # Second order: the *same* linear operator, driven by the map's own curvature T.
+    drive = (
+        np.einsum("ijk,j,k->i", T[np.ix_(w, w, w)], disp, disp)
+        + 2.0 * T[np.ix_(w, w)][:, :, DELTA] @ disp
+        + T[w, DELTA, DELTA]
+    )
+    half_dd = np.linalg.solve(eye_minus_R, drive)  # 1/2 d^2 (x, px, y, py) / ddelta^2
+    # The zeta slip per turn, to the same two orders.
+    g1 = R[ZETA, w] @ disp + R[ZETA, DELTA]
+    g2 = (
+        R[ZETA, w] @ half_dd
+        + np.einsum("jk,j,k->", T[ZETA][np.ix_(w, w)], disp, disp)
+        + 2.0 * T[ZETA, w, DELTA] @ disp
+        + T[ZETA, DELTA, DELTA]
+    )
+    b1, b2 = _velocity_coefficients(lattice.ref)
+    return b1 - g1 / C, b2 - (g1 / C) * b1 - g2 / C
+
+
+def _series_tracked(lattice: Lattice, h: float, order: int) -> tuple[float, float, float | None]:
+    """``(alpha_0, alpha_1, alpha_2)`` by differencing the tracked path length."""
+    circumference = lattice.length
+
+    def f(d: float) -> float:
+        return closed_orbit_path_length(lattice, d) / circumference - 1.0
+
+    samples = []
+    for step in (h, 0.5 * h):
+        fp, fm = f(+step), f(-step)
+        odd, even = 0.5 * (fp - fm), 0.5 * (fp + fm)
+        # odd/step = alpha_0 + alpha_2 step^2 + ...;  even/step^2 = alpha_1 + O(step^2).
+        samples.append((odd / step, even / step**2))
+    (a0_h, a1_h), (a0_half, a1_half) = samples
+    alpha_0 = (4.0 * a0_half - a0_h) / 3.0  # Richardson: both errors are O(step^2)
+    alpha_1 = (4.0 * a1_half - a1_h) / 3.0
+    alpha_2 = 4.0 * (a0_h - a0_half) / (3.0 * h * h) if order >= 3 else None
+    return alpha_0, alpha_1, alpha_2
+
+
+def momentum_compaction_series(
+    lattice: Lattice,
+    *,
+    order: int = 2,
+    method: str = "map",
+    step: float | np.ndarray = 5e-4,
+    h: float = 1e-3,
+) -> CompactionSeries:
+    r"""The path-length series ``C(delta)/C = 1 + alpha_0 delta + alpha_1 delta^2 + ...``.
+
+    Two routes, and they are genuinely independent — which is the point, because the
+    quantity has no closed form on a general lattice and a plausible wrong answer is easy
+    to produce.
+
+    ``"map"`` (default; ``order <= 2``)
+        Closed form from the **second-order one-turn Taylor map** (:mod:`accsim.taylor`).
+        The off-momentum orbit is *solved for* rather than tracked to: substituting
+        ``w = D delta + 1/2 E delta^2`` into the fixed-point condition gives the same
+        linear operator ``I - R_ww`` at both orders, driven at second order by the map's
+        own curvature ``T``. The ``zeta`` row of the map then reads off the slip, and the
+        velocity factor converts it to a length. No Newton iteration, and no differencing
+        beyond the one :func:`~accsim.taylor.taylor_expand` already does per element.
+
+    ``"tracked"`` (``order <= 3``)
+        The empirical route: track the nonlinear closed orbit at ``+-h`` and ``+-h/2``,
+        take :func:`closed_orbit_path_length`, and split the result into even and odd
+        parts. The even part is ``alpha_1`` with the odd orders removed *exactly*; the odd
+        part carries ``alpha_0`` and ``alpha_2``. Both are Richardson-extrapolated, since
+        both errors are ``O(h^2)``. This is the only route that reaches ``alpha_2``.
+
+    The two share ``Element.track`` and the definition of ``zeta``, and nothing else: one
+    goes through the closed-orbit Newton solver and finite differences in ``delta``, the
+    other through per-element expansion, the composition rule and two linear solves. They
+    agree to ``~4e-6`` relative on the analytic suite's probe ring, which is the tracked
+    route's own differencing floor rather than a disagreement.
+
+    **What this is measured against.** MAD-X PTC's ``alpha_c_p`` and ``alpha_c_p2`` are
+    ``2 alpha_1`` and ``6 alpha_2`` (see :class:`CompactionSeries`), and they are the only
+    external check this quantity has. Scanning ``xtrack``'s ``twiss(delta0=...)`` or
+    MAD-X's ``twiss, deltap=`` and differencing the reported ``alpha_c`` does **not** give
+    ``2 alpha_1``: those arguments re-reference the machine rather than move along its
+    off-momentum closed orbit, and on the probe ring they miss by factors of about 3 and
+    120 respectively. Recorded in ``docs/CONVENTIONS.md`` so a future session does not
+    read that disagreement as a bug.
+    """
+    if method not in ("map", "tracked"):
+        raise ValueError(f"method must be 'map' or 'tracked', got {method!r}")
+    if order not in (1, 2, 3):
+        raise ValueError(f"order must be 1, 2 or 3, got {order!r}")
+    if order == 3 and method == "map":
+        raise ValueError(
+            "order=3 needs method='tracked': the map route stops at alpha_1 because "
+            "accsim.taylor is a second-order expansion, and alpha_2 is third order"
+        )
+    if method == "map":
+        alpha_0, alpha_1 = _series_from_map(lattice, step)
+        return CompactionSeries(alpha_0=alpha_0, alpha_1=alpha_1)
+    alpha_0, alpha_1, alpha_2 = _series_tracked(lattice, h, order)
+    return CompactionSeries(alpha_0=alpha_0, alpha_1=alpha_1, alpha_2=alpha_2)
+
+
+def transition_gamma(lattice: Lattice, slices: int = 64) -> float:
+    r"""The transition energy ``gamma_t = 1 / sqrt(alpha_c)`` of a periodic ``lattice``.
+
+    The Lorentz factor at which the slip factor ``eta = alpha_c - 1/gamma_0^2`` vanishes:
+    below it a higher-momentum particle arrives *earlier* (the velocity wins), above it
+    *later* (the longer path wins), and the synchronous phase must jump between the two.
+    A ring is "below transition" when ``gamma_0 < gamma_t``.
+
+    First order by construction — it is a statement about ``alpha_0``, which
+    :func:`momentum_compaction` supplies. The energy at which a *particular* off-momentum
+    particle sees zero slip is a different, momentum-dependent question, and that is what
+    :func:`momentum_compaction_series` is for.
+
+    Raises :class:`ValueError` for ``alpha_c <= 0``: a negative-compaction ring never
+    crosses transition and has no real ``gamma_t`` to report. Returning ``nan`` would let
+    that pass silently into a synchronous-phase branch.
+    """
+    alpha_c = momentum_compaction(lattice, slices)
+    if alpha_c <= 0.0:
+        raise ValueError(
+            f"no transition energy: alpha_c = {alpha_c!r} is not positive, so eta = "
+            "alpha_c - 1/gamma0^2 is negative at every energy and the ring is above "
+            "transition at all of them"
+        )
+    return 1.0 / math.sqrt(alpha_c)
+
+
 def synchrotron_tune(lattice: Lattice, slices: int = 64) -> float:
     r"""Small-amplitude synchrotron tune ``Qs`` of a periodic ``lattice`` with RF.
 
