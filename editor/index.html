@@ -1,0 +1,1419 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>accsim Lattice Editor</title>
+<meta name="description" content="Compose an accelerator lattice element by element and watch its linear optics, orbit and floor plan update live; export it as an accsim scenario or Python.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --ground: #e9ecf0;
+    --panel: #ffffff;
+    --panel-2: #f3f5f8;
+    --ink: #1b2430;
+    --ink-2: #566170;
+    --ink-3: #8a93a0;
+    --line: #d3d9e1;
+    --line-2: #e6eaef;
+    --accent: #1f6f8b;
+    --accent-ink: #ffffff;
+    --accent-soft: #d9ecf2;
+    --good: #0ca30c;
+    --warn: #c98500;
+    --bad: #d03b3b;
+    --bx: #2a78d6;
+    --by: #eb6834;
+    --dx: #4a3aa7;
+    --orbit-x: #2a78d6;
+    --orbit-y: #eb6834;
+    --c-dipole: #2a78d6;
+    --c-quad: #d0453f;
+    --c-sext: #1a9a5a;
+    --c-oct: #d99a00;
+    --c-skew: #c9509a;
+    --c-sol: #6a5acd;
+    --c-rf: #0f9aa3;
+    --c-corr: #6c7684;
+    --c-wig: #e8772e;
+    --c-ap: #2c3440;
+    --c-drift: #b8c0ca;
+    --shadow: 0 1px 2px rgba(20, 30, 45, 0.08), 0 6px 18px rgba(20, 30, 45, 0.06);
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-cond: "IBM Plex Sans Condensed", "IBM Plex Sans", "Arial Narrow", sans-serif;
+    --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #121519;
+      --panel: #1b1f26;
+      --panel-2: #22272f;
+      --ink: #e6e9ee;
+      --ink-2: #a5aeba;
+      --ink-3: #6f7987;
+      --line: #2f3641;
+      --line-2: #272d36;
+      --accent: #4fb3c9;
+      --accent-ink: #0e1a1f;
+      --accent-soft: #1f3a44;
+      --bx: #3987e5;
+      --by: #d95926;
+      --dx: #9085e9;
+      --orbit-x: #3987e5;
+      --orbit-y: #d95926;
+      --c-dipole: #3987e5;
+      --c-quad: #e0574f;
+      --c-sext: #22b06a;
+      --c-oct: #e0a31a;
+      --c-skew: #d76bb0;
+      --c-sol: #8c7ff0;
+      --c-rf: #22b5bf;
+      --c-corr: #8d97a5;
+      --c-wig: #f08a45;
+      --c-ap: #c9d1dc;
+      --c-drift: #3b434e;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #121519;
+    --panel: #1b1f26;
+    --panel-2: #22272f;
+    --ink: #e6e9ee;
+    --ink-2: #a5aeba;
+    --ink-3: #6f7987;
+    --line: #2f3641;
+    --line-2: #272d36;
+    --accent: #4fb3c9;
+    --accent-ink: #0e1a1f;
+    --accent-soft: #1f3a44;
+    --bx: #3987e5;
+    --by: #d95926;
+    --dx: #9085e9;
+    --orbit-x: #3987e5;
+    --orbit-y: #d95926;
+    --c-dipole: #3987e5;
+    --c-quad: #e0574f;
+    --c-sext: #22b06a;
+    --c-oct: #e0a31a;
+    --c-skew: #d76bb0;
+    --c-sol: #8c7ff0;
+    --c-rf: #22b5bf;
+    --c-corr: #8d97a5;
+    --c-wig: #f08a45;
+    --c-ap: #c9d1dc;
+    --c-drift: #3b434e;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 13px/1.45 var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .label {
+    font-family: var(--font-cond);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  #app {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 236px minmax(480px, 1fr) 340px;
+    grid-template-rows: 50px 1fr 30px;
+    grid-template-areas: "head head head" "palette work inspect" "status status status";
+    gap: 1px;
+    background: var(--line);
+  }
+  #app > * { background: var(--panel); min-height: 0; min-width: 0; }
+  @media (max-width: 1100px) {
+    #app {
+      height: auto;
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto auto auto auto;
+      grid-template-areas: "head" "work" "palette" "inspect" "status";
+    }
+    #work { min-height: 640px; }
+  }
+
+  /* ---- header ---- */
+  header {
+    grid-area: head;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 16px;
+  }
+  header .brand { display: flex; align-items: baseline; gap: 8px; margin-right: 6px; }
+  header .brand strong { font-family: var(--font-cond); font-weight: 600; font-size: 17px; letter-spacing: 0.02em; }
+  header .brand span { color: var(--ink-3); font-size: 12px; }
+  #name {
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 15px;
+    font-weight: 500;
+    min-width: 200px;
+    max-width: 380px;
+  }
+  #name:hover, #name:focus { border-color: var(--line); background: var(--panel-2); }
+  header .spacer { flex: 1; }
+  .btn {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 5px;
+    padding: 5px 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--panel-2); }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.danger:hover { color: var(--bad); border-color: var(--bad); }
+  .btn.sm { padding: 3px 7px; font-size: 12px; }
+  .group { display: flex; gap: 6px; align-items: center; }
+  select.btn { padding-right: 24px; }
+
+  /* ---- palette ---- */
+  #palette { grid-area: palette; overflow: auto; padding: 12px 12px 20px; }
+  #palette h2 { margin: 12px 0 6px; }
+  .pal-grid { display: grid; grid-template-columns: 1fr; gap: 4px; }
+  .pal {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 10px;
+    align-items: center;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 6px;
+    padding: 5px 6px;
+    text-align: left;
+  }
+  .pal:hover { background: var(--panel-2); border-color: var(--line); }
+  .pal svg { width: 34px; height: 26px; display: block; }
+  .pal b { display: block; font-weight: 500; }
+  .pal small { display: block; color: var(--ink-3); font-size: 11px; line-height: 1.2; }
+
+  /* ---- workspace ---- */
+  #work { grid-area: work; display: flex; flex-direction: column; overflow: hidden; }
+  #summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+    gap: 1px;
+    background: var(--line-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .tile { background: var(--panel); padding: 8px 12px 7px; min-height: 58px; }
+  .tile .label { display: block; margin-bottom: 2px; }
+  .tile .v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 17px; line-height: 1.15; }
+  .tile .u { color: var(--ink-3); font-size: 11px; margin-left: 3px; font-family: var(--font-body); }
+  .tile .sub { display: block; color: var(--ink-3); font-size: 11px; font-family: var(--font-mono); margin-top: 1px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 999px; padding: 3px 9px 3px 7px;
+    font-family: var(--font-cond); font-weight: 600; font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase;
+    background: var(--panel-2); border: 1px solid var(--line);
+  }
+  .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+  .chip.good::before { background: var(--good); }
+  .chip.warn::before { background: var(--warn); }
+  .chip.bad::before { background: var(--bad); }
+  .tile.tune { grid-row: span 1; }
+  .tile.tune svg { width: 100%; height: 44px; display: block; }
+
+  #tabs { display: flex; align-items: center; gap: 2px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); }
+  .tab {
+    border: 1px solid transparent; border-bottom: none; background: transparent;
+    padding: 6px 12px; border-radius: 6px 6px 0 0;
+    color: var(--ink-2); font-family: var(--font-cond); font-weight: 600; font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .tab[aria-selected="true"] { background: var(--panel-2); border-color: var(--line); color: var(--ink); margin-bottom: -1px; padding-bottom: 7px; }
+  #tabs .spacer { flex: 1; }
+  #tabs .zoom { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 11.5px; padding-bottom: 6px; }
+  #tabs input[type="range"] { width: 120px; }
+
+  #plotarea { flex: 1; min-height: 0; position: relative; display: flex; background: var(--panel-2); }
+  #yaxis { flex: 0 0 60px; }
+  #yaxis svg { display: block; width: 60px; }
+  #plotscroll { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; }
+  #plot { display: block; }
+  #plotarea svg text { font-family: var(--font-mono); font-size: 10.5px; fill: var(--ink-2); }
+  #plotarea .grid { stroke: var(--line); stroke-width: 1; }
+  #plotarea .axis { stroke: var(--ink-3); stroke-width: 1; }
+  #plotarea .curve { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  #plotarea .area { opacity: 0.12; }
+  #plotarea .elem { cursor: pointer; }
+  #plotarea .elem.sel .body { stroke: var(--accent); stroke-width: 2; }
+  #plotarea .elem .hit { fill: transparent; }
+  #plotarea .elem:hover .hit { fill: var(--accent); fill-opacity: 0.08; }
+  #plotarea .beamline { stroke: var(--ink-3); stroke-width: 1; }
+  #plotarea .drop { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; }
+  #plotarea .paneltitle { font-family: var(--font-cond); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; fill: var(--ink-3); }
+  #plotarea .legend text { font-family: var(--font-body); fill: var(--ink-2); font-size: 11px; }
+  #plotarea .crosshair { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 3 3; pointer-events: none; }
+  #tooltip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow);
+    padding: 6px 9px; font-size: 11.5px; min-width: 130px; z-index: 3;
+  }
+  #tooltip b { font-weight: 500; }
+  #tooltip .row { display: flex; justify-content: space-between; gap: 12px; }
+  #tooltip .row span:first-child { color: var(--ink-2); }
+  #tooltip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 0; }
+  #plotmsg {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center;
+    padding: 24px; color: var(--ink-2); z-index: 2; pointer-events: none;
+  }
+  #plotmsg div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; max-width: 420px; box-shadow: var(--shadow); pointer-events: auto; }
+  #plotmsg b { color: var(--ink); }
+  #floor, #matrix { position: absolute; inset: 0; overflow: auto; }
+  #floor svg { display: block; width: 100%; height: 100%; }
+  #floor .seg { stroke-width: 5; stroke-linecap: butt; fill: none; cursor: pointer; }
+  #floor .seg.sel { stroke: var(--accent); stroke-width: 8; }
+  #floor .seg:hover { opacity: 0.7; }
+  #floor .thin { cursor: pointer; }
+  #floor text { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-2); }
+  #matrix { padding: 16px 20px; }
+  table.mat { border-collapse: collapse; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; margin: 6px 0 18px; }
+  table.mat th { color: var(--ink-3); font-weight: 500; padding: 3px 10px; text-align: right; }
+  table.mat td { padding: 3px 10px; text-align: right; border-top: 1px solid var(--line-2); }
+  table.mat td.z { color: var(--ink-3); }
+  #matrix h3 { margin: 6px 0 2px; font-size: 13px; font-weight: 500; }
+  #matrix p { color: var(--ink-2); margin: 0 0 10px; max-width: 62ch; }
+
+  /* ---- inspector ---- */
+  #inspector { grid-area: inspect; display: flex; flex-direction: column; overflow: hidden; }
+  #inspector section { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  #inspector section h2 { margin: 0 0 8px; display: flex; align-items: center; justify-content: space-between; }
+  #inspector section h2 .label { font-size: 11.5px; }
+  .field { display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px; align-items: center; margin: 4px 0; }
+  .field label { color: var(--ink-2); }
+  .field label small { color: var(--ink-3); font-family: var(--font-mono); font-size: 10.5px; margin-left: 4px; }
+  .field input[type="number"], .field input[type="text"], .field select {
+    width: 100%; border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 4px 7px;
+    font-family: var(--font-mono); font-size: 12.5px;
+  }
+  .field input[type="number"]:focus { border-color: var(--accent); }
+  .field input.err { border-color: var(--bad); }
+  .field .aside { grid-column: 2; color: var(--ink-3); font-size: 11px; font-family: var(--font-mono); margin-top: -2px; }
+  .field .inline { display: flex; gap: 6px; align-items: center; }
+  .field .inline input { flex: 1; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+  .seg button { border: none; background: transparent; padding: 4px 10px; color: var(--ink-2); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  .ops { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0 2px; }
+  .ops .btn { font-size: 12px; padding: 4px 8px; }
+  .ops .rep { display: inline-flex; align-items: center; gap: 4px; }
+  .ops .rep input { width: 52px; border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; font-family: var(--font-mono); background: var(--panel); }
+  .readout { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; color: var(--ink-2); font-size: 12px; margin-top: 6px; }
+  .readout span:nth-child(even) { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); text-align: right; }
+  #elhead { display: flex; align-items: center; gap: 8px; }
+  #elhead svg { width: 30px; height: 22px; }
+  #elhead .type { color: var(--ink-3); font-size: 12px; }
+  .errs { color: var(--bad); font-size: 12px; margin-top: 6px; }
+  .empty { color: var(--ink-3); font-size: 12px; }
+
+  #seqwrap { flex: 1; min-height: 120px; display: flex; flex-direction: column; overflow: hidden; }
+  #seqwrap h2 { padding: 10px 14px 6px; margin: 0; display: flex; justify-content: space-between; align-items: center; }
+  #seq { list-style: none; margin: 0; padding: 0 0 12px; overflow: auto; flex: 1; }
+  #seq li {
+    display: grid; grid-template-columns: 30px 12px 1fr auto 62px; gap: 8px; align-items: center;
+    padding: 3px 14px; cursor: pointer; border-left: 3px solid transparent; font-size: 12px;
+  }
+  #seq li:hover { background: var(--panel-2); }
+  #seq li.sel { background: var(--accent-soft); border-left-color: var(--accent); }
+  #seq li .idx { color: var(--ink-3); font-family: var(--font-mono); font-size: 11px; }
+  #seq li .dot { width: 10px; height: 10px; border-radius: 2px; }
+  #seq li .nm { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #seq li .ty { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+  #seq li .ln { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 11.5px; }
+  #seq li.err .nm { color: var(--bad); }
+
+  /* ---- status ---- */
+  footer { grid-area: status; display: flex; align-items: center; gap: 14px; padding: 0 14px; font-size: 12px; color: var(--ink-2); overflow: hidden; white-space: nowrap; }
+  footer .msg { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  footer .msg.bad { color: var(--bad); }
+  footer .msg.good { color: var(--good); }
+  footer kbd { font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; background: var(--panel-2); }
+
+  /* ---- dialogs ---- */
+  dialog {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink);
+    box-shadow: var(--shadow); padding: 18px 20px; width: min(760px, 92vw);
+  }
+  dialog::backdrop { background: rgba(10, 14, 20, 0.45); }
+  dialog h2 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+  dialog p { margin: 0 0 12px; color: var(--ink-2); max-width: 70ch; }
+  dialog textarea {
+    width: 100%; height: 320px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2);
+    font-family: var(--font-mono); font-size: 12px; padding: 10px; resize: vertical; white-space: pre; overflow: auto;
+  }
+  dialog .row { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+  dialog .row .spacer { flex: 1; }
+  dialog .note { font-size: 12px; color: var(--ink-3); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .tile .v { transition: color 0.2s; }
+  }
+</style>
+
+<div id="app">
+  <header>
+    <div class="brand"><strong>accsim</strong><span>lattice editor</span></div>
+    <input id="name" type="text" value="untitled" aria-label="Machine name" spellcheck="false">
+    <div class="group">
+      <select id="presets" class="btn" aria-label="Load a preset"></select>
+      <button class="btn" id="btn-new">New</button>
+      <button class="btn" id="btn-import">Import</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group">
+      <button class="btn" id="btn-undo" title="Undo (Ctrl+Z)">Undo</button>
+      <button class="btn" id="btn-redo" title="Redo (Ctrl+Y)">Redo</button>
+      <button class="btn" id="btn-share" title="Copy a link that carries this machine">Share link</button>
+      <button class="btn" id="btn-python">Python</button>
+      <button class="btn primary" id="btn-export">Export JSON</button>
+    </div>
+  </header>
+
+  <aside id="palette" aria-label="Element palette">
+    <h2 class="label">Magnets</h2>
+    <div class="pal-grid" id="pal-magnets"></div>
+    <h2 class="label">Beamline</h2>
+    <div class="pal-grid" id="pal-beamline"></div>
+  </aside>
+
+  <main id="work">
+    <div id="summary"></div>
+    <nav id="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="optics">Optics</button>
+      <button class="tab" role="tab" data-tab="envelope">Beam size</button>
+      <button class="tab" role="tab" data-tab="orbit">Orbit</button>
+      <button class="tab" role="tab" data-tab="floor">Floor plan</button>
+      <button class="tab" role="tab" data-tab="matrix">Matrices</button>
+      <div class="spacer"></div>
+      <div class="zoom"><span>zoom</span><input id="zoom" type="range" min="1" max="12" step="0.5" value="1" aria-label="Horizontal zoom"></div>
+    </nav>
+    <div id="plotarea">
+      <div id="yaxis"><svg></svg></div>
+      <div id="plotscroll"><svg id="plot"></svg><div id="tooltip"></div></div>
+      <div id="plotmsg"><div></div></div>
+      <div id="floor" hidden></div>
+      <div id="matrix" hidden></div>
+    </div>
+  </main>
+
+  <aside id="inspector" aria-label="Inspector">
+    <section id="machine"></section>
+    <section id="element"></section>
+    <div id="seqwrap">
+      <h2><span class="label">Sequence</span><span class="label" id="seqcount"></span></h2>
+      <ul id="seq"></ul>
+    </div>
+  </aside>
+
+  <footer>
+    <span class="msg" id="status"></span>
+    <span><kbd>Del</kbd> remove · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>Shift</kbd>+<kbd>←</kbd><kbd>→</kbd> move · drag glyphs to reorder</span>
+  </footer>
+</div>
+
+<dialog id="dlg-export">
+  <h2 id="dlg-export-title">Export</h2>
+  <p id="dlg-export-text"></p>
+  <textarea id="dlg-export-body" spellcheck="false"></textarea>
+  <div class="row">
+    <span class="note" id="dlg-export-note"></span>
+    <span class="spacer"></span>
+    <button class="btn" id="dlg-export-download">Download</button>
+    <button class="btn primary" id="dlg-export-copy">Copy</button>
+    <button class="btn" id="dlg-export-close">Close</button>
+  </div>
+</dialog>
+
+<dialog id="dlg-import">
+  <h2>Import a scenario</h2>
+  <p>Paste an <span class="mono">accsim-scenario/1</span> JSON document, or pick a file. The whole machine is replaced; undo brings the previous one back.</p>
+  <textarea id="dlg-import-body" spellcheck="false" placeholder='{"format": "accsim-scenario/1", "reference": {...}, "elements": [...]}'></textarea>
+  <div class="row">
+    <input type="file" id="dlg-import-file" accept=".json,application/json">
+    <span class="spacer"></span>
+    <span class="note" id="dlg-import-err"></span>
+    <button class="btn primary" id="dlg-import-ok">Import</button>
+    <button class="btn" id="dlg-import-close">Cancel</button>
+  </div>
+</dialog>
+
+<script src="accsim-optics.js"></script>
+<script src="presets.js"></script>
+<script>
+(function () {
+  "use strict";
+  const O = window.AccsimOptics;
+  const PRESETS = window.ACCSIM_PRESETS;
+  const TWO_PI = 2 * Math.PI;
+  const STORE_KEY = "accsim-editor:v1";
+
+  // ------------------------------------------------------------- element catalogue (UI side)
+  const TYPES = {
+    Dipole: { label: "Dipole", hint: "sector bend, optional gradient and pole faces", color: "--c-dipole", group: "magnets",
+      make: () => ({ length: 2.0, angle: 0.1, k1: 0, e1: 0, e2: 0 }) },
+    Quadrupole: { label: "Quadrupole", hint: "thick, k₁ > 0 focuses horizontally", color: "--c-quad", group: "magnets",
+      make: () => ({ length: 0.5, k1: 0.5 }) },
+    ThinQuadrupole: { label: "Thin quadrupole", hint: "integrated strength k₁L", color: "--c-quad", group: "magnets",
+      make: () => ({ k1l: 0.2 }) },
+    Sextupole: { label: "Sextupole", hint: "thick, chromaticity correction", color: "--c-sext", group: "magnets",
+      make: () => ({ length: 0.2, k2: 1.0 }) },
+    ThinSextupole: { label: "Thin sextupole", hint: "integrated strength k₂L", color: "--c-sext", group: "magnets",
+      make: () => ({ k2l: 0.5 }) },
+    Octupole: { label: "Octupole", hint: "thick, amplitude detuning", color: "--c-oct", group: "magnets",
+      make: () => ({ length: 0.2, k3: 10.0 }) },
+    ThinOctupole: { label: "Thin octupole", hint: "integrated strength k₃L", color: "--c-oct", group: "magnets",
+      make: () => ({ k3l: 5.0 }) },
+    SkewQuadrupole: { label: "Skew quadrupole", hint: "couples the planes", color: "--c-skew", group: "magnets",
+      make: () => ({ length: 0.3, k1s: 0.1 }) },
+    ThinSkewQuadrupole: { label: "Thin skew quad", hint: "integrated k₁ₛL", color: "--c-skew", group: "magnets",
+      make: () => ({ k1sl: 0.05 }) },
+    Solenoid: { label: "Solenoid", hint: "field along the beam", color: "--c-sol", group: "magnets",
+      make: () => ({ length: 1.0, ks: 0.2 }) },
+    Wiggler: { label: "Wiggler", hint: "periodic field, focuses vertically", color: "--c-wig", group: "magnets",
+      make: () => ({ period: 0.1, h0: 0.2, periods: 10 }) },
+    Drift: { label: "Drift", hint: "field-free space", color: "--c-drift", group: "beamline",
+      make: () => ({ length: 1.0 }) },
+    RFCavity: { label: "RF cavity", hint: "longitudinal focusing", color: "--c-rf", group: "beamline",
+      make: () => ({ voltage: 1e6, harmonic: 100, phi_s: 0 }) },
+    Corrector: { label: "Corrector", hint: "constant steering kick", color: "--c-corr", group: "beamline",
+      make: () => ({ kick_x: 1e-4, kick_y: 0 }) },
+    Aperture: { label: "Aperture", hint: "beam-pipe limit", color: "--c-ap", group: "beamline",
+      make: () => ({ shape: "circular", half_x: 0.02, half_y: 0.02, length: 0 }) },
+    Collimator: { label: "Collimator", hint: "jaws, with a length", color: "--c-ap", group: "beamline",
+      make: () => ({ shape: "rectangular", half_x: 0.01, half_y: 0.01, length: 0.001 }) },
+  };
+  const NAME_PREFIX = { Dipole: "B", Quadrupole: "Q", ThinQuadrupole: "Q", Sextupole: "S", ThinSextupole: "S", Octupole: "O", ThinOctupole: "O",
+    SkewQuadrupole: "QS", ThinSkewQuadrupole: "QS", Solenoid: "SOL", Wiggler: "W", Drift: "D", RFCavity: "RF", Corrector: "C", Aperture: "AP", Collimator: "COL" };
+
+  const LEN = { key: "length", label: "length", unit: "m", step: 0.1 };
+  const FIELDS = {
+    Drift: [LEN],
+    Quadrupole: [LEN, { key: "k1", label: "k₁", unit: "1/m²", step: 0.01 }],
+    ThinQuadrupole: [{ key: "k1l", label: "k₁L", unit: "1/m", step: 0.01 }],
+    Dipole: [LEN, { key: "angle", label: "angle", unit: "rad", step: 0.001, aside: (v) => `${fmt(v * 1e3, 4)} mrad · ${fmt(v * 180 / Math.PI, 4)}°` },
+      { key: "k1", label: "k₁", unit: "1/m²", step: 0.01 }, { key: "e1", label: "e₁ (entry)", unit: "rad", step: 0.001 }, { key: "e2", label: "e₂ (exit)", unit: "rad", step: 0.001 }],
+    Sextupole: [LEN, { key: "k2", label: "k₂", unit: "1/m³", step: 0.1 }],
+    ThinSextupole: [{ key: "k2l", label: "k₂L", unit: "1/m²", step: 0.1 }],
+    Octupole: [LEN, { key: "k3", label: "k₃", unit: "1/m⁴", step: 1 }],
+    ThinOctupole: [{ key: "k3l", label: "k₃L", unit: "1/m³", step: 1 }],
+    SkewQuadrupole: [LEN, { key: "k1s", label: "k₁ₛ", unit: "1/m²", step: 0.01 }],
+    ThinSkewQuadrupole: [{ key: "k1sl", label: "k₁ₛL", unit: "1/m", step: 0.01 }],
+    Solenoid: [LEN, { key: "ks", label: "kₛ", unit: "rad/m", step: 0.01 }],
+    RFCavity: [{ key: "voltage", label: "voltage", unit: "V", step: 1e5, aside: (v) => `${fmt(v / 1e6, 4)} MV` }, { key: "phi_s", label: "φₛ", unit: "rad", step: 0.01 }],
+    Corrector: [{ key: "kick_x", label: "kick x", unit: "rad", step: 1e-5 }, { key: "kick_y", label: "kick y", unit: "rad", step: 1e-5 }],
+    Wiggler: [{ key: "period", label: "period", unit: "m", step: 0.01 }, { key: "periods", label: "periods", unit: "", step: 1 }, { key: "h0", label: "h₀", unit: "1/m", step: 0.01 }],
+    Aperture: [{ key: "half_x", label: "half x", unit: "m", step: 0.001 }, { key: "half_y", label: "half y", unit: "m", step: 0.001 }, LEN],
+    Collimator: [{ key: "half_x", label: "half x", unit: "m", step: 0.001 }, { key: "half_y", label: "half y", unit: "m", step: 0.001 }, LEN],
+  };
+
+  // ------------------------------------------------------------- state
+  const state = { scenario: null, sel: [], anchor: null, tab: "optics", zoom: 1, result: null, hoverS: null };
+  const history = [], future = [];
+  const $ = (id) => document.getElementById(id);
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  function fmt(x, sig) {
+    if (x == null || !Number.isFinite(x)) return "—";
+    if (x === 0) return "0";
+    const a = Math.abs(x);
+    if (a >= 1e5 || a < 1e-3) return x.toExponential(Math.max(0, (sig || 4) - 1));
+    return String(+x.toPrecision(sig || 4));
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  function blankScenario() {
+    return { format: "accsim-scenario/1", name: "untitled", periodic: true,
+      reference: { species: "proton", energy_mode: "total", energy_eV: 10e9 },
+      beam: { emit_x: 1e-6, emit_y: 1e-6, sigma_delta: 1e-3 }, elements: [] };
+  }
+  function normalise(sc) {
+    const out = Object.assign(blankScenario(), sc);
+    out.reference = Object.assign({ species: "proton", energy_mode: "total", energy_eV: 10e9 }, sc.reference || {});
+    out.beam = Object.assign({ emit_x: 1e-6, emit_y: 1e-6, sigma_delta: 1e-3 }, sc.beam || {});
+    out.initial_twiss = Object.assign({ beta_x: 10, alpha_x: 0, beta_y: 10, alpha_y: 0, disp_x: 0, disp_px: 0 }, sc.initial_twiss || {});
+    out.elements = (sc.elements || []).map((e) => Object.assign({}, e));
+    delete out.id;
+    return out;
+  }
+  function exportable(sc) {
+    const out = { format: "accsim-scenario/1", name: sc.name, description: sc.description || undefined, periodic: sc.periodic, reference: sc.reference };
+    if (!sc.periodic) out.initial_twiss = sc.initial_twiss;
+    out.beam = sc.beam;
+    out.elements = sc.elements.map((e) => {
+      const r = { type: e.type };
+      if (e.name) r.name = e.name;
+      const spec = O.CATALOGUE[e.type];
+      for (const p of spec.params.concat(spec.optional || [], spec.text || [], spec.flags || [], spec.align || [])) {
+        if (e[p] === undefined || e[p] === null || e[p] === "") continue;
+        if ((spec.align || []).includes(p) && +e[p] === 0) continue;
+        if ((spec.flags || []).includes(p) && !e[p]) continue;
+        if (e.type === "RFCavity" && p === "frequency" && e.harmonic != null && e.harmonic !== "") continue;
+        r[p] = (spec.text || []).includes(p) ? e[p] : ((spec.flags || []).includes(p) ? !!e[p] : +e[p]);
+      }
+      return r;
+    });
+    if (out.description === undefined) delete out.description;
+    return out;
+  }
+
+  // ------------------------------------------------------------- history
+  function snapshot() { return JSON.stringify(state.scenario); }
+  function pushHistory(snap) { history.push(snap || snapshot()); if (history.length > 200) history.shift(); future.length = 0; }
+  function commit(fn, msg) { pushHistory(); fn(); afterChange(msg); }
+  function undo() { if (!history.length) return; future.push(snapshot()); state.scenario = JSON.parse(history.pop()); clampSel(); afterChange("Undone"); renderInspector(); }
+  function redo() { if (!future.length) return; history.push(snapshot()); state.scenario = JSON.parse(future.pop()); clampSel(); afterChange("Redone"); renderInspector(); }
+  function clampSel() { state.sel = state.sel.filter((i) => i < state.scenario.elements.length); }
+
+  function afterChange(msg) {
+    recompute();
+    renderAll();
+    save();
+    if (msg) status(msg);
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ scenario: state.scenario, tab: state.tab })); } catch (e) { /* storage unavailable */ }
+  }
+  function status(msg, kind) { const el = $("status"); el.textContent = msg || ""; el.className = "msg" + (kind ? " " + kind : ""); }
+
+  // ------------------------------------------------------------- compute
+  function recompute() {
+    const sc = state.scenario;
+    const L = sc.elements.reduce((s, e) => s + O.elementLength(e), 0);
+    const step = Math.max(0.02, L / 900);
+    state.result = O.analyse(sc, { plotStep: step });
+  }
+
+  // ------------------------------------------------------------- glyphs
+  function glyphSVG(el, x, w, yMid, hh, opts) {
+    const t = el.type, c = `var(${TYPES[t].color})`;
+    const thin = O.elementLength(el) === 0;
+    const k = +(el.k1 ?? el.k1l ?? el.k2 ?? el.k2l ?? el.k3 ?? el.k3l ?? 0);
+    const up = k >= 0;
+    if (thin) { x = x - 3.5; w = 7; }
+    const body = (h, dy) => `<rect class="body" x="${x}" y="${yMid - (up ? h : 0) + (dy || 0)}" width="${w}" height="${h}" fill="${c}"/>`;
+    switch (t) {
+      case "Drift": return "";
+      case "Dipole": return `<rect class="body" x="${x}" y="${yMid - hh * 0.72}" width="${w}" height="${hh * 1.44}" fill="${c}" rx="1"/>`;
+      case "Quadrupole": case "ThinQuadrupole": return body(hh);
+      case "Sextupole": case "ThinSextupole": return body(hh * 0.62);
+      case "Octupole": case "ThinOctupole": return body(hh * 0.46);
+      case "SkewQuadrupole": case "ThinSkewQuadrupole":
+        return `<rect class="body" x="${x}" y="${yMid - hh * 0.5}" width="${w}" height="${hh}" fill="${c}" transform="skewX(-18)" transform-origin="${x + w / 2} ${yMid}"/>`;
+      case "Solenoid":
+        return `<rect class="body" x="${x}" y="${yMid - hh * 0.5}" width="${w}" height="${hh}" fill="${c}" rx="3"/>` +
+          [0.3, 0.5, 0.7].map((f) => `<line x1="${x + 2}" x2="${x + w - 2}" y1="${yMid - hh * 0.5 + hh * f}" y2="${yMid - hh * 0.5 + hh * f}" stroke="${css("--panel")}" stroke-width="1"/>`).join("");
+      case "Wiggler": {
+        const n = Math.max(2, Math.min(24, Math.round(w / 6)));
+        let pts = "";
+        for (let i = 0; i <= n; i++) pts += `${x + (w * i) / n},${yMid + (i % 2 ? -1 : 1) * hh * 0.35} `;
+        return `<rect class="body" x="${x}" y="${yMid - hh * 0.7}" width="${w}" height="${hh * 1.4}" fill="${c}" fill-opacity="0.25" stroke="${c}"/><polyline points="${pts}" fill="none" stroke="${c}" stroke-width="1.5"/>`;
+      }
+      case "RFCavity": return `<ellipse class="body" cx="${x + w / 2}" cy="${yMid}" rx="${Math.max(5, w / 2)}" ry="${hh * 0.62}" fill="${c}"/>`;
+      case "Corrector": return `<line class="body" x1="${x + w / 2}" x2="${x + w / 2}" y1="${yMid - hh * 0.8}" y2="${yMid + hh * 0.8}" stroke="${c}" stroke-width="2"/><polygon points="${x + w / 2 - 4},${yMid - hh * 0.8} ${x + w / 2 + 4},${yMid - hh * 0.8} ${x + w / 2},${yMid - hh * 0.55}" fill="${c}"/>`;
+      case "Aperture": case "Collimator":
+        return `<rect class="body" x="${x}" y="${yMid - hh * 0.9}" width="${w}" height="${hh * 0.3}" fill="${c}"/><rect x="${x}" y="${yMid + hh * 0.6}" width="${w}" height="${hh * 0.3}" fill="${c}"/>`;
+      default: return body(hh * 0.5);
+    }
+  }
+  function paletteIcon(type) {
+    const el = Object.assign({ type }, TYPES[type].make());
+    if (type === "Drift") return `<svg viewBox="0 0 34 26"><line x1="2" x2="32" y1="13" y2="13" stroke="var(--c-drift)" stroke-width="2"/></svg>`;
+    const thin = O.elementLength(el) === 0;
+    return `<svg viewBox="0 0 34 26"><line x1="0" x2="34" y1="13" y2="13" stroke="var(--line)" stroke-width="1"/>${glyphSVG(el, thin ? 17 : 7, 20, 13, 10)}</svg>`;
+  }
+
+  // ------------------------------------------------------------- palette
+  function renderPalette() {
+    for (const group of ["magnets", "beamline"]) {
+      const host = $("pal-" + group);
+      host.innerHTML = Object.entries(TYPES).filter(([, t]) => t.group === group).map(([type, t]) =>
+        `<button class="pal" data-type="${type}" title="Add ${t.label}">${paletteIcon(type)}<span><b>${t.label}</b><small>${t.hint}</small></span></button>`).join("");
+      host.querySelectorAll(".pal").forEach((b) => b.addEventListener("click", () => addElement(b.dataset.type)));
+    }
+  }
+  function autoName(type) {
+    const prefix = NAME_PREFIX[type] || "E";
+    const used = new Set(state.scenario.elements.map((e) => e.name));
+    for (let i = 1; ; i++) if (!used.has(prefix + i)) return prefix + i;
+  }
+  function addElement(type) {
+    const el = Object.assign({ type, name: autoName(type) }, TYPES[type].make());
+    const at = state.sel.length ? Math.max(...state.sel) + 1 : state.scenario.elements.length;
+    commit(() => { state.scenario.elements.splice(at, 0, el); state.sel = [at]; state.anchor = at; }, `Added ${TYPES[type].label} at position ${at + 1}`);
+    renderInspector();
+    focusFirstField();
+  }
+  function focusFirstField() { const f = document.querySelector("#element input[type=number]"); if (f) { f.focus(); f.select(); } }
+
+  // ------------------------------------------------------------- selection ops
+  function select(i, ev) {
+    const els = state.scenario.elements;
+    if (ev && ev.shiftKey && state.anchor != null) {
+      const [a, b] = [Math.min(state.anchor, i), Math.max(state.anchor, i)];
+      state.sel = []; for (let j = a; j <= b; j++) state.sel.push(j);
+    } else if (ev && (ev.ctrlKey || ev.metaKey)) {
+      state.sel = state.sel.includes(i) ? state.sel.filter((j) => j !== i) : state.sel.concat([i]).sort((p, q) => p - q);
+      state.anchor = i;
+    } else { state.sel = [i]; state.anchor = i; }
+    state.sel = state.sel.filter((j) => j >= 0 && j < els.length);
+    renderAll(); renderInspector();
+  }
+  function deleteSel() {
+    if (!state.sel.length) return;
+    const set = new Set(state.sel);
+    const first = Math.min(...state.sel);
+    commit(() => { state.scenario.elements = state.scenario.elements.filter((_, i) => !set.has(i)); state.sel = state.scenario.elements.length ? [Math.min(first, state.scenario.elements.length - 1)] : []; state.anchor = state.sel[0] ?? null; }, `Removed ${set.size} element${set.size > 1 ? "s" : ""}`);
+    renderInspector();
+  }
+  function duplicateSel(times) {
+    if (!state.sel.length) return;
+    times = Math.max(1, Math.min(200, Math.round(times || 1)));
+    const idx = state.sel.slice().sort((a, b) => a - b);
+    const block = idx.map((i) => clone(state.scenario.elements[i]));
+    const at = idx[idx.length - 1] + 1;
+    commit(() => {
+      const copies = [];
+      for (let t = 0; t < times; t++) copies.push(...clone(block));
+      state.scenario.elements.splice(at, 0, ...copies);
+      state.sel = copies.map((_, k) => at + k); state.anchor = at;
+    }, times > 1 ? `Repeated ${block.length} element${block.length > 1 ? "s" : ""} ×${times}` : "Duplicated");
+    renderInspector();
+  }
+  function mirrorSel() {
+    if (!state.sel.length) return;
+    const idx = state.sel.slice().sort((a, b) => a - b);
+    const block = idx.map((i) => clone(state.scenario.elements[i])).reverse().map((e) => {
+      if (e.type === "Dipole") { const t = e.e1; e.e1 = e.e2; e.e2 = t; }
+      return e;
+    });
+    const at = idx[idx.length - 1] + 1;
+    commit(() => { state.scenario.elements.splice(at, 0, ...block); state.sel = block.map((_, k) => at + k); state.anchor = at; }, "Mirrored the selection after itself");
+    renderInspector();
+  }
+  function moveSel(dir) {
+    if (!state.sel.length) return;
+    const els = state.scenario.elements;
+    const idx = state.sel.slice().sort((a, b) => a - b);
+    if (dir < 0 && idx[0] === 0) return;
+    if (dir > 0 && idx[idx.length - 1] === els.length - 1) return;
+    commit(() => {
+      const order = dir < 0 ? idx : idx.slice().reverse();
+      for (const i of order) { const j = i + dir; [els[i], els[j]] = [els[j], els[i]]; }
+      state.sel = idx.map((i) => i + dir); state.anchor = (state.anchor ?? idx[0]) + dir;
+    }, dir < 0 ? "Moved upstream" : "Moved downstream");
+    renderInspector();
+  }
+  function moveSelTo(boundary) {
+    const els = state.scenario.elements;
+    const set = new Set(state.sel);
+    const block = els.filter((_, i) => set.has(i));
+    const rest = els.filter((_, i) => !set.has(i));
+    const before = els.slice(0, boundary).filter((_, i) => !set.has(i)).length;
+    commit(() => { rest.splice(before, 0, ...block); state.scenario.elements = rest; state.sel = block.map((_, k) => before + k); state.anchor = before; }, "Reordered");
+    renderInspector();
+  }
+
+  // ------------------------------------------------------------- summary tiles
+  function tile(label, value, unit, sub, cls) {
+    return `<div class="tile ${cls || ""}"><span class="label">${label}</span><span class="v">${value}<span class="u">${unit || ""}</span></span>${sub ? `<span class="sub">${sub}</span>` : ""}</div>`;
+  }
+  function tuneDiagram(qx, qy) {
+    const fx = qx - Math.floor(qx), fy = qy - Math.floor(qy);
+    const W = 100, H = 44, pad = 2, sz = H - 2 * pad, x0 = (W - sz) / 2;
+    let lines = "";
+    const seen = new Set();
+    for (let order = 1; order <= 3; order++) {
+      for (let m = -order; m <= order; m++) for (let n = -order; n <= order; n++) {
+        if (Math.abs(m) + Math.abs(n) !== order) continue;
+        for (let p = -order; p <= order; p++) {
+          // m fx + n fy = p, clipped to the unit square
+          const pts = [];
+          const add = (u, v) => { if (u >= -1e-9 && u <= 1 + 1e-9 && v >= -1e-9 && v <= 1 + 1e-9) pts.push([u, v]); };
+          if (n !== 0) { add(0, p / n); add(1, (p - m) / n); }
+          if (m !== 0) { add(p / m, 0); add((p - n) / m, 1); }
+          if (pts.length < 2) continue;
+          const key = pts.map((q) => q.map((v) => v.toFixed(4)).join(",")).sort().join("|");
+          if (seen.has(key)) continue; seen.add(key);
+          const [a, b] = [pts[0], pts[pts.length - 1]];
+          if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6) continue;
+          lines += `<line x1="${x0 + a[0] * sz}" y1="${pad + (1 - a[1]) * sz}" x2="${x0 + b[0] * sz}" y2="${pad + (1 - b[1]) * sz}" stroke="var(--line)" stroke-width="${order === 1 ? 1.2 : 0.7}"/>`;
+        }
+      }
+    }
+    return `<svg viewBox="0 0 ${W} ${H}" aria-label="tune diagram"><rect x="${x0}" y="${pad}" width="${sz}" height="${sz}" fill="var(--panel-2)" stroke="var(--line)"/>${lines}<circle cx="${x0 + fx * sz}" cy="${pad + (1 - fy) * sz}" r="3.2" fill="var(--accent)" stroke="var(--panel)" stroke-width="1.5"/></svg>`;
+  }
+  function renderSummary() {
+    const r = state.result, sc = state.scenario, host = $("summary");
+    if (!r || r.errors.length) {
+      host.innerHTML = tile("Elements", sc.elements.length, "") + `<div class="tile" style="grid-column: span 3"><span class="label">Problems</span><span class="chip bad">${r ? r.errors.length : 0} to fix</span><span class="sub">${esc(r ? r.errors[0] : "")}</span></div>`;
+      return;
+    }
+    const ring = r.periodic;
+    let tiles = tile(ring ? "Circumference" : "Length", fmt(r.length, 6), "m", `${sc.elements.length} elements`);
+    if (ring) {
+      const turns = r.totalAngle / TWO_PI;
+      const closed = Math.abs(r.totalAngle - TWO_PI) < 1e-9 || Math.abs(r.totalAngle) < 1e-12;
+      tiles += tile("Bend closure", fmt(turns, 5), "turns", closed ? (r.totalAngle === 0 ? "no bends" : "Σθ = 2π: closes") : `Σθ − 2π = ${fmt(r.totalAngle - TWO_PI, 3)} rad`);
+    }
+    let stab;
+    if (r.opticsError) stab = `<span class="chip bad">${r.opticsError.code}</span>`;
+    else if (r.coupled) stab = `<span class="chip warn">coupled</span>`;
+    else stab = `<span class="chip good">${ring ? "stable" : "line"}</span>`;
+    const ht = r.halfTrace;
+    tiles += `<div class="tile"><span class="label">${ring ? "Stability" : "Mode"}</span>${stab}<span class="sub">½Tr: ${fmt(ht.x, 3)} · ${fmt(ht.y, 3)}</span></div>`;
+    if (r.tunes) {
+      tiles += tile(ring ? "Tunes Qₓ · Qᵧ" : "Phase advance /2π", `${fmt(r.tunes[0], 5)} · ${fmt(r.tunes[1], 5)}`, "", ring ? `fractional ${fmt(r.tunes[0] % 1, 3)} · ${fmt(r.tunes[1] % 1, 3)}` : "");
+      if (ring) tiles += `<div class="tile tune"><span class="label">Working point</span>${tuneDiagram(r.tunes[0], r.tunes[1])}</div>`;
+    }
+    if (r.chromaticity) tiles += tile("Chromaticity ξₓ · ξᵧ", `${fmt(r.chromaticity[0], 4)} · ${fmt(r.chromaticity[1], 4)}`, "", `natural ${fmt(r.naturalChromaticity[0], 3)} · ${fmt(r.naturalChromaticity[1], 3)}`);
+    if (r.alpha_c != null) tiles += tile("Momentum compaction αc", fmt(r.alpha_c, 4), "", r.gamma_t ? `γₜ = ${fmt(r.gamma_t, 4)} · η = ${fmt(r.eta, 3)}` : `η = ${fmt(r.eta, 3)}`);
+    if (ring) {
+      const rf = sc.elements.some((e) => e.type === "RFCavity");
+      tiles += tile("Synchrotron tune Qₛ", rf ? (r.Qs == null ? '<span class="chip bad">no bucket</span>' : fmt(r.Qs, 4)) : '<span class="empty">no RF</span>', "", rf && r.Qs != null && r.eta != null ? (r.eta > 0 ? "above transition" : "below transition") : "");
+    }
+    if (r.twiss0) {
+      const t = ring ? r.twiss0 : r.twissEnd;
+      tiles += tile(ring ? "β at start" : "β at exit", `${fmt(t.beta_x, 4)} · ${fmt(t.beta_y, 4)}`, "m", `Dₓ = ${fmt(t.disp_x, 3)} m`);
+    }
+    tiles += tile("Beam", `${fmt(r.ref.total_energy_eV / 1e9, 4)}`, "GeV", `${r.ref.species} · γ = ${fmt(r.ref.gamma0, 4)} · Bρ = ${fmt(r.ref.brho, 4)} T·m`);
+    host.innerHTML = tiles;
+  }
+
+  // ------------------------------------------------------------- plots
+  const LAY = { padL: 10, padR: 20, top: 6, synH: 54, gap: 14, mainH: 220, subH: 100, axisH: 24 };
+  function niceTicks(lo, hi, n) {
+    if (!(hi > lo)) { hi = lo + 1; lo = lo - 1; }
+    const span = hi - lo, raw = span / Math.max(1, n);
+    const p = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw) || 10 * p;
+    const out = [];
+    for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9 * span; v += step) out.push(+v.toFixed(12));
+    return out;
+  }
+  function tabPanels() {
+    const r = state.result;
+    const t = state.tab;
+    if (t === "optics") return [
+      { key: "beta", title: "β functions", h: LAY.mainH, unit: "m", series: [
+        { name: "βₓ", color: "var(--bx)", pick: (p) => p.beta_x }, { name: "βᵧ", color: "var(--by)", pick: (p) => p.beta_y }] },
+      { key: "disp", title: "Dispersion", h: LAY.subH, unit: "m", zero: true, series: [
+        { name: "Dₓ", color: "var(--dx)", pick: (p) => p.disp_x }, { name: "Dᵧ", color: "var(--c-skew)", pick: (p) => p.disp_y, onlyIf: r && r.twiss && r.twiss.some((p) => Math.abs(p.disp_y) > 1e-12) }] },
+    ];
+    if (t === "envelope") {
+      const b = state.scenario.beam;
+      return [{ key: "sigma", title: "rms beam size", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, series: [
+        { name: "σₓ", color: "var(--bx)", pick: (p) => 1e3 * Math.sqrt(Math.max(0, b.emit_x * p.beta_x + (b.sigma_delta * p.disp_x) ** 2)) },
+        { name: "σᵧ", color: "var(--by)", pick: (p) => 1e3 * Math.sqrt(Math.max(0, b.emit_y * p.beta_y + (b.sigma_delta * p.disp_y) ** 2)) }] }];
+    }
+    if (t === "orbit") return [{ key: "orbit", title: r && r.periodic ? "closed orbit" : "trajectory", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, orbit: true, series: [
+      { name: "x", color: "var(--orbit-x)", pick: (p) => 1e3 * p.o[0] }, { name: "y", color: "var(--orbit-y)", pick: (p) => 1e3 * p.o[2] }] }];
+    return [];
+  }
+  function plotMessage(html) {
+    const m = $("plotmsg");
+    m.style.display = html ? "flex" : "none";
+    m.firstElementChild.innerHTML = html || "";
+  }
+  function sScale() {
+    const r = state.result;
+    const W = Math.max(200, $("plotscroll").clientWidth * state.zoom);
+    const L = Math.max(1e-9, r ? r.length : 1);
+    const inner = W - LAY.padL - LAY.padR;
+    return { W, sx: (s) => LAY.padL + (s / L) * inner, invert: (x) => ((x - LAY.padL) / inner) * L };
+  }
+  function renderPlot() {
+    const r = state.result, sc = state.scenario;
+    const optTab = ["optics", "envelope", "orbit"].includes(state.tab);
+    $("floor").hidden = state.tab !== "floor";
+    $("matrix").hidden = state.tab !== "matrix";
+    $("yaxis").style.display = optTab ? "" : "none";
+    $("plotscroll").style.display = optTab ? "" : "none";
+    if (state.tab === "floor") { plotMessage(""); renderFloor(); return; }
+    if (state.tab === "matrix") { plotMessage(""); renderMatrix(); return; }
+    const { W, sx } = sScale();
+    // Fill the panel: the main plot takes whatever height the tab area offers.
+    const avail = $("plotarea").clientHeight || 0;
+    const fixed = LAY.top + LAY.synH + LAY.gap + LAY.axisH + (state.tab === "optics" ? LAY.gap + LAY.subH : 0);
+    LAY.mainH = Math.max(160, Math.min(520, avail - fixed - 8 - (state.tab === "optics" ? 0 : LAY.gap + LAY.subH)));
+    const panels = tabPanels();
+    let H = LAY.top + LAY.synH;
+    for (const p of panels) H += LAY.gap + p.h;
+    H += LAY.axisH;
+    const plot = $("plot"), yax = $("yaxis").firstElementChild;
+    plot.setAttribute("width", W); plot.setAttribute("height", H);
+    yax.setAttribute("height", H);
+    let out = "", yout = "";
+    // --- synoptic strip
+    const yMid = LAY.top + LAY.synH / 2, hh = LAY.synH / 2 - 4;
+    out += `<line class="beamline" x1="${LAY.padL}" x2="${W - LAY.padR}" y1="${yMid}" y2="${yMid}"/>`;
+    let s = 0;
+    const bounds = [0];
+    const els = r && r.elements ? r.elements : sc.elements;
+    els.forEach((el, i) => {
+      const L = O.elementLength(el);
+      const x0 = sx(s), x1 = sx(s + L);
+      const sel = state.sel.includes(i) ? " sel" : "";
+      const hit = L > 0 ? `<rect class="hit" x="${x0}" y="${LAY.top}" width="${Math.max(1, x1 - x0)}" height="${LAY.synH}"/>` : `<rect class="hit" x="${x0 - 5}" y="${LAY.top}" width="10" height="${LAY.synH}"/>`;
+      out += `<g class="elem${sel}" data-i="${i}"><title>${esc(el.name || el.type)} · ${TYPES[el.type].label}${L ? ` · ${fmt(L, 4)} m` : ""}</title>${hit}${glyphSVG(el, x0, Math.max(1.5, x1 - x0), yMid, hh)}</g>`;
+      s += L; bounds.push(s);
+    });
+    yout += `<text x="54" y="${yMid + 4}" text-anchor="end" class="paneltitle">lattice</text>`;
+    // --- panels
+    let y = LAY.top + LAY.synH;
+    const pts = r && (state.tab === "orbit" ? r.orbit : r.twiss);
+    plotMessage("");
+    if (!r || r.errors.length) plotMessage(`<b>Nothing to plot yet.</b><br>${esc(r && r.errors.length ? r.errors[0] : "Add elements from the palette.")}`);
+    else if (r.opticsError && state.tab !== "orbit") plotMessage(opticsErrorText(r.opticsError));
+    else if (state.tab === "orbit" && !pts) plotMessage(r.periodic ? "<b>The closed orbit is the design axis.</b><br>Nothing steers it: add a corrector, or displace a magnet (dx, dy) to see the orbit move." : "<b>The trajectory is the design axis.</b><br>Add a corrector kick to see it move.");
+    for (const p of panels) {
+      y += LAY.gap;
+      const series = p.series.filter((sr) => sr.onlyIf !== false);
+      const data = pts ? series.map((sr) => pts.map(sr.pick)) : [];
+      let lo = Infinity, hi = -Infinity;
+      for (const d of data) for (const v of d) { if (v < lo) lo = v; if (v > hi) hi = v; }
+      if (!Number.isFinite(lo)) { lo = 0; hi = 1; }
+      if (p.zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+      if (hi - lo < 1e-12) { hi = lo + 1; }
+      const padY = (hi - lo) * 0.08;
+      lo = p.zero && lo === 0 ? 0 : lo - padY; hi += padY;
+      const sy = (v) => y + p.h - ((v - lo) / (hi - lo)) * p.h;
+      const ticks = niceTicks(lo, hi, Math.max(2, Math.round(p.h / 45)));
+      out += `<rect x="${LAY.padL}" y="${y}" width="${W - LAY.padL - LAY.padR}" height="${p.h}" fill="var(--panel)" stroke="var(--line)"/>`;
+      for (const tv of ticks) { out += `<line class="grid" x1="${LAY.padL}" x2="${W - LAY.padR}" y1="${sy(tv)}" y2="${sy(tv)}"/>`; yout += `<text x="54" y="${sy(tv) + 3.5}" text-anchor="end">${fmt(tv, 3)}</text>`; }
+      if (p.zero && lo < 0 && hi > 0) out += `<line class="axis" x1="${LAY.padL}" x2="${W - LAY.padR}" y1="${sy(0)}" y2="${sy(0)}"/>`;
+      yout += `<text x="54" y="${y + 12}" text-anchor="end" class="paneltitle">${p.unit}</text>`;
+      out += `<text class="paneltitle" x="${LAY.padL + 8}" y="${y + 14}">${p.title}</text>`;
+      // legend
+      let lx = LAY.padL + 8 + p.title.length * 7.2 + 16;
+      out += `<g class="legend">`;
+      series.forEach((sr) => { out += `<rect x="${lx}" y="${y + 7}" width="10" height="3" fill="${sr.color}"/><text x="${lx + 14}" y="${y + 14}">${sr.name}</text>`; lx += 14 + sr.name.length * 7 + 16; });
+      out += `</g>`;
+      if (pts) {
+        series.forEach((sr, k) => {
+          const d = data[k];
+          const path = pts.map((q, i) => `${i ? "L" : "M"}${sx(q.s).toFixed(2)},${sy(d[i]).toFixed(2)}`).join("");
+          if (p.zero) out += `<path class="area" d="${path}L${sx(pts[pts.length - 1].s).toFixed(2)},${sy(0)}L${sx(pts[0].s).toFixed(2)},${sy(0)}Z" fill="${sr.color}"/>`;
+          out += `<path class="curve" d="${path}" stroke="${sr.color}"/>`;
+          // end label
+          const last = d[d.length - 1];
+          out += `<text x="${W - LAY.padR - 4}" y="${Math.min(y + p.h - 3, Math.max(y + 10, sy(last) - 4))}" text-anchor="end">${sr.name} ${fmt(last, 3)}</text>`;
+        });
+      }
+      p._y = y; p._sy = sy; p._lo = lo; p._hi = hi; p._series = series; p._data = data;
+      y += p.h;
+    }
+    // --- s axis
+    const L = r ? r.length : 1;
+    for (const tv of niceTicks(0, L, Math.max(4, Math.round(W / 90)))) {
+      if (tv > L + 1e-9) continue;
+      out += `<line class="axis" x1="${sx(tv)}" x2="${sx(tv)}" y1="${y}" y2="${y + 4}"/><text x="${sx(tv)}" y="${y + 16}" text-anchor="middle">${fmt(tv, 4)}</text>`;
+    }
+    out += `<text x="${W - LAY.padR}" y="${y + 16}" text-anchor="end" class="paneltitle">s [m]</text>`;
+    out += `<g id="cross"></g>`;
+    plot.innerHTML = out;
+    yax.innerHTML = yout;
+    plot._panels = panels; plot._pts = pts; plot._bounds = bounds;
+    plot.querySelectorAll(".elem").forEach((g) => {
+      g.addEventListener("pointerdown", (ev) => beginDrag(ev, +g.dataset.i));
+    });
+  }
+  function opticsErrorText(e) {
+    if (e.code === "unstable") return `<b>No periodic solution.</b><br>${esc(e.message)}. The one-turn map has |½ trace| ≥ 1 in a plane, so no matched β exists. Weaken the focusing or change the cell length; the ½Tr readouts above tell you which plane.`;
+    if (e.code === "coupled") return `<b>The planes are coupled.</b><br>A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant-Snyder optics would be wrong. accsim's <span class="mono">coupled_twiss</span> handles it in Python; the editor shows the geometry, the matrices and the orbit only.`;
+    if (e.code === "resonant") return `<b>Integer tune.</b><br>The dispersion cannot close on an integer tune.`;
+    return `<b>${esc(e.code)}</b><br>${esc(e.message)}`;
+  }
+
+  // drag to reorder inside the synoptic strip; click selects
+  function beginDrag(ev, i) {
+    ev.preventDefault();
+    const plot = $("plot");
+    const startX = ev.clientX, startY = ev.clientY;
+    let dragging = false;
+    const cross = plot.querySelector("#cross");
+    const move = (e) => {
+      if (!dragging && Math.hypot(e.clientX - startX, e.clientY - startY) > 5) {
+        dragging = true;
+        if (!state.sel.includes(i)) { state.sel = [i]; state.anchor = i; renderSeq(); renderInspector(); plot.querySelectorAll(".elem").forEach((g) => g.classList.toggle("sel", +g.dataset.i === i)); }
+      }
+      if (!dragging) return;
+      const b = nearestBoundary(e);
+      const x = sScale().sx(plot._bounds[b]);
+      cross.innerHTML = `<line class="drop" x1="${x}" x2="${x}" y1="${LAY.top}" y2="${LAY.top + LAY.synH}"/>`;
+      cross._b = b;
+    };
+    const up = (e) => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+      if (dragging) { const b = cross._b; cross.innerHTML = ""; if (b != null) moveSelTo(b); }
+      else select(i, e);
+    };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  }
+  function nearestBoundary(e) {
+    const plot = $("plot");
+    const rect = plot.getBoundingClientRect();
+    const sHere = sScale().invert(e.clientX - rect.left);
+    let best = 0, bd = Infinity;
+    plot._bounds.forEach((s, k) => { const d = Math.abs(s - sHere); if (d < bd) { bd = d; best = k; } });
+    return best;
+  }
+  // hover tooltip
+  function onPlotMove(e) {
+    const plot = $("plot"), tip = $("tooltip");
+    if (!plot._pts || !plot._panels.length) { tip.style.display = "none"; return; }
+    const rect = plot.getBoundingClientRect();
+    const sHere = sScale().invert(e.clientX - rect.left);
+    const pts = plot._pts;
+    let lo = 0, hi = pts.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m].s < sHere) lo = m; else hi = m; }
+    const k = Math.abs(pts[lo].s - sHere) < Math.abs(pts[hi].s - sHere) ? lo : hi;
+    const p = pts[k];
+    const x = sScale().sx(p.s);
+    const cross = plot.querySelector("#cross");
+    if (cross && !cross._b) cross.innerHTML = `<line class="crosshair" x1="${x}" x2="${x}" y1="${LAY.top + LAY.synH}" y2="${plot.getAttribute("height") - LAY.axisH}"/>`;
+    const el = p.elem >= 0 ? state.scenario.elements[p.elem] : null;
+    let rows = `<div class="row"><span>s</span><b class="num">${fmt(p.s, 4)} m</b></div>`;
+    if (el) rows += `<div class="row"><span>${esc(TYPES[el.type].label)}</span><b>${esc(el.name || "")}</b></div>`;
+    for (const pn of plot._panels) pn._series.forEach((sr, j) => { rows += `<div class="row"><span><i class="sw" style="background:${sr.color}"></i>${sr.name}</span><b class="num">${fmt(pn._data[j][k], 4)} ${pn.unit}</b></div>`; });
+    if (state.tab === "optics") rows += `<div class="row"><span>αₓ · αᵧ</span><b class="num">${fmt(p.alpha_x, 3)} · ${fmt(p.alpha_y, 3)}</b></div><div class="row"><span>μₓ · μᵧ /2π</span><b class="num">${fmt(p.mu_x / TWO_PI, 4)} · ${fmt(p.mu_y / TWO_PI, 4)}</b></div>`;
+    tip.innerHTML = rows;
+    tip.style.display = "block";
+    const scroll = $("plotscroll");
+    const left = e.clientX - scroll.getBoundingClientRect().left + scroll.scrollLeft + 14;
+    tip.style.left = Math.min(left, scroll.scrollLeft + scroll.clientWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = Math.max(4, e.clientY - rect.top - tip.offsetHeight - 12) + "px";
+  }
+  function onPlotLeave() { $("tooltip").style.display = "none"; const c = $("plot").querySelector("#cross"); if (c && !c._b) c.innerHTML = ""; }
+
+  // ------------------------------------------------------------- floor plan
+  function renderFloor() {
+    const r = state.result, host = $("floor");
+    if (!r || r.errors.length || !r.survey) { host.innerHTML = `<div class="empty" style="padding:20px">Nothing to draw.</div>`; return; }
+    const sv = r.survey, sb = r.surveyBoundaries;
+    const W = host.clientWidth || 600, H = host.clientHeight || 400;
+    let minX = Math.min(...sv.X), maxX = Math.max(...sv.X), minZ = Math.min(...sv.Z), maxZ = Math.max(...sv.Z);
+    const span = Math.max(maxX - minX, maxZ - minZ, 1e-6);
+    const pad = 0.08 * span + 1.0;
+    minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
+    const scale = Math.min((W - 40) / (maxZ - minZ), (H - 40) / (maxX - minX));
+    const cx = 20 + ((W - 40) - (maxZ - minZ) * scale) / 2, cy = 20 + ((H - 40) - (maxX - minX) * scale) / 2;
+    const px = (z) => cx + (z - minZ) * scale, py = (x) => cy + (maxX - x) * scale;
+    let out = "";
+    // grid
+    const gt = niceTicks(minZ, maxZ, 8);
+    for (const g of gt) out += `<line x1="${px(g)}" x2="${px(g)}" y1="${cy}" y2="${cy + (maxX - minX) * scale}" stroke="var(--line-2)"/><text x="${px(g)}" y="${cy + (maxX - minX) * scale + 14}" text-anchor="middle">${fmt(g, 3)}</text>`;
+    for (const g of niceTicks(minX, maxX, 6)) out += `<line y1="${py(g)}" y2="${py(g)}" x1="${cx}" x2="${cx + (maxZ - minZ) * scale}" stroke="var(--line-2)"/><text x="${cx - 4}" y="${py(g) + 3.5}" text-anchor="end">${fmt(g, 3)}</text>`;
+    out += `<text x="${cx + (maxZ - minZ) * scale}" y="${cy + (maxX - minX) * scale + 14}" text-anchor="end" class="paneltitle">Z [m]</text><text x="${cx + 4}" y="${cy + 12}" class="paneltitle">X [m]</text>`;
+    // segments per element, sliced
+    const byElem = new Map();
+    for (let k = 1; k < sv.s.length; k++) { const i = sv.elem[k]; if (!byElem.has(i)) byElem.set(i, []); byElem.get(i).push(k); }
+    const els = r.elements;
+    els.forEach((el, i) => {
+      const ks = byElem.get(i) || [];
+      const sel = state.sel.includes(i) ? " sel" : "";
+      const color = `var(${TYPES[el.type].color})`;
+      const title = `<title>${esc(el.name || el.type)} · ${TYPES[el.type].label}</title>`;
+      if (O.elementLength(el) > 0 && ks.length) {
+        const k0 = ks[0] - 1;
+        const d = [`M${px(sv.Z[k0])},${py(sv.X[k0])}`].concat(ks.map((k) => `L${px(sv.Z[k])},${py(sv.X[k])}`)).join("");
+        out += `<path class="seg${sel}" data-i="${i}" d="${d}" stroke="${color}" ${el.type === "Drift" ? 'stroke-width="2.5"' : ""}>${title}</path>`;
+      } else {
+        const k = sb.elem.indexOf(i);
+        const kk = k >= 0 ? k : 0;
+        out += `<circle class="thin${sel}" data-i="${i}" cx="${px(sb.Z[kk])}" cy="${py(sb.X[kk])}" r="${sel ? 6 : 4}" fill="${color}" stroke="${sel ? "var(--accent)" : "var(--panel)"}" stroke-width="1.5">${title}</circle>`;
+      }
+    });
+    // start marker & closure
+    out += `<circle cx="${px(0)}" cy="${py(0)}" r="4" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.5"/><text x="${px(0) + 8}" y="${py(0) - 6}">s = 0</text>`;
+    if (r.periodic) {
+      const n = sb.X.length - 1;
+      const gap = Math.hypot(sb.X[n], sb.Z[n]);
+      out += `<text x="${cx + (maxZ - minZ) * scale}" y="${cy + 12}" text-anchor="end">closure gap ${fmt(gap, 3)} m · exit angle ${fmt(-sb.theta[n] / TWO_PI, 5)} turns</text>`;
+    }
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
+    host.querySelectorAll("[data-i]").forEach((g) => g.addEventListener("click", (e) => select(+g.dataset.i, e)));
+  }
+
+  // ------------------------------------------------------------- matrices
+  function matTable(M, caption) {
+    const names = ["x", "px", "y", "py", "ζ", "δ"];
+    let h = `<table class="mat"><thead><tr><th></th>${names.map((n) => `<th>${n}</th>`).join("")}</tr></thead><tbody>`;
+    M.forEach((row, i) => { h += `<tr><th>${names[i]}</th>${row.map((v) => `<td class="${Math.abs(v) < 1e-14 ? "z" : ""}">${Math.abs(v) < 1e-14 ? "0" : fmt(v, 5)}</td>`).join("")}</tr>`; });
+    return `<h3>${caption}</h3>${h}</tbody></table>`;
+  }
+  function renderMatrix() {
+    const r = state.result, host = $("matrix");
+    if (!r || r.errors.length) { host.innerHTML = `<p class="empty">Nothing to show.</p>`; return; }
+    let h = `<p>6×6 linear maps on (x, px, y, py, ζ, δ) — the Xsuite / MAD-X ordering, momenta normalised to P₀, δ = Δp/p₀, ζ = s − β₀ct. Elements compose right to left along the beam.</p>`;
+    h += matTable(r.oneTurn, r.periodic ? "One-turn matrix" : "Transfer matrix, entrance to exit");
+    if (r.oneTurnKick.some((v) => v !== 0)) h += `<h3>Constant kick over one pass</h3><p class="mono">(${r.oneTurnKick.map((v) => fmt(v, 4)).join(", ")})</p>`;
+    for (const i of state.sel.slice(0, 3)) {
+      const el = r.elements[i];
+      h += matTable(r.matrices[i], `${esc(el.name || "")} — ${TYPES[el.type].label} (element ${i + 1})`);
+      if (r.kicks[i].some((v) => v !== 0)) h += `<p class="mono">kick (${r.kicks[i].map((v) => fmt(v, 4)).join(", ")})</p>`;
+    }
+    if (!state.sel.length) h += `<p class="empty">Select an element to see its own matrix.</p>`;
+    host.innerHTML = h;
+  }
+
+  // ------------------------------------------------------------- inspector
+  function field(key, label, value, unit, opts) {
+    opts = opts || {};
+    const type = opts.type || "number";
+    const attrs = type === "number" ? `type="number" step="${opts.step || "any"}"` : `type="text"`;
+    return `<div class="field"><label for="f-${key}">${label}${unit ? `<small>${unit}</small>` : ""}</label><input id="f-${key}" ${attrs} data-key="${key}" data-scope="${opts.scope || "element"}" value="${esc(value ?? "")}" ${opts.disabled ? "disabled" : ""}>${opts.aside ? `<div class="aside" data-aside="${key}">${opts.aside}</div>` : ""}</div>`;
+  }
+  function renderMachine() {
+    const sc = state.scenario, ref = sc.reference, r = state.result;
+    const custom = ref.species === "custom" || !O.SPECIES[ref.species];
+    const gev = ref.energy_eV / 1e9;
+    let h = `<h2><span class="label">Machine</span><span class="seg" role="group" aria-label="Ring or line"><button data-periodic="1" aria-pressed="${sc.periodic}">Ring</button><button data-periodic="0" aria-pressed="${!sc.periodic}">Line</button></span></h2>`;
+    h += `<div class="field"><label for="f-species">particle</label><select id="f-species" data-scope="reference" data-key="species"><option value="electron" ${ref.species === "electron" ? "selected" : ""}>electron</option><option value="positron" ${ref.species === "positron" ? "selected" : ""}>positron</option><option value="proton" ${ref.species === "proton" ? "selected" : ""}>proton</option><option value="custom" ${custom ? "selected" : ""}>custom</option></select></div>`;
+    if (custom) { h += field("mass_eV", "mass", ref.mass_eV ?? O.PROTON_MASS_EV, "eV", { scope: "reference" }); h += field("charge", "charge", ref.charge ?? 1, "e", { scope: "reference" }); }
+    h += `<div class="field"><label for="f-energy_mode">energy</label><div class="inline"><select id="f-energy_mode" data-scope="reference" data-key="energy_mode" style="width:auto"><option value="total" ${ref.energy_mode === "total" ? "selected" : ""}>total</option><option value="kinetic" ${ref.energy_mode === "kinetic" ? "selected" : ""}>kinetic</option><option value="momentum" ${ref.energy_mode === "momentum" ? "selected" : ""}>pc</option></select><input id="f-energy_GeV" type="number" step="any" data-scope="reference" data-key="energy_GeV" value="${esc(String(+gev.toPrecision(10)))}" aria-label="energy in GeV"><small class="mono" style="color:var(--ink-3)">GeV</small></div></div>`;
+    if (r && r.ref) h += `<div class="readout"><span>γ₀ · β₀</span><span>${fmt(r.ref.gamma0, 5)} · ${fmt(r.ref.beta0, 7)}</span><span>p₀c</span><span>${fmt(r.ref.momentum_eV / 1e9, 5)} GeV</span><span>Bρ</span><span>${fmt(r.ref.brho, 5)} T·m</span></div>`;
+    if (!sc.periodic) {
+      const t = sc.initial_twiss;
+      h += `<h2 style="margin-top:12px"><span class="label">Entrance Twiss</span></h2>`;
+      h += field("beta_x", "βₓ", t.beta_x, "m", { scope: "twiss" }) + field("alpha_x", "αₓ", t.alpha_x, "", { scope: "twiss" }) + field("beta_y", "βᵧ", t.beta_y, "m", { scope: "twiss" }) + field("alpha_y", "αᵧ", t.alpha_y, "", { scope: "twiss" }) + field("disp_x", "Dₓ", t.disp_x, "m", { scope: "twiss" }) + field("disp_px", "D′ₓ", t.disp_px, "", { scope: "twiss" });
+    }
+    const b = sc.beam;
+    h += `<h2 style="margin-top:12px"><span class="label">Beam (for sizes)</span></h2>`;
+    h += field("emit_x_nm", "εₓ", +(b.emit_x * 1e9).toPrecision(8), "nm·rad", { scope: "beam" }) + field("emit_y_nm", "εᵧ", +(b.emit_y * 1e9).toPrecision(8), "nm·rad", { scope: "beam" }) + field("sigma_delta_pm", "σδ", +(b.sigma_delta * 1e3).toPrecision(8), "×10⁻³", { scope: "beam" });
+    $("machine").innerHTML = h;
+    $("machine").querySelectorAll("[data-periodic]").forEach((btn) => btn.addEventListener("click", () => {
+      const v = btn.dataset.periodic === "1";
+      if (v === state.scenario.periodic) return;
+      commit(() => { state.scenario.periodic = v; }, v ? "Treating the machine as a ring" : "Treating the machine as a line");
+      renderInspector();
+    }));
+    bindFields($("machine"));
+  }
+  function renderElement() {
+    const host = $("element");
+    const sc = state.scenario;
+    if (!state.sel.length) { host.innerHTML = `<h2><span class="label">Element</span></h2><p class="empty">Select an element in the strip, the floor plan or the sequence — or add one from the palette.</p>`; return; }
+    if (state.sel.length > 1) {
+      host.innerHTML = `<h2><span class="label">${state.sel.length} elements selected</span></h2>` + opsHTML();
+      bindOps(host); return;
+    }
+    const i = state.sel[0], el = sc.elements[i], T = TYPES[el.type], spec = O.CATALOGUE[el.type];
+    const errs = O.validateElement(el);
+    let h = `<h2><span id="elhead"><svg viewBox="0 0 34 26"><line x1="0" x2="34" y1="13" y2="13" stroke="var(--line)"/>${glyphSVG(el, O.elementLength(el) ? 7 : 17, 20, 13, 10)}</svg><span><span class="label" style="color:var(--ink)">${T.label}</span><br><span class="type">element ${i + 1} of ${sc.elements.length}${state.result && state.result.twissBoundaries ? ` · s = ${fmt(state.result.twissBoundaries[i].s, 5)} m` : ""}</span></span></span></h2>`;
+    h += field("name", "name", el.name || "", "", { type: "text" });
+    if (el.type === "Aperture" || el.type === "Collimator") {
+      h += `<div class="field"><label for="f-shape">shape</label><select id="f-shape" data-key="shape"><option ${el.shape === "circular" ? "selected" : ""}>circular</option><option ${el.shape === "elliptical" ? "selected" : ""}>elliptical</option><option ${el.shape === "rectangular" ? "selected" : ""}>rectangular</option></select></div>`;
+    }
+    if (el.type === "RFCavity") {
+      const byH = el.harmonic != null && el.harmonic !== "";
+      h += `<div class="field"><label>tune by</label><span class="seg"><button data-rfmode="harmonic" aria-pressed="${byH}">harmonic</button><button data-rfmode="frequency" aria-pressed="${!byH}">frequency</button></span></div>`;
+      if (byH) {
+        const C = state.result ? state.result.length : 0;
+        const f = state.result && state.result.elements ? state.result.elements[i].frequency : 0;
+        h += field("harmonic", "harmonic h", el.harmonic, "", { step: 1, aside: `f = ${fmt(f / 1e6, 6)} MHz for C = ${fmt(C, 5)} m` });
+      } else h += field("frequency", "frequency", el.frequency ?? 0, "Hz", { aside: `${fmt((el.frequency || 0) / 1e6, 6)} MHz` });
+    }
+    for (const f of FIELDS[el.type]) {
+      if (el.type === "RFCavity" && f.key === "frequency") continue;
+      h += field(f.key, f.label, el[f.key] ?? "", f.unit, { step: f.step, aside: f.aside ? f.aside(+el[f.key] || 0) : (f.key === "h0" && state.result && state.result.ref ? `B̂ = ${fmt((+el.h0 || 0) * state.result.ref.brho, 4)} T · L = ${fmt(O.elementLength(el), 4)} m` : "") });
+    }
+    if (el.type === "Dipole") {
+      const rho = el.angle ? el.length / el.angle : Infinity;
+      h += `<div class="field"><label></label><div class="inline"><button class="btn sm" data-act="rect">rectangular faces</button><button class="btn sm" data-act="sector">sector faces</button></div><div class="aside">ρ = ${fmt(rho, 5)} m · h = ${fmt(el.length ? el.angle / el.length : 0, 4)} /m${el.fringe ? " · hard-edge fringe on" : ""}</div></div>`;
+      h += `<div class="field"><label for="f-fringe">fringe</label><div class="inline"><input id="f-fringe" type="checkbox" data-key="fringe" ${el.fringe ? "checked" : ""}><small style="color:var(--ink-3)">hard-edge fringe (tracking only; the linear map is blind to it)</small></div></div>`;
+    }
+    if (spec.align && spec.align.length && !(el.type === "Dipole")) {
+      h += `<h2 style="margin-top:10px"><span class="label">Misalignment</span></h2>`;
+      if (spec.align.includes("dx")) h += field("dx", "dx", el.dx ?? 0, "m", { step: 1e-4 }) + field("dy", "dy", el.dy ?? 0, "m", { step: 1e-4 });
+      if (spec.align.includes("roll")) h += field("roll", "roll", el.roll ?? 0, "rad", { step: 1e-3 });
+    }
+    if (errs.length) h += `<div class="errs">${errs.map(esc).join("<br>")}</div>`;
+    h += opsHTML();
+    host.innerHTML = h;
+    bindFields(host);
+    bindOps(host);
+    host.querySelectorAll("[data-rfmode]").forEach((b) => b.addEventListener("click", () => {
+      const mode = b.dataset.rfmode;
+      commit(() => {
+        const e = state.scenario.elements[i];
+        if (mode === "harmonic") { const C = state.result.length; const f = e.frequency || 0; e.harmonic = Math.max(1, Math.round(f * C / (state.result.ref.beta0 * O.CLIGHT))) || 100; delete e.frequency; }
+        else { e.frequency = state.result.elements[i].frequency; delete e.harmonic; }
+      }, `Cavity set by ${mode}`);
+      renderInspector();
+    }));
+    host.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", () => {
+      const act = b.dataset.act;
+      commit(() => { const e = state.scenario.elements[i]; if (act === "rect") { e.e1 = e.angle / 2; e.e2 = e.angle / 2; } else { e.e1 = 0; e.e2 = 0; } }, act === "rect" ? "Pole faces set to a rectangular bend" : "Pole faces set to a sector bend");
+      renderInspector();
+    }));
+    const fr = host.querySelector("#f-fringe");
+    if (fr) fr.addEventListener("change", () => commit(() => { state.scenario.elements[i].fringe = fr.checked; }, fr.checked ? "Fringe on" : "Fringe off"));
+  }
+  function opsHTML() {
+    return `<div class="ops"><button class="btn" data-op="dup" title="Ctrl+D">Duplicate</button><span class="rep"><button class="btn" data-op="rep">Repeat ×</button><input type="number" min="2" max="200" step="1" value="4" id="rep-n" aria-label="times"></span><button class="btn" data-op="mirror" title="Append the selection reversed">Mirror</button><button class="btn" data-op="left" title="Shift+←">←</button><button class="btn" data-op="right" title="Shift+→">→</button><button class="btn danger" data-op="del" title="Delete">Remove</button></div>`;
+  }
+  function bindOps(host) {
+    host.querySelectorAll("[data-op]").forEach((b) => b.addEventListener("click", () => {
+      const op = b.dataset.op;
+      if (op === "dup") duplicateSel(1); else if (op === "rep") duplicateSel(+$("rep-n").value); else if (op === "mirror") mirrorSel();
+      else if (op === "left") moveSel(-1); else if (op === "right") moveSel(1); else if (op === "del") deleteSel();
+    }));
+  }
+  function bindFields(host) {
+    host.querySelectorAll("input[data-key], select[data-key]").forEach((inp) => {
+      let before = null;
+      inp.addEventListener("focus", () => { before = snapshot(); });
+      const apply = (final) => {
+        const key = inp.dataset.key, scope = inp.dataset.scope || "element";
+        const raw = inp.type === "number" ? (inp.value === "" ? "" : +inp.value) : inp.value;
+        if (inp.type === "number" && inp.value !== "" && !Number.isFinite(raw)) { inp.classList.add("err"); return; }
+        inp.classList.remove("err");
+        if (scope === "element") { const el = state.scenario.elements[state.sel[0]]; if (!el) return; el[key] = raw; }
+        else if (scope === "reference") {
+          const ref = state.scenario.reference;
+          if (key === "energy_GeV") ref.energy_eV = raw === "" ? 0 : raw * 1e9;
+          else if (key === "species") { ref.species = raw; if (raw === "custom") { ref.mass_eV = ref.mass_eV ?? O.PROTON_MASS_EV; ref.charge = ref.charge ?? 1; } else { delete ref.mass_eV; delete ref.charge; } }
+          else ref[key] = raw;
+        } else if (scope === "twiss") state.scenario.initial_twiss[key] = raw === "" ? 0 : raw;
+        else if (scope === "beam") { const b = state.scenario.beam; if (key === "emit_x_nm") b.emit_x = raw * 1e-9; else if (key === "emit_y_nm") b.emit_y = raw * 1e-9; else if (key === "sigma_delta_pm") b.sigma_delta = raw * 1e-3; }
+        recompute(); renderAll();
+        // live asides
+        const el = state.scenario.elements[state.sel[0]];
+        host.querySelectorAll("[data-aside]").forEach((a) => {
+          const f = el && FIELDS[el.type].find((ff) => ff.key === a.dataset.aside);
+          if (f && f.aside) a.textContent = f.aside(+el[f.key] || 0);
+          else if (a.dataset.aside === "h0" && el && state.result.ref) a.textContent = `B̂ = ${fmt((+el.h0 || 0) * state.result.ref.brho, 4)} T · L = ${fmt(O.elementLength(el), 4)} m`;
+          else if (a.dataset.aside === "harmonic" && state.result && state.result.elements) a.textContent = `f = ${fmt(state.result.elements[state.sel[0]].frequency / 1e6, 6)} MHz for C = ${fmt(state.result.length, 5)} m`;
+          else if (a.dataset.aside === "frequency" && el) a.textContent = `${fmt((el.frequency || 0) / 1e6, 6)} MHz`;
+        });
+        if (final) { if (before !== null && before !== snapshot()) { history.push(before); future.length = 0; } before = snapshot(); save(); if (inp.tagName === "SELECT" || key === "name" || key === "shape") renderInspector(); }
+      };
+      inp.addEventListener("input", () => apply(false));
+      inp.addEventListener("change", () => apply(true));
+    });
+  }
+  function renderSeq() {
+    const sc = state.scenario, r = state.result;
+    const host = $("seq");
+    const errIdx = new Set();
+    if (r && r.errors.length) r.errors.forEach((m) => { const mm = /#(\d+):/.exec(m); if (mm) errIdx.add(+mm[1] - 1); });
+    host.innerHTML = sc.elements.map((el, i) => `<li data-i="${i}" class="${state.sel.includes(i) ? "sel" : ""}${errIdx.has(i) ? " err" : ""}"><span class="idx">${i + 1}</span><span class="dot" style="background:var(${TYPES[el.type].color})"></span><span class="nm">${esc(el.name || "")}</span><span class="ty">${TYPES[el.type].label}</span><span class="ln">${O.elementLength(el) ? fmt(O.elementLength(el), 4) + " m" : "thin"}</span></li>`).join("");
+    $("seqcount").textContent = `${sc.elements.length} · ${fmt(r ? r.length : 0, 5)} m`;
+    host.querySelectorAll("li").forEach((li) => li.addEventListener("click", (e) => select(+li.dataset.i, e)));
+    const selLi = host.querySelector("li.sel");
+    if (selLi && state.sel.length === 1) selLi.scrollIntoView({ block: "nearest" });
+  }
+  function renderInspector() { renderMachine(); renderElement(); renderSeq(); }
+  function renderAll() {
+    renderSummary(); renderPlot(); renderSeq();
+    $("btn-undo").disabled = !history.length; $("btn-redo").disabled = !future.length;
+    $("name").value = state.scenario.name || "";
+    document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === state.tab)));
+    $("zoom").parentElement.style.visibility = ["optics", "envelope", "orbit"].includes(state.tab) ? "" : "hidden";
+  }
+
+  // ------------------------------------------------------------- import / export
+  function toPython(sc) {
+    const r = state.result, ref = sc.reference;
+    const py = (v) => { const s = String(+v); return /[.e]/.test(s) ? s : s + ".0"; };
+    const q = (s) => JSON.stringify(s);
+    const massExpr = { electron: "ac.ELECTRON_MASS_EV", positron: "ac.ELECTRON_MASS_EV", proton: "ac.PROTON_MASS_EV" }[ref.species] || py(ref.mass_eV);
+    const charge = O.SPECIES[ref.species] ? O.SPECIES[ref.species].charge : (ref.charge ?? 1);
+    const ctor = { total: "from_total_energy", kinetic: "from_kinetic_energy", momentum: "from_momentum" }[ref.energy_mode || "total"];
+    const L = [];
+    L.push(`"""${sc.name} — exported from the accsim lattice editor.`);
+    if (sc.description) L.push("", sc.description);
+    L.push('', 'The same machine as data: ac.load_scenario("<file>.accsim.json").lattice', '"""', "", "import accsim as ac", "");
+    L.push(`ref = ac.ReferenceParticle.${ctor}(${massExpr}, ${py(ref.energy_eV)}, charge=${py(charge)})`);
+    L.push(`CIRCUMFERENCE = ${py(r ? r.length : 0)}  # m, total length of the sequence below`, "", "elements = [");
+    for (const e of sc.elements) {
+      const name = e.name ? `, name=${q(e.name)}` : "";
+      const al = ["dx", "dy", "roll"].filter((k) => +e[k]).map((k) => `, ${k}=${py(e[k])}`).join("");
+      let line;
+      switch (e.type) {
+        case "Drift": line = `ac.Drift(${py(e.length)}${name}${al})`; break;
+        case "Quadrupole": line = `ac.Quadrupole(${py(e.length)}, ${py(e.k1)}${name}${al})`; break;
+        case "ThinQuadrupole": line = `ac.ThinQuadrupole(${py(e.k1l)}${name}${al})`; break;
+        case "Dipole": line = `ac.Dipole(${py(e.length)}, ${py(e.angle)}${+e.k1 ? `, k1=${py(e.k1)}` : ""}${+e.e1 ? `, e1=${py(e.e1)}` : ""}${+e.e2 ? `, e2=${py(e.e2)}` : ""}${name}${e.fringe ? ", fringe=True" : ""}${al})`; break;
+        case "Sextupole": line = `ac.Sextupole(${py(e.length)}, ${py(e.k2)}${name}${al})`; break;
+        case "ThinSextupole": line = `ac.ThinSextupole(${py(e.k2l)}${name}${al})`; break;
+        case "Octupole": line = `ac.Octupole(${py(e.length)}, ${py(e.k3)}${name}${al})`; break;
+        case "ThinOctupole": line = `ac.ThinOctupole(${py(e.k3l)}${name}${al})`; break;
+        case "SkewQuadrupole": line = `ac.SkewQuadrupole(${py(e.length)}, ${py(e.k1s)}${name}${al})`; break;
+        case "ThinSkewQuadrupole": line = `ac.ThinSkewQuadrupole(${py(e.k1sl)}${name}${al})`; break;
+        case "Solenoid": line = `ac.Solenoid(${py(e.length)}, ${py(e.ks)}${name}${al})`; break;
+        case "RFCavity": line = e.harmonic != null && e.harmonic !== "" ? `ac.RFCavity.from_harmonic(${py(e.voltage)}, ${Math.round(e.harmonic)}, CIRCUMFERENCE, ref, phi_s=${py(e.phi_s || 0)}${name})` : `ac.RFCavity(${py(e.voltage)}, ${py(e.frequency || 0)}, phi_s=${py(e.phi_s || 0)}${name})`; break;
+        case "Corrector": line = `ac.Corrector(${py(e.kick_x || 0)}, ${py(e.kick_y || 0)}${name}${al})`; break;
+        case "Wiggler": line = `ac.Wiggler(${py(e.period)}, ${py(e.h0)}, ${Math.round(e.periods)}${name}${al})`; break;
+        case "Aperture": case "Collimator": line = `ac.${e.type}(${q(e.shape)}, ${py(e.half_x)}${e.half_y != null && e.half_y !== "" ? `, ${py(e.half_y)}` : ""}, length=${py(e.length || 0)}${name})`; break;
+        default: line = `# unsupported ${e.type}`;
+      }
+      L.push(`    ${line},`);
+    }
+    L.push("]", "lattice = ac.Lattice(elements, ref)", "");
+    if (sc.periodic) {
+      L.push("tw = ac.closed_twiss(lattice)", 'print("tunes", ac.tunes(lattice))', 'print("chromaticity", ac.chromaticity(lattice))', 'print("momentum compaction", ac.momentum_compaction(lattice))');
+      if (sc.elements.some((e) => e.type === "RFCavity")) L.push('print("synchrotron tune", ac.synchrotron_tune(lattice))');
+    } else {
+      const t = sc.initial_twiss;
+      L.push(`tw0 = ac.Twiss(0.0, ${py(t.beta_x)}, ${py(t.alpha_x)}, 0.0, ${py(t.beta_y)}, ${py(t.alpha_y)}, 0.0, ${py(t.disp_x)}, ${py(t.disp_px)})`, "points = ac.propagate_twiss(lattice, tw0)", 'print("exit beta", points[-1].beta_x, points[-1].beta_y)');
+    }
+    return L.join("\n") + "\n";
+  }
+  function fileStem() { return (state.scenario.name || "machine").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "machine"; }
+  function openExport(kind) {
+    const dlg = $("dlg-export");
+    const isPy = kind === "python";
+    const text = isPy ? toPython(state.scenario) : JSON.stringify(exportable(state.scenario), null, 2) + "\n";
+    $("dlg-export-title").textContent = isPy ? "Python script" : "Scenario JSON";
+    $("dlg-export-text").innerHTML = isPy ? "The same machine built with the package's classes. Run it in the project environment; every number the editor shows is what these calls compute." : `Save this as <span class="mono">${fileStem()}.accsim.json</span> and open it in Python with <span class="mono">ac.load_scenario(path).lattice</span>, or import it back here.`;
+    $("dlg-export-body").value = text;
+    $("dlg-export-note").textContent = `${text.length.toLocaleString()} characters`;
+    dlg._filename = fileStem() + (isPy ? ".py" : ".accsim.json");
+    dlg._mime = isPy ? "text/x-python" : "application/json";
+    dlg.showModal();
+  }
+  async function copyText(text, okMsg) {
+    try { await navigator.clipboard.writeText(text); status(okMsg || "Copied", "good"); return true; }
+    catch (e) { status("Copy blocked by the browser — select the text and copy it by hand", "bad"); return false; }
+  }
+  async function download(text, name, mime) {
+    // Published on claude.ai the page cannot start a download itself; the viewer's
+    // `downloads` capability saves the file after the viewer confirms. Elsewhere
+    // (a local copy of this file) a plain blob link does the job.
+    let saver = null;
+    if (window.claude && typeof window.claude.use === "function") {
+      try { saver = await window.claude.use("downloads"); } catch (e) { saver = null; }
+    }
+    if (saver) {
+      const fname = /\.(json|txt|md|html|csv)$/i.test(name) ? name : name + ".txt";
+      try { await saver.save({ filename: fname, data: text }); status(`Saved ${fname}`, "good"); }
+      catch (e) { if (e && e.code === "declined") status("Save cancelled"); else status(`Could not save: ${(e && e.message) || e}`, "bad"); }
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    status(`Download started: ${name} (if nothing arrived, this page's host blocks downloads — use Copy)`);
+  }
+  function importText(text) {
+    let data;
+    try { data = JSON.parse(text); } catch (e) { throw new Error("not valid JSON: " + e.message); }
+    if (!data || typeof data !== "object") throw new Error("the document is not an object");
+    if (data.format && data.format !== "accsim-scenario/1") throw new Error(`unsupported format ${data.format}`);
+    if (!Array.isArray(data.elements)) throw new Error('missing an "elements" list');
+    for (const [i, e] of data.elements.entries()) if (!O.CATALOGUE[e.type]) throw new Error(`element ${i + 1}: unknown type ${e.type}`);
+    loadScenario(data, `Imported "${data.name || "untitled"}"`);
+  }
+  function loadScenario(data, msg) {
+    pushHistory();
+    state.scenario = normalise(data);
+    state.sel = []; state.anchor = null;
+    afterChange(msg);
+    renderInspector();
+  }
+  function shareLink() {
+    const json = JSON.stringify(exportable(state.scenario));
+    const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const url = location.href.split("#")[0] + "#s=" + b64;
+    copyText(url, `Link copied (${(url.length / 1024).toFixed(1)} kB) — it carries the whole machine`);
+  }
+  function fromHash() {
+    const m = /#s=([A-Za-z0-9_-]+)/.exec(location.hash);
+    if (!m) return null;
+    try { const b64 = m[1].replace(/-/g, "+").replace(/_/g, "/"); return JSON.parse(decodeURIComponent(escape(atob(b64)))); } catch (e) { return null; }
+  }
+
+  // ------------------------------------------------------------- wiring
+  function wire() {
+    $("presets").innerHTML = `<option value="">Presets…</option>` + PRESETS.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+    $("presets").addEventListener("change", () => {
+      const p = PRESETS.find((x) => x.id === $("presets").value);
+      if (p) loadScenario(clone(p), `Loaded preset "${p.name}"`);
+      $("presets").value = "";
+    });
+    $("btn-new").addEventListener("click", () => loadScenario(blankScenario(), "New empty machine — add elements from the palette"));
+    $("btn-undo").addEventListener("click", undo);
+    $("btn-redo").addEventListener("click", redo);
+    $("btn-export").addEventListener("click", () => openExport("json"));
+    $("btn-python").addEventListener("click", () => openExport("python"));
+    $("btn-share").addEventListener("click", shareLink);
+    $("btn-import").addEventListener("click", () => { $("dlg-import-err").textContent = ""; $("dlg-import-body").value = ""; $("dlg-import").showModal(); });
+    $("name").addEventListener("change", () => commit(() => { state.scenario.name = $("name").value; }, "Renamed"));
+    $("dlg-export-close").addEventListener("click", () => $("dlg-export").close());
+    $("dlg-export-copy").addEventListener("click", () => copyText($("dlg-export-body").value, "Copied to the clipboard"));
+    $("dlg-export-download").addEventListener("click", () => download($("dlg-export-body").value, $("dlg-export")._filename, $("dlg-export")._mime));
+    $("dlg-import-close").addEventListener("click", () => $("dlg-import").close());
+    $("dlg-import-ok").addEventListener("click", () => {
+      try { importText($("dlg-import-body").value); $("dlg-import").close(); }
+      catch (e) { $("dlg-import-err").textContent = e.message; $("dlg-import-err").style.color = "var(--bad)"; }
+    });
+    $("dlg-import-file").addEventListener("change", () => {
+      const f = $("dlg-import-file").files[0]; if (!f) return;
+      const rd = new FileReader(); rd.onload = () => { $("dlg-import-body").value = rd.result; }; rd.readAsText(f);
+    });
+    document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => { state.tab = t.dataset.tab; renderAll(); save(); }));
+    $("zoom").addEventListener("input", () => { state.zoom = +$("zoom").value; renderPlot(); });
+    const scroll = $("plotscroll");
+    scroll.addEventListener("pointermove", onPlotMove);
+    scroll.addEventListener("pointerleave", onPlotLeave);
+    window.addEventListener("resize", () => renderPlot());
+    window.addEventListener("keydown", (e) => {
+      const tag = (e.target.tagName || "").toLowerCase();
+      const typing = tag === "input" || tag === "textarea" || tag === "select";
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
+      if (typing) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); duplicateSel(1); return; }
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSel(); return; }
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const d = e.key === "ArrowLeft" ? -1 : 1;
+        if (e.shiftKey) moveSel(d);
+        else if (state.sel.length) select(Math.max(0, Math.min(state.scenario.elements.length - 1, (state.anchor ?? state.sel[0]) + d)));
+        else if (state.scenario.elements.length) select(0);
+      }
+      if (e.key === "Escape") { state.sel = []; renderAll(); renderInspector(); }
+    });
+  }
+
+  function boot() {
+    renderPalette();
+    wire();
+    let data = fromHash(), msg = "Loaded the machine carried by this link";
+    if (!data) {
+      try { const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); if (saved && saved.scenario) { data = saved.scenario; state.tab = saved.tab || "optics"; msg = "Restored your last machine"; } } catch (e) { /* ignore */ }
+    }
+    if (!data) { data = clone(PRESETS.find((p) => p.id === "electron-ring")); msg = "Loaded the electron storage ring preset — pick another under Presets"; }
+    state.scenario = normalise(data);
+    recompute(); renderAll(); renderInspector(); status(msg);
+    if (location.hash) history.length = 0;
+  }
+  boot();
+})();
+</script>

@@ -9504,6 +9504,63 @@ accessor plus a slicing model, a milestone of its own); undulator spectra and co
 are light-source physics rather than beam dynamics; and any claim about a limit under slicing
 that was not measured.
 
+## Scenario files and the lattice editor (implemented 2026-09-07)
+
+**The scenario format** (`accsim-scenario/1`, `src/accsim/scenario.py`) is the seam
+between the browser editor (`editor/index.html`) and the package. A file is a flat JSON
+document: `reference` (species or explicit mass/charge, an energy and how it is meant —
+`total`, `kinetic` or `momentum`), `periodic` (ring or line), and an `elements` list in
+which every record is `{"type": <class name in accsim.elements>, ...constructor
+arguments...}` in that class's own units (SI: m, rad, eV, V, Hz). Two conveniences and
+no others:
+
+- an `RFCavity` may carry `"harmonic": h` instead of `"frequency"`; the frequency is then
+  `h beta0 c / C` with `C` the **total length of the element list, cavity included** —
+  exactly `RFCavity.from_harmonic`. Both readers (Python and JavaScript) apply the same
+  rule, and a test pins it against a hand-computed circumference.
+- `species` names `electron`, `positron`, `proton` (mass, charge **and** anomalous
+  moment, so a scenario ring can be handed to the spin code); `custom` gives `mass_eV`
+  and `charge` explicitly. `scenario_from_lattice` names the species back when the mass
+  and charge match one, so a round trip is a fixed point.
+
+`initial_twiss` (a line's entrance Twiss) and `beam` (emittances and momentum spread for
+the editor's size plot) round-trip through the package untouched; the package does not
+consume them.
+
+**What loads is what every optics call accepts.** accsim refuses a *displaced bending*
+dipole only when its kick is asked for (K1); the loader refuses it at load time, so a
+scenario that loads never blows up three calls later. Misalignment keys (`dx`, `dy`,
+`roll`) are written only when non-zero, and only for the types whose constructor takes
+them (not `RFCavity`, `Aperture`, `Collimator`).
+
+**The editor's optics is a port, not a second opinion.** `editor/accsim-optics.js`
+reproduces, entry for entry, each element's `_matrix_body` and `_kick_body`, the
+alignment conjugation (`s_rotation`, `(I - M) d`), `match_periodic`,
+`propagate_twiss` (including the `dmu < 0` wrap), `natural_chromaticity` and
+`_sextupole_feeddown` with their 64-fold trapezoids, `momentum_compaction` on the exact
+identity route, the lumped `synchrotron_tune`, the 4D `closed_orbit` and the planar
+`survey`. `tests/analytic/test_scenario.py` runs the file under Node on every bundled
+preset and compares all of those to the package at `rtol = 1e-9`; Node absent → the
+cross-check **skips**, it does not pass. **Any change to an element's linear map in
+Python must be mirrored in the JavaScript** — that test is what says so. The JS also
+refuses what the package refuses: a coupled one-turn map (off-block norm above 1e-9)
+reports `coupled` where `match_periodic` raises `CoupledLatticeError`, and a rolled or
+displaced bend is rejected at validation (the editor does not carry K2's curved
+rigid-body geometry; roll a bend in Python).
+
+**Plotting slices are exact.** For the curves the editor splits every thick element into
+sub-slices of the same closed-form map — a bend's pole faces stay on its first and last
+slice, a wiggler's fractional-length slice is legal there because its matrix and kick
+are both linear in `L` — so the boundary values are bit-for-bit those of the unsliced
+element and only the curve between them gains points.
+
+**Build products stay out of the tree.** `scripts/build_editor.py` inlines the two
+scripts into one self-contained HTML file (default output under `W:/temp/claude`);
+`editor/presets.js` is *generated* by `scripts/make_presets.py` (fully expanded — a
+24-cell ring is 216 records — so the JSON needs no expansion rule) and is read as JSON
+by taking the text after `var ACCSIM_PRESETS = ` up to the closing `];`. The header
+comment must not be parsed, which is why the reader anchors on the declaration line.
+
 ## Toolchain / environment notes
 
 - **Linux (2026-09-02, P1's session):** the reference suite runs unchanged on Ubuntu with

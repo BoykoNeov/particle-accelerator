@@ -113,6 +113,14 @@ from .reference import (
     PROTON_MASS_EV,
     ReferenceParticle,
 )
+from .scenario import (
+    SCENARIO_FORMAT,
+    Scenario,
+    ScenarioError,
+    dump_scenario,
+    load_scenario,
+    scenario_from_lattice,
+)
 from .symplectic import (
     J6,
     delta_from_pzeta,
@@ -188,7 +196,6 @@ from .twiss import (
 __version__ = "0.0.1"
 
 __all__ = [
-    # coordinates
     "X",
     "PX",
     "Y",
@@ -197,13 +204,11 @@ __all__ = [
     "DELTA",
     "DIM",
     "COORD_NAMES",
-    # reference particle
     "ReferenceParticle",
     "ELECTRON_MASS_EV",
     "PROTON_MASS_EV",
     "ELECTRON_RADIUS_M",
     "CLIGHT",
-    # elements
     "Element",
     "Drift",
     "Quadrupole",
@@ -225,15 +230,12 @@ __all__ = [
     "Collimator",
     "MomentumAperture",
     "BeamBeam",
-    # lattice
     "Lattice",
     "matrix_of",
-    # tracking
     "Particle",
     "Bunch",
     "Tracker",
     "LossResult",
-    # lifetime models
     "quantum_lifetime",
     "quantum_lifetime_exact",
     "RadiationIntegrals",
@@ -246,17 +248,14 @@ __all__ = [
     "equilibrium_emittance",
     "equilibrium_emittances_coupled",
     "equilibrium_energy_spread",
-    # Sokolov-Ternov polarization (N3)
     "PolarizationIntegrals",
     "polarization_integrals",
     "sokolov_ternov_polarization",
     "polarization_buildup_time",
-    # Derbenev-Kondratenko depolarization (N4)
     "DepolarizationIntegrals",
     "depolarization_integrals",
     "derbenev_kondratenko_polarization",
     "polarization_time",
-    # symplectic helpers
     "is_symplectic",
     "is_symplectic_map",
     "is_symplectic_map_canonical",
@@ -264,7 +263,6 @@ __all__ = [
     "delta_from_pzeta",
     "jacobian",
     "J6",
-    # twiss / optics
     "Twiss",
     "UnstableLatticeError",
     "CoupledLatticeError",
@@ -293,11 +291,9 @@ __all__ = [
     "chromaticity",
     "natural_chromaticity_on_orbit",
     "chromaticity_on_orbit",
-    # the optics off-momentum (M1)
     "ChromaticTwiss",
     "chromatic_functions",
     "second_order_chromaticity",
-    # second-order dispersion (M3)
     "SecondOrderDispersion",
     "second_order_dispersion",
     "NormalForm",
@@ -314,7 +310,6 @@ __all__ = [
     "momentum_compaction",
     "slip_factor",
     "synchrotron_tune",
-    # matching (H1)
     "Knob",
     "MatchResult",
     "MatchingError",
@@ -322,12 +317,10 @@ __all__ = [
     "match_tunes",
     "chromaticity_response_matrix",
     "match_chromaticity",
-    # matching (H2) — local optics at a point, N knobs -> M targets
     "Target",
     "InsertionMatchResult",
     "insertion_response_matrix",
     "match_insertion",
-    # closed orbit & its correction (I1)
     "ClosedOrbitError",
     "closed_orbit",
     "propagate_orbit",
@@ -335,16 +328,13 @@ __all__ = [
     "OrbitCorrectionError",
     "orbit_response_matrix",
     "correct_orbit",
-    # sextupole feed-down on a distorted orbit (I2)
     "OrbitConvergenceError",
     "closed_orbit_nonlinear",
-    # the 6D closed orbit (I4)
     "closed_orbit_6d",
     "closed_orbit_delta",
     "propagate_orbit_nonlinear",
     "linearised_element_maps",
     "linearised_one_turn_map",
-    # the transfer map beyond first order (P1)
     "TaylorMap",
     "taylor_expand",
     "compose",
@@ -353,38 +343,36 @@ __all__ = [
     "second_order_element_maps",
     "second_order_one_turn_map",
     "linearised_lattice",
-    # survey: the ring's geometry in laboratory coordinates (R1)
     "survey",
     "SurveyTable",
-    # tapering: the sawtooth a radiating ring runs at (Q1), and applying it (Q2)
     "taper",
     "TaperProfile",
     "taper_profile",
-    # misalignments & the statistical orbit (K1)
     "misalignment_response",
     "orbit_statistics",
     "OrbitStatistics",
     "misalign",
-    # tracking-based tune (NAFF)
     "naff",
     "ellipse_from_trajectory",
     "tracked_tunes",
-    # longitudinal (nonlinear RF bucket)
     "longitudinal_hamiltonian",
     "rf_bucket_height",
     "separatrix",
     "beam_sigma",
-    # collider (Stage 6)
     "luminosity",
     "piwinski_reduction",
     "hourglass_reduction",
     "beam_beam_tune_shift",
-    # acceleration (Stage 5)
     "energy_gain_per_turn",
     "synchronous_phase",
     "accelerate",
     "RampResult",
-    # runtime feature switches (optional addons; default OFF)
     "features",
     "__version__",
+    "SCENARIO_FORMAT",
+    "Scenario",
+    "ScenarioError",
+    "dump_scenario",
+    "load_scenario",
+    "scenario_from_lattice",
 ]

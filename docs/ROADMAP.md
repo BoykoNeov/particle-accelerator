@@ -37,6 +37,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | R | ring geometry in the laboratory frame | **R1** the survey (2026-09-06) | — |
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07) | **T2** its radiation integrals |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07) | — |
 
 **Axis T shipped T1 on 2026-09-07** — the wiggler's element and its map. The headline held:
 the focusing lands in the **vertical** plane at `k_y = h0^2/2`, where a flat bend has exactly

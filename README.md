@@ -69,6 +69,28 @@ out = ac.Tracker(lattice).track(ac.Particle(x=1e-3, px=2e-4))
 print(out)  # x advanced by L*px
 ```
 
+## The lattice editor
+
+`editor/index.html` is a browser-based scenario editor: pick elements from a palette,
+place and reorder them on a synoptic strip, edit every strength in the inspector, and
+watch the β functions, dispersion, beam size, closed orbit, floor plan, tunes,
+chromaticity, momentum compaction and synchrotron tune update as you type. It needs
+no server — open the file in a browser. Its optics core (`editor/accsim-optics.js`)
+is a port of this package's linear optics, and `tests/analytic/test_scenario.py`
+holds it against the package to 1e-9 on every bundled preset (under Node).
+
+The editor reads and writes **scenario files** (`accsim-scenario/1` JSON), which the
+package loads directly:
+
+```python
+import accsim as ac
+lattice = ac.load_scenario("my-ring.accsim.json").lattice   # editor -> package
+ac.dump_scenario(lattice, "my-ring.accsim.json", name="my ring")  # package -> editor
+```
+
+`scripts/build_editor.py` bundles the editor into one self-contained HTML file;
+`scripts/make_presets.py` regenerates the bundled example machines.
+
 ## Coordinates (the convention everything depends on)
 
 6D state vector `(x, px, y, py, zeta, delta)`, matching the Xsuite/MAD-X external
@@ -83,6 +105,7 @@ symbolic drift derivation live in [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md).
 src/accsim/        # package: coords, reference particle, elements/, lattice, tracking, twiss, orbit,
                    #          taylor (the map beyond first order), symplectic, radiation, spin, plotting
 examples/          # build_a_machine.py — one narrated end-to-end run of the whole stack
+editor/            # the browser lattice editor (index.html) and its optics core; scenario JSON in/out
 pipelines/         # opt-in Pythia8/Delphes event-physics chains (Phase 2)
 tests/analytic/    # closed-form checks — always run in CI
 tests/reference/   # Xsuite/MAD-X cross-checks — marked `reference`, skipped if the dep is absent
