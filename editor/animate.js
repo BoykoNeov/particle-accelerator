@@ -105,6 +105,19 @@
     };
   }
   /**
+   * Where one particle is at a Twiss sample: closed orbit `o` (4-vector) + D*delta + betatron.
+   * Returns the absolute position (x, y) — what the Orbit panel and the floor plan draw — and
+   * the centroid-relative one (dx, dy) — what the Beam-size panel draws, because its ±sigma band
+   * is the rms size *about the closed orbit*. Drawing the absolute position there pushes the bunch
+   * out of its own band wherever the orbit is displaced.
+   */
+  function particleOffset(tw, o, part, beam, sigmaDelta, turnPhaseX, turnPhaseY) {
+    const bt = betatron(tw, part, beam, turnPhaseX, turnPhaseY);
+    const ds = dispersionOffset(tw, part.ndelta * sigmaDelta);
+    const dx = ds.x + bt.x, dy = ds.y + bt.y;
+    return { x: o[0] + dx, y: o[2] + dy, dx, dy };
+  }
+  /**
    * Lab-frame offset of a transverse horizontal displacement `xOff` at survey heading
    * `theta`. This is the same yaw rotation W(theta) that accsim.geometry.survey applies
    * to a step vector: X gets +cos(theta)*xloc, Z gets -sin(theta)*xloc.
@@ -171,7 +184,9 @@
    * Discriminating consistency gate. Build (x, px, y, py) at boundary 0 from the closed
    * form, then push it through each element's transverse 4x4 matrix for `turns` laps,
    * comparing against the closed form (with the n*2pi Q turn phase) at every element
-   * boundary. Returns the largest absolute deviation across all coordinates/boundaries.
+   * boundary. Returns the largest deviation of each coordinate *relative to that coordinate's
+   * own largest magnitude* (px is ~beta times smaller than x, so one shared absolute scale would
+   * be far looser on the slopes), maxed over the four.
    *
    * This is NOT the Courant-Snyder invariant (which is an identity for coordinates built
    * from the same formula): the two sides here propagate independently — matrix product
@@ -183,23 +198,27 @@
     const dPhiX = last.mu_x, dPhiY = last.mu_y;
     const b0 = betatron(twissBoundaries[0], part, beam, 0, 0);
     let v = [b0.x, b0.px, b0.y, b0.py];
-    let maxdev = 0;
+    const dev = [0, 0, 0, 0], mag = [0, 0, 0, 0];
     const N = matrices.length;
     for (let turn = 0; turn < turns; turn++) {
       for (let i = 0; i < N; i++) {
         v = matvec4(transverse4(matrices[i]), v);
         const f = betatron(twissBoundaries[i + 1], part, beam, turn * dPhiX, turn * dPhiY);
-        maxdev = Math.max(maxdev,
-          Math.abs(v[0] - f.x), Math.abs(v[1] - f.px),
-          Math.abs(v[2] - f.y), Math.abs(v[3] - f.py));
+        const fv = [f.x, f.px, f.y, f.py];
+        for (let c = 0; c < 4; c++) {
+          dev[c] = Math.max(dev[c], Math.abs(v[c] - fv[c]));
+          mag[c] = Math.max(mag[c], Math.abs(fv[c]));
+        }
       }
     }
-    return maxdev;
+    let rel = 0;
+    for (let c = 0; c < 4; c++) if (mag[c] > 0) rel = Math.max(rel, dev[c] / mag[c]);
+    return rel;
   }
 
   return {
     mulberry32, gaussian, sampleBeam,
-    betatron, dispersionOffset, floorOffset,
+    betatron, dispersionOffset, particleOffset, floorOffset,
     locate, lerp, twissAt, orbitAt, surveyAt,
     transverse4, matvec4, betatronConsistency,
   };

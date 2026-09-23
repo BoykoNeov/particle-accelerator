@@ -312,7 +312,12 @@ def test_animation_betatron_matches_matrix_tracking() -> None:
     of the Twiss functions. ``editor/anim-selftest.js`` tracks the same particle through
     the element matrices independently and holds the two together; a wrong sign, a flipped
     alpha or a missing turn-phase term would part them. Every closing periodic preset must
-    agree to the round-off floor (the ones that do not close are skipped, not relaxed)."""
+    agree to the round-off floor (the ones that do not close are skipped, not relaxed).
+
+    ``maxdev`` is relative, per coordinate (px is ~beta times smaller than x, so one absolute
+    scale would be far looser on the slopes). Measured floor 2026-09-23: ~6e-14 on every
+    preset; the gate sits two orders above it. The first version held an *absolute* 1e-9
+    against a ~1e-17 floor — eight orders of slack."""
     proc = subprocess.run(
         [NODE, str(EDITOR / "anim-selftest.js")], capture_output=True, text=True, check=True
     )
@@ -320,7 +325,20 @@ def test_animation_betatron_matches_matrix_tracking() -> None:
     checked = [r for r in rows if r.get("maxdev") is not None]
     assert checked, "no periodic preset exercised the betatron gate"
     for r in checked:
-        assert r["maxdev"] < 1e-9, f"{r['id']}: betatron reconstruction drifts from tracking"
+        assert r["maxdev"] < 1e-11, f"{r['id']}: betatron reconstruction drifts from tracking"
+        # The gate reads the element-boundary Twiss; the page reads the *sampled* Twiss and
+        # takes its lap-to-lap phase from the last sample. They must end at the same place.
+        assert r["sampleEndS"] < 1e-11, f"{r['id']}: sampled optics stop short of the ring"
+        assert r["sampleEndMu"] < 1e-11, f"{r['id']}: page's turn phase is not the ring's"
+        assert r["muMonotone"], f"{r['id']}: sampled phase advance decreases (wrapped?)"
+    # The Beam-size panel draws each particle relative to the closed orbit (its ±sigma band is
+    # the rms size about the orbit); on a displaced-orbit preset that offset must not see the
+    # orbit at all. Before this was fixed the bunch sat up to 1.1 mm off a ±0.6 mm band.
+    kicked = [r for r in rows if r.get("relDependsOnOrbit") is not None]
+    assert any(r["orbitMax"] > 1e-4 for r in kicked), "no preset has a displaced closed orbit"
+    for r in kicked:
+        assert r["relDependsOnOrbit"] == 0.0, f"{r['id']}: beam-size offset sees the orbit"
+        assert r["absMinusRelIsOrbit"] < 1e-15, f"{r['id']}: absolute != orbit + offset"
     # The floor-plan offset must carry a positive transverse displacement outward, so a
     # higher-momentum particle lands outside the ring — a coefficient-free sign check.
     outward = [r for r in rows if r.get("floorOutward") is not None]

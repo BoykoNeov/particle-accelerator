@@ -22,7 +22,10 @@ function run(scenario) {
   const out = { id: scenario.id, name: scenario.name };
   let a;
   try {
-    a = O.analyse(scenario);
+    // Same sampling step as the page (index.html recompute()), so the sampled `twiss` / `orbit`
+    // arrays checked below are the ones the animation actually reads.
+    const L = scenario.elements.reduce((s, e) => s + O.elementLength(e), 0);
+    a = O.analyse(scenario, { plotStep: Math.max(0.02, L / 900) });
   } catch (e) {
     out.skipped = "analyse threw: " + e.message;
     return out;
@@ -37,6 +40,36 @@ function run(scenario) {
     maxdev = Math.max(maxdev, A.betatronConsistency(a.twissBoundaries, a.matrices, p, beam, TURNS));
   }
   out.maxdev = maxdev;
+
+  // The gate above reads `twissBoundaries`; the page reads the *sampled* `twiss` and takes its
+  // turn phase from the last sample. Hold the two together: the samples must reach s = L and end
+  // on the boundary phase (else the lap-to-lap phase on screen is wrong while the gate still
+  // passes), and mu must never decrease (a wrapped mu is invisible to cos() at the boundaries but
+  // makes the linear interpolation in twissAt jump backwards between samples).
+  const tw = a.twiss, last = tw[tw.length - 1], lastB = a.twissBoundaries[a.twissBoundaries.length - 1];
+  out.sampleEndS = Math.abs(last.s - a.length) / a.length;
+  out.sampleEndMu = Math.max(Math.abs(last.mu_x - lastB.mu_x), Math.abs(last.mu_y - lastB.mu_y));
+  out.muMonotone = tw.every((p, k) => k === 0 || (p.mu_x >= tw[k - 1].mu_x && p.mu_y >= tw[k - 1].mu_y));
+
+  // The Beam-size panel draws the centroid-relative offset, so it must not depend on the closed
+  // orbit at all: the same particle with and without the orbit gives the same (dx, dy) bit for bit,
+  // and the absolute position differs from it by exactly the orbit.
+  if (a.orbit) {
+    let relDiff = 0, absDiff = 0;
+    const orbS = a.orbit.map((q) => q.s);
+    for (let k = 0; k < tw.length; k += 7) {
+      const o = A.orbitAt(a.orbit, orbS, tw[k].s);
+      for (const p of parts.slice(0, 4)) {
+        const w = A.particleOffset(tw[k], o, p, beam, 1e-3, 0, 0);
+        const z = A.particleOffset(tw[k], [0, 0, 0, 0], p, beam, 1e-3, 0, 0);
+        relDiff = Math.max(relDiff, Math.abs(w.dx - z.dx), Math.abs(w.dy - z.dy));
+        absDiff = Math.max(absDiff, Math.abs(w.x - w.dx - o[0]), Math.abs(w.y - w.dy - o[2]));
+      }
+    }
+    out.relDependsOnOrbit = relDiff;
+    out.absMinusRelIsOrbit = absDiff;
+    out.orbitMax = Math.max(...a.orbit.map((q) => Math.abs(q.o[0])));
+  }
 
   // Coefficient-free floor-offset sign: a positive (outward) transverse displacement must point
   // away from the ring centroid, i.e. sign(totalAngle) · offset·(P − centroid) > 0. This is the

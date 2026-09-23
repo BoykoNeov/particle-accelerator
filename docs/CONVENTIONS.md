@@ -10097,7 +10097,15 @@ cross-checked to 1e-9.
   `betatronConsistency` (run by `editor/anim-selftest.js`, held in
   `tests/analytic/test_scenario.py`) instead pushes `(x, px, y, py)` through the element
   matrices `transverse4(matrices[i])` for three turns and compares against the closed form at
-  every boundary. It agrees to ~1e-17 on every closing preset; a sign error would part them.
+  every boundary. The deviation is **relative, per coordinate** (`px` is ~β times smaller than
+  `x`, so a shared absolute scale is looser on the slopes): floor ~6e-14 on every closing
+  preset, gated at `1e-11`; a flipped `α` measures ~2. (The first version held an absolute
+  `1e-9` against a ~1e-17 floor — eight orders of slack.)
+- **The gate reads element boundaries; the page reads samples — so the two are tied.** The
+  page interpolates the *sampled* `twiss` (at its own `plotStep`) and takes the lap phase from
+  the last sample, which the matrix gate never touches. The self-test therefore also requires
+  the samples to end at `s = L` on the boundary `μ`, and `μ` to be non-decreasing (a wrapped
+  `μ` is invisible to `cos` at the boundaries but makes the interpolation run backwards).
 - **δ is frozen** (no synchrotron motion, no chromatic tune spread), so the bunch never
   filaments. That plus real injection is exactly what a future filamentation view would need
   genuine turn-by-turn tracking for; this milestone deliberately does not build that.
@@ -10114,7 +10122,12 @@ cross-checked to 1e-9.
   series to read; on a design-axis ring the Orbit tab has no closed orbit and shows the marker
   alone, never dots on a dummy range. The scatter appears only on transverse-coordinate panels —
   the Orbit panel (around the closed orbit) and the Beam-size panel, which the beam toggle
-  mirrors into a ±σ band for the bunch to bounce in — never on a β-in-metres axis. A particle
+  mirrors into a ±σ band for the bunch to bounce in — never on a β-in-metres axis. **The two
+  panels take different positions** (`particleOffset` returns both): Orbit draws the absolute
+  `x_co + D·δ + x_β`; Beam size draws the centroid-relative `D·δ + x_β`, because σ is the rms
+  *about the closed orbit*. Drawing the absolute one there (the first version did) pushed the
+  bunch out of its own band on the displaced-quadrupole preset — 1.1 mm of orbit against a
+  0.6 mm σ — so the beam looked larger than its rms size. A particle
   outside a panel's autoscaled range is **dropped, not clamped**: a clamped dot piled on the
   panel edge would read as data. If the optics do not close (coupled, unstable, resonant) the
   bunch is disabled and only the marker runs, since the marker needs just the survey.
