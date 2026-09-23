@@ -10067,12 +10067,57 @@ of implying the page draws it. The level is a UI preference stored beside the ta
 `STORE_KEY`; it is never part of a scenario, so it does not travel in an export or a
 share link.
 
-**Build products stay out of the tree.** `scripts/build_editor.py` inlines the three
+**Build products stay out of the tree.** `scripts/build_editor.py` inlines the four
 scripts into one self-contained HTML file (default output under `W:/temp/claude`);
 `editor/presets.js` is *generated* by `scripts/make_presets.py` (fully expanded — a
 24-cell ring is 216 records — so the JSON needs no expansion rule) and is read as JSON
 by taking the text after `var ACCSIM_PRESETS = ` up to the closing `];`. The header
 comment must not be parsed, which is why the reader anchors on the declaration line.
+
+## The beam animation: kinematics, not tracking (editor, implemented 2026-09-23)
+
+`editor/animate.js` moves a marker — and, optionally, a matched bunch — along the machine
+while the graphs and the floor plan (and a live floor-plan inset on the graph tabs) run off
+**one clock in `state.anim`**, so switching tabs never resets it. It adds **no physics**
+beyond `accsim-optics.js`; every position is a closed-form read of optics that are already
+cross-checked to 1e-9.
+
+- **The bunch is evaluated, never tracked.** A particle's transverse motion is the exact
+  Courant-Snyder form of the machine's own Twiss functions,
+  `x(s) = √(2 J_x β_x(s)) cos(μ_x(s) + nΔΦ_x + φ₀) + D_x(s)·δ`, with the momentum `px`
+  the matching `−√(2J/β)[sin + α cos]`. There is no step-by-step map application in the
+  loop, so it cannot drift from the optics it is drawn on.
+- **The turn phase is `n·ΔΦ`, and `ΔΦ` is the last Twiss sample's `μ`, not the tune.** On a
+  ring `μ_x(s)` runs `0 → 2πQ_x` per lap; adding `turn · μ_x[last]` keeps the wrap continuous
+  to machine precision instead of jumping by `2π·frac(Q)` at the start marker each turn.
+  On a transfer line the turn phase is `0` — each pass is a fresh injection, which is honest.
+- **The correctness gate is matrix tracking, because the invariant is blind.** The
+  Courant-Snyder invariant `γx² + 2αxx' + βx'² = 2J` is an *identity* for coordinates built
+  from one formula — it survives a flipped `α`, a wrong `μ` sign or a missing turn term. So
+  `betatronConsistency` (run by `editor/anim-selftest.js`, held in
+  `tests/analytic/test_scenario.py`) instead pushes `(x, px, y, py)` through the element
+  matrices `transverse4(matrices[i])` for three turns and compares against the closed form at
+  every boundary. It agrees to ~1e-17 on every closing preset; a sign error would part them.
+- **δ is frozen** (no synchrotron motion, no chromatic tune spread), so the bunch never
+  filaments. That plus real injection is exactly what a future filamentation view would need
+  genuine turn-by-turn tracking for; this milestone deliberately does not build that.
+- **Floor-plan offset sign, and the magnification is display-only.** A transverse horizontal
+  displacement `x` lands in the lab as `ΔX = cos(θ)·x`, `ΔZ = −sin(θ)·x` — the *same* yaw
+  `W(θ)` that `geometry.survey` applies to a step vector (`floorOffset` reuses it, it is not
+  re-derived). Because a few-mm amplitude on a 100 m ring is sub-pixel, the floor plan
+  magnifies the transverse motion by `state.anim.mag` (default ×2000) and **labels it on
+  screen** (`ring · ×N`, `×N on floor`); the graph-tab dots are always true scale. The
+  vertical plane is not shown on the planar floor.
+- **Where the dots land.** The playhead and the strip marker need only `s`, so they run on
+  every graph tab. The curve dots (a marker riding each plotted series — true "you are here" on
+  β / D / σ) and the signed bunch scatter need real data, so they draw only when the panel has a
+  series to read; on a design-axis ring the Orbit tab has no closed orbit and shows the marker
+  alone, never dots on a dummy range. The scatter appears only on transverse-coordinate panels —
+  the Orbit panel (around the closed orbit) and the Beam-size panel, which the beam toggle
+  mirrors into a ±σ band for the bunch to bounce in — never on a β-in-metres axis. A particle
+  outside a panel's autoscaled range is **dropped, not clamped**: a clamped dot piled on the
+  panel edge would read as data. If the optics do not close (coupled, unstable, resonant) the
+  bunch is disabled and only the marker runs, since the marker needs just the survey.
 
 ## Toolchain / environment notes
 

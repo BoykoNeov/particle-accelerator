@@ -304,3 +304,26 @@ def test_editor_core_refuses_what_accsim_refuses() -> None:
     assert js["coupled"] is True
     assert js["opticsError"]["code"] == "coupled"
     assert js["twiss0"] is None
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not on the PATH")
+def test_animation_betatron_matches_matrix_tracking() -> None:
+    """The editor's animation reconstructs a particle's betatron motion as a closed form
+    of the Twiss functions. ``editor/anim-selftest.js`` tracks the same particle through
+    the element matrices independently and holds the two together; a wrong sign, a flipped
+    alpha or a missing turn-phase term would part them. Every closing periodic preset must
+    agree to the round-off floor (the ones that do not close are skipped, not relaxed)."""
+    proc = subprocess.run(
+        [NODE, str(EDITOR / "anim-selftest.js")], capture_output=True, text=True, check=True
+    )
+    rows = json.loads(proc.stdout)
+    checked = [r for r in rows if r.get("maxdev") is not None]
+    assert checked, "no periodic preset exercised the betatron gate"
+    for r in checked:
+        assert r["maxdev"] < 1e-9, f"{r['id']}: betatron reconstruction drifts from tracking"
+    # The floor-plan offset must carry a positive transverse displacement outward, so a
+    # higher-momentum particle lands outside the ring — a coefficient-free sign check.
+    outward = [r for r in rows if r.get("floorOutward") is not None]
+    assert outward, "no periodic preset exercised the floor-offset sign check"
+    for r in outward:
+        assert r["floorOutward"] > 0, f"{r['id']}: floor offset points a +x particle inward"

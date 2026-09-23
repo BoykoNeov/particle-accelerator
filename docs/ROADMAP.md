@@ -38,7 +38,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
-| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07) | — |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23) | injection (needs real tracking — deferred) |
 
 **Axis U opened and shipped U1 on 2026-09-07** — momentum compaction beyond first order:
 the ring's path length as a *series* in momentum, `C(delta)/C = 1 + alpha_0 delta +

@@ -250,6 +250,25 @@
   #tabs .spacer { flex: 1; }
   #tabs .zoom { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 11.5px; padding-bottom: 6px; }
   #tabs input[type="range"] { width: 120px; }
+  /* animation controls */
+  #animbar { display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 11.5px; padding-bottom: 6px; margin-right: 4px; }
+  #animbar input[type="range"] { width: 84px; }
+  #animbar label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  #animbar .amsg { font-family: var(--font-mono); color: var(--ink-2); min-width: 300px; }
+  #btn-play { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 24px; font-size: 12px; }
+  #btn-play.on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+  /* the animation overlay drawn on top of the graph / floor SVGs */
+  #plotarea .anim-playhead { stroke: var(--accent); stroke-width: 1.4; stroke-dasharray: 2 3; pointer-events: none; opacity: 0.9; }
+  #plotarea .anim-marker { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; pointer-events: none; }
+  #plotarea .anim-dot { stroke: var(--panel); stroke-width: 1; pointer-events: none; }
+  #plotarea .anim-part { pointer-events: none; }
+  /* the live floor-plan inset that sits in a corner of the graph tabs */
+  #floorinset { position: absolute; right: 14px; top: 78px; width: 176px; height: 140px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.18); overflow: hidden; z-index: 4; pointer-events: none; }
+  #floorinset svg { display: block; width: 100%; height: 100%; }
+  #floorinset .fi-title { font-family: var(--font-cond); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; fill: var(--ink-3); }
+  #floorinset .fi-seg { fill: none; stroke: var(--ink-3); stroke-width: 1.2; opacity: 0.7; }
 
   #plotarea { flex: 1; min-height: 0; position: relative; display: flex; background: var(--panel-2); }
   #yaxis { flex: 0 0 60px; }
@@ -453,12 +472,19 @@
       <button class="tab" role="tab" data-tab="matrix" data-tip="tab:matrix">Matrices</button>
       <button class="tab" role="tab" data-tab="learn" data-tip="tab:learn">Learn</button>
       <div class="spacer"></div>
+      <div id="animbar">
+        <button class="btn" id="btn-play" title="Play / pause the beam (Space)" aria-label="Play or pause the beam">▶</button>
+        <label title="How fast the beam travels — vastly slowed from the real revolution time"><span>speed</span><input id="anim-speed" type="range" min="0.02" max="2" step="0.02" value="0.3" aria-label="Animation speed"></label>
+        <label title="Show a matched bunch oscillating (betatron motion), not just the position — δ frozen, so it never filaments"><input type="checkbox" id="anim-beam" checked>beam</label>
+        <span class="amsg" id="anim-msg"></span>
+      </div>
       <div class="zoom"><span>zoom</span><input id="zoom" type="range" min="1" max="12" step="0.5" value="1" aria-label="Horizontal zoom"></div>
     </nav>
     <div id="plotarea">
       <div id="yaxis"><svg></svg></div>
       <div id="plotscroll"><svg id="plot"></svg><div id="tooltip"></div></div>
       <div id="plotmsg"><div></div></div>
+      <div id="floorinset" hidden><svg></svg></div>
       <div id="floor" hidden></div>
       <div id="matrix" hidden></div>
       <div id="learn" hidden></div>
@@ -509,12 +535,14 @@
 <div id="tip" role="tooltip"></div>
 
 <script src="accsim-optics.js"></script>
+<script src="animate.js"></script>
 <script src="presets.js"></script>
 <script src="teach.js"></script>
 <script>
 (function () {
   "use strict";
   const O = window.AccsimOptics;
+  const ANIM = window.AccsimAnim;
   const PRESETS = window.ACCSIM_PRESETS;
   const TEACH = window.AccsimTeach;
   const TWO_PI = 2 * Math.PI;
@@ -581,7 +609,12 @@
 
   // ------------------------------------------------------------- state
   const state = { scenario: null, sel: [], anchor: null, tab: "optics", zoom: 1, result: null, hoverS: null,
-    level: "novice", guideHidden: false };
+    level: "novice", guideHidden: false,
+    // The beam animation. The clock (s, turn) lives here so switching tabs never resets it.
+    // `beam` is a seeded, machine-free set of particles; `mag` magnifies the (sub-pixel)
+    // transverse motion on the floor plan only — the graph dots are always true scale.
+    anim: { playing: false, s: 0, turn: 0, turnsPerSec: 0.3, showBeam: true, count: 24, seed: 12345,
+      mag: 2000, beam: null, raf: 0, lastTs: 0 } };
   const history = [], future = [];
   const $ = (id) => document.getElementById(id);
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -709,6 +742,7 @@
     const L = sc.elements.reduce((s, e) => s + O.elementLength(e), 0);
     const step = Math.max(0.02, L / 900);
     state.result = O.analyse(sc, { plotStep: step });
+    anim.onResult();
   }
 
   // ------------------------------------------------------------- glyphs
@@ -946,9 +980,18 @@
     ];
     if (t === "envelope") {
       const b = state.scenario.beam;
-      return [{ key: "sigma", tip: "panel:sigma", title: "rms beam size", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, series: [
-        { name: "σₓ", color: "var(--bx)", pick: (p) => 1e3 * Math.sqrt(Math.max(0, b.emit_x * p.beta_x + (b.sigma_delta * p.disp_x) ** 2)) },
-        { name: "σᵧ", color: "var(--by)", pick: (p) => 1e3 * Math.sqrt(Math.max(0, b.emit_y * p.beta_y + (b.sigma_delta * p.disp_y) ** 2)) }] }];
+      const sgx = (p) => 1e3 * Math.sqrt(Math.max(0, b.emit_x * p.beta_x + (b.sigma_delta * p.disp_x) ** 2));
+      const sgy = (p) => 1e3 * Math.sqrt(Math.max(0, b.emit_y * p.beta_y + (b.sigma_delta * p.disp_y) ** 2));
+      const series = [
+        { name: "σₓ", color: "var(--bx)", pick: sgx },
+        { name: "σᵧ", color: "var(--by)", pick: sgy }];
+      // With the beam on, mirror to a ±σ band so the oscillating bunch has both sides to bounce
+      // in. The mirror lines carry the curve and the shaded area but are kept out of the legend,
+      // the end label and the tooltip (they are the same two numbers, negated).
+      if (state.anim.showBeam) series.push(
+        { name: "−σₓ", color: "var(--bx)", pick: (p) => -sgx(p), mirror: true },
+        { name: "−σᵧ", color: "var(--by)", pick: (p) => -sgy(p), mirror: true });
+      return [{ key: "sigma", tip: "panel:sigma", title: "rms beam size", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, series }];
     }
     if (t === "orbit") return [{ key: "orbit", tip: "panel:orbit", title: r && r.periodic ? "closed orbit" : "trajectory", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, orbit: true, series: [
       { name: "x", color: "var(--orbit-x)", pick: (p) => 1e3 * p.o[0] }, { name: "y", color: "var(--orbit-y)", pick: (p) => 1e3 * p.o[2] }] }];
@@ -974,9 +1017,9 @@
     $("learn").hidden = state.tab !== "learn";
     $("yaxis").style.display = optTab ? "" : "none";
     $("plotscroll").style.display = optTab ? "" : "none";
-    if (state.tab === "floor") { plotMessage(""); renderFloor(); return; }
-    if (state.tab === "matrix") { plotMessage(""); renderMatrix(); return; }
-    if (state.tab === "learn") { plotMessage(""); renderLearn(); return; }
+    if (state.tab === "floor") { plotMessage(""); renderFloorInset(); renderFloor(); return; }
+    if (state.tab === "matrix") { plotMessage(""); anim.detach(); renderMatrix(); return; }
+    if (state.tab === "learn") { plotMessage(""); anim.detach(); renderLearn(); return; }
     const { W, sx } = sScale();
     // Fill the panel: the main plot takes whatever height the tab area offers.
     const avail = $("plotarea").clientHeight || 0;
@@ -1039,7 +1082,7 @@
       // legend
       let lx = LAY.padL + 8 + p.title.length * 7.2 + 16;
       out += `<g class="legend">`;
-      series.forEach((sr) => { out += `<rect x="${lx}" y="${y + 7}" width="10" height="3" fill="${sr.color}"/><text x="${lx + 14}" y="${y + 14}">${sr.name}</text>`; lx += 14 + sr.name.length * 7 + 16; });
+      series.filter((sr) => !sr.mirror).forEach((sr) => { out += `<rect x="${lx}" y="${y + 7}" width="10" height="3" fill="${sr.color}"/><text x="${lx + 14}" y="${y + 14}">${sr.name}</text>`; lx += 14 + sr.name.length * 7 + 16; });
       out += `</g>`;
       // A plain-language caption beside the legend, for the levels that want one.
       const sub = TEACH.panelSub(p.tip, state.level);
@@ -1050,7 +1093,8 @@
           const path = pts.map((q, i) => `${i ? "L" : "M"}${sx(q.s).toFixed(2)},${sy(d[i]).toFixed(2)}`).join("");
           if (p.zero) out += `<path class="area" d="${path}L${sx(pts[pts.length - 1].s).toFixed(2)},${sy(0)}L${sx(pts[0].s).toFixed(2)},${sy(0)}Z" fill="${sr.color}"/>`;
           out += `<path class="curve" d="${path}" stroke="${sr.color}"/>`;
-          // end label
+          // end label (the mirror lines repeat the same number, so they get none)
+          if (sr.mirror) return;
           const last = d[d.length - 1];
           out += `<text x="${W - LAY.padR - 4}" y="${Math.min(y + p.h - 3, Math.max(y + 10, sy(last) - 4))}" text-anchor="end">${sr.name} ${fmt(last, 3)}</text>`;
         });
@@ -1072,6 +1116,8 @@
     plot.querySelectorAll(".elem").forEach((g) => {
       g.addEventListener("pointerdown", (ev) => beginDrag(ev, +g.dataset.i));
     });
+    renderFloorInset();
+    anim.layout();
   }
   function opticsErrorText(e) {
     let fallback;
@@ -1134,7 +1180,7 @@
     const el = p.elem >= 0 ? state.scenario.elements[p.elem] : null;
     let rows = `<div class="row"><span>s</span><b class="num">${fmt(p.s, 4)} m</b></div>`;
     if (el) rows += `<div class="row"><span>${esc(TYPES[el.type].label)}</span><b>${esc(el.name || "")}</b></div>`;
-    for (const pn of plot._panels) pn._series.forEach((sr, j) => { rows += `<div class="row"><span><i class="sw" style="background:${sr.color}"></i>${sr.name}</span><b class="num">${fmt(pn._data[j][k], 4)} ${pn.unit}</b></div>`; });
+    for (const pn of plot._panels) pn._series.forEach((sr, j) => { if (sr.mirror) return; rows += `<div class="row"><span><i class="sw" style="background:${sr.color}"></i>${sr.name}</span><b class="num">${fmt(pn._data[j][k], 4)} ${pn.unit}</b></div>`; });
     if (state.tab === "optics") rows += `<div class="row"><span>αₓ · αᵧ</span><b class="num">${fmt(p.alpha_x, 3)} · ${fmt(p.alpha_y, 3)}</b></div><div class="row"><span>μₓ · μᵧ /2π</span><b class="num">${fmt(p.mu_x / TWO_PI, 4)} · ${fmt(p.mu_y / TWO_PI, 4)}</b></div>`;
     tip.innerHTML = rows;
     tip.style.display = "block";
@@ -1146,18 +1192,26 @@
   function onPlotLeave() { $("tooltip").style.display = "none"; const c = $("plot").querySelector("#cross"); if (c && !c._b) c.innerHTML = ""; }
 
   // ------------------------------------------------------------- floor plan
+  // The lab-frame projection of a survey into a W×H box, with a margin `m` (px). Shared by
+  // the full Floor tab, the graph-tab inset, and the beam animation so a moving marker lands
+  // exactly on the drawn ring. `padFrac`/`padAbs` widen the world box before fitting.
+  function floorProject(sv, W, H, m, padFrac, padAbs) {
+    let minX = Math.min(...sv.X), maxX = Math.max(...sv.X), minZ = Math.min(...sv.Z), maxZ = Math.max(...sv.Z);
+    const span = Math.max(maxX - minX, maxZ - minZ, 1e-6);
+    const pad = (padFrac == null ? 0.08 : padFrac) * span + (padAbs == null ? 1.0 : padAbs);
+    minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
+    const scale = Math.min((W - 2 * m) / (maxZ - minZ), (H - 2 * m) / (maxX - minX));
+    const cx = m + ((W - 2 * m) - (maxZ - minZ) * scale) / 2, cy = m + ((H - 2 * m) - (maxX - minX) * scale) / 2;
+    return { minX, maxX, minZ, maxZ, scale, cx, cy,
+      px: (z) => cx + (z - minZ) * scale, py: (x) => cy + (maxX - x) * scale };
+  }
   function renderFloor() {
     const r = state.result, host = $("floor");
     if (!r || r.errors.length || !r.survey) { host.innerHTML = `<div class="empty" style="padding:20px">Nothing to draw.</div>`; return; }
     const sv = r.survey, sb = r.surveyBoundaries;
     const W = host.clientWidth || 600, H = host.clientHeight || 400;
-    let minX = Math.min(...sv.X), maxX = Math.max(...sv.X), minZ = Math.min(...sv.Z), maxZ = Math.max(...sv.Z);
-    const span = Math.max(maxX - minX, maxZ - minZ, 1e-6);
-    const pad = 0.08 * span + 1.0;
-    minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
-    const scale = Math.min((W - 40) / (maxZ - minZ), (H - 40) / (maxX - minX));
-    const cx = 20 + ((W - 40) - (maxZ - minZ) * scale) / 2, cy = 20 + ((H - 40) - (maxX - minX) * scale) / 2;
-    const px = (z) => cx + (z - minZ) * scale, py = (x) => cy + (maxX - x) * scale;
+    const proj = floorProject(sv, W, H, 20);
+    const { minX, maxX, minZ, maxZ, scale, cx, cy, px, py } = proj;
     let out = "";
     // grid
     const gt = niceTicks(minZ, maxZ, 8);
@@ -1195,7 +1249,177 @@
     }
     host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
     host.querySelectorAll("[data-i]").forEach((g) => g.addEventListener("click", (e) => select(+g.dataset.i, e)));
+    // Register this projection so the beam animation can draw on the same ring.
+    anim.floorTarget = { svg: host.firstElementChild, proj, sv };
+    anim.layout();
   }
+
+  // A small live floor-plan inset in the corner of the graph tabs, so the ring geometry and
+  // the graphs are on screen together while the beam runs. Static outline only; the moving
+  // marker and particles are drawn on the animation overlay layered on top.
+  function renderFloorInset() {
+    const host = $("floorinset"), r = state.result;
+    const graphTab = ["optics", "envelope", "orbit"].includes(state.tab);
+    const ok = graphTab && r && !r.errors.length && r.survey;
+    host.hidden = !ok;
+    anim.insetTarget = null;
+    if (!ok) return;
+    const sv = r.survey;
+    const W = host.clientWidth || 190, H = host.clientHeight || 150;
+    const proj = floorProject(sv, W, H, 12);
+    const d = sv.X.map((x, k) => `${k ? "L" : "M"}${proj.px(sv.Z[k]).toFixed(1)},${proj.py(sv.X[k]).toFixed(1)}`).join("");
+    const svg = host.firstElementChild;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.innerHTML = `<text x="7" y="12" class="fi-title">ring · ×${state.anim.mag}</text><path class="fi-seg" d="${d}"/>`;
+    anim.insetTarget = { svg, proj, sv };
+  }
+
+  // ------------------------------------------------------------ beam animation
+  // A moving marker (the reference particle's position) and, optionally, a matched bunch
+  // whose betatron motion is the exact closed form of the machine's Twiss functions —
+  // evaluated, never tracked. delta is frozen, so the bunch never filaments; that (plus real
+  // injection) is why a future filamentation view would need genuine turn-by-turn tracking.
+  const SVGNS = "http://www.w3.org/2000/svg";
+  function mkLayer(parent) { const g = document.createElementNS(SVGNS, "g"); g.setAttribute("class", "animlayer"); parent.appendChild(g); return g; }
+  const clampv = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+  const anim = {
+    floorTarget: null, insetTarget: null, plotTarget: null, _twS: null, _orS: null,
+
+    beamAllowed() { const r = state.result; return !!(r && r.twiss && !r.opticsError && state.anim.showBeam); },
+    ensureBeam() { const a = state.anim; if (!a.beam || a.beam.length !== a.count) a.beam = ANIM.sampleBeam(a.count, a.seed); return a.beam; },
+
+    // Rebuild the overlay layers after a render, then paint the current frame. renderFloor and
+    // renderPlot rebuild their SVGs (wiping the overlay), so this re-adds a fresh <g> each time.
+    layout() {
+      const r = state.result;
+      this._twS = r && r.twiss ? r.twiss.map((p) => p.s) : null;
+      this._orS = r && r.orbit ? r.orbit.map((p) => p.s) : null;
+      if (state.tab !== "floor") this.floorTarget = null;
+      this.plotTarget = null;
+      const plot = $("plot");
+      if (["optics", "envelope", "orbit"].includes(state.tab) && plot && plot._panels) {
+        this.plotTarget = { g: mkLayer(plot), panels: plot._panels, pts: plot._pts, height: +plot.getAttribute("height") };
+      }
+      if (this.floorTarget) this.floorTarget.g = mkLayer(this.floorTarget.svg);
+      if (this.insetTarget) this.insetTarget.g = mkLayer(this.insetTarget.svg);
+      this.reflect();
+      this.paint();
+      if (state.anim.playing) this.start();
+    },
+    detach() { this.plotTarget = null; this.floorTarget = null; this.insetTarget = null; $("floorinset").hidden = true; this.reflect(); },
+
+    // The physics state at the current s: interpolated Twiss, closed orbit, and the whole-turn
+    // phase to add per completed lap (0 on a transfer line — each pass is a fresh injection).
+    sample(s) {
+      const r = state.result, a = state.anim;
+      const tw = this._twS ? ANIM.twissAt(r.twiss, this._twS, s) : null;
+      const o = this._orS ? ANIM.orbitAt(r.orbit, this._orS, s) : [0, 0, 0, 0];
+      const periodic = !!(r && r.periodic) && !!tw;
+      const last = r && r.twiss ? r.twiss[r.twiss.length - 1] : null;
+      const dpx = periodic && last ? last.mu_x : 0, dpy = periodic && last ? last.mu_y : 0;
+      const beam = this.beamAllowed() && tw ? this.ensureBeam() : null;
+      const sigd = state.scenario.beam.sigma_delta || 0;
+      const parts = [];
+      if (beam) {
+        const bm = { emit_x: state.scenario.beam.emit_x, emit_y: state.scenario.beam.emit_y };
+        for (const p of beam) {
+          const bt = ANIM.betatron(tw, p, bm, a.turn * dpx, a.turn * dpy);
+          const dl = p.ndelta * sigd, ds = ANIM.dispersionOffset(tw, dl);
+          parts.push({ x: o[0] + ds.x + bt.x, y: o[2] + ds.y + bt.y });
+        }
+      }
+      return { tw, o, parts };
+    },
+
+    paint() {
+      const r = state.result, a = state.anim;
+      if (!r || !r.length) return;
+      const s = a.s, st = this.sample(s);
+      if (this.plotTarget) this.paintPlot(s, st);
+      if (this.floorTarget) this.paintFloor(this.floorTarget, s, st, a.mag, true);
+      if (this.insetTarget) this.paintFloor(this.insetTarget, s, st, a.mag, false);
+    },
+
+    paintPlot(s, st) {
+      const t = this.plotTarget, sx = sScale().sx, xp = sx(s).toFixed(1);
+      const yMid = LAY.top + LAY.synH / 2, yTop = LAY.top + LAY.synH, yBot = t.height - LAY.axisH;
+      let out = `<line class="anim-playhead" x1="${xp}" x2="${xp}" y1="${yTop}" y2="${yBot}"/>`;
+      out += `<circle class="anim-marker" cx="${xp}" cy="${yMid}" r="5"/>`;
+      // The playhead and strip marker need only s; the curve dots and the bunch need real data,
+      // so they are drawn only when the panel has a series to read (no dummy-range dots).
+      if (t.pts) for (const p of t.panels) {
+        const pt = p.orbit ? { o: st.o } : st.tw;
+        if (pt) for (const sr of p._series) {
+          if (sr.mirror) continue; // the mirror line is the same value, negated
+          const yv = clampv(p._sy(sr.pick(pt)), p._y + 2, p._y + p.h - 2);
+          out += `<circle class="anim-dot" cx="${xp}" cy="${yv.toFixed(1)}" r="3.2" fill="${sr.color}"/>`;
+        }
+        // the oscillating bunch, in true scale, on the transverse-coordinate panels only
+        // (orbit around the closed orbit; the ±σ beam-size band). A particle off the panel's
+        // range is dropped, never clamped — a clamped dot on the edge would read as data.
+        const trans = p.orbit || p.key === "sigma";
+        if (trans && st.parts.length) {
+          const cX = p._series[0].color, cY = (p._series[1] || p._series[0]).color;
+          for (const q of st.parts) {
+            const vx = 1e3 * q.x, vy = 1e3 * q.y;
+            if (vx >= p._lo && vx <= p._hi) out += `<circle class="anim-part" cx="${xp}" cy="${p._sy(vx).toFixed(1)}" r="2" fill="${cX}" fill-opacity="0.7"/>`;
+            if (vy >= p._lo && vy <= p._hi) out += `<circle class="anim-part" cx="${xp}" cy="${p._sy(vy).toFixed(1)}" r="2" fill="${cY}" fill-opacity="0.7"/>`;
+          }
+        }
+      }
+      t.g.innerHTML = out;
+    },
+
+    paintFloor(target, s, st, mag, big) {
+      const { proj, sv } = target, sp = ANIM.surveyAt(sv, s);
+      const mx = proj.px(sp.Z), my = proj.py(sp.X);
+      let out = "";
+      if (st.parts.length) {
+        for (const q of st.parts) {
+          const off = ANIM.floorOffset(sp.theta, q.x * mag);
+          out += `<circle class="anim-part" cx="${proj.px(sp.Z + off[1]).toFixed(1)}" cy="${proj.py(sp.X + off[0]).toFixed(1)}" r="${big ? 2.4 : 1.6}" fill="var(--accent)" fill-opacity="0.55"/>`;
+        }
+      }
+      out += `<circle class="anim-marker" cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="${big ? 5 : 3.5}"/>`;
+      target.g.innerHTML = out;
+    },
+
+    // The on-screen readout and the disabled/annotated controls.
+    reflect() {
+      const r = state.result, a = state.anim;
+      const has = !!(r && r.length);
+      const twiss = !!(r && r.twiss && !r.opticsError);
+      $("btn-play").disabled = !has;
+      $("btn-play").classList.toggle("on", a.playing);
+      $("btn-play").textContent = a.playing ? "⏸" : "▶";
+      const cb = $("anim-beam");
+      cb.disabled = !twiss;
+      cb.checked = a.showBeam && twiss;
+      let msg = has ? `s ${fmt(a.s, 4)} m · turn ${a.turn}` : "add a machine";
+      if (has) msg += ` · ${fmt(a.turnsPerSec, 2)} turns/s (slowed)`;
+      if (has && !twiss) msg += " · marker only (optics don't close)";
+      else if (has && a.showBeam) msg += ` · δ frozen · ×${a.mag} on floor`;
+      $("anim-msg").textContent = msg;
+    },
+
+    start() { const a = state.anim; if (a.raf || !state.result || !state.result.length) return; a.lastTs = 0; a.raf = requestAnimationFrame((t) => this.tick(t)); },
+    stop() { const a = state.anim; if (a.raf) cancelAnimationFrame(a.raf); a.raf = 0; },
+    tick(ts) {
+      const a = state.anim, r = state.result;
+      if (!a.playing || !r || !r.length) { a.raf = 0; return; }
+      let dt = a.lastTs ? (ts - a.lastTs) / 1000 : 0;
+      a.lastTs = ts;
+      if (dt > 0.1) dt = 0.1; // clamp a long gap (backgrounded tab) so the beam doesn't jump
+      a.s += a.turnsPerSec * r.length * dt;
+      while (a.s >= r.length) { a.s -= r.length; a.turn++; }
+      this.paint(); this.reflect();
+      a.raf = requestAnimationFrame((t) => this.tick(t));
+    },
+    play() { const a = state.anim; if (!state.result || !state.result.length) return; a.playing = true; this.ensureBeam(); this.reflect(); this.start(); },
+    pause() { state.anim.playing = false; this.stop(); this.reflect(); },
+    toggle() { state.anim.playing ? this.pause() : this.play(); },
+    onResult() { const a = state.anim, L = state.result && state.result.length; if (L && a.s > L) { a.s = 0; a.turn = 0; } },
+  };
 
   // ------------------------------------------------------------- matrices
   function matTable(M, caption) {
@@ -1428,6 +1652,7 @@
     $("name").value = state.scenario.name || "";
     document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === state.tab)));
     $("zoom").parentElement.style.visibility = ["optics", "envelope", "orbit"].includes(state.tab) ? "" : "hidden";
+    $("animbar").style.visibility = ["optics", "envelope", "orbit", "floor"].includes(state.tab) ? "" : "hidden";
   }
 
   // ------------------------------------------------------------- import / export
@@ -1583,6 +1808,10 @@
     });
     document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => { state.tab = t.dataset.tab; renderAll(); save(); }));
     $("zoom").addEventListener("input", () => { state.zoom = +$("zoom").value; renderPlot(); });
+    $("btn-play").addEventListener("click", () => anim.toggle());
+    $("anim-speed").addEventListener("input", () => { state.anim.turnsPerSec = +$("anim-speed").value; anim.reflect(); });
+    $("anim-beam").addEventListener("change", () => { state.anim.showBeam = $("anim-beam").checked; renderPlot(); });
+    document.addEventListener("visibilitychange", () => { if (document.hidden && state.anim.playing) anim.stop(); else if (!document.hidden && state.anim.playing) anim.start(); });
     const scroll = $("plotscroll");
     scroll.addEventListener("pointermove", onPlotMove);
     scroll.addEventListener("pointerleave", onPlotLeave);
@@ -1593,6 +1822,9 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
       if (typing) return;
+      // Space toggles play — but let a focused button take its own native activation, so a
+      // click on ▶ followed by Space doesn't toggle twice.
+      if (e.key === " ") { if (e.target && e.target.closest && e.target.closest("button")) return; e.preventDefault(); anim.toggle(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); duplicateSel(1); return; }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSel(); return; }
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {

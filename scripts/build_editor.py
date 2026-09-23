@@ -1,9 +1,9 @@
 """Bundle the editor into one self-contained HTML file.
 
-``editor/index.html`` loads ``accsim-optics.js``, ``presets.js`` and ``teach.js``
-as separate scripts so the physics core can be unit-tested under Node, the presets
-read as JSON and the explanation text stays out of the page. A single file is
-handier to send around or publish, so this inlines all three::
+``editor/index.html`` loads ``accsim-optics.js``, ``animate.js``, ``presets.js``
+and ``teach.js`` as separate scripts so the physics core can be unit-tested under
+Node, the presets read as JSON and the explanation text stays out of the page. A
+single file is handier to send around or publish, so this inlines all four::
 
     .venv/Scripts/python.exe scripts/build_editor.py [OUT.html]
 
@@ -33,8 +33,8 @@ def bundle() -> str:
         return f"<script>\n/* inlined from editor/{src} */\n{code}\n</script>"
 
     out, n = re.subn(r'<script src="([^"]+\.js)"></script>', inline, html)
-    if n != 3:
-        raise SystemExit(f"expected to inline 3 scripts, found {n}")
+    if n != 4:
+        raise SystemExit(f"expected to inline 4 scripts, found {n}")
     return out
 
 
