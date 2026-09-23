@@ -118,6 +118,15 @@
     return { x: o[0] + dx, y: o[2] + dy, dx, dy };
   }
   /**
+   * Which position a graph panel draws for particle `q` (a `particleOffset` result), as [x, y]:
+   * the Beam-size panel ("sigma") takes the centroid-relative offset, every other transverse
+   * panel (the Orbit panel) the absolute position. Kept here, not in the page, so the self-test
+   * holds the choice itself — swapping the two branches fails it.
+   */
+  function panelCoord(q, panelKey) {
+    return panelKey === "sigma" ? [q.dx, q.dy] : [q.x, q.y];
+  }
+  /**
    * Lab-frame offset of a transverse horizontal displacement `xOff` at survey heading
    * `theta`. This is the same yaw rotation W(theta) that accsim.geometry.survey applies
    * to a step vector: X gets +cos(theta)*xloc, Z gets -sin(theta)*xloc.
@@ -218,7 +227,7 @@
 
   return {
     mulberry32, gaussian, sampleBeam,
-    betatron, dispersionOffset, particleOffset, floorOffset,
+    betatron, dispersionOffset, particleOffset, panelCoord, floorOffset,
     locate, lerp, twissAt, orbitAt, surveyAt,
     transverse4, matvec4, betatronConsistency,
   };

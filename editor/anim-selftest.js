@@ -51,23 +51,27 @@ function run(scenario) {
   out.sampleEndMu = Math.max(Math.abs(last.mu_x - lastB.mu_x), Math.abs(last.mu_y - lastB.mu_y));
   out.muMonotone = tw.every((p, k) => k === 0 || (p.mu_x >= tw[k - 1].mu_x && p.mu_y >= tw[k - 1].mu_y));
 
-  // The Beam-size panel draws the centroid-relative offset, so it must not depend on the closed
-  // orbit at all: the same particle with and without the orbit gives the same (dx, dy) bit for bit,
-  // and the absolute position differs from it by exactly the orbit.
+  // What each graph panel draws, through the same `panelCoord` the page calls. The Beam-size
+  // panel's ±sigma band is the rms size about the closed orbit, so its particles must not move
+  // with the orbit; the Orbit panel's must move by exactly the orbit. Swapping the two branches
+  // of panelCoord fails both (sigmaSeesOrbit becomes the orbit, orbitPanelMiss becomes it too).
   if (a.orbit) {
-    let relDiff = 0, absDiff = 0;
+    let sigmaSeesOrbit = 0, orbitPanelMiss = 0;
     const orbS = a.orbit.map((q) => q.s);
     for (let k = 0; k < tw.length; k += 7) {
       const o = A.orbitAt(a.orbit, orbS, tw[k].s);
       for (const p of parts.slice(0, 4)) {
         const w = A.particleOffset(tw[k], o, p, beam, 1e-3, 0, 0);
         const z = A.particleOffset(tw[k], [0, 0, 0, 0], p, beam, 1e-3, 0, 0);
-        relDiff = Math.max(relDiff, Math.abs(w.dx - z.dx), Math.abs(w.dy - z.dy));
-        absDiff = Math.max(absDiff, Math.abs(w.x - w.dx - o[0]), Math.abs(w.y - w.dy - o[2]));
+        const sw = A.panelCoord(w, "sigma"), sz = A.panelCoord(z, "sigma");
+        const ow = A.panelCoord(w, "orbit"), oz = A.panelCoord(z, "orbit");
+        sigmaSeesOrbit = Math.max(sigmaSeesOrbit, Math.abs(sw[0] - sz[0]), Math.abs(sw[1] - sz[1]));
+        orbitPanelMiss = Math.max(orbitPanelMiss,
+          Math.abs(ow[0] - oz[0] - o[0]), Math.abs(ow[1] - oz[1] - o[2]));
       }
     }
-    out.relDependsOnOrbit = relDiff;
-    out.absMinusRelIsOrbit = absDiff;
+    out.sigmaSeesOrbit = sigmaSeesOrbit;
+    out.orbitPanelMiss = orbitPanelMiss;
     out.orbitMax = Math.max(...a.orbit.map((q) => Math.abs(q.o[0])));
   }
 

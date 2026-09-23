@@ -10127,7 +10127,11 @@ cross-checked to 1e-9.
   `x_co + D·δ + x_β`; Beam size draws the centroid-relative `D·δ + x_β`, because σ is the rms
   *about the closed orbit*. Drawing the absolute one there (the first version did) pushed the
   bunch out of its own band on the displaced-quadrupole preset — 1.1 mm of orbit against a
-  0.6 mm σ — so the beam looked larger than its rms size. A particle
+  0.6 mm σ — so the beam looked larger than its rms size. The choice lives in
+  `panelCoord(q, panelKey)` in `animate.js`, which the page calls and the self-test holds:
+  Beam size must not move with the orbit, Orbit must move by exactly it, and swapping the
+  branches fails both at ~1e-3. (The first lock tested `particleOffset` alone — whose relative
+  output never reads the orbit — so it could not fail; the choice itself was untested.) A particle
   outside a panel's autoscaled range is **dropped, not clamped**: a clamped dot piled on the
   panel edge would read as data. If the optics do not close (coupled, unstable, resonant) the
   bunch is disabled and only the marker runs, since the marker needs just the survey.

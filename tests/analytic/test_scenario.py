@@ -331,14 +331,16 @@ def test_animation_betatron_matches_matrix_tracking() -> None:
         assert r["sampleEndS"] < 1e-11, f"{r['id']}: sampled optics stop short of the ring"
         assert r["sampleEndMu"] < 1e-11, f"{r['id']}: page's turn phase is not the ring's"
         assert r["muMonotone"], f"{r['id']}: sampled phase advance decreases (wrapped?)"
-    # The Beam-size panel draws each particle relative to the closed orbit (its ±sigma band is
-    # the rms size about the orbit); on a displaced-orbit preset that offset must not see the
-    # orbit at all. Before this was fixed the bunch sat up to 1.1 mm off a ±0.6 mm band.
-    kicked = [r for r in rows if r.get("relDependsOnOrbit") is not None]
+    # Which position each panel draws, via the page's own `panelCoord`: the Beam-size panel's
+    # ±sigma band is the rms size about the closed orbit, so its particles must not move with
+    # the orbit, and the Orbit panel's must move by exactly the orbit. Before the fix the bunch
+    # sat up to 1.1 mm off a ±0.6 mm band. Swapping the branches puts the orbit (~1e-3) into
+    # both numbers; the thresholds are far below it but above round-off on a ~1e-3 sum.
+    kicked = [r for r in rows if r.get("sigmaSeesOrbit") is not None]
     assert any(r["orbitMax"] > 1e-4 for r in kicked), "no preset has a displaced closed orbit"
     for r in kicked:
-        assert r["relDependsOnOrbit"] == 0.0, f"{r['id']}: beam-size offset sees the orbit"
-        assert r["absMinusRelIsOrbit"] < 1e-15, f"{r['id']}: absolute != orbit + offset"
+        assert r["sigmaSeesOrbit"] < 1e-15, f"{r['id']}: beam-size panel moves with the orbit"
+        assert r["orbitPanelMiss"] < 1e-15, f"{r['id']}: orbit panel is not orbit + offset"
     # The floor-plan offset must carry a positive transverse displacement outward, so a
     # higher-momentum particle lands outside the ring — a coefficient-free sign check.
     outward = [r for r in rows if r.get("floorOutward") is not None]

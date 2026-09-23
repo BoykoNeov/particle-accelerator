@@ -1358,9 +1358,8 @@
         const trans = p.orbit || p.key === "sigma";
         if (trans && st.parts.length) {
           const cX = p._series[0].color, cY = (p._series[1] || p._series[0]).color;
-          const rel = p.key === "sigma";
           for (const q of st.parts) {
-            const vx = 1e3 * (rel ? q.dx : q.x), vy = 1e3 * (rel ? q.dy : q.y);
+            const c = ANIM.panelCoord(q, p.key), vx = 1e3 * c[0], vy = 1e3 * c[1];
             if (vx >= p._lo && vx <= p._hi) out += `<circle class="anim-part" cx="${xp}" cy="${p._sy(vx).toFixed(1)}" r="2" fill="${cX}" fill-opacity="0.7"/>`;
             if (vy >= p._lo && vy <= p._hi) out += `<circle class="anim-part" cx="${xp}" cy="${p._sy(vy).toFixed(1)}" r="2" fill="${cY}" fill-opacity="0.7"/>`;
           }
