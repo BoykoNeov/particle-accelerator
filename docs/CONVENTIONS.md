@@ -10465,6 +10465,45 @@ tracked with it has the same tune at every energy.
   length. No preset holds a collimator, so the optics cross-check never met it. The tracker
   follows the package (identity). Which side is right is not settled here.
 
+### Injection and filamentation (step 2 — `editor/inject.js`)
+
+The injected beam has its **own** Twiss `(beta_i, alpha_i)`, emittance, centroid offset
+`(dx, dpx, dy, dpy)`, energy offset and spread; it is placed on the ring's closed orbit plus
+`D delta` (the ring's dispersion at the injection point — the beam is injected on its own
+dispersive orbit; a pure position error is `dx`). Statistics are taken at the injection point,
+betatron part only, with the editor's own `D, D'` (never fitted from the sample).
+
+- **Moment-matched sampling.** The draws are whitened (mean 0, covariance I exactly) before
+  being scaled, so the injected beam's `<J>` (ring Twiss) equals `eps_i Bmag + J(offset)` to
+  round-off (`7e-16`), not to `1/sqrt(N)`. `Bmag = (beta gamma_i - 2 alpha alpha_i + gamma beta_i)/2`
+  and the absence of a cross term are derived in sympy from the sampler's own construction;
+  `Bmag - 1` is a perfect square over `beta beta_i`, so injection can only grow a beam.
+- **Decoherence (frozen delta).** The centroid's normalised amplitude follows
+  `|(1/N) sum_p exp(i 2pi Q' delta_p n)|` with the sample's own deltas and the displayed `Q'` —
+  no Gaussian assumption, no `1/sqrt(N)`. Residual `3.4e-3` at `sigma_delta = 7e-4`, and it
+  **halves when `sigma_delta` halves** at fixed total phase spread: first order, the chromatic
+  beta-beat and `Q''` the model omits. Blind to the sign of `Q'`; the sign gate is a `+/-delta`
+  pair tracked in the editor whose NAFF tune slope is the displayed `Q'` on every ring.
+- **The filamented emittance is `<J>`, measured about the ORBIT, not the centroid.** A finite
+  bunch's centroid never settles (`|<z>|^2 ~ <2J>/N`), so turn-averaged *central* moments sit
+  low by `1/N` (`-2e-3` at `N = 400`) however long you average, and that bias does not move with
+  `sigma_delta` — which is how it was caught. About the closed orbit the averaged moments land
+  on `<J>` to `5.6e-4`; with the window's floor (`2e-5`, the `sigma_delta = 0` value) removed,
+  the rest falls ~4x per halving of `sigma_delta` (second order). The per-turn emittance is the
+  reading that sees filamentation (it rises from `0.47 <J>` to within `3/sqrt(N)` of `<J>`); the
+  turn average is blind to it.
+- **No energy spread, no filamentation.** At `sigma_delta = 0` a mismatched beam turns rigidly
+  and its rms emittance stays at the injected value for good (a `5e-5` wobble from the exact
+  drift's kinematic nonlinearity, no growth). In the editor the energy spread is the only
+  phase spreader unless the user adds octupoles/sextupoles; radiation is off.
+- **On a ring with an RF cavity the beam barely filaments, and that is physics.** The energy
+  oscillates every `1/Q_s` turns (~14 on `electron-ring`), so the chromatic phase is bounded:
+  its spread is `2 Q' sigma_delta |sin(pi Q_s n)| / Q_s`, at most ~0.12 rad there, and the
+  envelope `exp(-2 (Q' sigma_delta / Q_s)^2 sin^2(pi Q_s n))` dips by only ~0.75% and recoheres
+  every synchrotron period. Without radiation damping an injection oscillation on those presets
+  therefore persists; the page must say damping is off. The gates run on the cavity-free
+  `kicked-ring`, rolled one element on so the injection point has `alpha != 0` and `D' != 0`.
+
 ## Toolchain / environment notes
 
 - **Linux (2026-09-02, P1's session):** the reference suite runs unchanged on Ubuntu with
