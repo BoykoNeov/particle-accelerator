@@ -129,7 +129,8 @@ The findings, in the order they changed the milestone:
 
 **What V1 refuses** (each with a test written to fail the day it lifts): the radiation
 integrals and everything on them — **V2**, vertical emittance from design `D_y`, where MAD-X
-`EMIT` and xtrack already agree to `9e-5`; spin through a tilted bend — **V3**, one arbiter
+`EMIT` and xtrack already agree to `9e-5` (*V2 found this is their eigen value at
+`Q_s = 0.087`, 14% above the integral — see the V2 entry above*); spin through a tilted bend — **V3**, one arbiter
 (xtrack), the spin-rotator physics; a tilt together with a misalignment (the order of the two
 rotations is unpinned; xtrack would arbitrate); the scenario file and editor (no `tilt` field;
 the JS optics would draw a flat machine); a tilted wiggler.

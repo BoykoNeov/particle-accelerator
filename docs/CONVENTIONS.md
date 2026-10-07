@@ -4223,7 +4223,9 @@ integrals (Sands, SLAC-121) and the damping/equilibrium quantities they feed, in
   gate, not a loosened tolerance (as with the Phase-2 A_FB magnitude).
 - **Flat-lattice scope:** `J_y ≡ 1` and equilibrium `ε_y ≈ 0` (no vertical bending or
   betatron coupling — real rings set `ε_y` by coupling/vertical dispersion, out of
-  scope).
+  scope). *Both sources now exist:* coupling in G1 (*Vertical emittance from coupling*),
+  design vertical dispersion in V2 (*Vertical emittance from design `D_y`*); on a flat
+  ring `J_y = 1` and `ε_y = 0` still hold exactly.
 
 ## Radiation in tracking (B2 — implemented)
 
