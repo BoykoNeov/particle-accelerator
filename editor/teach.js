@@ -500,6 +500,36 @@
       s: "The one-turn (or end-to-end) matrix, plus the matrix of whatever you have selected.",
       p: "6×6 on (x, px, y, py, ζ, δ); select up to three elements to see theirs.",
     },
+    "tab:inject": {
+      t: "Injection tab",
+      n: "Fire a beam into the ring slightly off target and watch what happens to it over many turns: the wobble fades as the particles drift out of step, and the beam ends up bigger.",
+      s: "Particles are tracked turn by turn through every magnet. Each keeps its own oscillation amplitude, but particles of different energy turn at different rates (chromaticity), so their phases spread and the beam fills out to its mean action ⟨J⟩.",
+      p: "Element-by-element exact maps (a port of Tracker.track_once, held to 1e-12 against the package); moment-matched injected bunch; radiation off. Gates: tests/analytic/test_injection.py.",
+    },
+    "inj:offset": {
+      t: "Aiming error",
+      n: "How far off centre (Δx) and at what angle (Δx′) the beam arrives. The whole beam then swings back and forth around the ring's path.",
+      s: "A centroid offset (Δx, Δx′) at the injection point. Once smeared, it adds its own action J = (γΔx² + 2αΔxΔx′ + βΔx′²)/2 to the beam's emittance.",
+      p: "Added to the closed orbit + Dδ; ⟨J⟩ = ε·Bmag + J(Δx, Δx′), derived in sympy and gated to round-off.",
+    },
+    "inj:mismatch": {
+      t: "Shape mismatch",
+      n: "Whether the arriving beam has the shape the ring wants. A beam that is too narrow or too wide pulses in size every turn, then smears into a bigger round beam.",
+      s: "The injected beam's own β and α, relative to the ring's at this point. The emittance grows by the mismatch factor Bmag = (βγᵢ − 2ααᵢ + γβᵢ)/2 ≥ 1.",
+      p: "Bmag − 1 = [(β − βᵢ)² + (αβᵢ − αᵢβ)²]/(2ββᵢ), so injection can only grow a beam; equality only when matched.",
+    },
+    "inj:beam": {
+      t: "Beam",
+      n: "How big the injected beam is, how many particles to follow, and for how many turns.",
+      s: "Emittance is a multiple of the machine's beam record; particles are drawn with exact statistics, so the predicted numbers hold for this very beam.",
+      p: "Gaussian draw, whitened to zero mean and identity covariance before scaling (inject.js).",
+    },
+    "inj:spread": {
+      t: "Energy spread",
+      n: "How different the particles' energies are. This is what makes the beam smear: particles with more energy go round at a slightly different rate.",
+      s: "σδ sets the spread of δ = Δp/p₀; with chromaticity Q′ the tune spread is Q′σδ, and with no RF cavity the wobble halves after about 0.187/(|Q′|σδ) turns.",
+      p: "Frozen δ: envelope |⟨exp(i2πQ′δn)⟩|. With RF the phase is bounded, rms ≤ 2|Q′|σδ/Qₛ, and the beam recoheres every synchrotron period.",
+    },
     "tab:learn": {
       t: "Learn tab",
       n: "A short guided path through this editor, written for whatever level you have picked in the header.",

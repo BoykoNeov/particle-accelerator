@@ -429,6 +429,37 @@
   .card .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
   .card .note { color: var(--ink-3); font-size: 11.5px; flex-basis: 100%; }
 
+  /* ---- injection tab ---- */
+  #inject { position: absolute; inset: 0; display: grid; grid-template-columns: 268px minmax(0, 1fr); overflow: hidden; }
+  #inject .ctl { padding: 12px 14px 20px; border-right: 1px solid var(--line); overflow: auto; }
+  #inject .ctl h3 { margin: 12px 0 4px; font: 600 11px/1.3 var(--font-cond); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+  #inject .ctl h3:first-child { margin-top: 0; }
+  #inject .field { grid-template-columns: 110px 1fr; }
+  #inject .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  #inject .views { display: grid; grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); min-width: 0; min-height: 0; }
+  #inject .note { padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--accent-soft); font-size: 12.5px; line-height: 1.5; }
+  #inject .note p { margin: 0 0 4px; } #inject .note p:last-child { margin: 0; }
+  #inject .note b.off { color: var(--warn); }
+  #inject .view { position: relative; min-height: 0; border-bottom: 1px solid var(--line-2); }
+  #inject .view svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #inject svg text { font-family: var(--font-mono); font-size: 10.5px; fill: var(--ink-2); }
+  #inject svg .ttl { font-family: var(--font-body); font-size: 11.5px; fill: var(--ink); }
+  #inject svg .ax { stroke: var(--line); fill: none; }
+  #inject svg .ring { stroke: var(--ink); stroke-width: 1.4; stroke-dasharray: 5 4; fill: none; }
+  #inject svg .dot { fill: var(--bx); fill-opacity: 0.55; }
+  #inject svg .dot.y { fill: var(--by); }
+  #inject svg .s-emit { stroke: var(--by); stroke-width: 1.6; fill: none; }
+  #inject svg .s-cen { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+  #inject svg .s-env { stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 4 3; fill: none; opacity: 0.8; }
+  #inject svg .s-one { stroke: var(--ink-3); stroke-width: 1; stroke-dasharray: 2 4; fill: none; }
+  #inject .readout { margin-top: 12px; }
+  #inject .readout .stale { grid-column: 1 / -1; color: var(--warn); }
+  #inject .empty { padding: 24px; color: var(--ink-2); max-width: 60ch; }
+  @media (max-width: 760px) {
+    #inject { grid-template-columns: 1fr; grid-template-rows: auto minmax(520px, 1fr); overflow: auto; }
+    #inject .ctl { border-right: none; border-bottom: 1px solid var(--line); }
+  }
+
   @media (prefers-reduced-motion: no-preference) {
     .tile .v { transition: color 0.2s; }
   }
@@ -469,6 +500,7 @@
       <button class="tab" role="tab" data-tab="envelope" data-tip="tab:envelope">Beam size</button>
       <button class="tab" role="tab" data-tab="orbit" data-tip="tab:orbit">Orbit</button>
       <button class="tab" role="tab" data-tab="floor" data-tip="tab:floor">Floor plan</button>
+      <button class="tab" role="tab" data-tab="inject" data-tip="tab:inject">Injection</button>
       <button class="tab" role="tab" data-tab="matrix" data-tip="tab:matrix">Matrices</button>
       <button class="tab" role="tab" data-tab="learn" data-tip="tab:learn">Learn</button>
       <div class="spacer"></div>
@@ -488,6 +520,7 @@
       <div id="floor" hidden></div>
       <div id="matrix" hidden></div>
       <div id="learn" hidden></div>
+      <div id="inject" hidden></div>
     </div>
   </main>
 
@@ -536,6 +569,8 @@
 
 <script src="accsim-optics.js"></script>
 <script src="animate.js"></script>
+<script src="accsim-track.js"></script>
+<script src="inject.js"></script>
 <script src="presets.js"></script>
 <script src="teach.js"></script>
 <script>
@@ -543,6 +578,8 @@
   "use strict";
   const O = window.AccsimOptics;
   const ANIM = window.AccsimAnim;
+  const TRK = window.AccsimTrack;
+  const INJ = window.AccsimInject;
   const PRESETS = window.ACCSIM_PRESETS;
   const TEACH = window.AccsimTeach;
   const TWO_PI = 2 * Math.PI;
@@ -743,6 +780,7 @@
     const step = Math.max(0.02, L / 900);
     state.result = O.analyse(sc, { plotStep: step });
     anim.onResult();
+    inj.onResult();
   }
 
   // ------------------------------------------------------------- glyphs
@@ -1015,11 +1053,14 @@
     $("floor").hidden = state.tab !== "floor";
     $("matrix").hidden = state.tab !== "matrix";
     $("learn").hidden = state.tab !== "learn";
+    $("inject").hidden = state.tab !== "inject";
+    if (state.tab !== "inject") inj.pause();
     $("yaxis").style.display = optTab ? "" : "none";
     $("plotscroll").style.display = optTab ? "" : "none";
     if (state.tab === "floor") { plotMessage(""); renderFloorInset(); renderFloor(); return; }
     if (state.tab === "matrix") { plotMessage(""); anim.detach(); renderMatrix(); return; }
     if (state.tab === "learn") { plotMessage(""); anim.detach(); renderLearn(); return; }
+    if (state.tab === "inject") { plotMessage(""); anim.detach(); inj.render(); return; }
     const { W, sx } = sScale();
     // Fill the panel: the main plot takes whatever height the tab area offers.
     const avail = $("plotarea").clientHeight || 0;
@@ -1417,6 +1458,276 @@
     pause() { state.anim.playing = false; this.stop(); this.reflect(); },
     toggle() { state.anim.playing ? this.pause() : this.play(); },
     onResult() { const a = state.anim, L = state.result && state.result.length; if (L && a.s > L) { a.s = 0; a.turn = 0; } },
+  };
+
+  // ------------------------------------------------------------- injection
+  // The Injection tab: a beam injected with a position/angle error, a shape mismatch and an
+  // energy spread, tracked turn by turn with accsim-track.js (a port of the package's
+  // element-by-element tracker) and watched as it smears out ("filaments"). The maths and its
+  // gates are inject.js and tests/analytic/test_injection.py; this is only the page.
+  const INJ_FIELDS = [
+    { h: "Aiming error" },
+    { key: "dx_mm", label: "Δx", unit: "mm", step: 0.1, tip: "inj:offset" },
+    { key: "dpx_mrad", label: "Δx′", unit: "mrad", step: 0.01, tip: "inj:offset" },
+    { key: "dy_mm", label: "Δy", unit: "mm", step: 0.1, tip: "inj:offset" },
+    { key: "dpy_mrad", label: "Δy′", unit: "mrad", step: 0.01, tip: "inj:offset" },
+    { h: "Shape mismatch" },
+    { key: "bx_ratio", label: "βₓ ÷ ring's", unit: "", step: 0.1, tip: "inj:mismatch" },
+    { key: "dalpha_x", label: "αₓ − ring's", unit: "", step: 0.1, tip: "inj:mismatch" },
+    { key: "by_ratio", label: "βᵧ ÷ ring's", unit: "", step: 0.1, tip: "inj:mismatch" },
+    { key: "dalpha_y", label: "αᵧ − ring's", unit: "", step: 0.1, tip: "inj:mismatch" },
+    { h: "Beam" },
+    { key: "emit_scale", label: "emittance ×", unit: "", step: 0.1, tip: "inj:beam" },
+    { key: "sigd_e3", label: "σδ", unit: "×10⁻³", step: 0.1, tip: "inj:spread" },
+    { key: "d0_e3", label: "δ offset", unit: "×10⁻³", step: 0.1, tip: "inj:spread" },
+    { key: "n", label: "particles", unit: "", step: 100, tip: "inj:beam" },
+    { key: "turns", label: "turns", unit: "", step: 100, tip: "inj:beam" },
+  ];
+  const inj = {
+    settings: null, run: null, playing: false, raf: 0, plane: "x", built: false,
+    /** Settings for a machine: matched and centred except for a 3-sigma aiming error in x. */
+    defaultsFor(sc) {
+      const r = state.result, b = sc.beam || {};
+      let dx = 1.0;
+      if (r && r.twiss0 && +b.emit_x > 0) dx = +(3e3 * Math.sqrt(+b.emit_x * r.twiss0.beta_x)).toPrecision(2);
+      return { forName: sc.name, dx_mm: dx, dpx_mrad: 0, dy_mm: 0, dpy_mrad: 0, bx_ratio: 1, dalpha_x: 0, by_ratio: 1, dalpha_y: 0,
+        emit_scale: 1, sigd_e3: +(1e3 * (+b.sigma_delta || 0)).toPrecision(3), d0_e3: 0, n: 500, turns: 1000 };
+    },
+    params(sc, optics) {
+      const s = this.settings, b = sc.beam || {}, t = optics.twiss;
+      const num = (v, d) => (Number.isFinite(+v) ? +v : d);
+      return Object.assign(INJ.defaults(sc, optics), {
+        n: Math.max(10, Math.min(5000, Math.round(num(s.n, 500)))), seed: 1,
+        emit_x: (+b.emit_x || 0) * Math.max(0, num(s.emit_scale, 1)), emit_y: (+b.emit_y || 0) * Math.max(0, num(s.emit_scale, 1)),
+        sigma_delta: Math.max(0, num(s.sigd_e3, 0)) * 1e-3, delta0: num(s.d0_e3, 0) * 1e-3,
+        beta_x: t.beta_x * Math.max(1e-3, num(s.bx_ratio, 1)), alpha_x: t.alpha_x + num(s.dalpha_x, 0),
+        beta_y: t.beta_y * Math.max(1e-3, num(s.by_ratio, 1)), alpha_y: t.alpha_y + num(s.dalpha_y, 0),
+        dx: num(s.dx_mm, 0) * 1e-3, dpx: num(s.dpx_mrad, 0) * 1e-3, dy: num(s.dy_mm, 0) * 1e-3, dpy: num(s.dpy_mrad, 0) * 1e-3,
+      });
+    },
+    /** Draw a fresh beam and start tracking it. */
+    inject() {
+      const sc = state.scenario;
+      this.pause();
+      let optics, machine;
+      try { optics = INJ.ringOptics(sc); machine = TRK.build(sc); }
+      catch (e) { this.run = { error: e.message }; this.draw(); return; }
+      const p = this.params(sc, optics);
+      const states = INJ.sampleInjection(p, optics);
+      const lost = new Int32Array(states.length).fill(-1);
+      const s0 = INJ.beamStats(states, lost, optics);
+      const run = { optics, machine, p, states, lost, stats: [s0], deltas: states.map((s) => s[5]), turn: 0,
+        target: Math.max(1, Math.round(+this.settings.turns || 1000)), env: { x: [1], y: [1] }, R: {} };
+      // Phase-space axes are fixed at injection: every particle keeps its own action, so the
+      // radii it can reach are the ones it starts with (to a few % of chromatic beta-beat).
+      for (const pl of ["x", "y"]) {
+        let m = 0;
+        for (const s of states) { const q = this.norm(s, run, pl); m = Math.max(m, Math.hypot(q[0], q[1])); }
+        run.R[pl] = m > 0 ? 1.12 * m : 1e-6;
+      }
+      this.run = run;
+      this.draw();
+      this.play();
+    },
+    /** Normalised phase-space coordinates (X, P) of one particle: a matched beam is round. */
+    norm(s, run, pl) {
+      const t = run.optics.twiss, [u, up] = INJ.betatronPart(s, run.optics, pl);
+      const beta = pl === "x" ? t.beta_x : t.beta_y, alpha = pl === "x" ? t.alpha_x : t.alpha_y, sb = Math.sqrt(beta);
+      return [u / sb, (alpha * u + beta * up) / sb];
+    },
+    /** Track as many whole turns as fit in ~12 ms. */
+    step() {
+      const r = this.run, t0 = performance.now();
+      while (r.turn < r.target && performance.now() - t0 < 12) {
+        for (let p = 0; p < r.states.length; p++) {
+          if (r.lost[p] >= 0) continue;
+          if (TRK.trackTurn(r.machine, r.states[p]) >= 0) r.lost[p] = r.turn;
+        }
+        r.turn++;
+        r.stats.push(INJ.beamStats(r.states, r.lost, r.optics));
+      }
+      // The frozen-energy decoherence envelope, from the beam's own energies (inject.js).
+      const xi = r.optics.chromaticity;
+      if (xi && !r.optics.hasRF) {
+        for (const [i, pl] of [[0, "x"], [1, "y"]]) {
+          const env = r.env[pl];
+          while (env.length <= r.turn) env.push(INJ.chromaticEnvelope(r.deltas, xi[i], env.length));
+        }
+      }
+    },
+    tick() {
+      this.raf = 0;
+      if (!this.playing || !this.run || this.run.error) return;
+      this.step();
+      this.draw();
+      if (this.run.turn >= this.run.target) { this.playing = false; this.reflect(); return; }
+      this.raf = requestAnimationFrame(() => this.tick());
+    },
+    play() { if (!this.run || this.run.error || this.run.stale) return; if (this.run.turn >= this.run.target) this.run.target += Math.max(1, Math.round(+this.settings.turns || 1000)); this.playing = true; this.reflect(); if (!this.raf) this.raf = requestAnimationFrame(() => this.tick()); },
+    pause() { this.playing = false; if (this.raf) cancelAnimationFrame(this.raf); this.raf = 0; this.reflect(); },
+    reflect() {
+      const b = $("inj-play");
+      if (!b) return;
+      const can = this.run && !this.run.error && !this.run.stale;
+      b.disabled = !can;
+      b.textContent = this.playing ? "Pause" : (can && this.run.turn >= this.run.target ? "More turns" : "Resume");
+    },
+    onResult() {
+      if (this.run && !this.run.error) { this.pause(); this.run.stale = true; }
+      if (state.tab === "inject") this.draw();
+    },
+    render() {
+      const sc = state.scenario, host = $("inject");
+      if (!this.settings || this.settings.forName !== sc.name) { this.settings = this.defaultsFor(sc); this.run = null; this.built = false; }
+      if (!this.built || !host.querySelector(".ctl")) this.build();
+      this.draw();
+    },
+    build() {
+      const host = $("inject"), s = this.settings;
+      let h = `<div class="ctl">`;
+      for (const f of INJ_FIELDS) {
+        if (f.h) { h += `<h3>${f.h}</h3>`; continue; }
+        const tp = tipAttr(f.tip);
+        h += `<div class="field"><label for="ij-${f.key}"${tp}${tp ? ' tabindex="0"' : ""}>${f.label}${f.unit ? `<small>${f.unit}</small>` : ""}</label>` +
+          `<input id="ij-${f.key}" type="number" step="${f.step}" data-ik="${f.key}" value="${esc(s[f.key])}"></div>`;
+      }
+      h += `<div class="acts"><button class="btn primary" id="inj-go">Inject</button><button class="btn" id="inj-play">Resume</button>` +
+        `<span class="seg" role="group" aria-label="Plane"><button data-plane="x" aria-pressed="${this.plane === "x"}">x</button><button data-plane="y" aria-pressed="${this.plane === "y"}">y</button></span></div>` +
+        `<div class="readout" id="inj-read"></div></div>` +
+        `<div class="views"><div class="note" id="inj-note"></div><div class="view"><svg id="inj-ps" role="img" aria-label="Phase space at the injection point"></svg></div>` +
+        `<div class="view"><svg id="inj-tt" role="img" aria-label="Centroid and emittance against turn number"></svg></div></div>`;
+      host.innerHTML = h;
+      host.querySelectorAll("[data-ik]").forEach((el) => el.addEventListener("change", () => {
+        this.settings[el.dataset.ik] = +el.value;
+        if (this.run && !this.run.error) { this.pause(); this.run.stale = true; }
+        this.draw();
+      }));
+      $("inj-go").addEventListener("click", () => this.inject());
+      $("inj-play").addEventListener("click", () => (this.playing ? this.pause() : this.play()));
+      host.querySelectorAll("[data-plane]").forEach((b) => b.addEventListener("click", () => {
+        this.plane = b.dataset.plane;
+        host.querySelectorAll("[data-plane]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.plane === this.plane)));
+        this.draw();
+      }));
+      this.built = true;
+      this.reflect();
+    },
+    /** The plain-language note above the plots: what this machine will do, and what is left out. */
+    noteHTML() {
+      const sc = state.scenario, r = state.result;
+      if (!sc.periodic) return `<p>Injection needs a <b>ring</b>: switch the machine to Ring in the inspector.</p>`;
+      if (!r || r.errors.length || r.opticsError || !r.twiss0) return `<p>The ring's optics do not close, so there is no matched beam to inject into.</p>`;
+      const out = [`<p><b class="off">Radiation damping is off</b>, so nothing here ever shrinks the beam: what is injected stays, and only spreads.</p>`];
+      const i = this.plane === "x" ? 0 : 1, xi = r.chromaticity ? r.chromaticity[i] : null;
+      const sd = Math.max(0, +this.settings.sigd_e3 || 0) * 1e-3;
+      const hasRF = sc.elements.some((e) => e.type === "RFCavity" && +e.voltage !== 0);
+      if (xi == null) out.push(`<p>No chromaticity is available for this ring, so no prediction is shown.</p>`);
+      else if (!(Math.abs(xi) * sd > 0)) out.push(`<p>With ${sd > 0 ? "zero chromaticity" : "no energy spread"} every particle turns at the same rate, so the beam keeps its injected shape for good. Add an energy spread (or octupoles) to see it smear.</p>`);
+      else if (hasRF && r.Qs > 0) out.push(`<p>This ring has an <b>RF cavity</b>: each particle's energy swings up and down every ≈${fmt(1 / r.Qs, 3)} turns, so the energy-driven smearing undoes itself. The spread in phase never exceeds 2|Q′|σδ/Qₛ = <b>${fmt(2 * Math.abs(xi) * sd / r.Qs, 2)} rad</b> — the wobble fades only slightly and keeps coming back. Remove the cavity to watch the beam smear out.</p>`);
+      // A cavity where the dispersion is not zero couples the energy kicks into sideways
+      // motion (synchrotron-betatron coupling): a beam matched in the 4D sense used here is
+      // then NOT matched, and its measured size pulses even with no aiming error at all.
+      // Per pass the cavity changes delta by ~2 pi Q_s sigma_delta (rms), which moves the
+      // particle's reference path by D times that while its position stays put.
+      if (hasRF && r.Qs > 0 && sd > 0 && r.twissBoundaries) {
+        let worst = null;
+        sc.elements.forEach((e, k) => {
+          if (e.type !== "RFCavity" || !(+e.voltage)) return;
+          const tw = r.twissBoundaries[k], D = this.plane === "x" ? tw.disp_x : tw.disp_y;
+          if (!worst || Math.abs(D) > Math.abs(worst.D)) worst = { D, beta: this.plane === "x" ? tw.beta_x : tw.beta_y };
+        });
+        const em = +(sc.beam || {})[`emit_${this.plane}`] || 0;
+        if (worst && Math.abs(worst.D) > 1e-3 && em > 0) {
+          const shift = Math.abs(worst.D) * TWO_PI * r.Qs * sd, size = Math.sqrt(em * worst.beta);
+          out.push(`<p>The cavity also sits where the beam's path depends on its energy (dispersion D = ${fmt(worst.D, 3)} m), so each energy kick shifts particles sideways by about <b>${fmt(shift * 1e3, 2)} mm</b> against a beam size of ${fmt(size * 1e3, 2)} mm. Even a perfectly aimed beam's measured size therefore pulses here: the "matched" beam this tab injects ignores that coupling. Real rings put their cavities where D = 0.</p>`);
+        }
+      }
+      else if (hasRF) out.push(`<p>This ring has an RF cavity but no stable synchrotron motion (check the RF phase), so expect the energies to run away.</p>`);
+      else out.push(`<p>No RF cavity: every particle keeps its energy, so the energy spread steadily spreads the phases. The wobble should halve after ≈ <b>${fmt(0.1874 / (Math.abs(xi) * sd), 3)} turns</b> (0.187 / |Q′|σδ, Q′ = ${fmt(xi, 4)}); the dashed curve is the prediction from these particles' own energies.</p>`);
+      const nonlinear = sc.elements.some((e) => ["Sextupole", "ThinSextupole", "Octupole", "ThinOctupole"].includes(e.type) && +(e.k2 || e.k2l || e.k3 || e.k3l));
+      if (nonlinear) out.push(`<p>This ring has sextupoles or octupoles: they also make a particle's turning rate depend on how far out it swings. That smears the beam too, and it is <b>not</b> in the dashed prediction, which counts energy alone.</p>`);
+      return out.join("");
+    },
+    draw() {
+      if (!$("inj-note")) return;
+      $("inj-note").innerHTML = this.noteHTML();
+      this.reflect();
+      const r = this.run, ps = $("inj-ps"), tt = $("inj-tt"), read = $("inj-read");
+      if (!r || r.error) {
+        const msg = r && r.error ? `Cannot inject: ${esc(r.error)}` : "Set the injection error and press <b>Inject</b>.";
+        ps.innerHTML = `<text x="16" y="24" class="ttl">${msg}</text>`; tt.innerHTML = ""; read.innerHTML = ""; return;
+      }
+      const pl = this.plane, st = r.stats, last = st[st.length - 1];
+      const J0 = st[0][pl] ? st[0][pl].meanJ : 0, c0 = st[0][pl] ? st[0][pl].centroid : 0;
+      const showCen = J0 > 0 && c0 > 0.02 * Math.sqrt(2 * J0);
+      const pred = INJ.expectedAction(r.p, r.optics, pl);
+      const eps = pl === "x" ? r.p.emit_x : r.p.emit_y;
+      const t = r.optics.twiss, beta = pl === "x" ? t.beta_x : t.beta_y, alpha = pl === "x" ? t.alpha_x : t.alpha_y;
+      const bm = INJ.bmag(beta, alpha, pl === "x" ? r.p.beta_x : r.p.beta_y, pl === "x" ? r.p.alpha_x : r.p.alpha_y);
+      const alive = last.alive, n = r.states.length;
+      const row = (k, v) => `<span>${k}</span><span>${v}</span>`;
+      read.innerHTML = (r.stale ? `<span class="stale">Machine or settings changed — press Inject.</span>` : "") +
+        row("turn", r.turn) + row("particles left", `${alive} / ${n}`) +
+        row(`injected ε${pl}`, `${fmt(eps, 3)} m·rad`) + row("mismatch Bmag", fmt(bm, 4)) +
+        row("final size ⟨J⟩, formula", `${fmt(pred, 4)} m·rad`) + row("final size ⟨J⟩, this beam", `${fmt(J0, 4)} m·rad`) +
+        (last[pl] ? row("rms emittance now", `${fmt(last[pl].emit, 4)} m·rad`) + row("now ÷ final", fmt(J0 > 0 ? last[pl].emit / J0 : NaN, 3)) : "");
+      this.drawPhase(ps, r, pl);
+      this.drawTurns(tt, r, pl, J0, c0, showCen);
+    },
+    drawPhase(svg, r, pl) {
+      const W = svg.clientWidth || 400, H = svg.clientHeight || 240, pad = 22;
+      const size = Math.max(40, Math.min(W - 2 * pad, H - 2 * pad - 14)), cx = W / 2, cy = pad + 14 + size / 2, R = r.R[pl], k = size / 2 / R;
+      const J = r.stats[0][pl] ? r.stats[0][pl].meanJ : 0;
+      let h = `<text x="${pad}" y="15" class="ttl">Phase space at the injection point — ${pl} (normalised: a matched beam is round)</text>`;
+      h += `<path class="ax" d="M${cx - size / 2} ${cy}H${cx + size / 2}M${cx} ${cy - size / 2}V${cy + size / 2}"/>`;
+      let dots = "";
+      for (let p = 0; p < r.states.length; p++) {
+        if (r.lost[p] >= 0) continue;
+        const q = this.norm(r.states[p], r, pl);
+        if (Math.abs(q[0]) > R || Math.abs(q[1]) > R) continue; // dropped, never clamped
+        dots += `<circle class="dot ${pl}" cx="${(cx + k * q[0]).toFixed(1)}" cy="${(cy - k * q[1]).toFixed(1)}" r="1.6"/>`;
+      }
+      h += dots;
+      // Drawn over the dots: the radius sqrt(2<J>) every particle's own circle averages to.
+      if (J > 0) h += `<circle class="ring" cx="${cx}" cy="${cy}" r="${k * Math.sqrt(2 * J)}"/><text x="${cx + k * Math.sqrt(2 * J) * 0.71 + 4}" y="${cy - k * Math.sqrt(2 * J) * 0.71 - 4}">rms size once smeared</text>`;
+      h += `<text x="${cx + size / 2 - 4}" y="${cy - 4}" text-anchor="end">${pl}/√β</text><text x="${cx + 4}" y="${cy - size / 2 + 10}">(α${pl} + β${pl}′)/√β</text>`;
+      svg.innerHTML = h;
+    },
+    drawTurns(svg, r, pl, J0, c0, showCen) {
+      const W = svg.clientWidth || 400, H = svg.clientHeight || 240;
+      const L = 46, Rm = 14, T = 42, B = 26, pw = Math.max(20, W - L - Rm), ph = Math.max(20, H - T - B);
+      const st = r.stats, nmax = Math.max(r.target, r.turn, 1);
+      const emit = st.map((s) => (s[pl] && J0 > 0 ? s[pl].emit / J0 : NaN));
+      const cen = showCen ? st.map((s) => (s[pl] ? s[pl].centroid / c0 : NaN)) : [];
+      const env = showCen && r.env[pl].length > 1 ? r.env[pl] : [];
+      let ymax = 1.15;
+      for (const v of emit.concat(cen)) if (Number.isFinite(v)) ymax = Math.max(ymax, 1.05 * v);
+      const X = (n) => L + pw * n / nmax, Y = (v) => T + ph * (1 - v / ymax);
+      const path = (arr) => {
+        let d = "", pen = false;
+        const stride = Math.max(1, Math.floor(arr.length / (2 * pw)));
+        for (let n = 0; n < arr.length; n += stride) {
+          const v = arr[n];
+          if (!Number.isFinite(v)) { pen = false; continue; }
+          d += `${pen ? "L" : "M"}${X(n).toFixed(1)} ${Y(v).toFixed(1)}`; pen = true;
+        }
+        return d;
+      };
+      let h = `<text x="${L}" y="14" class="ttl">Turn by turn at the injection point — ${pl}</text>`;
+      h += `<path class="ax" d="M${L} ${T}V${T + ph}H${L + pw}"/>`;
+      for (const v of [0, 0.5, 1].filter((v) => v <= ymax)) h += `<text x="${L - 6}" y="${Y(v) + 3}" text-anchor="end">${v}</text>`;
+      h += `<text x="${L}" y="${T + ph + 16}">0</text><text x="${L + pw}" y="${T + ph + 16}" text-anchor="end">${nmax} turns</text>`;
+      h += `<path class="s-one" d="M${L} ${Y(1)}H${L + pw}"/>`;
+      if (env.length) h += `<path class="s-env" d="${path(env)}"/>`;
+      if (cen.length) h += `<path class="s-cen" d="${path(cen)}"/>`;
+      h += `<path class="s-emit" d="${path(emit)}"/>`;
+      const lg = [`<tspan class="lg" fill="var(--by)">— rms emittance ÷ ⟨J⟩</tspan>`];
+      if (cen.length) lg.push(`<tspan fill="var(--accent)">— wobble (centroid) ÷ start</tspan>`);
+      if (env.length) lg.push(`<tspan fill="var(--accent)">- - predicted wobble</tspan>`);
+      lg.push(`<tspan fill="var(--ink-3)">··· 1 = fully smeared</tspan>`);
+      h += `<text x="${L}" y="${T - 12}">${lg.join("  ")}</text>`;
+      svg.innerHTML = h;
+    },
   };
 
   // ------------------------------------------------------------- matrices

@@ -39,7 +39,36 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); AC dipole (two arbiters, not opened) |
-| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23) | injection (needs real tracking — deferred) |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07) | a 6D-matched injected beam on rings with a cavity in dispersion; the collimator-length mismatch |
+
+**Tools shipped injection on 2026-10-07** — the editor can now inject a beam with an aiming
+error, a shape mismatch and an energy spread and **track** it turn by turn (the deferred item of
+the beam animation). Full detail in `docs/CONVENTIONS.md` -> *The editor's tracker* and
+*Injection and filamentation*.
+
+The findings, in the order they changed the milestone:
+
+- **The tracker had to be the element-by-element one, and that was measured first.** On every
+  ring preset the package's `track()` path carries the whole natural chromaticity (tracked
+  `dQ/ddelta` = `chromaticity()`); the one-turn matrix carries none, so a matrix-tracked beam can
+  never filament. `editor/accsim-track.js` ports every catalogue element's map and is held to
+  `1e-12` (floor `5e-14`) element by element, over 30 turns of every preset, and on losses.
+- **The probe found a physics bug first: `natural_chromaticity` had no wiggler term.** The
+  wiggler's `k_y = h0^2/(2(1+delta)^2)` carries the second power, so `Q'_y` gains
+  `-(h0^2/4pi) oint beta_y`; it was missing (24% of `Q'_y` on a short ring, 0.4% on
+  `wiggler-ring`). Fixed in the package and the editor before anything was built on it.
+- **Turn-averaged moments must be taken about the ORBIT.** About the centroid they sit `1/N` low
+  forever (a finite bunch's centroid never settles); the gate caught it because the bias did
+  not move with `sigma_delta`.
+- **The two cavity presets barely filament, and that is physics.** `Q_s = 0.073` bounds the
+  chromatic phase spread to ~0.12 rad. Worse, their cavity sits at `D = 1.47 m`, so each energy
+  kick shifts particles ~0.47 mm sideways against a 0.81 mm beam: even a perfectly aimed,
+  "matched" beam's measured size pulses by ~40% there. The tab says so in words; the gates run
+  on the cavity-free `kicked-ring`.
+
+**What it leaves open:** a 6D-matched injected beam (the coupling above), radiation damping (off,
+labelled), and the collimator-length mismatch between the package (identity) and the editor's
+optics (a drift), found on the way.
 
 **Axis V shipped V3 on 2026-10-07** — **spin through a tilted bend**. V1's refusal is
 lifted and nothing else in the map changed: the conjugation that turns the coordinates into

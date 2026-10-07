@@ -10503,6 +10503,25 @@ betatron part only, with the editor's own `D, D'` (never fitted from the sample)
   every synchrotron period. Without radiation damping an injection oscillation on those presets
   therefore persists; the page must say damping is off. The gates run on the cavity-free
   `kicked-ring`, rolled one element on so the injection point has `alpha != 0` and `D' != 0`.
+- **A cavity in dispersion breaks the "matched" beam (found in the browser, step 3).** On
+  `electron-ring` and `wiggler-ring` the cavity sits at `D = 1.47 m`. Per pass it changes `delta`
+  by `~2 pi Q_s sigma_delta` rms (from `sigma_zeta = sigma_delta |eta| C / (2 pi Q_s)` and the
+  linear slope `(2 pi Q_s)^2 / (|eta| C)`), which moves the reference path by `D` times that while
+  the particle stays put: ~0.47 mm against a 0.81 mm beam. Measured: a beam with no aiming error
+  and no mismatch shows a betatron emittance ~1.4x the injected one within two turns, pulsing
+  1.1x–1.5x thereafter; removing the cavity, or setting `sigma_delta = 0`, keeps it at 1 to 1–2%.
+  The beam this tab injects is matched in the 4D-plus-dispersion sense only; a 6D-matched beam
+  is not built. The tab prints the shift and the beam size whenever a cavity has `|D| > 1 mm`.
+- **The page (step 3).** An *Injection* tab: settings (aiming error, shape mismatch as ratios to
+  the ring's own beta/alpha, emittance multiple, `sigma_delta`, energy offset, particle count,
+  turns), a normalised phase-space plot at the injection point (axes fixed at injection; dots
+  outside dropped, never clamped; the dashed circle `sqrt(2<J>)`), and a turn plot of the rms
+  emittance over `<J>`, the centroid over its start, and — on a cavity-free ring — the predicted
+  envelope. Plain-language notes say radiation damping is off, what a cavity does, the predicted
+  half-life `0.187 / (|Q'| sigma_delta)` (`sqrt(2 ln 2) / 2 pi`, the Gaussian envelope's), and that
+  sextupoles/octupoles add an amplitude spread the dashed curve leaves out. Tracking runs in
+  ~12 ms slices per frame (500 particles x 217 elements is ~5.9 ms a turn) and pauses when the
+  tab is left; any edit marks the run stale. `scripts/build_editor.py` now inlines **6** scripts.
 
 ## Toolchain / environment notes
 
