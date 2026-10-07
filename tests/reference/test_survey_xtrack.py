@@ -145,9 +145,10 @@ def test_the_i4_ring_agrees_element_by_element(i4) -> None:
 def test_xtrack_is_planar_here_too(i4, uneven) -> None:
     """``Y`` is zero in xtrack's own table, which is what makes accsim's refusal safe.
 
-    accsim reports ``Y = phi = psi = 0`` by construction because it has no design tilt. That
-    is only *equivalent* to xtrack's answer as long as xtrack agrees the machine is flat —
-    it does, and this asserts it rather than assuming it.
+    accsim reports ``Y = phi = psi = 0`` exactly on a machine with no design tilt (its planar
+    path, unchanged since R1). That is only *equivalent* to xtrack's answer as long as xtrack
+    agrees the machine is flat — it does, and this asserts it rather than assuming it. Tilted
+    machines are compared in ``test_design_tilt_xtrack.py``.
     """
     for _, theirs in (i4, uneven):
         assert np.allclose(np.asarray(theirs.Y), 0.0, rtol=0.0, atol=1e-15)

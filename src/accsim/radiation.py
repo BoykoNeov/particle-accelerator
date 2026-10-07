@@ -224,9 +224,14 @@ def radiation_integrals(lattice: Lattice, slices: int = 64) -> RadiationIntegral
     absolute check, so it is gated by energy-scaling (``eps_x ∝ gamma^2``) + xtrack
     (``tests/analytic/test_radiation.py``, ``tests/reference/``).
     """
-    from .elements.dipole import Dipole, _edge_matrix
+    from .elements.dipole import Dipole, _edge_matrix, refuse_design_tilt
     from .elements.wiggler import Wiggler
 
+    refuse_design_tilt(
+        lattice.elements,
+        "radiation_integrals",
+        "the vertical-dispersion emittance milestone (two arbiters: MAD-X EMIT and xtrack)",
+    )
     tw0 = closed_twiss(lattice)
     bx, ax = tw0.beta_x, tw0.alpha_x
     disp = np.array([tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py])
@@ -575,8 +580,9 @@ def _quadrature_nodes(
     inside them, which is what lets the N4 route push a whole ``(6, 13)`` differencing
     bundle through the identical nodes.
     """
-    from .elements.dipole import Dipole
+    from .elements.dipole import Dipole, refuse_design_tilt
 
+    refuse_design_tilt(lattice.elements, "the polarization quadrature")
     ref = lattice.ref
     for elem in lattice.elements:
         if isinstance(elem, Dipole) and elem.length > 0.0 and elem.curvature != 0.0:

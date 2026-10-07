@@ -597,6 +597,25 @@ def _edge_matrix(h: float, e: float) -> np.ndarray:
     return E
 
 
+def refuse_design_tilt(elements, consumer: str, milestone: str = "") -> None:
+    """Raise if any element carries a design ``tilt`` that ``consumer`` would misread (V1).
+
+    The sums this guards walk element types and read a bend's ``curvature`` and ``k1`` as
+    horizontal — several of them by building an *untilted* sub-slice ``Dipole(ds, h ds,
+    k1)``, which silently drops the tilt. A gradient magnet tilted by ``pi/2`` is a
+    quadrupole of the opposite sign and leaves the ring uncoupled, so nothing upstream
+    catches it either. Refusing is the only safe answer until each is generalised.
+    """
+    for elem in elements:
+        if getattr(elem, "tilt", 0.0) != 0.0:
+            later = f" — that is {milestone}" if milestone else ""
+            raise NotImplementedError(
+                f"{consumer} does not support the design tilt of {type(elem).__name__} "
+                f"{elem.name!r} (tilt={elem.tilt}): it reads a bend's curvature and gradient "
+                f"as horizontal{later}. See docs/CONVENTIONS.md -> Design tilt"
+            )
+
+
 class Dipole(Element):
     r"""A dipole of arc length ``L`` and bend angle ``theta`` [rad].
 
@@ -870,6 +889,18 @@ class Dipole(Element):
     to that route (``docs/CONVENTIONS.md`` -> *Orbit-driven vertical dispersion*). On
     a realistic arc that route is the **larger** of the two. See
     :meth:`_alignment_exit`.
+
+    A bend may be **tilted by design** (V1)
+    ---------------------------------------
+    ``tilt`` turns the magnet about the beam axis *with* the reference frame (MAD-X
+    ``TILT``, xtrack's plain ``rot_s_rad``): ``tilt = pi/2`` makes a vertical bend, and a
+    positive angle there turns the machine **down** — the sense both reference codes
+    report. The map is the plain conjugation ``R(-tilt) . bend . R(+tilt)``
+    (:class:`~accsim.elements.element.Element`), with **no** exit-face correction and so
+    exactly zero kick: unlike ``roll``, nothing has moved off the design. Everything that
+    reads ``angle`` as a *horizontal* bend either follows the tilt (the survey, the
+    momentum-compaction quadrature) or refuses it — see ``docs/CONVENTIONS.md`` ->
+    *Design tilt*. A tilt together with a ``roll`` or an offset is refused.
     """
 
     def __init__(
@@ -886,8 +917,12 @@ class Dipole(Element):
         dx: float = 0.0,
         dy: float = 0.0,
         roll: float = 0.0,
+        tilt: float = 0.0,
     ) -> None:
         super().__init__(length, name=name, dx=dx, dy=dy, roll=roll)
+        #: Design tilt [rad]: the magnet *and its reference frame* turned about ``s``.
+        self.tilt = float(tilt)
+        self._refuse_tilt_with_misalignment()
         if length == 0.0 and angle != 0.0:
             raise ValueError("a finite bend angle requires a positive length")
         self.angle = float(angle)

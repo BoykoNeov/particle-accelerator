@@ -75,7 +75,7 @@ class Element(abc.ABC):
     it is — MAD-X ``EALIGN``'s ``DPSI``, xtrack's ``rot_s_rad_no_frame``. It is
     **not** the same thing as a *design* tilt (MAD-X ``TILT``, xtrack's plain
     ``rot_s_rad``), which rolls the reference frame along with the magnet and is a
-    lattice-design choice rather than an error; accsim does not offer that one.
+    lattice-design choice rather than an error — that one is ``tilt``, below.
 
     For every **straight** element the two coincide and the map is the conjugation
 
@@ -100,11 +100,35 @@ class Element(abc.ABC):
     coupling all move. K1's "displacements leave the optics bit-for-bit alone" is a
     statement about translations only.
 
+    Design tilt: ``tilt`` [rad] (V1)
+    --------------------------------
+    A **design** tilt turns the element about ``s`` *and takes the reference frame with
+    it* (MAD-X ``TILT``, xtrack's plain ``rot_s_rad``). Because the frame follows, the
+    exit undoes exactly what the entrance did, for a bend as for anything else:
+
+        track(state) = R(-tilt) . placed( R(+tilt) state ),
+
+    with ``placed`` the element as positioned by its misalignment above. There is no
+    exit-face correction — the design orbit was tilted with the magnet, so a tilted bend
+    has **exactly zero kick** where K2's rolled bend has an angle and an offset. What the
+    tilt changes is the *machine*: a bend tilted by ``pi/2`` is a vertical bend, and
+    :func:`accsim.geometry.survey` walks the ring out of the horizontal plane.
+
+    Only :class:`~accsim.elements.dipole.Dipole` sets it. For a straight element a design
+    tilt and a roll are the same map and the same survey, so ``roll`` already covers it;
+    the class attribute is ``0.0`` so that generic code can read ``elem.tilt`` off any
+    element. A tilt combined with a misalignment is refused — which rotation acts first
+    is a convention, and it has not been pinned against a reference code.
+
     Subclasses override :meth:`_matrix_body`, :meth:`_kick_body` and
     :meth:`_track_body` — the element's own map in its **own** frame. The public
-    :meth:`matrix`, :meth:`kick` and :meth:`track` add the misalignment on top;
-    overriding those directly would apply it twice or not at all.
+    :meth:`matrix`, :meth:`kick` and :meth:`track` add the misalignment and the tilt on
+    top; overriding those directly would apply them twice or not at all.
     """
+
+    #: Design tilt [rad] — see the class docstring. A class attribute here, so every
+    #: element answers ``0.0``; :class:`~accsim.elements.dipole.Dipole` sets its own.
+    tilt: float = 0.0
 
     def __init__(
         self,
@@ -139,6 +163,22 @@ class Element(abc.ABC):
         d[X] = self.dx
         d[Y] = self.dy
         return d
+
+    def _refuse_tilt_with_misalignment(self) -> None:
+        """A design tilt on a misaligned element is refused (class docstring).
+
+        Checked where the maps are built, not only at construction, because the
+        attributes are plain and :func:`~accsim.orbit._with_offset` and friends set them
+        on copies.
+        """
+        if self.tilt != 0.0 and self.is_misaligned:
+            raise NotImplementedError(
+                f"{type(self).__name__} {self.name!r} has a design tilt ({self.tilt}) and "
+                f"a misalignment (dx={self.dx}, dy={self.dy}, roll={self.roll}): which "
+                "rotation acts first is a convention, and accsim has not pinned it against "
+                "a reference code (xtrack takes rot_s_rad and rot_s_rad_no_frame together "
+                "and would be the arbiter). Misalign an untilted element instead"
+            )
 
     def _alignment_entry(self, ref: ReferenceParticle) -> tuple[np.ndarray, np.ndarray]:
         """Affine map ``(M, k)`` from the lattice frame into the element's own frame.
@@ -180,11 +220,14 @@ class Element(abc.ABC):
         is K1's central fact and is asserted bit-for-bit.
         """
         body = self._matrix_body(ref)
-        if self.roll == 0.0:
-            return body
-        M_in, _ = self._alignment_entry(ref)
-        M_out, _ = self._alignment_exit(ref)
-        return M_out @ body @ M_in
+        if self.roll != 0.0:
+            M_in, _ = self._alignment_entry(ref)
+            M_out, _ = self._alignment_exit(ref)
+            body = M_out @ body @ M_in
+        if self.tilt != 0.0:
+            self._refuse_tilt_with_misalignment()
+            body = s_rotation(-self.tilt) @ body @ s_rotation(self.tilt)
+        return body
 
     def _kick_body(self, ref: ReferenceParticle) -> np.ndarray:
         """Constant part of the element's **own** map, in its own frame, ``(6,)``.
@@ -226,6 +269,11 @@ class Element(abc.ABC):
         class docstring.
         """
         k = self._kick_body(ref)
+        if self.tilt != 0.0:
+            # The entrance is a pure rotation, so the body's own constant part is all
+            # there is, carried out by the inverse rotation. A design bend's is zero.
+            self._refuse_tilt_with_misalignment()
+            return s_rotation(-self.tilt) @ k
         if not self.is_misaligned:
             return k
         if self.roll == 0.0:  # K1: a translation, and the derived closed form
@@ -342,6 +390,44 @@ class Element(abc.ABC):
         One code path, so the two can never disagree about which body-frame states the
         radiation and the precession are evaluated on. With ``spin=None`` it is
         :meth:`track` unchanged, down to which arrays get allocated.
+
+        A design tilt wraps everything else: rotate into the tilted frame, place and
+        track the element there, rotate back (class docstring). Spin through a tilted
+        **bend** is refused — the conjugation would carry it, but it has a single arbiter
+        (xtrack) and is a milestone of its own.
+        """
+        if self.tilt == 0.0:
+            return self._track_placed(state, ref, radiation, rng, spin)
+        self._refuse_tilt_with_misalignment()
+        if spin is not None and self.frame_rotation_angle != 0.0:
+            raise NotImplementedError(
+                f"spin precession through the tilted bend {self.name!r} (tilt={self.tilt}) "
+                "is not implemented: a tilted bend turns the reference frame about a tilted "
+                "axis, which is spin-rotator physics with a single arbiter (xtrack) and a "
+                "milestone of its own. A tilted straight element is fine -- it is a rolled one"
+            )
+        from ..spin import rotate_about_s
+
+        state = np.asarray(state, dtype=float)
+        spin_in = None if spin is None else rotate_about_s(spin, self.tilt)
+        out, spin_out = self._track_placed(
+            s_rotation(self.tilt) @ state, ref, radiation, rng, spin_in
+        )
+        if spin_out is not None:
+            spin_out = rotate_about_s(spin_out, -self.tilt)
+        return s_rotation(-self.tilt) @ out, spin_out
+
+    def _track_placed(
+        self,
+        state: np.ndarray,
+        ref: ReferenceParticle,
+        radiation: str,
+        rng: np.random.Generator | None,
+        spin: np.ndarray | None,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        """The element as **placed** by its misalignment, in the frame it is entered in.
+
+        Everything :meth:`_track_impl` did before the design tilt existed, unchanged.
         """
         if not self.is_misaligned:
             out = self._track_body(state, ref)
@@ -540,7 +626,7 @@ class Element(abc.ABC):
         return spin_precession(self, spin, before, after, ref)
 
     def _repr_tail(self) -> str:
-        """The trailing ``, name=..., dx=..., dy=..., roll=...`` every element shares.
+        """The trailing ``, name=..., dx=..., dy=..., roll=..., tilt=...`` every element shares.
 
         Each part appears only when it is set, so an aligned element's repr is
         unchanged by K1 or K2 — and a misaligned one never hides the offset or the
@@ -556,6 +642,8 @@ class Element(abc.ABC):
             parts += f", dy={self.dy}"
         if self.roll != 0.0:
             parts += f", roll={self.roll}"
+        if self.tilt != 0.0:
+            parts += f", tilt={self.tilt}"
         return parts
 
     def __repr__(self) -> str:

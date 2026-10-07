@@ -872,9 +872,10 @@ def natural_chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, flo
     ``beta``. The integer part of the tune is irrelevant to ``dQ/ddelta``, so no
     phase unwrapping is needed.
     """
-    from .elements.dipole import Dipole, _edge_matrix
+    from .elements.dipole import Dipole, _edge_matrix, refuse_design_tilt
     from .elements.quadrupole import Quadrupole, ThinQuadrupole, _focusing_block
 
+    refuse_design_tilt(lattice.elements, "natural_chromaticity")
     ref = lattice.ref
     tw0 = closed_twiss(lattice)
     bx, ax = tw0.beta_x, tw0.alpha_x
@@ -1040,11 +1041,11 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
     ``"identity"`` (default)
         The exact symplecticity identity
 
-            alpha_c = 1/gamma0^2 - (R51 D_x + R52 D_px + R56) / C,
+            alpha_c = 1/gamma0^2 - (R51 D_x + R52 D_px + R53 D_y + R54 D_py + R56) / C,
 
         read off the **one-turn longitudinal row** on the matched dispersion orbit:
-        over one turn at ``(x, px) = (D_x, D_px) delta`` the coordinate ``zeta``
-        slips by ``(R51 D_x + R52 D_px + R56) delta``, which is
+        over one turn at ``(x, px, y, py) = D delta`` the coordinate ``zeta``
+        slips by ``(R51 D_x + R52 D_px + R53 D_y + R54 D_py + R56) delta``, which is
         ``(1/gamma0^2 - alpha_c) C delta``. Both ingredients (the one-turn matrix
         and the matched dispersion) are closed-form, so this is exact to machine
         precision — no quadrature error, and ``slices`` is ignored.
@@ -1066,6 +1067,7 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
     if method not in ("identity", "quadrature"):
         raise ValueError(f"method must be 'identity' or 'quadrature', got {method!r}")
 
+    from .elements.alignment import s_rotation
     from .elements.dipole import Dipole
     from .elements.wiggler import Wiggler
 
@@ -1073,6 +1075,12 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
     if method == "identity":
         M = lattice.one_turn_matrix()
         slip = M[ZETA, X] * tw0.disp_x + M[ZETA, PX] * tw0.disp_px + M[ZETA, DELTA]
+        # The vertical pair is added last, so where D_y is exactly zero (every flat,
+        # unrolled ring) the sum is the horizontal one to the bit. Where it is not — a
+        # tilted bend (V1), or K2's rolled one — the orbit is displaced vertically too and
+        # its path length moves with it; leaving the pair out was a 3e-6 error on V1's
+        # dogleg ring, found by the quadrature route below refusing to agree.
+        slip += M[ZETA, Y] * tw0.disp_y + M[ZETA, PY] * tw0.disp_py
         return 1.0 / lattice.ref.gamma0**2 - slip / lattice.length
 
     disp = np.array([tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py])
@@ -1084,11 +1092,21 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
             ds = elem.length / slices
             sub = Dipole(ds, h * ds).matrix(lattice.ref)  # one sector sub-slice
             sub4, subk = _transverse_4d(sub), _dispersive_kick(sub)
+            # A tilted bend (V1) curves the orbit in its own plane, so ``h`` is read against
+            # the dispersion *in that plane*: carry ``D`` into the bend's frame and back out.
+            # The path-length integrand is ``h . D``, and this is the frame where ``h`` has
+            # one component — which makes a vertical bend's ``h D_y`` count, and nothing else.
+            # Skipped at zero tilt, so a flat ring's number does not move by a bit.
+            into_bend = _transverse_4d(s_rotation(elem.tilt))
+            if elem.tilt:
+                disp = into_bend @ disp
             acc = 0.5 * disp[0]  # trapezoid: half-weight the entrance sample
             for i in range(slices):
                 disp = sub4 @ disp + subk
                 w = 0.5 if i == slices - 1 else 1.0  # half-weight the exit sample
                 acc += w * disp[0]
+            if elem.tilt:
+                disp = into_bend.T @ disp
             integral += h * acc * ds
             continue
         if isinstance(elem, Wiggler) and elem.h0 != 0.0 and elem.length > 0.0:

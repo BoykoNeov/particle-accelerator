@@ -15,12 +15,11 @@ boundaries, which is exactly why :class:`~accsim.geometry.SurveyTable` carries `
 with the ``N`` names kept beside them: the only thing to do here is drop MAD-X's trailing
 duplicate row.
 
-**What is refused.** MAD-X's ``TILT`` — a *design* tilt, which rolls the reference frame with
-the magnet and tips the ring out of the horizontal plane (measured: ``phi = -pi/2`` for a
-90-degree bend tilted by ``pi/2``). accsim has no design tilt; its ``roll`` is a
-misalignment, which moves the magnet and not the curve. The test below asserts that MAD-X
-*does* respond to ``TILT``, so it fails — deliberately — the day accsim grows one and this
-milestone's planarity claim stops being true.
+**What used to be refused.** MAD-X's ``TILT`` — a *design* tilt, which rolls the reference
+frame with the magnet and tips the ring out of the horizontal plane (``phi = -pi/2`` for a
+90-degree bend tilted by ``pi/2``). R1 had none and said so here; V1 added it, and the last
+test below now compares the tilted bend instead of only noting that MAD-X responds to it.
+The full 3D comparison is ``test_design_tilt_madx.py``.
 """
 
 from __future__ import annotations
@@ -137,13 +136,10 @@ def test_the_i4_ring_agrees_element_by_element(i4) -> None:
     assert np.ptp(theirs[2]) > 10.0
 
 
-def test_madx_is_planar_here_and_a_design_tilt_is_what_would_break_it() -> None:
-    """The refusal, as a test with a consequence.
-
-    Without a ``TILT`` MAD-X reports ``Y = phi = psi = 0``, which is what makes accsim's
-    planar-by-construction survey a complete answer rather than a projection of one. Give the
-    same bend a design tilt and MAD-X tips the ring straight out of the plane — so if accsim
-    ever gains a design tilt, the first assertion here is the one that stops being enough.
+def test_madx_is_planar_here_and_a_design_tilt_lifts_both_codes_alike() -> None:
+    """Without a ``TILT`` MAD-X reports ``Y = phi = psi = 0``, which is what accsim's untilted
+    path returns exactly. With one, MAD-X tips the bend straight out of the plane — and since
+    V1, accsim does the same, in every column.
     """
     _X, Y, _Z, _theta, phi, psi = _madx_survey(_uneven_sequence())
     assert np.allclose(Y, 0.0, rtol=0.0, atol=1e-15)
@@ -158,3 +154,11 @@ def test_madx_is_planar_here_and_a_design_tilt_is_what_would_break_it() -> None:
     """)
     assert abs(tilted[1][-1]) > 0.6  # Y — the ring has left the horizontal plane
     assert tilted[4][-1] == pytest.approx(-math.pi / 2, rel=0.0, abs=1e-9)  # phi
+    from accsim.elements.dipole import Dipole
+    from accsim.lattice import Lattice
+    from accsim.reference import ReferenceParticle
+
+    ref = ReferenceParticle.from_total_energy(0.51099895069e6, 1.0e9)
+    t = survey(Lattice([Dipole(1.0, math.pi / 2, tilt=math.pi / 2)], ref=ref))
+    for ours, theirs in zip((t.X, t.Y, t.Z, t.theta, t.phi, t.psi), tilted, strict=True):
+        assert np.allclose(ours, theirs, rtol=0.0, atol=1e-14)

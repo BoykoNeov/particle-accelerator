@@ -8,7 +8,8 @@ beam frame at every element boundary.
 
 It is **geometry, not dynamics**: no particle is tracked, no map is evaluated, and the only
 things read off an element are its ``length`` and — for a
-:class:`~accsim.elements.dipole.Dipole` — its ``angle``. That last word is doing work. Since
+:class:`~accsim.elements.dipole.Dipole` — its ``angle`` and its design ``tilt``. The angle is
+doing work. Since
 Q2 a bend's *field* (``k0``) and its *geometry* (``h = angle/L``) are separate numbers, and a
 tapered ring has ``k0 != h`` in every magnet. **The survey follows the geometry.** A survey
 that reached for ``k0`` would rescale the whole ring while still closing exactly, which is
@@ -53,16 +54,24 @@ names it after the element it *ends* (and prepends ``$start``, appending a dupli
 half-element offset that the other code then appears to disagree about, so this table carries
 ``N + 1`` poses and ``N`` names side by side, and each reference leg is a direct comparison.
 
-**The survey is planar by construction**, and that is a refusal rather than an oversight:
-``Y``, ``phi`` and ``psi`` are identically zero because nothing in ``accsim`` can bend out of
-the horizontal plane. :class:`~accsim.elements.dipole.Dipole` bends in ``x`` only, and
-``roll`` is a *misalignment* (K2 — the magnet turns, the reference frame does not; xtrack's
-``rot_s_rad_no_frame``, MAD-X's ``EALIGN``/``DPSI``), **not** a design tilt (MAD-X ``TILT``,
-xtrack's plain ``rot_s_rad``), which would take the frame with it. A design tilt is an
-element-level change touching every map in the package and it is a separate milestone; until
-one exists, a survey that reported a non-zero ``phi`` would be reporting something no element
-here can produce. ``tests/analytic/test_survey.py`` asserts that, so it fails the day accsim
-gains one.
+**Out of the plane: the design tilt (V1).** Until V1 the survey was planar by construction,
+because no element could bend out of the horizontal plane. A bend with a design ``tilt``
+(MAD-X ``TILT``, xtrack's plain ``rot_s_rad``) bends in its own plane, turned by ``tilt``
+about the beam axis, so the walk becomes a genuine 3D composition. With ``T = R_z(+tilt)``
+the step and the turn are the planar ones seen through ``T``,
+
+    dv_local = T . rho (cos a - 1, 0, sin a),      W -> W . T R_y(-a) T^T,
+
+and ``tilt = +pi/2`` on a positive angle turns the machine **down** (``Y`` decreasing) — the
+sense both reference codes report, agreeing with each other and with this walk to ``1e-15``.
+``roll`` still does nothing here: it is a *misalignment* (K2 — the magnet turns, the frame
+does not), and a misalignment moves the magnet, not the curve.
+
+``theta``, ``phi`` and ``psi`` are then read off ``W`` in MAD-X's order,
+``W = R_y(theta) R_x(-phi) R_z(psi)`` — the inverse xtrack's ``get_angles_from_w`` uses —
+and unwrapped along the ring. **A machine with no tilted element takes the old planar path,
+bit for bit**: ``theta`` accumulated as ``-sum(angle)`` and ``phi = psi = 0`` exactly, so
+nothing R1 measured has moved.
 
 ``theta`` is **not wrapped**: a full turn reports ``-2 pi``, not ``0``, which is what both
 reference codes do.
@@ -106,6 +115,30 @@ def _yaw(theta: float) -> np.ndarray:
     return np.array([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
 
 
+def _tilt(tilt: float) -> np.ndarray:
+    """``R_z(tilt)``: a bend's own axes, turned by its design ``tilt`` about ``s``.
+
+    Positive ``tilt`` carries the bend's own ``x`` axis towards local ``+y`` — the same sense
+    as :func:`~accsim.elements.alignment.s_rotation` on the phase-space coordinates, which is
+    what ties the survey to the map (``tests/analytic/test_design_tilt.py``: the dispersion
+    points away from the way the survey turns, for every tilt).
+    """
+    c, s = math.cos(tilt), math.sin(tilt)
+    return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+
+
+def _angles(W: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(theta, phi, psi)`` from ``(N+1, 3, 3)`` frames, ``W = R_y(theta) R_x(-phi) R_z(psi)``.
+
+    The same inverse xtrack applies (``get_angles_from_w``) and MAD-X tabulates, unwrapped
+    row to row so a full turn reads ``-2 pi`` as on the planar path.
+    """
+    theta = np.arctan2(W[:, 0, 2], W[:, 2, 2])
+    psi = np.arctan2(W[:, 1, 0], W[:, 1, 1])
+    phi = np.arctan2(W[:, 1, 2], W[:, 1, 1] / np.cos(psi))
+    return np.unwrap(theta), np.unwrap(phi), np.unwrap(psi)
+
+
 def _step(length: float, angle: float) -> np.ndarray:
     r"""The local displacement across a body of length ``length`` bending by ``angle``.
 
@@ -131,18 +164,19 @@ class SurveyTable:
     element each row is *named* after, which is why the names live in :attr:`names` beside
     the rows rather than on them — see the module docstring.
 
-    ``Y``, ``phi`` and ``psi`` are identically zero: accsim's machines are planar (again, see
-    the module docstring — it is a refusal, not an approximation).
+    ``Y``, ``phi`` and ``psi`` are identically zero on a machine with no design tilt — exactly,
+    not to round-off (see the module docstring).
     """
 
     #: Arc length along the reference curve [m], ``0`` at the first row.
     s: np.ndarray
-    #: Laboratory position [m]. ``Y`` is identically zero.
+    #: Laboratory position [m]. ``Y`` is identically zero on a machine with no tilt.
     X: np.ndarray
     Y: np.ndarray
     Z: np.ndarray
-    #: Orientation [rad]. ``theta`` is the yaw about ``Y`` and accumulates **unwrapped**;
-    #: ``phi`` (pitch) and ``psi`` (roll) are identically zero.
+    #: Orientation [rad], ``W = R_y(theta) R_x(-phi) R_z(psi)``. ``theta`` is the yaw about
+    #: ``Y`` and accumulates **unwrapped**; ``phi`` (pitch) and ``psi`` (roll) are identically
+    #: zero on a machine with no tilt.
     theta: np.ndarray
     phi: np.ndarray
     psi: np.ndarray
@@ -174,17 +208,28 @@ class SurveyTable:
 
     @property
     def closure_angle(self) -> float:
-        """How far the final direction misses the initial one [rad], into ``[0, pi]``.
+        """How far the final frame misses the initial one [rad], into ``[0, pi]``.
 
-        ``theta`` itself is unwrapped, so a closed ring ends at ``-2 pi k``; this is the
-        distance from that, i.e. ``|theta[-1]|`` reduced modulo ``2 pi``.
+        On a planar machine ``theta`` is the whole orientation and it is unwrapped, so a
+        closed ring ends at ``-2 pi k``; this is the distance from that, i.e. ``|theta[-1]|``
+        reduced modulo ``2 pi``. Out of the plane the yaw alone is not the frame, so the
+        answer is the angle of the relative rotation ``W[0]^T W[-1]`` — computed through
+        ``atan2`` rather than ``arccos``, which loses half its digits near closure.
         """
-        turned = float(self.theta[-1] - self.theta[0])
-        return float(abs((turned + math.pi) % TWO_PI - math.pi))
+        if not (np.any(self.phi) or np.any(self.psi)):
+            turned = float(self.theta[-1] - self.theta[0])
+            return float(abs((turned + math.pi) % TWO_PI - math.pi))
+        rel = self.W[0].T @ self.W[-1]
+        axis = np.array([rel[2, 1] - rel[1, 2], rel[0, 2] - rel[2, 0], rel[1, 0] - rel[0, 1]])
+        return float(math.atan2(0.5 * float(np.linalg.norm(axis)), 0.5 * (np.trace(rel) - 1.0)))
 
     @property
     def total_angle(self) -> float:
-        """The total bend angle turned through [rad] — ``-(theta[-1] - theta[0])``."""
+        """The total bend angle turned through [rad] — ``-(theta[-1] - theta[0])``.
+
+        On a machine with tilted bends this is the net **yaw**, not the sum of the bend
+        angles: a vertical bend turns the frame without moving ``theta``.
+        """
         return float(-(self.theta[-1] - self.theta[0]))
 
 
@@ -194,14 +239,15 @@ def survey(lattice: Lattice) -> SurveyTable:
     Starts at the origin pointing along ``+Z`` and returns the pose at every element
     boundary (``N + 1`` rows — see :class:`SurveyTable`).
 
-    Only ``length`` and, for a bending element, ``angle`` are read. **Not** ``k0`` (Q2's
-    field, which a tapered ring changes in every magnet), not ``e1``/``e2`` (the pole faces
-    bound the field, not the reference curve), and not ``dx``/``dy``/``roll`` (a
+    Only ``length`` and, for a bending element, ``angle`` and ``tilt`` are read. **Not**
+    ``k0`` (Q2's field, which a tapered ring changes in every magnet), not ``e1``/``e2`` (the
+    pole faces bound the field, not the reference curve), and not ``dx``/``dy``/``roll`` (a
     misalignment moves the magnet away from the design curve, it does not move the curve).
     Each of those is a test.
     """
     elements = lattice.elements
     n = len(elements)
+    tilts = [float(getattr(elem, "tilt", 0.0)) for elem in elements]
 
     s = np.zeros(n + 1)
     pos = np.zeros((n + 1, 3))
@@ -221,13 +267,24 @@ def survey(lattice: Lattice) -> SurveyTable:
         # the sign of ``theta``) — because the corners of a regular polygon are the same set
         # whichever way you visit them. Both fail on the second row of a ring whose bends
         # and drifts are unequal, which is the fixture that gates them.
-        pos[i + 1] = pos[i] + W[i] @ _step(length, angle)
-        # Composed on the right, so the turn acts in the frame the beam is already in. In a
-        # planar machine the two orders happen to agree — rotations about a common axis
-        # commute — so this line is the general statement, not something the tests can see.
-        W[i + 1] = W[i] @ _yaw(-angle)
+        step, turn = _step(length, angle), _yaw(-angle)
+        if tilts[i] != 0.0:
+            # The bend acts in its own plane, turned by the tilt: the planar step and turn
+            # seen through ``T``. Skipped at zero tilt so a flat ring is bit-for-bit R1's.
+            T = _tilt(tilts[i])
+            step, turn = T @ step, T @ turn @ T.T
+        pos[i + 1] = pos[i] + W[i] @ step
+        # Composed on the right, so the turn acts in the frame the beam is already in. A
+        # planar machine cannot see the order (rotations about a common axis commute); the
+        # tilted line in tests/analytic/test_design_tilt.py can, and gates it.
+        W[i + 1] = W[i] @ turn
         theta[i + 1] = theta[i] - angle
         s[i + 1] = s[i] + length
+
+    if any(tilts):
+        theta, phi, psi = _angles(W)
+    else:
+        phi, psi = np.zeros(n + 1), np.zeros(n + 1)
 
     return SurveyTable(
         s=s,
@@ -235,8 +292,8 @@ def survey(lattice: Lattice) -> SurveyTable:
         Y=pos[:, 1],
         Z=pos[:, 2],
         theta=theta,
-        phi=np.zeros(n + 1),
-        psi=np.zeros(n + 1),
+        phi=phi,
+        psi=psi,
         W=W,
         names=tuple(elem.name for elem in elements),
     )

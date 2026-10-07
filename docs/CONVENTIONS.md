@@ -10002,6 +10002,105 @@ beyond, which no installed arbiter can see. And the higher-order *slip factor* s
 `eta(delta)`, which is `alpha(delta)` plus the velocity expansion above and is a
 presentation of the same content — deliberately not shipped as a second spelling.
 
+## Design tilt (V1 — implemented)
+
+A **design tilt** turns a magnet about the beam axis *and takes the reference frame with
+it* — MAD-X `TILT`, xtrack's plain `rot_s_rad`. It is a lattice-design choice, not an error,
+and it is the only way a machine here can leave the horizontal plane: a bend tilted by
+`pi/2` is a vertical bend. Contrast `roll` (K2), the misalignment, where the magnet turns
+and the frame does **not**.
+
+### Where it lives, and why only on `Dipole`
+
+`Dipole(..., tilt=t)`. `Element.tilt` is a class attribute `0.0`, so generic code may read
+`elem.tilt` off anything. No other element takes the keyword: for a straight element a
+design tilt and a roll are the same map *and* the same survey, so `roll` already spells it,
+and a second spelling would double the number of guards that must know about it.
+
+### The map: a plain conjugation, no exit face
+
+    track(state) = R(-tilt) . placed( R(+tilt) state ),     R = s_rotation (passive, K2's)
+
+`placed` is the element with its misalignment. Because the frame follows the magnet, the
+exit undoes exactly the entrance rotation — **no** `frame_change`, **zero** kick on the
+design orbit (a rolled bend has `Delta py = -phi sin(angle)` and an offset). `matrix`,
+`kick` and `_track_impl` wrap the old code paths and skip the wrapper entirely at
+`tilt == 0`, so every untilted number is unchanged to the bit (gated).
+
+**Sign.** `+tilt` uses the same passive `s_rotation` as `roll`, so at the entrance the
+bend's own `x` axis is the lattice's `x` turned towards `+y`. Pinned three ways, none of
+them by argument: (1) xtrack's one-turn matrix of a ring rolled by `t = 0.1` equals accsim's
+to `1.03e-8` (its finite-difference floor; `8.8e-9` on the flat ring) while the opposite
+conjugation misses by `> 0.1`; (2) the signed `D_y`/`D_py` of the dogleg ring, against both
+codes; (3) inside accsim, a single bend's dispersion column `(R16, R36)` is anti-parallel to
+the transverse chord the survey walks, for every tilt — the gate that ties the map's sense
+to the survey's, which are written separately.
+
+### The survey
+
+With `T = R_z(+tilt)`, a bend's step and turn are the planar ones seen through `T`:
+
+    dv_local = T . rho (cos a - 1, 0, sin a),      W -> W . T R_y(-a) T^T
+
+**`tilt = +pi/2` on a positive angle turns the machine DOWN** (`Y` decreasing) — both
+reference codes, agreeing with each other to `1.8e-15` (filter run 2026-10-06). A pure
+vertical bend lands at `Y = -rho (1 - cos a)`, `phi = -a`.
+
+Angles are read off `W = R_y(theta) R_x(-phi) R_z(psi)` (xtrack's `get_angles_from_w`;
+MAD-X tabulates the same) and unwrapped. **A machine with no tilt takes R1's planar path**:
+`theta` accumulated as `-sum(angle)`, `phi = psi = 0` exactly. `closure_angle` on a
+non-planar machine is the angle of `W[0]^T W[-1]` via `atan2` (the `arccos` form loses half
+its digits near closure); `total_angle` is then the net *yaw*, not the sum of the bends.
+
+### Consumers: each one handles the tilt or refuses it
+
+| Consumer | Status |
+|---|---|
+| element maps (`matrix`, `kick`, `track`), `Lattice`, closed orbit, Twiss, coupled Twiss, dispersion `D_y` | **handled** — they consume the conjugated matrices |
+| `survey` | **handled** — 3D walk above |
+| `momentum_compaction`, identity route | **handled** — and fixed, see below |
+| `momentum_compaction`, quadrature route | **handled** — `D` is carried into the bend's frame, so `h . D` counts a vertical bend's `h D_y` |
+| radiation in **tracking** (`radiation="mean"` etc.), `taper_profile`, `taper` | **handled** — applied in the body frame, rotation-invariant (sign-blind gates) |
+| `natural_chromaticity` (and `chromaticity`) | **refused** — reads `h`, `k1` as horizontal and builds untilted sub-slices |
+| `radiation_integrals` and everything on it (emittances, damping, polarisation time) | **refused** — vertical `I4`/`I5` from design `D_y` is its own milestone (MAD-X `EMIT` and xtrack agree to `9e-5` on it) |
+| polarisation quadrature | **refused** |
+| spin through a tilted **bend** | **refused** — one arbiter (xtrack); a tilted *straight* dipole precesses like the rolled one |
+| tilt together with `roll` or `dx`/`dy` | **refused** — the order of the two rotations is a convention not yet pinned (xtrack takes `rot_s_rad` and `rot_s_rad_no_frame` together and would arbitrate) |
+| scenario file / lattice editor | **refused both ways** — no `tilt` field; the editor's JS optics would draw a flat magnet |
+
+The refusals share `accsim.elements.dipole.refuse_design_tilt`. **Why refusing is not
+optional:** a gradient magnet tilted by `pi/2` is a quadrupole of the opposite sign and
+leaves the ring *uncoupled*, so no upstream coupling guard catches it, and the chromaticity
+sum would read `+k1`.
+
+### Found on the way: the compaction identity dropped the vertical half of the slip
+
+`momentum_compaction(method="identity")` read the slip as `R51 D_x + R52 D_px + R56`. On a
+ring with vertical dispersion the orbit at `delta` is displaced vertically too, and
+`R53 D_y + R54 D_py` belongs in it. Leaving it out was a `3e-6` relative error on the dogleg
+ring — found because the quadrature route, generalised to follow the tilt, refused to agree
+(it plateaued at `3.13e-6` under slice refinement: a missing term, not a step error). With
+the pair added the two meet at `2e-9` (slice-limited) and MAD-X's `alfa` at `1e-10`. The
+pair is added *last*, so on every ring with `D_y == 0` exactly the number is unchanged to the
+bit. **K2's rolled bends make `D_y` too**, so the identity route was slightly wrong on rolled
+rings before V1; nothing gated it there.
+
+### Fixtures (shared by the analytic and both reference files)
+
+- **F1, the dogleg ring**: the 2026-09-07 4-cell FODO (3 GeV `e-`, eight 45-degree bends) with
+  two `tilt = pi/2` bends of `+-0.02` rad a metre apart after the first cell. It does **not**
+  close in position — it is 1.6 m of extra straight in a closed ring — but it closes in
+  direction, so the gap equals the dogleg's own displacement (gated).
+- **F2, the rolled ring**: every element turned by `t = 0.1` (bends by `tilt`, quadrupoles
+  by `roll`). Closes in a tilted plane; tunes and conjugation are identities — sign-blind.
+- **F3**: an h-bend, a `0.7`-tilted bend, a v-bend, an h-bend. Rotations about different
+  axes, so the composition order is gated (swapping two bends moves the end by `> 0.3` m).
+
+### Out of scope for V1
+
+Vertical emittance from design `D_y` (radiation integrals), spin through a tilted bend,
+tilt with a misalignment, the scenario format and editor, and a design tilt on a `Wiggler`.
+
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 
 **The scenario format** (`accsim-scenario/1`, `src/accsim/scenario.py`) is the seam

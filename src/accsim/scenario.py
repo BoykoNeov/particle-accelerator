@@ -187,6 +187,13 @@ def element_from_dict(
     if kind not in _REGISTRY:
         raise ScenarioError(f"unknown element type {kind!r}")
     cls, fields = _REGISTRY[kind]
+    if d.get("tilt") not in (None, "", 0, 0.0):
+        # The format has no ``tilt`` field, and the editor's optics is a JavaScript port of
+        # the maps held to 1e-9: a tilt it cannot draw must not load as a flat magnet.
+        raise ScenarioError(
+            f"{kind} {d.get('name')!r}: the scenario format has no design tilt (V1) — the "
+            "editor's optics would draw a flat machine"
+        )
     kwargs: dict[str, Any] = {}
     for f in fields:
         if f in d and d[f] is not None and d[f] != "":
@@ -226,6 +233,11 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
     kind = type(elem).__name__
     if kind not in _REGISTRY:
         raise ScenarioError(f"{kind} has no scenario representation")
+    if getattr(elem, "tilt", 0.0) != 0.0:
+        raise ScenarioError(
+            f"{kind} {elem.name!r} has a design tilt ({elem.tilt}) and the scenario format "
+            "has no field for one (V1): saving it would write a flat magnet"
+        )
     _, fields = _REGISTRY[kind]
     out: dict[str, Any] = {"type": kind}
     if elem.name is not None:

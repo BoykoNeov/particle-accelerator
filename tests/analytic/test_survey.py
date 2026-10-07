@@ -288,19 +288,21 @@ def test_a_chord_walker_also_closes_which_is_why_closure_is_not_the_gate() -> No
 # Gates 6 and 7 — planar by construction, and theta unwrapped.
 
 
-def test_the_survey_is_exactly_planar() -> None:
+def test_a_machine_with_no_tilt_is_exactly_planar() -> None:
     """``Y``, ``phi`` and ``psi`` are identically zero — asserted absolutely, not by ``rel=``.
 
-    Nothing in ``accsim`` can bend out of the horizontal plane: ``roll`` is a misalignment
-    (the magnet turns, the frame does not), not a design tilt. **This test fails the day
-    accsim gains a design tilt**, which is the point of writing it — the refusal is recorded
-    here, not only in the docs.
+    Until V1 this was "the survey is planar", and it was written to fail the day accsim
+    gained a design tilt. That day came (``tests/analytic/test_design_tilt.py``), and what
+    survives is the narrower statement: with every ``tilt`` zero the walk takes R1's planar
+    path bit for bit, so ``roll`` — a misalignment, the magnet turning without its frame —
+    still cannot lift the machine out of the plane.
     """
-    table = survey(uneven_ring())
+    lattice = uneven_ring()
+    assert all(e.tilt == 0.0 for e in lattice.elements)
+    table = survey(lattice)
     assert not np.any(table.Y)
     assert not np.any(table.phi)
     assert not np.any(table.psi)
-    assert not any(hasattr(e, "tilt") for e in uneven_ring().elements)
 
 
 def test_theta_is_not_wrapped() -> None:

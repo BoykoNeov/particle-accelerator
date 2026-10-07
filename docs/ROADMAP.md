@@ -38,7 +38,56 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
+| V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07) | V2 vertical emittance from design `D_y` (two arbiters); V3 spin through a tilted bend (one arbiter); AC dipole (two arbiters, not opened) |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23) | injection (needs real tracking — deferred) |
+
+**Axis V opened and shipped V1 on 2026-10-07** — the **design tilt**: a bend turned about the
+beam axis *with its reference frame* (MAD-X `TILT`, xtrack's plain `rot_s_rad`), so a bend
+tilted by `pi/2` is a vertical bend and a machine can leave the horizontal plane. Until now
+`geometry.py` refused that as documented scope, and R1's `phi`/`psi` columns were identically
+zero because of it. Chosen from the 2026-10-06 filter run (record:
+`W:\temp\claude\accsim-filter-2026-10-06\FILTER-RUN.md`), which found two arbiters for it
+and for the AC dipole; the tie was broken towards breadth.
+
+The findings, in the order they changed the milestone:
+
+- **The map is a plain conjugation, for a bend too — and that is the whole difference from
+  K2.** Because the frame follows the magnet, the exit undoes exactly the entrance rotation:
+  `R(-t) . bend . R(+t)`, no exit-face rigid motion, **zero** kick on the design orbit. K2's
+  rolled bend has an angle and an offset because its frame did *not* follow. One wrapper in
+  `Element` (`tilt` is a class attribute `0.0`, set only by `Dipole` — for a straight element
+  a tilt *is* a roll), skipped entirely at zero tilt, so no existing number moved by a bit.
+- **Most of the risk was outside the map, in code that never learns `tilt` exists.** Every
+  consumer that reads a bend as horizontal was listed and handled or refused, each with a
+  test (CONVENTIONS -> *Design tilt* has the table). The sharpest case: a gradient magnet
+  tilted by `pi/2` is a quadrupole of the opposite sign and leaves the ring *uncoupled*, so
+  no coupling guard catches it, and the chromaticity sum would silently read `+k1`. Three of
+  the guarded sums build an untilted sub-slice `Dipole(ds, h ds, k1)` that drops the tilt.
+- **The sign is pinned from outside, and the sign-blind gates are labelled as such.** The
+  ring rolled as a whole closes, keeps its tunes and conjugates its one-turn map for *either*
+  sense of the tilt. What is sharp: `+pi/2` on a positive bend turns the machine **down**; all
+  six survey columns against both codes (`1e-13`); the **signed** `D_y`/`D_py` of the dogleg
+  ring against both; xtrack's one-turn matrix of the rolled ring (`1.03e-8`, its
+  finite-difference floor — `8.8e-9` on the *flat* ring — against `> 0.1` for the wrong
+  sense). Inside accsim, a bend's dispersion column is anti-parallel to the chord the survey
+  walks for every tilt — the one gate that ties the map's sense to the survey's.
+- **The compaction identity had been dropping the vertical half of the slip.**
+  `momentum_compaction`'s default route read `R51 D_x + R52 D_px + R56`; with vertical
+  dispersion `R53 D_y + R54 D_py` belongs in it. The quadrature route, generalised to follow
+  the tilt, refused to agree and **plateaued** at `3.13e-6` under slice refinement — a missing
+  term, not a step error. Fixed; the routes meet at `2e-9` and MAD-X's `alfa` at `1e-10`. K2's
+  rolled bends make `D_y` too, so this was quietly wrong on rolled rings before V1.
+- **The filter run's dogleg ring does not close, and the gate became sharper for it.** It is
+  1.6 m of extra straight inserted into a closed ring. It closes in *direction* (the two
+  vertical bends cancel), so the rest of the ring is a closed polygon translated by the
+  dogleg, and the closure gap equals the dogleg's own displacement to `1e-13`.
+
+**What V1 refuses** (each with a test written to fail the day it lifts): the radiation
+integrals and everything on them — **V2**, vertical emittance from design `D_y`, where MAD-X
+`EMIT` and xtrack already agree to `9e-5`; spin through a tilted bend — **V3**, one arbiter
+(xtrack), the spin-rotator physics; a tilt together with a misalignment (the order of the two
+rotations is unpinned; xtrack would arbitrate); the scenario file and editor (no `tilt` field;
+the JS optics would draw a flat machine); a tilted wiggler.
 
 **Axis U opened and shipped U1 on 2026-09-07** — momentum compaction beyond first order:
 the ring's path length as a *series* in momentum, `C(delta)/C = 1 + alpha_0 delta +
@@ -130,10 +179,10 @@ higher-order *slip factor* series, which is this content plus the velocity expan
 second spelling. Full detail in `docs/CONVENTIONS.md` -> *Higher-order momentum
 compaction*. **No further milestone on U is sequenced; the next session starts by
 re-running the filter.** The candidates that run recorded and did not open, both with two
-arbiters: a **design tilt** (no element here can bend out of the plane — `geometry.py`
-says so as a documented refusal, and R1's `phi`/`psi` columns are identically zero because
-of it), and the **AC dipole** (xtrack has the element, MAD-X parses `hacdipole` but was
-never made to emit a driven tune, so call it one arbiter and a half).
+arbiters: a **design tilt** (opened as axis V, 2026-10-07), and the **AC dipole** (xtrack has
+the element; the 2026-10-06 filter run found that MAD-X `TRACK` **does** apply `HACDIPOLE`
+— amplitude to `1.1e-6`, the residual quadratic in amplitude — so it has two full tracking
+arbiters, not the "one and a half" first recorded here; `lag` is in **turns** in both codes).
 
 **Axis T shipped T3 on 2026-09-07** — the wiggler radiates in *tracking*, closing the one gap
 T2 named as its own. A wiggler had been damping rings on the design route while a particle
