@@ -25,7 +25,8 @@ has ``alpha != 0`` and ``D' != 0``). On the cavity rings the energy oscillates e
 turns and the chromatic phase spread never exceeds ~0.06 rad, so an injected beam there
 barely filaments — that is physics, and radiation damping is OFF in the editor.
 
-Skipped, not failed, when Node is not on the PATH (CI runs without it).
+The Node-driven gates are skipped, not failed, when Node is not on the PATH (CI runs without
+it); the symbolic derivation runs everywhere.
 """
 
 from __future__ import annotations
@@ -40,13 +41,15 @@ import pytest
 import sympy as sp
 
 import accsim as ac
+from accsim.orbit import closed_orbit_nonlinear
 from accsim.scenario import load_scenario
 from accsim.tune import _plane_tune
 
 ROOT = Path(__file__).resolve().parents[2]
 EDITOR = ROOT / "editor"
 NODE = shutil.which("node")
-pytestmark = pytest.mark.skipif(NODE is None, reason="node is not on the PATH")
+# Per test, not module-wide: the sympy derivation needs no Node and must run in CI.
+needs_node = pytest.mark.skipif(NODE is None, reason="node is not on the PATH")
 
 
 def _presets() -> list[dict]:
@@ -128,6 +131,7 @@ def test_the_injected_mean_action_is_eps_bmag_plus_the_offsets_own() -> None:
     assert sp.simplify((bmag - 1) * 2 * b * bi - ((b - bi) ** 2 + (a * bi - ai * b) ** 2)) == 0
 
 
+@needs_node
 def test_the_injected_beam_has_exactly_the_requested_moments() -> None:
     """The editor's sampler against the closed form, with the package's own Twiss and orbit.
 
@@ -203,6 +207,7 @@ def _decoherence_residual(sigma_delta: float) -> tuple[float, float]:
     return out[0], out[1]
 
 
+@needs_node
 def test_the_centroid_decoheres_at_the_displayed_chromaticity() -> None:
     """The tracked centroid follows ``|(1/N) sum exp(i 2pi Q' delta_p n)|`` to ``3.4e-3``
     while it falls from 1 to below ``0.05`` — and that residual is **owned**: it halves
@@ -219,6 +224,7 @@ def test_the_centroid_decoheres_at_the_displayed_chromaticity() -> None:
 
 
 # --- 3. the sign ------------------------------------------------------------------------------
+@needs_node
 @pytest.mark.parametrize(
     "preset_id", [k for k, p in PRESETS.items() if p.get("periodic", True)], ids=str
 )
@@ -257,7 +263,17 @@ def test_the_tracked_tune_slope_is_the_displayed_chromaticity(preset_id: str) ->
 
 
 # --- 4. the filamented emittance -------------------------------------------------------------
-def _filament(sigma_delta: float, turns: int) -> dict:
+def _centred_ring() -> dict:
+    """``electron-ring`` without its cavity, rolled like ``RING``: the same arcs on a CENTRED
+    closed orbit, so the package's tracked dispersion equals the editor's linear one."""
+    p = PRESETS["electron-ring"]
+    q = dict(p)
+    els = [e for e in p["elements"] if e.get("type") != "RFCavity"]
+    q["elements"] = els[1:] + els[:1]
+    return q
+
+
+def _filament(sigma_delta: float, turns: int, scenario: dict | None = None) -> dict:
     inj = {
         "n": 400,
         "seed": 6,
@@ -269,10 +285,18 @@ def _filament(sigma_delta: float, turns: int) -> dict:
         "dx": 3e-4,
         "dy": 5e-5,
     }
-    (r,) = _node([{"scenario": RING, "mode": "stats", "inj": inj, "turns": turns}])
+    sc = RING if scenario is None else scenario
+    (r,) = _node([{"scenario": sc, "mode": "stats", "inj": inj, "turns": turns}])
     return r
 
 
+def _averaged_residual(st: list[dict], start: int) -> float:
+    J0 = st[0]["x"]["meanJ"]
+    m2 = np.array([s["x"]["m2ref"] for s in st[start:]]).mean(axis=0)
+    return float(np.sqrt(m2[0] * m2[2] - m2[1] ** 2) / J0 - 1.0)
+
+
+@needs_node
 def test_a_mismatched_offset_beam_filaments_to_its_mean_action() -> None:
     """Injected at 47% of its eventual emittance, the beam ends at ``<J>``.
 
@@ -284,9 +308,14 @@ def test_a_mismatched_offset_beam_filaments_to_its_mean_action() -> None:
     long you average — the first version of this gate measured exactly that, ``-2e-3`` at
     ``N = 400``, and it did not move with ``sigma_delta``.
 
-    The remaining ``5.6e-4`` is the energy spread's: with the window's own floor (``2e-5``,
-    the ``sigma_delta = 0`` value below) removed it falls ~4x per halving of
-    ``sigma_delta`` — second order, the chromatic beta-beat entering a determinant.
+    **The remaining ``5.6e-4`` has an owner, and it is not the filamentation.** On this ring the
+    displaced quadrupole makes the closed orbit depend on energy beyond the linear dispersion:
+    the package's tracked off-momentum orbit gives ``D = 1.494 m`` where the editor's linear
+    optics (which strip ``D delta`` here) give ``1.465 m``. That error is an *absolute* emittance,
+    ``~(dD sigma_delta)^2/beta`` — so, measured, the relative residual GROWS (to ``1.8e-3``) when the
+    beam's amplitudes are halved. The control is the same arcs on a centred orbit
+    (``electron-ring`` without its cavity), where the two dispersions agree to ``1e-11``: there
+    the residual is ``3e-5``, an order smaller, and that is asserted.
     """
     turns = 1500
     st = _filament(7e-4, turns)["stats"]
@@ -296,38 +325,51 @@ def test_a_mismatched_offset_beam_filaments_to_its_mean_action() -> None:
     late = st[turns // 3 :]
     emit_late = np.array([s["x"]["emit"] for s in late])
     assert np.all(np.abs(emit_late / J0 - 1.0) < 3.0 / np.sqrt(400))
-    m2 = np.array([s["x"]["m2ref"] for s in late]).mean(axis=0)
-    assert np.sqrt(m2[0] * m2[2] - m2[1] ** 2) / J0 - 1.0 == pytest.approx(0.0, abs=1e-3)
+    assert abs(_averaged_residual(st, turns // 3)) < 1e-3
+
+    lat = load_scenario(RING).lattice
+    h = 1e-5
+    d_tracked = (
+        closed_orbit_nonlinear(lat, delta=h)[0] - closed_orbit_nonlinear(lat, delta=-h)[0]
+    ) / (2 * h)
+    assert d_tracked - ac.closed_twiss(lat).disp_x == pytest.approx(0.0284, abs=5e-4)  # the owner
+    centred = _filament(7e-4, turns, _centred_ring())["stats"]
+    assert abs(_averaged_residual(centred, turns // 3)) < 1e-4  # without it, an order smaller
 
 
+@needs_node
 def test_with_no_energy_spread_the_beam_never_filaments() -> None:
     """The control that makes the gate above mean something: ``sigma_delta = 0``.
 
     Every particle then has the same tune, the mismatched ellipse turns rigidly, and the rms
-    emittance stays at its injected 47% of ``<J>`` for good (to a ``5e-5`` wobble, measured:
-    the exact drift is not quite linear, which bends the ellipse slightly without spreading it) — in this editor the energy
-    spread is the ONLY thing that spreads the phases (no octupoles, no radiation), so
-    without it there is no filamentation. The turn-averaged moments still reach ``<J>``,
-    to the window's floor (``2e-5`` measured) — that average is blind to filamentation, which
-    is why the per-turn reading above is the one that tests it.
+    emittance stays at its injected 47% of ``<J>`` for good — in this editor the energy spread
+    is the ONLY thing that spreads the phases (no octupoles, no radiation), so without it there
+    is no filamentation. The turn-averaged moments still reach ``<J>`` (that average is blind
+    to filamentation, which is why the per-turn reading above is the one that tests it).
+
+    **Two small residuals here are measured and NOT localised; the tolerances record them, no
+    mechanism is claimed.** (1) The per-turn emittance wobbles by ``4.9e-5`` without growing;
+    it is the same on the centred-orbit ring (so not the displaced quadrupole) and shrinks when
+    the amplitudes are halved (``3.0e-5``) — the exact maps' own nonlinearity is the suspect,
+    untested. (2) The turn average sits ``2e-5`` off ``<J>``; it is not the averaging window
+    (the vertical value is the same over 1000 and 3000 turns).
     """
     turns = 1500
     st = _filament(0.0, turns)["stats"]
     J0 = st[0]["x"]["meanJ"]
     emit_0 = st[0]["x"]["emit"]
     emit = np.array([s["x"]["emit"] for s in st]) / emit_0
-    # It wobbles by ~5e-5 (the exact drift's kinematic nonlinearity distorts the ellipse a
-    # little) and does not grow: the last third of the run is no wider than the first.
+    # It wobbles by ~5e-5 (measured, not localised — see the docstring) and does not grow:
+    # the last third of the run is no wider than the first.
     assert np.max(np.abs(emit - 1.0)) < 1e-4
     third = turns // 3
     assert np.max(emit[-third:]) <= np.max(emit[:third]) + 1e-5
     assert emit_0 / J0 == pytest.approx(0.4747, abs=1e-3)
-    late = st[turns // 3 :]
-    m2 = np.array([s["x"]["m2ref"] for s in late]).mean(axis=0)
-    assert abs(np.sqrt(m2[0] * m2[2] - m2[1] ** 2) / J0 - 1.0) < 1e-4
+    assert abs(_averaged_residual(st, turns // 3)) < 1e-4
 
 
 # --- 5. the statistics themselves ---------------------------------------------------------------
+@needs_node
 def test_beam_stats_match_numpy_on_the_same_states() -> None:
     """``beamStats`` on the final states, recomputed in numpy with the same optics record:
     centroid amplitude, rms emittance, ``<J>`` and both moment sets, to round-off."""

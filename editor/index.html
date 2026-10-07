@@ -1520,10 +1520,14 @@
         target: Math.max(1, Math.round(+this.settings.turns || 1000)), env: { x: [1], y: [1] }, R: {} };
       // Phase-space axes are fixed at injection: every particle keeps its own action, so the
       // radii it can reach are the ones it starts with (to a few % of chromatic beta-beat).
+      // Not with an RF cavity in dispersion: there the energy kicks move the radii by tens of
+      // percent (synchrotron-betatron coupling), so the axes get room for it — dots that still
+      // leave are dropped, never clamped.
+      const head = optics.hasRF ? 1.6 : 1.12;
       for (const pl of ["x", "y"]) {
         let m = 0;
         for (const s of states) { const q = this.norm(s, run, pl); m = Math.max(m, Math.hypot(q[0], q[1])); }
-        run.R[pl] = m > 0 ? 1.12 * m : 1e-6;
+        run.R[pl] = m > 0 ? head * m : 1e-6;
       }
       this.run = run;
       this.draw();

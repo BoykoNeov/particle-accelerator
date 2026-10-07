@@ -10464,6 +10464,11 @@ tracked with it has the same tune at every energy.
   `Collimator` defaults to 1 mm) — while the editor's optics port draws it as a *drift* of that
   length. No preset holds a collimator, so the optics cross-check never met it. The tracker
   follows the package (identity). Which side is right is not settled here.
+- **Open, found on the way: the scenario format drops tracking-only options silently.**
+  `element_to_dict` writes no `kinematic_slices` (Quadrupole) or `n_slices` (Sextupole, Octupole),
+  and `element_from_dict` ignores them if present. Only the Dipole's `fringe` is carried (and
+  ported). The editor and a scenario loaded in Python therefore agree, but a lattice built in
+  Python with those options loses them on a round trip through a scenario file, without a word.
 
 ### Injection and filamentation (step 2 — `editor/inject.js`)
 
@@ -10488,13 +10493,22 @@ betatron part only, with the editor's own `D, D'` (never fitted from the sample)
   bunch's centroid never settles (`|<z>|^2 ~ <2J>/N`), so turn-averaged *central* moments sit
   low by `1/N` (`-2e-3` at `N = 400`) however long you average, and that bias does not move with
   `sigma_delta` — which is how it was caught. About the closed orbit the averaged moments land
-  on `<J>` to `5.6e-4`; with the window's floor (`2e-5`, the `sigma_delta = 0` value) removed,
-  the rest falls ~4x per halving of `sigma_delta` (second order). The per-turn emittance is the
-  reading that sees filamentation (it rises from `0.47 <J>` to within `3/sqrt(N)` of `<J>`); the
-  turn average is blind to it.
+  on `<J>` to `5.6e-4`, and **that residual has an owner that is not filamentation**: on the
+  `kicked-ring` the displaced quadrupole makes the orbit depend on energy beyond the linear
+  dispersion (tracked `D = 1.494 m`, the editor's linear `1.465 m`), so stripping the linear
+  `D delta` leaves an absolute `~(dD sigma_delta)^2/beta` in the emittance. Measured: the relative
+  residual grows (to `1.8e-3`) when the amplitudes are halved, and on the same arcs with a centred
+  orbit (`electron-ring`, cavity removed — the dispersions agree to `1e-11`) it is `3e-5`. (An
+  earlier draft of this entry called the remainder "second order in `sigma_delta`, after a window
+  floor" — the raw ratios were 3.4 and 2.7 and the floor did not behave like a window; replaced
+  by the measured owner.) The per-turn emittance is the reading that sees filamentation (it rises
+  from `0.47 <J>` to within `3/sqrt(N)` of `<J>`); the turn average is blind to it.
 - **No energy spread, no filamentation.** At `sigma_delta = 0` a mismatched beam turns rigidly
-  and its rms emittance stays at the injected value for good (a `5e-5` wobble from the exact
-  drift's kinematic nonlinearity, no growth). In the editor the energy spread is the only
+  and its rms emittance stays at the injected value for good. Two small residuals there are
+  **measured and not localised**: a `4.9e-5` wobble without growth (the same on the centred-orbit
+  ring, `3.0e-5` at half amplitude — the exact maps' own nonlinearity is the suspect, untested),
+  and a `2e-5` offset of the turn-averaged moments from `<J>` (not the averaging window: the
+  vertical value is unchanged between 1000 and 3000 turns). In the editor the energy spread is the only
   phase spreader unless the user adds octupoles/sextupoles; radiation is off.
 - **On a ring with an RF cavity the beam barely filaments, and that is physics.** The energy
   oscillates every `1/Q_s` turns (~14 on `electron-ring`), so the chromatic phase is bounded:
