@@ -79,7 +79,10 @@ against; the gates that discriminate are:
 - *A rolled bend is refused.* A roll of a straight element is a conjugation and the spin
   simply rides through it; for a *bending* magnet the exit face moves (K2's rigid-body
   geometry) and the frame rotation is no longer a rotation about ``y`` in the lattice
-  frame. Rather than apply a wrong one, :func:`spin_precession` raises.
+  frame. Rather than apply a wrong one, :func:`spin_precession` raises. A *design* tilt
+  (V1's ``tilt``, the frame turned with the magnet) is the opposite case and is carried
+  (V3): the conjugation ``R(-tilt) . bend . R(+tilt)`` applies to the spin exactly as to
+  the coordinates, so a tilted bend turns a spin about the axis the survey turns about.
 - *Not a phase-space map.* A rotation of a unit vector has nothing to do with
   symplecticity, and ``matrix()``/``kick()`` are untouched. The invariant that bounds
   axis L — ``matrix()`` is the exact origin Jacobian of ``track()`` — is unaffected.

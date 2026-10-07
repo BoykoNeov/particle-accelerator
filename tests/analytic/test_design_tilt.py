@@ -30,7 +30,8 @@ tilted bend therefore has exactly zero kick on the design orbit, and a rolled on
 refuses it here** (the S1 pattern): the survey and the momentum-compaction quadrature handle
 it; the natural-chromaticity sum, the radiation integrals, the polarisation quadrature, spin
 through a tilted bend and the scenario file refuse it, each with a test that fails the day the
-refusal is lifted.
+refusal is lifted. Two have since been lifted: the radiation integrals (V2) and spin through a
+tilted bend (V3, ``test_spin_tilt.py``).
 """
 
 from __future__ import annotations
@@ -460,10 +461,11 @@ def test_the_polarization_integrals_refuse_a_tilted_bend() -> None:
         polarization_integrals(dogleg_ring())
 
 
-def test_spin_through_a_tilted_bend_is_refused() -> None:
+def test_spin_through_a_tilted_bend_is_no_longer_refused() -> None:
+    """V3 lifted this refusal; the gates on what replaced it are in ``test_spin_tilt.py``."""
     bend = Dipole(1.5, ANG, tilt=0.3)
-    with pytest.raises(NotImplementedError, match="tilt"):
-        bend.track_with_spin(np.zeros(6), np.array([0.0, 1.0, 0.0]), _ref())
+    _, spin = bend.track_with_spin(np.zeros(6), np.array([0.0, 1.0, 0.0]), _ref())
+    assert abs(float(np.linalg.norm(spin)) - 1.0) < 1e-15
 
 
 def test_spin_through_a_tilted_straight_dipole_is_the_rolled_one() -> None:

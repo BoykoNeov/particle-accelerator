@@ -10070,8 +10070,9 @@ its digits near closure); `total_angle` is then the net *yaw*, not the sum of th
 | `natural_chromaticity` (and `chromaticity`) | **refused** — reads `h`, `k1` as horizontal and builds untilted sub-slices |
 | `radiation_integrals` and everything on it (emittances, damping, energy spread) | **handled since V2** — the vertical half `I4y`/`I5y`, see *Vertical emittance from design `D_y` (V2)* |
 | `equilibrium_emittances_coupled` (G1's sharing model) | **refused (V2)** — it shares only the horizontal excitation, so on the dogleg ring it would report `eps_2 = 0` |
-| polarisation quadrature | **refused** |
-| spin through a tilted **bend** | **refused** — one arbiter (xtrack); a tilted *straight* dipole precesses like the rolled one |
+| polarisation quadrature | **refused** — still, after V3: it rebuilds bends as untilted sub-slices and reads the guide field as `y` |
+| spin through a tilted **bend** | **handled since V3** — the conjugation carries the spin; see *Spin through a tilted bend (V3)* |
+| `closed_spin_solution`, `spin_one_turn_matrix`, `propagate_spin_solution`, `spin_orbit_coupling` | **handled since V3** — they track, and never read a bend's plane |
 | tilt together with `roll` or `dx`/`dy` | **refused** — the order of the two rotations is a convention not yet pinned (xtrack takes `rot_s_rad` and `rot_s_rad_no_frame` together and would arbitrate) |
 | scenario file / lattice editor | **refused both ways** — no `tilt` field; the editor's JS optics would draw a flat magnet |
 
@@ -10211,7 +10212,69 @@ filter run's unlocalised 7% `ex` gap; `J_x` is still the first thing to check.
 - **the photon opening angle**, `eps_y = (13/55) C_q <beta_y/|rho|^3> / (J_y I2)` — the true
   floor; omitted by construction, as in B3's tracking, so `eps_y` is exactly `0.0` on a flat
   ring;
-- spin and polarisation through a tilted bend (V3); a tilted wiggler; tilt with a misalignment.
+- polarisation through a tilted bend (spin itself is V3); a tilted wiggler; tilt with a misalignment.
+
+## Spin through a tilted bend (V3 — implemented)
+
+V1 refused to carry a spin through a bend with a design `tilt`. V3 lifts that refusal and
+changes nothing else in the map: `Element._track_impl` already conjugated the spin with the
+coordinates (`rotate_about_s(spin, +tilt)` in, `-tilt` out), and in the bend's own frame
+the precession is N1's — half the frame rotation about the body `y`, BMT about the body
+field, the other half. The body `y` is the tilted axis in the frame the bend is entered in,
+so a tilted bend turns a spin about the axis the survey turns the machine about.
+
+### The sense, and how it is pinned
+
+- `rotate_about_s(v, t)` turns `(v_x, v_y)` exactly as `s_rotation(t)` turns `(x, y)` —
+  asserted bit for bit. xtrack's `SRotation` turns `spin_x/spin_y` with its coordinate
+  formula (`track_srotation.h`), and V1 pinned the coordinate sense to xtrack, so this
+  is what makes "the same tilt" mean the same thing for the spin on both sides.
+- **The arbiter-free gate.** For a transverse field the spin precesses `(1 + G gamma)`
+  times as fast as the momentum about the same axis, and the frame follows the momentum,
+  so relative to the frame the spin turns `G gamma` times as far:
+  `spin map = (W_in^T W_out) ** (G gamma)` on the design orbit, where `W` is the
+  **survey's** frame. Exact (constant field), charge-free (both turn as `q B`), and
+  sharp in the sense by order one. Holds to `1e-15 x max(1, G gamma theta)` — the
+  round-off of a `G gamma theta` that reaches 30 rad for a 20 GeV proton.
+- Sign-blind, labelled controls: `G = 0` on axis (a conjugated identity); the spin tune of
+  a ring with a rotator pair (a conjugation of the arc). `G = 0` **off axis** is sharp:
+  the spin stays on the momentum to `1e-16`, the wrong sense leaves it `> 1e-6` off.
+
+### The rotator ring (fixture, `tests/analytic/test_spin_tilt.py`)
+
+V1's flat ring with `rot1` (`tilt = pi/2`, angle `+b`) before the arc and `rot2` (`-b`)
+after it, the IP between them at `s = 0`. With `phi = G gamma b`,
+`n_0(IP) = (0, cos phi, -sin phi)` (sympy) — it leans **backwards**, and its `s` sign
+flips with the tilt's sense. The arc between the rotators has `n_0 = y` to `1e-14`. It is
+the first ring here whose `n_0` leaves `y` **on the design orbit**. It closes in direction,
+not in position (the rotator section is an excursion inserted into a closed ring, as V1's
+dogleg). The dogleg ring is **not** a spin-rotator fixture: its two vertical bends are
+adjacent and opposite, so on the design orbit their spin rotations cancel exactly.
+
+N4's arbiter-free identity `N (D, 0, 1) = d n_0/d delta` holds on it to `4e-9`, where on a
+flat ring both sides vanish identically.
+
+### xtrack, the one arbiter
+
+- One tilted bend, every N1 switch set: in the bend's own plane orbit and spin agree to
+  `1e-16` at every tilt; across it, the only gap is N1's `direction_of_motion` typo, cubic
+  in the **body** `py` (factor `8.00` per doubling at every tilt) — the typo follows the
+  tilted frame, which is the evidence xtrack turns the spin with the magnet.
+- The rotator ring's one-turn spin rotation, by tracking three basis spins: `1.3e-14` at
+  every strength tried.
+- `twiss(spin=True)`: `n_0` along the ring to `2e-15` at a 30-degree lean, but it **fails**
+  (`LinAlgError`, after `sqrt` of a negative at `twiss.py` `_errfun_spin`) at 45, 54, 60,
+  72 and 82 degrees. Its `_find_spin_fixed_point` varies `s_x`, `s_z` in independent
+  `(-1, 1)` boxes and sets `s_y = sqrt(1 - s_x^2 - s_z^2)`. The onset between 30 and 45 was
+  not swept. Asserted as a test written to fail the day it is fixed.
+
+### What V3 still refuses
+
+- **polarisation through a tilted bend** — `polarization_integrals`,
+  `sokolov_ternov_polarization`, `polarization_buildup_time`, `depolarization_integrals`,
+  `derbenev_kondratenko_polarization`, `polarization_time`: each ends at the quadrature
+  walk, which rebuilds bends as untilted sub-slices and reads the guide field as `y`;
+- a tilted wiggler; a tilt together with a misalignment (unchanged from V1).
 
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 

@@ -392,20 +392,14 @@ class Element(abc.ABC):
         :meth:`track` unchanged, down to which arrays get allocated.
 
         A design tilt wraps everything else: rotate into the tilted frame, place and
-        track the element there, rotate back (class docstring). Spin through a tilted
-        **bend** is refused — the conjugation would carry it, but it has a single arbiter
-        (xtrack) and is a milestone of its own.
+        track the element there, rotate back (class docstring). The spin rides the same
+        conjugation (V3): in the bend's own frame the frame rotation is about its own
+        ``y``, which is the tilted axis in the frame it is entered in — so a tilted bend
+        turns a spin about the axis the survey turns the machine about.
         """
         if self.tilt == 0.0:
             return self._track_placed(state, ref, radiation, rng, spin)
         self._refuse_tilt_with_misalignment()
-        if spin is not None and self.frame_rotation_angle != 0.0:
-            raise NotImplementedError(
-                f"spin precession through the tilted bend {self.name!r} (tilt={self.tilt}) "
-                "is not implemented: a tilted bend turns the reference frame about a tilted "
-                "axis, which is spin-rotator physics with a single arbiter (xtrack) and a "
-                "milestone of its own. A tilted straight element is fine -- it is a rolled one"
-            )
         from ..spin import rotate_about_s
 
         state = np.asarray(state, dtype=float)

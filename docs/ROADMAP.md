@@ -38,8 +38,47 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
-| V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07) | V3 spin through a tilted bend (one arbiter); AC dipole (two arbiters, not opened) |
+| V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); AC dipole (two arbiters, not opened) |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23) | injection (needs real tracking — deferred) |
+
+**Axis V shipped V3 on 2026-10-07** — **spin through a tilted bend**. V1's refusal is
+lifted and nothing else in the map changed: the conjugation that turns the coordinates into
+the bend's own frame already turned the spin with them, and in that frame the precession is
+N1's. The milestone is the validation. Full detail in `docs/CONVENTIONS.md` -> *Spin through
+a tilted bend (V3)*.
+
+The findings, in the order they changed the milestone:
+
+- **The sharpest gate needs no arbiter: the spin map is the survey's turn raised to the
+  power `G gamma`.** Thomas-BMT says the spin turns `(1 + G gamma)` times as far as the
+  momentum about the same axis; the frame follows the momentum, so relative to the frame it
+  is `G gamma` times the frame's own turn — which is what the survey composes, in code that
+  shares nothing with the spin map. Exact on the design orbit, for every tilt, both charges
+  (an electron and a proton), with and without a gradient; the opposite sense misses by
+  order one.
+- **The obvious ring fixture, V1's dogleg, could not see the milestone.** The dogleg ring's two
+  vertical bends are adjacent and opposite, so on the design orbit their spin rotations
+  cancel exactly and `n_0 = y`. The gate ring became a **spin rotator**: a vertical bend each
+  side of an interaction point, the flat arc between. There `n_0` leans back by
+  `G gamma b` — the first `n_0` in the package to leave `y` on the design orbit — and its
+  `s` component flips sign with the tilt's sense. The spin tune stays `G gamma` for either
+  sense (a conjugation), labelled as a control.
+- **xtrack sees the tilt through its own typo.** In the bend's plane the two codes agree to
+  `1e-16` at every tilt; across it, the only gap is N1's `direction_of_motion` typo, cubic in
+  the bend's **own** `py` at every tilt — evidence that xtrack's `rot_s_rad` turns the spin
+  with the magnet, read off a defect.
+- **xtrack's closed-spin search fails on a strongly leaning `n_0`; its tracking does not.**
+  The one-turn spin rotation tracked through xtrack matches to `1.3e-14` at every rotator
+  strength. `twiss(spin=True)` matches along the ring at a 30-degree lean and raises
+  `LinAlgError` at 45 degrees and beyond — its search sets `s_y = sqrt(1 - s_x^2 - s_z^2)`
+  over independent boxes. The onset between 30 and 45 was not swept; asserted, to fail the
+  day it is fixed.
+
+**What V3 refuses:** polarisation through a tilted bend — every entry point ends at the
+quadrature walk, which rebuilds bends as untilted sub-slices and reads the guide field as
+vertical (each asserted). **Next on V:** that polarisation step (one arbiter, xtrack's
+`spin_polarization_inf_no_depol`), or the AC dipole (two arbiters), the other recorded
+candidate.
 
 **Axis V shipped V2 on 2026-10-07** — **vertical emittance from design vertical
 dispersion**. A ring that bends vertically radiates in its own `D_y`, and the radiation
