@@ -307,6 +307,32 @@ def test_editor_core_refuses_what_accsim_refuses() -> None:
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not on the PATH")
+def test_editor_core_refuses_a_design_tilt_as_the_loader_does() -> None:
+    """V1: the scenario format has no ``tilt``, and the JS core reads records itself — so a
+    hand-written tilt must be an error on **both** sides, never a flat magnet."""
+    data = {
+        "format": SCENARIO_FORMAT,
+        "name": "vertical",
+        "reference": {"species": "electron", "energy_eV": 3e9},
+        "elements": [
+            {"type": "Dipole", "length": 1.0, "angle": 0.1, "tilt": 1.5707963267948966},
+            {"type": "Drift", "length": 2.0},
+        ],
+    }
+    with pytest.raises(ScenarioError, match="tilt"):
+        load_scenario(data)
+    proc = subprocess.run(
+        [NODE, str(EDITOR / "selftest.js"), "-"],
+        input=json.dumps(data),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    errors = json.loads(proc.stdout)["errors"]
+    assert any("tilt" in str(e) for e in errors)
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not on the PATH")
 def test_animation_betatron_matches_matrix_tracking() -> None:
     """The editor's animation reconstructs a particle's betatron motion as a closed form
     of the Twiss functions. ``editor/anim-selftest.js`` tracks the same particle through

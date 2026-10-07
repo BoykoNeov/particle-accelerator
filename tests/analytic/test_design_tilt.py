@@ -47,17 +47,21 @@ from accsim.elements.alignment import s_rotation
 from accsim.elements.dipole import Dipole
 from accsim.elements.drift import Drift
 from accsim.elements.quadrupole import Quadrupole
+from accsim.elements.rfcavity import RFCavity
 from accsim.geometry import survey
 from accsim.lattice import Lattice
 from accsim.orbit import closed_orbit
 from accsim.radiation import polarization_integrals, radiation_integrals
 from accsim.reference import ELECTRON_ANOMALOUS_MOMENT, ReferenceParticle
 from accsim.scenario import ScenarioError, element_from_dict, element_to_dict
-from accsim.tapering import taper_profile
+from accsim.tapering import taper, taper_profile
 from accsim.twiss import (
+    chromaticity,
+    chromaticity_on_orbit,
     closed_twiss,
     momentum_compaction,
     natural_chromaticity,
+    natural_chromaticity_on_orbit,
     propagate_twiss,
     tunes,
 )
@@ -388,6 +392,43 @@ def test_a_tilted_bend_radiates_what_a_flat_one_does() -> None:
 def test_the_taper_of_a_rolled_ring_is_the_flat_rings() -> None:
     a, b = taper_profile(flat_ring()), taper_profile(rolled_ring(0.1))
     assert np.allclose(b.delta, a.delta, rtol=0.0, atol=1e-16)
+
+
+def test_taper_scales_a_tilted_ring_like_the_flat_one_and_keeps_the_tilt() -> None:
+    """``taper()`` — not only the profile — goes through tracking, never the radiation
+    integrals, so it accepts a tilted ring: the same field factors, the tilt carried over."""
+
+    def with_rf(lat: Lattice) -> Lattice:
+        # taper() needs a 6D fixed point, so a cavity paying the ~3.7 MeV turn loss.
+        cav = RFCavity.from_harmonic(20.0e6, 20, lat.length, lat.ref, phi_s=math.pi)
+        return Lattice([*lat.elements, cav], ref=lat.ref)
+
+    flat, rolled = taper(with_rf(flat_ring())), taper(with_rf(rolled_ring(0.1)))
+    # not vacuous: the taper really moved the fields it is compared on
+    assert any(isinstance(e, Dipole) and abs(e.taper) > 1e-4 for e in flat.elements)
+    for a, b in zip(flat.elements, rolled.elements, strict=True):
+        if isinstance(a, Dipole):
+            assert b.k0 == pytest.approx(a.k0, rel=1e-14)
+            assert b.tilt == 0.1
+
+
+@pytest.mark.parametrize(
+    "entry", [chromaticity, chromaticity_on_orbit, natural_chromaticity_on_orbit]
+)
+def test_every_chromaticity_entry_point_refuses_a_tilted_bend(entry) -> None:
+    """The refusal sits in ``natural_chromaticity``; these reach it — the on-orbit pair
+    through ``linearised_lattice``, which must therefore keep the tilted ``Dipole``."""
+    with pytest.raises(NotImplementedError, match="tilt"):
+        entry(dogleg_ring())
+
+
+def test_the_compaction_quadrature_refuses_a_rolled_bend() -> None:
+    """K2's rolled bend moves its exit face, which the quadrature's frame change (a
+    rotation) does not describe. The ring is coupled anyway, so the identity route refuses
+    it too — through the coupling guard, not this one."""
+    lat = Lattice(_cell() + [Dipole(1.5, ANG, roll=0.01)], ref=_ref())
+    with pytest.raises(NotImplementedError, match="roll"):
+        momentum_compaction(lat, method="quadrature")
 
 
 # ---------------------------------------------------------------------------

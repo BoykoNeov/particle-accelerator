@@ -1071,15 +1071,28 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
     from .elements.dipole import Dipole
     from .elements.wiggler import Wiggler
 
+    if method == "quadrature":
+        for elem in lattice.elements:
+            if isinstance(elem, Dipole) and elem.angle != 0.0 and elem.roll != 0.0:
+                # K2's rolled bend curves the orbit in a plane that is NOT a rotation of the
+                # entrance frame (its exit face moves), so the V1 frame change below does not
+                # describe it. Such a ring is coupled and closed_twiss would refuse it anyway;
+                # checked first so the reason given is the real one, and so a contrived ring
+                # that cancels its coupling cannot slip through.
+                raise NotImplementedError(
+                    f"momentum_compaction(method='quadrature') does not follow the roll of the "
+                    f"bending Dipole {elem.name!r} (roll={elem.roll}); use method='identity'"
+                )
     tw0 = closed_twiss(lattice)
     if method == "identity":
         M = lattice.one_turn_matrix()
         slip = M[ZETA, X] * tw0.disp_x + M[ZETA, PX] * tw0.disp_px + M[ZETA, DELTA]
-        # The vertical pair is added last, so where D_y is exactly zero (every flat,
-        # unrolled ring) the sum is the horizontal one to the bit. Where it is not — a
-        # tilted bend (V1), or K2's rolled one — the orbit is displaced vertically too and
-        # its path length moves with it; leaving the pair out was a 3e-6 error on V1's
-        # dogleg ring, found by the quadrature route below refusing to agree.
+        # The vertical pair is added last, so where D_y is exactly zero (every flat
+        # ring) the sum is the horizontal one to the bit. Where it is not — a tilted bend
+        # (V1) — the orbit is displaced vertically too and its path length moves with it;
+        # leaving the pair out was a 3e-6 error on V1's dogleg ring, found by the
+        # quadrature route below refusing to agree. (A K2 rolled-bend ring never reached
+        # this line: it is coupled, and closed_twiss refuses it above.)
         slip += M[ZETA, Y] * tw0.disp_y + M[ZETA, PY] * tw0.disp_py
         return 1.0 / lattice.ref.gamma0**2 - slip / lattice.length
 

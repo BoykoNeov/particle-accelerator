@@ -4,8 +4,8 @@ A **roll** turns a magnet about the beam axis while the machine stays where it i
 (MAD-X ``EALIGN``'s ``DPSI``, xtrack's ``rot_s_rad_no_frame``). That is not the same
 thing as a *design* tilt (MAD-X ``TILT``, xtrack's plain ``rot_s_rad``), which rolls
 the reference frame along with the magnet; the frame-following version has **exactly
-zero kick**, because the design orbit was rolled too. accsim implements the error, not
-the design choice.
+zero kick**, because the design orbit was rolled too. This file is the error; the design
+choice is V1's ``Dipole(tilt=)`` (``test_design_tilt.py``).
 
 Two regimes, and the whole milestone is the second:
 

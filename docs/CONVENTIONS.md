@@ -3409,14 +3409,14 @@ steering, and statistics of anything but the closed orbit.
 it is**: MAD-X `EALIGN`'s `DPSI`, xtrack's `rot_s_rad_no_frame`. Every element carries
 it, defaulting to `0`.
 
-### There are two things called a roll, and accsim implements the error
+### There are two things called a roll — K2 implemented the error, V1 the design
 
 xtrack carries both as *separate attributes*, and the distinction is the whole
 milestone (measured 2026-08-17, before any code was written):
 
 | | frame | accsim | map | kick |
 |---|---|---|---|---|
-| **design tilt** — MAD-X `TILT`, xtrack `rot_s_rad` | rolls **with** the magnet | not offered | conjugation `R(−φ)·M·R(+φ)` | **exactly zero** |
+| **design tilt** — MAD-X `TILT`, xtrack `rot_s_rad` | rolls **with** the magnet | `Dipole(tilt=)` since V1 (*Design tilt*) | conjugation `R(−φ)·M·R(+φ)` | **exactly zero** |
 | **roll error** — MAD-X `DPSI`, xtrack `rot_s_rad_no_frame` | stays put | `roll` | rigid motion (below) | first order in `φ` |
 
 The design tilt is a lattice *design* choice (it is how you build a vertical bend),
@@ -8906,7 +8906,11 @@ right and wrong walkers alike. That is why the sharp gates are the per-element c
 sagitta, and an element-by-element comparison inside the cell — and why all three of these
 walkers are in the analytic file as controls.
 
-### Planar by construction — a refusal, not an approximation
+### Planar by construction — a refusal, not an approximation (lifted by V1)
+
+*Superseded 2026-10-07: V1 added the design tilt, and the survey now walks in 3D — see
+**Design tilt**. What follows is R1's record; it remains exactly true of any machine with no
+tilted element, which takes the planar path bit for bit.*
 
 `Y`, `phi` and `psi` are identically zero, because **nothing in `accsim` can bend out of the
 horizontal plane**. `Dipole` bends in `x` only, and `roll` is a *misalignment* (the magnet
@@ -10082,8 +10086,11 @@ ring — found because the quadrature route, generalised to follow the tilt, ref
 (it plateaued at `3.13e-6` under slice refinement: a missing term, not a step error). With
 the pair added the two meet at `2e-9` (slice-limited) and MAD-X's `alfa` at `1e-10`. The
 pair is added *last*, so on every ring with `D_y == 0` exactly the number is unchanged to the
-bit. **K2's rolled bends make `D_y` too**, so the identity route was slightly wrong on rolled
-rings before V1; nothing gated it there.
+bit. K2's rolled bends make `D_y` too, but a rolled-bend ring is **coupled** and
+`closed_twiss` refuses it before either route runs (measured on `test_roll_xtrack.py`'s ring:
+off-block norm `5.1e-5`) — so no published number was ever wrong there. The quadrature
+refuses a rolled bend explicitly anyway, since its frame change is a rotation and a rolled
+bend's exit face is not.
 
 ### Fixtures (shared by the analytic and both reference files)
 

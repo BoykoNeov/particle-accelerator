@@ -75,8 +75,10 @@ The findings, in the order they changed the milestone:
   `momentum_compaction`'s default route read `R51 D_x + R52 D_px + R56`; with vertical
   dispersion `R53 D_y + R54 D_py` belongs in it. The quadrature route, generalised to follow
   the tilt, refused to agree and **plateaued** at `3.13e-6` under slice refinement — a missing
-  term, not a step error. Fixed; the routes meet at `2e-9` and MAD-X's `alfa` at `1e-10`. K2's
-  rolled bends make `D_y` too, so this was quietly wrong on rolled rings before V1.
+  term, not a step error. Fixed; the routes meet at `2e-9` and MAD-X's `alfa` at `1e-10`.
+  (The V1 commit message also called this "quietly wrong on K2 rolled rings". It was not —
+  measured afterwards: a rolled-bend ring is coupled, and `closed_twiss` refuses it before
+  either route runs. The quadrature now refuses a rolled bend explicitly as well.)
 - **The filter run's dogleg ring does not close, and the gate became sharper for it.** It is
   1.6 m of extra straight inserted into a closed ring. It closes in *direction* (the two
   vertical bends cancel), so the rest of the ring is a closed polygon translated by the

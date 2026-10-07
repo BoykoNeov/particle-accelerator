@@ -341,6 +341,9 @@
       if (missing || !Number.isFinite(+el[p])) errs.push(`${p} must be a number`);
     }
     if (spec.thick && el.type !== "Wiggler" && +el.length < 0) errs.push("length must be >= 0");
+    // accsim V1's design tilt bends out of the plane; this core draws flat machines only, and
+    // Python's loader refuses the field too, so a hand-written tilt must not draw as flat.
+    if (+el.tilt) errs.push("a design tilt (accsim V1) takes the machine out of the plane; the editor models flat machines only — set tilt to 0");
     if (el.type === "Dipole") {
       if (+el.length === 0 && +el.angle !== 0) errs.push("a finite bend angle needs a positive length");
       if (+el.roll && +el.angle) errs.push("a rolled bend needs the curved rigid-body geometry (accsim K2); the editor does not model it — set roll to 0");
