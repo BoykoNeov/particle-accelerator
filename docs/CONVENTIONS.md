@@ -10066,7 +10066,8 @@ its digits near closure); `total_angle` is then the net *yaw*, not the sum of th
 | `momentum_compaction`, quadrature route | **handled** — `D` is carried into the bend's frame, so `h . D` counts a vertical bend's `h D_y` |
 | radiation in **tracking** (`radiation="mean"` etc.), `taper_profile`, `taper` | **handled** — applied in the body frame, rotation-invariant (sign-blind gates) |
 | `natural_chromaticity` (and `chromaticity`) | **refused** — reads `h`, `k1` as horizontal and builds untilted sub-slices |
-| `radiation_integrals` and everything on it (emittances, damping, polarisation time) | **refused** — vertical `I4`/`I5` from design `D_y` is its own milestone (MAD-X `EMIT` and xtrack agree to `9e-5` on it) |
+| `radiation_integrals` and everything on it (emittances, damping, energy spread) | **handled since V2** — the vertical half `I4y`/`I5y`, see *Vertical emittance from design `D_y` (V2)* |
+| `equilibrium_emittances_coupled` (G1's sharing model) | **refused (V2)** — it shares only the horizontal excitation, so on the dogleg ring it would report `eps_2 = 0` |
 | polarisation quadrature | **refused** |
 | spin through a tilted **bend** | **refused** — one arbiter (xtrack); a tilted *straight* dipole precesses like the rolled one |
 | tilt together with `roll` or `dx`/`dy` | **refused** — the order of the two rotations is a convention not yet pinned (xtrack takes `rot_s_rad` and `rot_s_rad_no_frame` together and would arbitrate) |
@@ -10105,8 +10106,110 @@ bend's exit face is not.
 
 ### Out of scope for V1
 
-Vertical emittance from design `D_y` (radiation integrals), spin through a tilted bend,
-tilt with a misalignment, the scenario format and editor, and a design tilt on a `Wiggler`.
+Vertical emittance from design `D_y` (radiation integrals — lifted by V2, below), spin
+through a tilted bend, tilt with a misalignment, the scenario format and editor, and a
+design tilt on a `Wiggler`.
+
+## Vertical emittance from design `D_y` (V2 — implemented)
+
+A ring that bends vertically has **design** vertical dispersion. Wherever the beam radiates,
+the energy kick meets `D_y` and kicks the vertical betatron amplitude, and the equilibrium
+is the horizontal formula one plane over:
+
+    eps_y = C_q gamma^2 I5y / (J_y I2),     I5y = ∮ |h|^3 H_y ds,    J_y = 1 - I4y / I2
+    J_z   = 2 + (I4 + I4y) / I2                                     (Robinson: sum = 4)
+
+`RadiationIntegrals` gains `i4y`, `i5y` (default `0.0`). **`i4`/`i5` stay the horizontal
+ones** (MAD-X `synch_4/5`, xtrack `rad_int_i4x/i5x`); **`i1` is the total** `∮ h . D` =
+`alpha_c C`, vertical half included. New: `equilibrium_vertical_emittance`.
+
+### The projection: one number, split by the bend's own direction
+
+A tilted bend curves the orbit along its own `x` axis, which in the lab is
+`e = (cos t, sin t)` — the first row of the passive `s_rotation(t)` its map is conjugated by.
+Both things `I1`/`I4` weigh point along `e`: the path-length factor `h u` and the gradient of
+the radiated power, `d/du [B^2 (1 + h u)] ∝ h (h^2 + 2 k1)` (the `-h^2 tan e` faces likewise).
+So a tilted bend feeds `I4` by `cos t` and `I4y` by `sin t` of **one** number, with `k1`
+the bend's own, read in its own frame — **the `2 k1` keeps its sign in the vertical plane.**
+`I5`/`I5y` need no projection: every bend excites both planes through `|h|^3`, in proportion
+to the local `H_x`/`H_y`, so a horizontal bend sitting in `D_y` excites the vertical plane —
+on the dogleg ring 99.64% of `I5y` is made in the horizontal arcs.
+
+Sub-slices and faces are conjugated into the lab frame, so both planes' `beta, alpha` and all
+four dispersion components ride the real transport. **An untilted bend takes the pre-V2
+expressions verbatim**, so a flat ring moves by no bit — gated against a frozen copy of the
+pre-V2 sum, not against captured floats. A wiggler's vertical share is
+`<|cos|^3> |h0|^3 H_y L`, exact because vertically a wiggler is homogeneous focusing and
+`H_y` is its invariant.
+
+**Scope: an uncoupled ring**, which for a tilted sector bend means a tilt that is a multiple
+of `pi/2` — at any other angle its weak focusing is a skew lens, and `closed_twiss` refuses
+the ring before the sum runs (gated).
+
+### The gates that discriminate, and what each would catch
+
+- **The ring turned over.** Every element by `pi/2`: the same machine on its side, so
+  `I4y`, `I5y`, `J_y`, `eps_y` must be the flat ring's horizontal ones (`1e-12`). Run **with a
+  gradient and faces** — at `k1 = 0` the `2 k1` term, the only sign a rotation could get
+  wrong, is identically zero. `tilt = pi` must give the flat ring back, which is what a
+  `|cos t|` or `cos^2 t` projection fails.
+- **The `H_y` invariant — a closed form outside the transport.** Outside a vertical bend
+  `D_y` obeys the homogeneous betatron equation, so `H_y` is its Courant-Snyder invariant:
+  constant around the ring, equal to `|d_n|^2 / (4 sin^2 pi Q_y)` for the dispersion `d` the
+  dogleg makes (in normalised coordinates `I - R(mu)` is `2 sin(mu/2)` times a rotation).
+  Horizontal bends then contribute `H_y |h|^3 L` exactly, and the two vertical bends by
+  quadrature of their analytic orbit. The trapezoid error lives only in the vertical bends,
+  falls as `1/n^2`, and the Richardson limit lands on the closed form to `1e-10`.
+- **`I1 = alpha_c C`** against the identity route; the vertical half (`3.9e-5` of the whole)
+  is 1000x the 256-slice error. The trapezoid's error is `1/n^2` exactly — `5.5e-7` at 64
+  slices, `3.5e-8` at 256, identical on the flat ring. (It happens to be close to
+  `1/(2 gamma^2)` at 3 GeV; that is a coincidence, and the flat ring shows it.)
+
+### The tracked equilibrium: two owners, and agreement where both vanish
+
+B3's Lyapunov solve of the radiating, tilted, sliced ring — a route through the *tracking*
+map that shares no code with the integrals — departs from the closed form through two
+owners, each with its own law:
+
+- **the finite synchrotron tune**, `c (2 pi Q_s)^2` with `c ≈ 0.41`, energy-independent
+  (B3's finding again). **This is what the filter run's "9e-5" was**: MAD-X `EMIT` and xtrack
+  agreed with *each other* at `Q_s = 0.087`, where both sit 14% above the integral. Scanned
+  down to `Q_s = 0.015` they come within 0.5% (MAD-X) and 0.2% (xtrack), with the same slope
+  accsim's tracking shows (`0.41`).
+- **the energy sag**: the intercept at `Q_s = 0` is `b U0/E`, `b → -1` (`-0.937 / -0.970 /
+  -0.987` at 8 / 16 / 32 slices). Pinned by an energy scan at fixed `Q_s`: `U0/E ∝ E^3` moves
+  it 8x between 1.5 and 3 GeV. `taper()` removes 77% of it — the sag acting on the optics; the
+  rest is the radiation's own `(1 + delta)` dependence, not localised further.
+
+With `U0/E → 0` and `Q_s → 0` the residual is `+1.0e-5 / -1.4e-5 / -2.0e-5` at 8 / 16 / 32
+slices: **the tracked route and the integral agree to `2e-5`.** The test ring needs
+`phi_s = 0`: an electron above transition sits on that branch, and `pi` (B3's positron-like
+rings) is the unstable root — a probe that missed this measured garbage partition numbers.
+
+### The arbiters, and what each can and cannot see
+
+| Arbiter | Verdict |
+|---|---|
+| xtrack integral route (`twiss(radiation_integrals=True)`) | **accsim's method**; on tilted bends **without** a gradient it lands on accsim to its own slicing error (`i5y`, `eps_y` `3.2e-7` at 80 slices, falling as `1/n^2`; `i1y` to `1e-5`, sign included) |
+| same, on a tilted **gradient** bend | **wrong**: `i4y = D_y (kappa0_y kappa^2 - 2 k1 kappa_y)` uses the bend's *own* `k1` with a lab-frame sign. The rolled ring gets `J_y = -0.59` against `+0.26` flat — a negative emittance; the error is exactly `-4 k1 I1` (gated, to fail the day it is fixed) |
+| xtrack eigen route (`radiation_analysis=True`) | respects the rotation exactly (`J_y` rolled = `J_x` flat to `2.5e-6`); departs as `c (2 pi Q_s)^2` with accsim's `c` (3%) |
+| xtrack, with a cavity in the line | its 4D `radiation_integrals` moved `eq_gemitt_y` by `~6e-7` — so the integrals are read off cavity-free lines |
+| xtrack `i1x` | `5e-5` from its own ring's `alpha_c C` at 80 slices; not used — accsim's `I1` is gated against the identity route |
+| MAD-X `TWISS` `synch_*` | **no vertical integral at all** (`synch_6`/`synch_8` are horizontal, nonzero on a flat ring), and **ignores the tilt**: on the rolled ring `synch_1` is 10% of its own `alfa C` |
+| MAD-X `EMIT` | the dogleg's `Q_s` slope (5%), within 0.5% at `Q_s = 0.015`; but the ring turned over gets `ey` = 1.9% of the flat `ex`. Where between the dogleg's `0.02` rad and a full ring this sets in was **not swept** |
+
+The horizontal plane is **not** reconciled here and nothing above leans on it: on this ring
+`J_x = 0.04`, so any difference in `I4` is amplified, and xtrack's two routes give `J_x`
+`0.206` (eigen) vs `0.260` (integral, = accsim) on the combined-function ring. That is the
+filter run's unlocalised 7% `ex` gap; `J_x` is still the first thing to check.
+
+### What V2 still refuses, or does not model
+
+- **coupling and design `D_y` together** — `equilibrium_emittances_coupled` refuses a tilt;
+- **the photon opening angle**, `eps_y = (13/55) C_q <beta_y/|rho|^3> / (J_y I2)` — the true
+  floor; omitted by construction, as in B3's tracking, so `eps_y` is exactly `0.0` on a flat
+  ring;
+- spin and polarisation through a tilted bend (V3); a tilted wiggler; tilt with a misalignment.
 
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 

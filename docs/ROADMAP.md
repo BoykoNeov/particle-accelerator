@@ -38,8 +38,51 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
-| V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07) | V2 vertical emittance from design `D_y` (two arbiters); V3 spin through a tilted bend (one arbiter); AC dipole (two arbiters, not opened) |
+| V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07) | V3 spin through a tilted bend (one arbiter); AC dipole (two arbiters, not opened) |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23) | injection (needs real tracking — deferred) |
+
+**Axis V shipped V2 on 2026-10-07** — **vertical emittance from design vertical
+dispersion**. A ring that bends vertically radiates in its own `D_y`, and the radiation
+integrals now have a vertical half: `I4y`, `I5y`, `J_y = 1 - I4y/I2`, `J_z` with the total
+`I4`, and `equilibrium_vertical_emittance`. V1's refusal of `radiation_integrals` is lifted;
+on a flat ring nothing moves by a bit. Full detail in `docs/CONVENTIONS.md` -> *Vertical
+emittance from design `D_y` (V2)*.
+
+The findings, in the order they changed the milestone:
+
+- **The entry's own arbiter claim was a different number.** V1 recorded "MAD-X `EMIT` and
+  xtrack agree to `9e-5`" — true, and it is the **eigen** emittance at `Q_s = 0.087`, where
+  both sit **14%** above the integral this milestone ships. The prototype matched xtrack's
+  *integral* route to `3e-7` and missed both eigen values by 12%; the milestone was blocked
+  until a `Q_s` scan showed MAD-X, xtrack and accsim's own tracked equilibrium all departing
+  as `c (2 pi Q_s)^2` with **one** slope (`0.41`) and landing within 0.5% at `Q_s = 0.015`.
+  B3's lesson, one plane over.
+- **xtrack's integral route has the wrong gradient sign in the vertical plane, and its eigen
+  route proves it.** A combined-function ring turned over by `pi/2` is the same machine; its
+  `J_y` must be the flat ring's `J_x`. xtrack's eigen analysis says so (`2.5e-6`); its
+  integral route gives `J_y = -0.59` — a negative emittance — because it applies a lab-frame
+  `-2 k1` to the bend's own `k1`. The error is exactly `-4 k1 I1` (asserted). accsim keeps the
+  local `+2 k1`, and the rolled-ring identity — run *with* a gradient, since at `k1 = 0` the
+  term vanishes — is the analytic gate.
+- **MAD-X arbitrates no vertical integral, and its reach is measured, not implied.** `TWISS`
+  tabulates no vertical `synch_*` and ignores the tilt (`synch_1` is 10% of its own `alfa C`
+  on the rolled ring); `EMIT` matches the dogleg's slope but gives the rolled ring 1.9% of the
+  flat ring's emittance. Where between the dogleg and a full rotation that sets in was not
+  swept.
+- **The sharpest gate is an invariant outside every code.** Away from vertical bends `D_y`
+  is a free betatron oscillation, so `H_y` is constant — `|d_n|^2 / (4 sin^2 pi Q_y)` — and
+  the horizontal arcs' share of `I5y` is that times `|h|^3 L`, a closed form; the Richardson
+  limit of the sum lands on it to `1e-10`. 99.64% of `eps_y` is made in the *horizontal* bends.
+- **The tracked equilibrium has a second owner, and it is the energy sag.** At `Q_s → 0` the
+  Lyapunov solve still sat `-0.125%` low. Not slicing (it converges *away* from zero), and
+  `U0/E`-sized: an energy scan at fixed `Q_s` moved it by exactly the `E^3` the sag moves,
+  coefficient `→ -1`, and `taper()` removed 77% of it. With both owners removed the tracked
+  route and the integral agree to `2e-5`.
+
+**What V2 refuses:** coupling and design `D_y` together (`equilibrium_emittances_coupled`); a
+tilt that is not a multiple of `pi/2` (the ring is coupled — `closed_twiss` refuses it); the
+photon opening angle (omitted by construction, as in B3). **Next on V:** V3, spin through a
+tilted bend (one arbiter, xtrack); the AC dipole is the other recorded candidate.
 
 **Axis V opened and shipped V1 on 2026-10-07** — the **design tilt**: a bend turned about the
 beam axis *with its reference frame* (MAD-X `TILT`, xtrack's plain `rot_s_rad`), so a bend

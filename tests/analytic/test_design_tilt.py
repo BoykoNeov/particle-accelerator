@@ -448,9 +448,11 @@ def test_natural_chromaticity_refuses_a_tilted_gradient_magnet() -> None:
         natural_chromaticity(lat)
 
 
-def test_the_radiation_integrals_refuse_a_tilted_bend() -> None:
-    with pytest.raises(NotImplementedError, match="tilt"):
-        radiation_integrals(dogleg_ring())
+def test_the_radiation_integrals_accept_a_tilted_bend_since_v2() -> None:
+    """V1 refused this; V2 lifted it (``test_vertical_emittance.py`` holds the physics). What
+    is left here is the flip itself: the dogleg ring now has a vertical half."""
+    ri = radiation_integrals(dogleg_ring())
+    assert ri.i5y > 0.0 and ri.i4y != 0.0
 
 
 def test_the_polarization_integrals_refuse_a_tilted_bend() -> None:
