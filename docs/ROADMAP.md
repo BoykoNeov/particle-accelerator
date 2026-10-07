@@ -73,6 +73,11 @@ The findings, in the order they changed the milestone:
   `LinAlgError` at 45 degrees and beyond — its search sets `s_y = sqrt(1 - s_x^2 - s_z^2)`
   over independent boxes. The onset between 30 and 45 was not swept; asserted, to fail the
   day it is fixed.
+- **At the textbook setting the reported spin tune jumps, and the physics does not.** At
+  `G gamma b = pi/2` (longitudinal spin at the IP) `n_0` has no vertical part, and past it
+  the `n_0 . y > 0` convention reports `-n_0` with `1 - nu`. Same rotation — asserted, with
+  the one-turn matrix continuous across — but a fallback no design-orbit ring reached before.
+  The convention (xtrack's) is unchanged.
 
 **What V3 refuses:** polarisation through a tilted bend — every entry point ends at the
 quadrature walk, which rebuilds bends as untilted sub-slices and reads the guide field as
@@ -121,7 +126,8 @@ The findings, in the order they changed the milestone:
 **What V2 refuses:** coupling and design `D_y` together (`equilibrium_emittances_coupled`); a
 tilt that is not a multiple of `pi/2` (the ring is coupled — `closed_twiss` refuses it); the
 photon opening angle (omitted by construction, as in B3). **Next on V:** V3, spin through a
-tilted bend (one arbiter, xtrack); the AC dipole is the other recorded candidate.
+tilted bend (one arbiter, xtrack); the AC dipole is the other recorded candidate. (*V3
+shipped the same day — see its entry above.*)
 
 **Axis V opened and shipped V1 on 2026-10-07** — the **design tilt**: a bend turned about the
 beam axis *with its reference frame* (MAD-X `TILT`, xtrack's plain `rot_s_rad`), so a bend
@@ -169,7 +175,7 @@ The findings, in the order they changed the milestone:
 **What V1 refuses** (each with a test written to fail the day it lifts): the radiation
 integrals and everything on them — **V2**, vertical emittance from design `D_y`, where MAD-X
 `EMIT` and xtrack already agree to `9e-5` (*V2 found this is their eigen value at
-`Q_s = 0.087`, 14% above the integral — see the V2 entry above*); spin through a tilted bend — **V3**, one arbiter
+`Q_s = 0.087`, 14% above the integral — see the V2 entry above*); spin through a tilted bend — **V3**, one arbiter (*lifted by V3, 2026-10-07*)
 (xtrack), the spin-rotator physics; a tilt together with a misalignment (the order of the two
 rotations is unpinned; xtrack would arbitrate); the scenario file and editor (no `tilt` field;
 the JS optics would draw a flat machine); a tilted wiggler.

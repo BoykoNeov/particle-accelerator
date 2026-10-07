@@ -323,6 +323,36 @@ def test_the_spin_tune_is_g_gamma_for_either_sense_a_control(monkeypatch) -> Non
     assert closed_spin_solution(lattice).spin_tune == pytest.approx(expected, abs=1e-13)
 
 
+@pytest.mark.parametrize("frac", [0.49, 0.5, 0.51])
+def test_at_ninety_degrees_the_reported_pair_flips_and_the_rotation_does_not(frac: float) -> None:
+    """The textbook rotator, ``G gamma b = pi/2`` (longitudinal spin at the IP), and either side.
+
+    Before V3 an ``n_0`` with no vertical component could not occur on the design orbit; the
+    rotator reaches it at exactly the setting a real one is built for. ``spin_axis_and_tune``
+    orients ``n_0 . y > 0`` (xtrack's convention), so past ``pi/2`` — where the closed form
+    ``(0, cos phi, -sin phi)`` points *down* — it reports the opposite vector and the spin tune
+    as ``1 - frac(G gamma)``. At exactly ``pi/2`` the vertical part is round-off, the fallback
+    picks ``+z``, and lands on the same side. ``(n_0, nu)`` and ``(-n_0, 1 - nu)`` are the same
+    rotation: asserted, so the jump is known to be in the *report*, not in the physics.
+    """
+    phi = frac * math.pi
+    lattice = rotator_ring(phi)
+    solution = closed_spin_solution(lattice)
+    closed_form = _rotator_closed_form()(phi)
+    gg = g_gamma(lattice.ref)
+
+    if frac < 0.5:
+        assert np.abs(solution.n0 - closed_form).max() < 1e-14
+        assert solution.spin_tune == pytest.approx(gg % 1.0, abs=1e-13)
+    else:
+        assert np.abs(solution.n0 + closed_form).max() < 1e-14
+        assert solution.spin_tune == pytest.approx(1.0 - gg % 1.0, abs=1e-13)
+
+    # The rotation itself is continuous: -2 pi G gamma about the closed-form axis, every side.
+    rotation = Rotation.from_rotvec(-2.0 * math.pi * gg * closed_form).as_matrix()
+    assert np.abs(solution.one_turn_matrix - rotation).max() < 1e-13
+
+
 def test_the_rotator_ring_closes_in_direction_but_not_in_position() -> None:
     """The stated construction of :func:`rotator_ring`, asserted rather than assumed."""
     table = survey(rotator_ring(math.pi / 3))

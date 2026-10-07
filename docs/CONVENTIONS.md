@@ -10110,7 +10110,7 @@ bend's exit face is not.
 ### Out of scope for V1
 
 Vertical emittance from design `D_y` (radiation integrals — lifted by V2, below), spin
-through a tilted bend, tilt with a misalignment, the scenario format and editor, and a
+through a tilted bend (lifted by V3, below), tilt with a misalignment, the scenario format and editor, and a
 design tilt on a `Wiggler`.
 
 ## Vertical emittance from design `D_y` (V2 — implemented)
@@ -10248,7 +10248,12 @@ after it, the IP between them at `s = 0`. With `phi = G gamma b`,
 flips with the tilt's sense. The arc between the rotators has `n_0 = y` to `1e-14`. It is
 the first ring here whose `n_0` leaves `y` **on the design orbit**. It closes in direction,
 not in position (the rotator section is an excursion inserted into a closed ring, as V1's
-dogleg). The dogleg ring is **not** a spin-rotator fixture: its two vertical bends are
+dogleg). **At `phi = pi/2` (the textbook rotator, longitudinal spin at the IP) the
+reported pair flips:** `spin_axis_and_tune` orients `n_0 . y > 0` (xtrack's convention), so
+past `pi/2`, where the closed form points down, it reports `-n_0` and `1 - frac(G gamma)`;
+at exactly `pi/2` the fallback picks `+z`, the same side. `(n_0, nu)` and `(-n_0, 1 - nu)`
+are one rotation (asserted, and the one-turn matrix is continuous across). Before V3 this
+fallback was unreachable on the design orbit. The convention is unchanged. The dogleg ring is **not** a spin-rotator fixture: its two vertical bends are
 adjacent and opposite, so on the design orbit their spin rotations cancel exactly.
 
 N4's arbiter-free identity `N (D, 0, 1) = d n_0/d delta` holds on it to `4e-9`, where on a
