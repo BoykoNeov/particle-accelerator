@@ -357,6 +357,60 @@ def test_the_momentum_dependence_is_the_second_power(
     assert np.max(np.abs(tracked - exact)) < 2e-5
 
 
+def test_the_natural_chromaticity_carries_the_second_power(ref: ReferenceParticle) -> None:
+    r"""The wiggler's own share of ``Q'_y`` is ``-(h0^2/4pi) oint beta_y ds`` — and was missing.
+
+    ``natural_chromaticity`` walked a wiggler as a plain matrix, so it moved beta and the
+    dispersion and contributed **nothing** to ``Q'``. Found while scoping the editor's
+    injection view: the tracked tune slope of the ``wiggler-ring`` preset sat at ``-8.2964``
+    against the integral's ``-8.2599``, and on this short ring the gap is **24%** of ``Q'_y``.
+
+    The coefficient is derived, not recalled: ``Q'_y = (1/4pi) oint beta_y dk_y/ddelta ds``
+    with ``k_y = h0^2/(2(1+delta)^2)`` gives ``dk_y/ddelta = -h0^2`` — **twice** what a
+    quadrupole of the same on-momentum focusing would give, the second power of the test
+    above surfacing as a factor of two. The arbiter is tracking (Newton for the off-momentum
+    orbit, then the tune of the finite-difference Jacobian), which shares no arithmetic with
+    the integral; the first power would miss it by half the wiggler's share, ``2.8e-02``.
+    What is left (``5e-9`` relative at 4096 slices) is the trapezoid's own error — it falls
+    four per doubling of ``slices``, as the thick quadrupole's does. The horizontal plane is
+    the control: a wiggler is a drift there and stays one.
+    """
+    from accsim.twiss import natural_chromaticity, tunes_on_orbit
+
+    d, h0 = sp.symbols("delta h0", real=True)
+    assert sp.simplify(sp.diff(h0**2 / (2 * (1 + d) ** 2), d).subs(d, 0) + h0**2) == 0
+
+    def ring(insert: object) -> Lattice:
+        return Lattice(
+            [
+                Quadrupole(0.5, 1.2, "qf"),
+                Drift(1.0),
+                Quadrupole(0.5, -1.2, "qd"),
+                Drift(0.5),
+                insert,  # type: ignore[list-item]
+                Drift(0.5),
+            ],
+            ref,
+        )
+
+    def tracked(lat: Lattice, h: float = 1.0e-5) -> tuple[float, float]:
+        qp, qm = tunes_on_orbit(lat, delta=+h), tunes_on_orbit(lat, delta=-h)
+        return (qp[0] - qm[0]) / (2.0 * h), (qp[1] - qm[1]) / (2.0 * h)
+
+    wig = Wiggler(PERIOD, 0.449689, PERIODS)
+    lat = ring(wig)
+    got = natural_chromaticity(lat, slices=4096)
+    want = tracked(lat)
+
+    assert want[1] == pytest.approx(got[1], rel=2e-8)  # the vertical: the term itself
+    assert want[0] == pytest.approx(got[0], rel=2e-8)  # the horizontal: a drift, untouched
+    # The control ring: the same machine with a drift in the wiggler's place lands on the
+    # same horizontal chromaticity, so nothing about the fix leaked into the other plane.
+    assert got[0] == pytest.approx(
+        natural_chromaticity(ring(Drift(wig.length)), 4096)[0], rel=1e-12
+    )
+
+
 def test_the_matrix_is_the_tracked_jacobian_at_the_origin(
     wig: Wiggler, ref: ReferenceParticle
 ) -> None:

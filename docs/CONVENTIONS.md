@@ -9424,6 +9424,23 @@ a `delta`-sized effect: the ODE carries the geometric angle `y'`, the state vect
 canonical `py = (1+delta) y'`, so the tracked Jacobian is the field's block conjugated by
 `diag(1, 1+delta)`.
 
+**The chromaticity integral missed it until 2026-10-07.** `natural_chromaticity` walked a
+wiggler as a plain matrix — beta and dispersion moved, `Q'` did not — while `track()` carried
+the second power all along, so the two routes disagreed by the wiggler's whole share. Found
+while scoping the editor's injection view: the `wiggler-ring` preset's tracked tune slope sat
+at `-8.2964` against the integral's `-8.2599`; on the short ring in
+`test_the_natural_chromaticity_carries_the_second_power` the gap was 24% of `Q'_y`. The term,
+derived from the line above (`dk_y/ddelta = -h0^2`, twice a quadrupole of the same
+on-momentum focusing):
+
+    Q'_y  +=  -(h0^2 / 4pi) oint_wiggler beta_y ds          (Q'_x: nothing — a drift there)
+
+trapezoided over the vertical focusing block (which *is* the wiggler's vertical block, to the
+bit), the element itself then advanced whole. Tracking now lands on it to `5e-9`, the
+trapezoid's own four-per-doubling residual. The editor's `naturalChromaticity` mirrors it, and
+the JS-vs-Python cross-check fails without the mirror. A **rolled** wiggler raises there —
+its focusing leaves the vertical plane, and the term is written for that plane only.
+
 ### `zeta` needs a term no other element in the package has
 
 The averaged Hamiltonian is

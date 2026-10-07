@@ -642,6 +642,19 @@
         const t2 = h * Math.tan(el.e2 || 0.0);
         xix += INV_4PI * bx * t2; xiy += -INV_4PI * by * t2;
         advance(edgeMatrix(h, el.e2 || 0.0));
+      } else if (el.type === "Wiggler" && +el.h0 !== 0.0 && L > 0.0) {
+        // k_y = h0^2 / (2 (1+delta)^2): dk_y/ddelta = -h0^2, the vertical plane only.
+        if (+el.roll) throw new Error("natural_chromaticity: a rolled wiggler is not modelled");
+        const h0 = +el.h0, ds = L / slices;
+        const yb = focusingBlock(0.5 * h0 * h0, ds);
+        let b = by, a = ay, iby = 0.5 * b;
+        for (let i = 0; i < slices; i++) {
+          const p = propagateBlock(yb, b, a);
+          b = p.beta; a = p.alpha;
+          iby += (i === slices - 1 ? 0.5 : 1.0) * b;
+        }
+        xiy += -INV_4PI * h0 * h0 * iby * ds;
+        advance(elementMatrix(el, ref));
       } else {
         advance(elementMatrix(el, ref));
       }

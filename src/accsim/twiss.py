@@ -862,6 +862,10 @@ def natural_chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, flo
       completes the ``k1`` chromaticity of a strongly combined-function ring.
     - **Pole-face edges** ``+beta_x h tan(e)`` (``-`` for y) — a thin-kick
       contribution at each entrance/exit face, xtrack-validated to ~1e-8.
+    - **Wiggler vertical focusing** ``-(h0^2/4pi) oint beta_y ds`` — its ``k_y`` carries
+      the *second* power of the rigidity (``h0^2/(2(1+delta)^2)``), so twice a
+      quadrupole's share; nothing horizontally. Missing until 2026-10-07, gated against
+      tracking (``tests/analytic/test_wiggler.py``).
 
     See ``docs/CONVENTIONS.md`` → *Dipole chromaticity* for the derivation and the
     xtrack/MAD-X cross-checks.
@@ -874,6 +878,7 @@ def natural_chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, flo
     """
     from .elements.dipole import Dipole, _edge_matrix, refuse_design_tilt
     from .elements.quadrupole import Quadrupole, ThinQuadrupole, _focusing_block
+    from .elements.wiggler import Wiggler
 
     refuse_design_tilt(lattice.elements, "natural_chromaticity")
     ref = lattice.ref
@@ -948,6 +953,28 @@ def natural_chromaticity(lattice: Lattice, slices: int = 64) -> tuple[float, flo
             xi_x += _INV_4PI * bx * t2
             xi_y += -_INV_4PI * by * t2
             _advance(_edge_matrix(h, elem.e2))
+        elif isinstance(elem, Wiggler) and elem.h0 != 0.0 and elem.length > 0.0:
+            # The wiggler's own vertical focusing k_y = h0^2 / (2 (1+delta)^2) carries the
+            # SECOND power of the rigidity, so dk_y/ddelta = -h0^2: twice a quadrupole of the
+            # same on-momentum focusing. Horizontally it is a drift and adds nothing. Its
+            # vertical block is exactly the focusing block of k_y, so the trapezoid runs on
+            # that; the element itself is then advanced whole (a partial period is not a
+            # wiggler), which lands beta_y on the same value to round-off.
+            if elem.roll != 0.0:
+                raise NotImplementedError(
+                    f"natural_chromaticity: the rolled wiggler {elem.name!r} "
+                    f"(roll={elem.roll}) is not modelled — its focusing leaves the vertical "
+                    "plane, and the term below is written for the vertical plane only"
+                )
+            ds = elem.length / slices
+            yb = _focusing_block(elem.focusing, ds)
+            b, a = by, ay
+            int_by = 0.5 * b  # trapezoid: half-weight the entrance sample
+            for i in range(slices):
+                b, a, _ = _propagate_block(yb, b, a)
+                int_by += (0.5 if i == slices - 1 else 1.0) * b
+            xi_y += -_INV_4PI * elem.h0 * elem.h0 * int_by * ds
+            _advance(elem.matrix(ref))
         else:
             _advance(elem.matrix(ref))
     return xi_x, xi_y
