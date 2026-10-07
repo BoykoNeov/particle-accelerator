@@ -10432,6 +10432,39 @@ cross-checked to 1e-9.
   panel edge would read as data. If the optics do not close (coupled, unstable, resonant) the
   bunch is disabled and only the marker runs, since the marker needs just the survey.
 
+## The editor's tracker: a port of `track()`, not of the matrix (injection, step 1 — 2026-10-07)
+
+`editor/accsim-track.js` moves particles element by element with the **exact** maps — every
+element's `track()`, as `Tracker.track_once` does — so the editor can show a beam filament
+after injection. The one-turn matrix cannot: it carries no momentum dependence, so a particle
+tracked with it has the same tune at every energy.
+
+- **Why it had to be this path (measured, not assumed).** On every ring preset the tracked
+  `dQ/ddelta` with `nonlinear=True` equals `chromaticity()` to four digits or better, and with
+  the matrix path it is exactly zero. I3's note that "tracking is blind to natural
+  chromaticity" predates L1–L4 and now holds only for the matrix path. The same probe found the
+  wiggler's own `Q'_y` term missing from `natural_chromaticity` (fixed first, see the wiggler
+  section).
+- **A port, held like the optics port.** Each JS map names the Python function it copies, with
+  the arithmetic in the same order. `tests/analytic/test_tracking_port.py` (Node harness
+  `editor/track-selftest.js`) compares element by element through a line holding every
+  catalogue type with its options on (displacements, rolls, combined-function bends with pole
+  faces, both bend bodies with `fringe`, an off-crest cavity), 30 turns of every preset, and
+  the loss bookkeeping of `track_bunch_losses` (turn, element, frozen state). Floor `<= 5e-14`
+  relative per coordinate; gate `1e-12`. Each case also asserts the package's exact and matrix
+  paths differ by `> 1e3 x` the gate on the same states, so the gate cannot pass on particles
+  too tame to show the physics — dropping the quadrupole's `1/(1+delta)` fails it on every
+  thick-quadrupole case.
+- **What it omits, on purpose.** Radiation (an electron beam filaments but never damps), spin,
+  the tapered bend, `kinematic_slices` and multipole slicing (`n_slices = 1`; the editor
+  exposes neither). It refuses what the editor's optics refuse (a rolled or displaced bend,
+  a design tilt) with an error, never a silent answer.
+- **Open, found on the way: the collimator's length.** accsim's `AcceptanceElement` is
+  optics-transparent — its matrix and its `track()` are the identity even with a length (a
+  `Collimator` defaults to 1 mm) — while the editor's optics port draws it as a *drift* of that
+  length. No preset holds a collimator, so the optics cross-check never met it. The tracker
+  follows the package (identity). Which side is right is not settled here.
+
 ## Toolchain / environment notes
 
 - **Linux (2026-09-02, P1's session):** the reference suite runs unchanged on Ubuntu with
