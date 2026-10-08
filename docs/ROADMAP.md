@@ -61,7 +61,8 @@ pulls the tune onto the drive tune, so an optics measurement made with an AC dip
   settled numerically first — the other sign gives the mirror-image beat.
 - **Dispersion stays natural, deliberately.** The drive oscillates, so the static
   off-momentum orbit never sees it; the substituted ring's matched dispersion would be a
-  number with no meaning. xtrack's twiss mode does include it — its model, not ours.
+  number with no meaning. xtrack's twiss mode is expected to include it (reasoned, not run —
+  the xtrack leg's ring has no dispersion).
 - **xtrack's `twiss_mode` agrees to `2e-15`**, and that is a transcription check (the same
   substitution), said so in the test; the tracking leg is W1's.
 

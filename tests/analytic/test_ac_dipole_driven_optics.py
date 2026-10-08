@@ -258,11 +258,13 @@ def test_alpha_jumps_across_the_dipole_and_the_steady_state_sees_it() -> None:
     g = driven_gradient(lat)["x"]
     before, after = tw[IDX], tw[IDX + 1]  # the dipole's entrance and exit
     assert after.beta_x == pytest.approx(before.beta_x, rel=1e-14)
-    assert after.alpha_x - before.alpha_x == pytest.approx(-g * before.beta_x, rel=1e-10)
+    assert after.alpha_x - before.alpha_x == pytest.approx(
+        -g * before.beta_x, rel=1e-12
+    )  # measured exact
     zs = _steady_state(lat, IDX, acd)
     r_in, r_out = zs[IDX, PX] / zs[IDX, X], zs[IDX + 1, PX] / zs[IDX + 1, X]
-    assert -r_in.real / r_in.imag == pytest.approx(before.alpha_x, rel=1e-10)
-    assert -r_out.real / r_out.imag == pytest.approx(after.alpha_x, rel=1e-10)
+    assert -r_in.real / r_in.imag == pytest.approx(before.alpha_x, rel=1e-12)  # 7.8e-16
+    assert -r_out.real / r_out.imag == pytest.approx(after.alpha_x, rel=1e-12)  # 2.1e-15
 
 
 @pytest.mark.parametrize("control", ["natural", "flipped"])
@@ -304,11 +306,11 @@ def test_miyamotos_closed_forms_hold_around_the_ring(kind: str, side: int) -> No
         # natural phase downstream of the dipole's exit, in (0, 2 pi Q]
         phi = n.mu_x - mu_dip + (two_pi_q if i <= IDX else 0.0)
         ratio = (1 + lam**2 - 2 * lam * math.cos(2 * phi - two_pi_q)) / (1 - lam**2)
-        assert d.beta_x / n.beta_x == pytest.approx(ratio, rel=1e-11), i
+        assert d.beta_x / n.beta_x == pytest.approx(ratio, rel=1e-12), i  # measured 3.6e-15
         psi = d.mu_x - drv[IDX + 1].mu_x + (drv[-1].mu_x if i <= IDX else 0.0)
         want = math.atan((1 + lam) / (1 - lam) * math.tan(phi - math.pi * Q))
         gap = (psi - math.pi * nu - want) % math.pi  # tan is pi-periodic
-        assert min(gap, math.pi - gap) < 1e-11, i
+        assert min(gap, math.pi - gap) < 1e-12, i  # measured 3.6e-15
     assert 0.03 < 2 * abs(lam) / (1 - lam**2) < 0.2  # a beat a measurement would see
 
 

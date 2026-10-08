@@ -10442,7 +10442,9 @@ with the natural `beta` at the dipole and the natural `Q` (Miyamoto et al., PRST
 - **Everything not driven is the natural machine, bit for bit:** the other plane, and
   **all four dispersions**. The drive oscillates, so the static off-momentum closed orbit
   never sees it; a matched "dispersion" of the substituted ring has no physical meaning.
-  (xtrack's twiss-mode `dx` *does* include the gradient — its model, not accsim's.)
+  (xtrack's twiss-mode `dx` is *expected* to include the gradient — its off-momentum orbit
+  passes through the same `eff_grad` kick — but that is reasoned, not run: the xtrack leg's
+  ring has no dispersion at the dipole.)
 - `alpha_d` jumps by `-g beta_d` across the dipole; `beta_d` is continuous.
 - **The element's static maps stay the identity.** Nothing outside these two functions sees
   the gradient; the editor's JS port is untouched. On-momentum and linear only.
