@@ -39,8 +39,31 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08) | W2 — Miyamoto's driven optics (the `eff_grad` thin quadrupole, xtrack's twiss mode) |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08) | named, not opened: editor/scenario support; a chromatic or amplitude-dependent driven response; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**Axis W shipped W2 on 2026-10-08** — the **driven optics**: the beam an AC dipole swings
+moves as if the ring had one more thin gradient at the dipole, of exactly the strength that
+pulls the tune onto the drive tune, so an optics measurement made with an AC dipole reads
+*that* ring's beta functions (a few percent off the natural ones), not the machine's.
+`driven_gradient`, `driven_twiss`. Full detail in `docs/CONVENTIONS.md` -> *Driven optics*.
+
+- **The gradient acts in one plane and pushes the other way from a quadrupole.** Miyamoto's
+  `g` (xtrack's `eff_grad`) is `p_u += g u` in the driven plane only; a `ThinQuadrupole`
+  would act on both planes with the opposite sign convention. Built by hand, handed to
+  `propagate_twiss(maps=...)`; the element's static maps stay the identity.
+- **The sharp gate needs no arbiter.** W1's exact steady state, carried to every boundary,
+  is the substituted ring's eigen-solution: `p_hat / x_hat = (i - alpha_d) / beta_d`, its
+  phase and a constant action, to `8e-15` on 3 rings x 2 planes x both sides of the tune.
+  The natural optics miss by the beat (8%), a flipped gradient by 17%.
+- **Derived twice, not recalled.** `g` by the trace and by `kick / x_hat`; Miyamoto's
+  `beta_d` and phase closed forms in Floquet coordinates. The sign inside his `lambda` was
+  settled numerically first — the other sign gives the mirror-image beat.
+- **Dispersion stays natural, deliberately.** The drive oscillates, so the static
+  off-momentum orbit never sees it; the substituted ring's matched dispersion would be a
+  number with no meaning. xtrack's twiss mode does include it — its model, not ours.
+- **xtrack's `twiss_mode` agrees to `2e-15`**, and that is a transcription check (the same
+  substitution), said so in the test; the tracking leg is W1's.
 
 **Axis W opened and shipped W1 on 2026-10-08** — the **AC dipole**: a thin dipole whose kick
 oscillates at a drive tune near the betatron tune, swinging the whole beam coherently — how
@@ -75,9 +98,8 @@ The findings, in the order they changed the milestone:
   the linear walk (`1.2e-13`), `model="exact"` against `track()` (`2.1e-13`), crossed pair
   asserted different. Its `lag` is in turns (the docstring says radians).
 
-**What W1 leaves open:** W2, Miyamoto's driven optics — `kick / x_hat` is exactly xtrack's
-`eff_grad`, so the driven beta-beat is a thin quadrupole of that strength, with two arbiters
-(xtrack's twiss mode, and tracking). The editor and scenario format (refused, asserted).
+**What W1 leaves open:** W2, Miyamoto's driven optics (shipped 2026-10-08, above). The
+editor and scenario format (refused, asserted).
 
 **Tools closed the collimator-length mismatch on 2026-10-08.** A collimator's jaws are a gap
 in a block of metal, so a beam crossing 1 m of collimator crosses 1 m of empty space. The

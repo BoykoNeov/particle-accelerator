@@ -10413,9 +10413,70 @@ rather than beat.
 
 ### What W1 does not do
 
-Miyamoto's driven optics (xtrack's `twiss_mode`, the `eff_grad` thin quadrupole) is W2;
-the editor and scenario format; a chromatic or amplitude-dependent driven response; and
-coupling (a skew-rotated drive).
+Miyamoto's driven optics (xtrack's `twiss_mode`, the `eff_grad` thin quadrupole) is W2
+(below); the editor and scenario format; a chromatic or amplitude-dependent driven
+response; and coupling (a skew-rotated drive).
+
+### Driven optics: the beam the dipole swings sees one more gradient (W2 — implemented 2026-10-08)
+
+`driven_gradient(lattice) -> {plane: g}` and `driven_twiss(lattice) -> list[Twiss]`
+(`accsim.twiss`). In steady state the dipole's kick on turn `n` is in phase with the
+beam's own position there (W1), so `theta_n = g u_n` with `g = kick / x_hat` real: the
+driven motion is a **free** oscillation of the ring with one extra thin gradient at the
+dipole, and its Twiss is what an optics measurement made with an AC dipole reads. Pulling
+that ring's tune exactly onto `nu` fixes
+
+    g = 2 (cos 2 pi nu - cos 2 pi Q) / (beta sin 2 pi Q)       p_u -> p_u + g u,
+
+with the natural `beta` at the dipole and the natural `Q` (Miyamoto et al., PRST-AB 11,
+084002 (2008); xtrack's `eff_grad`, same sign — `6e-15` apart). Conventions:
+
+- **Driven plane only, and `p += g u`.** It is not a Maxwellian quadrupole (a
+  `ThinQuadrupole` would act on both planes, and its sign is `px -= k1l x`), so the
+  substitution is a hand-built 6x6 handed to `propagate_twiss(maps=...)`. Below the tune
+  (`nu < frac Q`) `g > 0` — it defocuses, pulling the tune down onto `nu`; above, it
+  focuses (asserted, both sides).
+- **It depends on the drive tune only** — not the amplitude, lag or ramp (asserted bit for
+  bit). Driven tune = `floor(Q) + nu`; a drive at `1 - nu` is the same sequence of kicks
+  and gives the same optics.
+- **Everything not driven is the natural machine, bit for bit:** the other plane, and
+  **all four dispersions**. The drive oscillates, so the static off-momentum closed orbit
+  never sees it; a matched "dispersion" of the substituted ring has no physical meaning.
+  (xtrack's twiss-mode `dx` *does* include the gradient — its model, not accsim's.)
+- `alpha_d` jumps by `-g beta_d` across the dipole; `beta_d` is continuous.
+- **The element's static maps stay the identity.** Nothing outside these two functions sees
+  the gradient; the editor's JS port is untouched. On-momentum and linear only.
+- Refused: no dipole, or two in one plane (`ValueError` — their combined steady state is not
+  one gradient; one per plane superposes and is supported); the drive tune on the betatron
+  resonance `nu = +-Q mod 1` (`ResonantLatticeError`: `x_hat` diverges and `g = 0`, which
+  would *silently* return the natural optics); `nu` integer or half-integer (the driven ring
+  would sit on its own resonance).
+
+**Derived, not remembered** (sympy, ~2 s): `g` by two independent routes — the trace of the
+substituted one-turn map set to `2 cos 2 pi nu`, and `1 / x_hat` of W1's steady state — and,
+in Floquet coordinates, Miyamoto's two closed forms with `lambda = sin pi(nu - Q) /
+sin pi(nu + Q)` and `phi` the natural phase downstream of the dipole:
+
+    beta_d / beta = (1 + lambda^2 - 2 lambda cos(2 phi - 2 pi Q)) / (1 - lambda^2),
+    tan(psi_d - pi nu) = (1 + lambda)/(1 - lambda) tan(phi - pi Q).
+
+The sign of `lambda` matters: with `sin pi(Q - nu)` instead, the `beta` form is the mirror
+image (checked numerically before the proof). Both forms are held around the ring to `1e-11`.
+
+**The gate that needs no arbiter.** W1's exact steady state, carried through every element
+boundary (the kick added at the dipole's exit), *is* an eigen-solution of the substituted
+ring at `e^{+2 pi i nu}`, so pointwise `p_hat / x_hat = (i - alpha_d) / beta_d`, the phase of
+`x_hat` advances by `mu_d`, and `|x_hat|^2 / beta_d` is constant. Measured over 3 rings (thin
+FODO, `frac Q > 0.5`, a bent ring with `D_x != 0`) x both planes x both sides of the tune:
+`4e-15` beta, `3e-15` alpha, `6e-15` phase, `8e-15` action, against `1e-12`. The natural optics
+miss it by the beat (`8%` beta, `10%` phase at `Q - nu = 0.012`), a flipped `g` by `17%`.
+
+**xtrack (`twiss_mode=True`) is a transcription check**, not an independent test of the
+claim: it makes the same substitution. Both planes and sides agree to `2e-15` (beta, alpha,
+mu, tune) — one JIT build, the dipole's fields reset between cases through
+`line.element_dict` (the line *view* reads a string like `"v"` as a variable name). The
+tracking leg is W1's: accsim's driven tracking is held to the steady state and to xtrack's
+turn by turn, so it is not paid for twice.
 
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 

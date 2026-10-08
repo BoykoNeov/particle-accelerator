@@ -36,7 +36,7 @@ from __future__ import annotations
 import cmath
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -317,6 +317,109 @@ def tunes(lattice: Lattice) -> tuple[float, float]:
     """
     end = propagate_twiss(lattice, closed_twiss(lattice))[-1]
     return end.mu_x / (2.0 * math.pi), end.mu_y / (2.0 * math.pi)
+
+
+def _ac_dipole_sites(lattice: Lattice) -> dict[str, tuple[int, object]]:
+    """``{plane: (index, ACDipole)}`` — at most one per plane, at least one in all."""
+    from .elements.acdipole import ACDipole
+
+    sites: dict[str, tuple[int, object]] = {}
+    for i, elem in enumerate(lattice.elements):
+        if isinstance(elem, ACDipole):
+            if elem.plane in sites:
+                raise ValueError(
+                    f"driven optics needs at most one ACDipole per plane; found two in "
+                    f"{elem.plane!r} (elements {sites[elem.plane][0]} and {i}) — their "
+                    "combined steady state is not one thin gradient"
+                )
+            sites[elem.plane] = (i, elem)
+    if not sites:
+        raise ValueError("driven optics asked of a lattice with no ACDipole")
+    return sites
+
+
+def _effective_gradient(nu: float, q: float, beta: float) -> float:
+    """Miyamoto's ``g = 2 (cos 2 pi nu - cos 2 pi Q) / (beta sin 2 pi Q)``, guarded."""
+    if abs(math.sin(2.0 * math.pi * nu)) < 1e-12:
+        raise ResonantLatticeError(
+            f"drive tune {nu} is an integer or half-integer: the driven ring would sit on "
+            "its own integer or half-integer resonance and has no periodic optics"
+        )
+    c_nu, c_q = math.cos(2.0 * math.pi * nu), math.cos(2.0 * math.pi * q)
+    if abs(c_nu - c_q) < 1e-12:
+        raise ResonantLatticeError(
+            f"drive tune {nu} is on the betatron resonance (Q = {q}): the driven amplitude "
+            "diverges and the gradient kick / x_hat is zero over infinity"
+        )
+    return 2.0 * (c_nu - c_q) / (beta * math.sin(2.0 * math.pi * q))
+
+
+def driven_gradient(lattice: Lattice) -> dict[str, float]:
+    """The thin gradient each :class:`~accsim.elements.acdipole.ACDipole` acts as (W2).
+
+    In steady state a dipole driven at tune ``nu`` kicks in phase with the beam's own
+    position there, ``theta_n = g u_n``, so the driven motion is a free oscillation of
+    the ring with a thin ``p_u -> p_u + g u`` at the dipole (driven plane only — not a
+    Maxwellian quadrupole). Pulling the tune exactly onto ``nu`` fixes
+
+        g = 2 (cos 2 pi nu - cos 2 pi Q) / (beta sin 2 pi Q)   [1/m],
+
+    with ``beta`` and ``Q`` the natural ones: Miyamoto et al. (PRST-AB 11, 084002), and
+    xtrack's ``eff_grad`` with the same sign. ``g = kick / x_hat`` of the W1 steady state;
+    it depends on the drive tune only, not on the amplitude, lag or ramp. Returns
+    ``{plane: g}`` for every plane that has a dipole; raises
+    :class:`ResonantLatticeError` on the betatron resonance or an integer/half-integer
+    drive tune, :class:`ValueError` for no dipole or two in one plane.
+    """
+    sites = _ac_dipole_sites(lattice)
+    natural = propagate_twiss(lattice, closed_twiss(lattice))
+    end = natural[-1]
+    out = {}
+    for plane, (idx, acd) in sites.items():
+        at = natural[idx]
+        beta, mu = (at.beta_x, end.mu_x) if plane == "x" else (at.beta_y, end.mu_y)
+        out[plane] = _effective_gradient(acd.tune, mu / (2.0 * math.pi), beta)
+    return out
+
+
+def driven_twiss(lattice: Lattice) -> list[Twiss]:
+    """The optics of the beam an AC dipole swings — what a driven measurement reads (W2).
+
+    The Twiss of the ring with each dipole replaced by its :func:`driven_gradient`, at
+    every element boundary as :func:`propagate_twiss` returns them. In each driven plane
+    ``beta``, ``alpha`` and ``mu`` are the driven ones: the steady-state amplitude is
+    ``sqrt(2 J_d beta_d(s))``, the turn-by-turn phase advances by ``mu_d``, the tune is
+    ``floor(Q) + nu`` (``nu`` folded into ``frac(Q)``'s half — a drive at ``1 - nu`` is
+    the same sequence of kicks), and ``alpha_d`` jumps by ``-g beta_d`` across the dipole.
+    Everything else — the undriven plane and **all four dispersions** — is the natural
+    machine's, bit for bit: the drive oscillates, so the static off-momentum closed orbit
+    does not see it, and a matched "dispersion" of the substituted ring would be a number
+    with no physical meaning.
+
+    On-momentum and linear: a chromatic or amplitude-dependent driven response is not
+    modelled. The element's own static maps stay the identity — nothing else in the
+    package sees the gradient.
+    """
+    grads = driven_gradient(lattice)
+    sites = _ac_dipole_sites(lattice)
+    maps = [elem.matrix(lattice.ref) for elem in lattice.elements]
+    for plane, (idx, _) in sites.items():
+        u, pu = (X, PX) if plane == "x" else (Y, PY)
+        maps[idx] = maps[idx].copy()
+        maps[idx][pu, u] += grads[plane]
+    one_turn = np.eye(DIM)
+    for M in maps:
+        one_turn = M @ one_turn
+    driven = propagate_twiss(lattice, match_periodic(one_turn), maps=maps)
+    natural = propagate_twiss(lattice, closed_twiss(lattice))
+    out = []
+    for d, n in zip(driven, natural, strict=True):
+        if "x" in sites:
+            n = replace(n, beta_x=d.beta_x, alpha_x=d.alpha_x, mu_x=d.mu_x)
+        if "y" in sites:
+            n = replace(n, beta_y=d.beta_y, alpha_y=d.alpha_y, mu_y=d.mu_y)
+        out.append(n)
+    return out
 
 
 def is_stable(one_turn: np.ndarray) -> bool:
