@@ -57,6 +57,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .coords import DELTA, DIM, PX, PY
+from .elements.acdipole import ACDipole
 from .elements.rfcavity import RFCavity
 from .lattice import Lattice
 from .reference import ReferenceParticle
@@ -202,6 +203,15 @@ def accelerate(lattice: Lattice, particle: Particle, n_turns: int) -> RampResult
     """
     if n_turns < 0:
         raise ValueError(f"n_turns must be >= 0, got {n_turns}")
+    if any(isinstance(e, ACDipole) for e in lattice.elements):
+        # This loop walks the elements itself, so it would track a driven ring as if the
+        # drive were off. A drive during a ramp is also unvalidated physics: a fixed-field
+        # dipole's angle falls as 1/P0 while ACDipole is specified by its angle.
+        raise NotImplementedError(
+            "accelerate() does not apply an ACDipole's drive (W1): an energy ramp with an "
+            "AC dipole running is not modelled. Track the driven ring with "
+            "Tracker.track_turns at fixed energy instead."
+        )
     ref0 = lattice.ref
     mass = ref0.mass_eV
     charge = ref0.charge

@@ -10342,6 +10342,13 @@ form and Taylor map sees the **undriven** machine bit for bit. The per-turn kick
   undriven ring (asserted bit-for-bit against the ring without it). A hand-written turn
   loop must pass `turn`.
 - `track`, `track_bunch` (single pass, no turn) — the undriven machine.
+- **Every multi-turn loop in the package goes through `track_turns` or
+  `track_bunch_losses`** (swept 2026-10-08), with one exception that walks the elements
+  itself: `accelerate()` (the energy ramp), which **refuses** a lattice holding an
+  `ACDipole` rather than silently tracking it undriven — a drive during a ramp is also
+  unvalidated (a fixed-field dipole's angle falls as `1/P0`). `tracked_tunes` sees the
+  drive (it uses `track_turns`): on a driven ring it measures the driven motion too.
+  A new turn loop must pass the turn index or refuse the same way.
 
 A counter stored on the element was rejected: the closed-orbit Newton solves and the
 finite-difference Jacobians call `track` many times a turn and would each see a different

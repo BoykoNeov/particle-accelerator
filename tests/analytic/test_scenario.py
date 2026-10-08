@@ -307,6 +307,48 @@ def test_editor_core_refuses_what_accsim_refuses() -> None:
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not on the PATH")
+def test_editor_core_draws_a_thick_collimator_as_the_package_maps_it() -> None:
+    """No preset holds a collimator, so the preset cross-check never met one — and the
+    editor's optics (a drift) and the package (then the identity) disagreed unseen until
+    2026-10-08. A 1.5 m jaw on a ring: every matrix, the one-turn map and the tunes."""
+    data = {
+        "format": SCENARIO_FORMAT,
+        "name": "jaw",
+        "reference": {"species": "proton", "energy_eV": 10e9},
+        "elements": [
+            {"type": "ThinQuadrupole", "k1l": 0.25},
+            {"type": "Drift", "length": 2.0},
+            {
+                "type": "Collimator",
+                "shape": "rectangular",
+                "half_x": 0.01,
+                "half_y": 0.01,
+                "length": 1.5,
+            },
+            {"type": "Drift", "length": 1.5},
+            {"type": "ThinQuadrupole", "k1l": -0.25},
+            {"type": "Drift", "length": 5.0},
+        ],
+    }
+    lat = load_scenario(data).lattice
+    proc = subprocess.run(
+        [NODE, str(EDITOR / "selftest.js"), "-"],
+        input=json.dumps(data),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    js = json.loads(proc.stdout)
+    assert js["errors"] == []
+    tol = {"rtol": 1e-9, "atol": 1e-12}
+    mats, _ = _maps(lat)
+    np.testing.assert_allclose(np.array(js["matrices"][2]), mats[2], **tol)
+    assert mats[2][0, 1] == 1.5  # a drift, not the identity
+    np.testing.assert_allclose(np.array(js["oneTurn"]), lat.transfer_matrix(), **tol)
+    np.testing.assert_allclose(js["tunes"], ac.tunes(lat), **tol)
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not on the PATH")
 def test_editor_core_refuses_a_design_tilt_as_the_loader_does() -> None:
     """V1: the scenario format has no ``tilt``, and the JS core reads records itself — so a
     hand-written tilt must be an error on **both** sides, never a flat magnet."""

@@ -219,6 +219,12 @@ def tracked_tunes(
     ``1`` as suspect, and increase ``n_turns`` (which narrows the lines) before
     believing it. A resonant tune is worse still: it samples only a few phases, so
     :func:`ellipse_from_trajectory` sees a degenerate covariance and raises.
+
+    **On a ring with an** :class:`~accsim.elements.acdipole.ACDipole` **the drive is on**
+    (this goes through :meth:`~accsim.tracking.Tracker.track_turns`), so the particle
+    carries the driven motion at the drive tune as well as its free betatron motion —
+    which line :func:`naff` picks depends on their amplitudes. That is the physics of a
+    machine with its AC dipole running; remove the dipole to measure the natural tune.
     """
     if x0 == 0.0 or y0 == 0.0:
         raise ValueError("x0 and y0 must be non-zero — a plane at rest has no tune")

@@ -365,3 +365,11 @@ def test_the_scenario_format_refuses_it_until_the_editor_has_it() -> None:
     }
     with pytest.raises(ScenarioError, match="unknown element type"):
         load_scenario(record)
+
+
+def test_every_turn_loop_applies_the_drive_or_refuses() -> None:
+    """``accelerate()`` walks the elements itself, outside the Tracker: it refuses."""
+    from accsim.acceleration import accelerate
+
+    with pytest.raises(NotImplementedError, match="ACDipole"):
+        accelerate(_ring(_drive()), Particle(), 3)
