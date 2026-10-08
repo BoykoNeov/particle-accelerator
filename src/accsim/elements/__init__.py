@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .acdipole import ACDipole
 from .aperture import AcceptanceElement, Aperture, Collimator, MomentumAperture
 from .beambeam import BeamBeam
 from .corrector import Corrector
@@ -23,6 +24,7 @@ __all__ = [
     "ThinQuadrupole",
     "Dipole",
     "Corrector",
+    "ACDipole",
     "Sextupole",
     "ThinSextupole",
     "Octupole",

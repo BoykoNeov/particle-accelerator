@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .coords import DELTA, DIM, PX, PY, ZETA, X, Y
+from .elements.acdipole import ACDipole
 from .elements.aperture import AcceptanceElement
 from .lattice import Lattice
 from .radiation_kick import RADIATION_MODELS, STOCHASTIC_MODELS
@@ -172,6 +173,11 @@ def _check_radiation(
         )
 
 
+def _plus(state: np.ndarray, k: np.ndarray) -> np.ndarray:
+    """``state + k`` for a ``(6,)`` state or a ``(6, n)`` bunch."""
+    return state + (k if np.ndim(state) == 1 else k[:, None])
+
+
 class Tracker:
     """Pushes particles / bunches through a lattice using its linear map."""
 
@@ -225,6 +231,7 @@ class Tracker:
         state: np.ndarray,
         radiation: str = "off",
         rng: np.random.Generator | None = None,
+        turn: int | None = None,
     ) -> np.ndarray:
         """One element-by-element pass through the lattice (the nonlinear path).
 
@@ -233,9 +240,19 @@ class Tracker:
         :meth:`~accsim.elements.element.Element.track` — see
         :mod:`accsim.radiation_kick` for what it costs (it is dissipative, so the
         composed map is deliberately not symplectic).
+
+        ``turn`` is the pass number (0 = the first) handed to every
+        :class:`~accsim.elements.acdipole.ACDipole`, whose kick depends on it. **A single
+        pass has no turn of its own:** with ``turn=None`` (the default) an AC dipole is
+        its static identity map, so this is the *undriven* machine — bit for bit the same
+        lattice with the dipole removed. A hand-written turn loop must pass the turn to
+        get the drive; :meth:`track_turns` and :meth:`track_bunch_losses` do.
         """
+        ref = self.lattice.ref
         for elem in self.lattice.elements:
-            state = elem.track(state, self.lattice.ref, radiation=radiation, rng=rng)
+            state = elem.track(state, ref, radiation=radiation, rng=rng)
+            if turn is not None and isinstance(elem, ACDipole):
+                state = _plus(state, elem.drive_kick(turn, ref))
         return state
 
     def track_once_with_spin(
@@ -244,6 +261,7 @@ class Tracker:
         spin: np.ndarray,
         radiation: str = "off",
         rng: np.random.Generator | None = None,
+        turn: int | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         """:meth:`track_once`, carrying a spin alongside — returns ``(state, spin)``.
 
@@ -256,10 +274,14 @@ class Tracker:
         There is no linear path: a spin rotation is not a 6x6, so there is nothing to
         hoist out of the turn loop, and the element-by-element walk is the only route.
         """
+        ref = self.lattice.ref
         for elem in self.lattice.elements:
-            state, spin = elem.track_with_spin(
-                state, spin, self.lattice.ref, radiation=radiation, rng=rng
-            )
+            state, spin = elem.track_with_spin(state, spin, ref, radiation=radiation, rng=rng)
+            if turn is not None and isinstance(elem, ACDipole):
+                # The orbit takes the drive; the spin does not, because thin elements
+                # do not precess in accsim.spin (its documented omission). The spin then
+                # follows the driven orbit through every thick element downstream.
+                state = _plus(state, elem.drive_kick(turn, ref))
         return state, spin
 
     def _track_once(self, state: np.ndarray) -> np.ndarray:
@@ -346,6 +368,7 @@ class Tracker:
             for elem in self.lattice.elements:
                 k = elem.kick(ref)
                 maps.append((elem.matrix(ref), k[:, None] if k.any() else None))
+        driven = [isinstance(elem, ACDipole) for elem in self.lattice.elements]
 
         def cull(elem: AcceptanceElement, ei: int, turn: int, s_face: float) -> None:
             inside = np.asarray(elem.survives(states), dtype=bool)
@@ -373,6 +396,8 @@ class Tracker:
                             states[:, alive] = M @ states[:, alive]
                         else:
                             states[:, alive] = M @ states[:, alive] + k_col
+                    if driven[ei]:
+                        states[:, alive] += elem.drive_kick(turn, ref)[:, None]
                 if thick_boundary:
                     cull(elem, ei, turn, s + elem.length)  # the exit face
                 elif isinstance(elem, AcceptanceElement):
@@ -401,6 +426,11 @@ class Tracker:
         cavity's ``sin`` kick and the sextupole's ``x^2 - y^2`` kick act exactly — the
         path for RF-bucket / separatrix long-term tracking, and the only path on which a
         sextupole does anything at all.
+
+        An :class:`~accsim.elements.acdipole.ACDipole` is driven on both paths, with
+        pass ``k`` (row ``k + 1``) at turn index ``k``. Its kick changes every turn, so
+        on a driven ring the linear path walks the element matrices instead of the
+        one-turn matrix — the same linear map, applied in pieces.
         """
         if n_turns < 0:
             raise ValueError(f"n_turns must be >= 0, got {n_turns}")
@@ -408,9 +438,21 @@ class Tracker:
         history = np.empty((n_turns + 1, DIM))
         history[0] = particle.state
         s = particle.state.copy()
+        ref = self.lattice.ref
+        drives = [e for e in self.lattice.elements if isinstance(e, ACDipole)]
         if nonlinear:
             for turn in range(1, n_turns + 1):
-                s = self.track_once(s, radiation, rng)
+                s = self.track_once(s, radiation, rng, turn=turn - 1)
+                history[turn] = s
+        elif drives:
+            # A kick that changes every turn cannot be folded into one matrix, so a
+            # driven ring walks the element matrices — still exactly linear.
+            maps = [(e.matrix(ref), e.kick(ref), isinstance(e, ACDipole)) for e in self.lattice]
+            for turn in range(1, n_turns + 1):
+                for elem, (M, k, is_drive) in zip(self.lattice, maps, strict=True):
+                    s = M @ s + k
+                    if is_drive:
+                        s = s + elem.drive_kick(turn - 1, ref)
                 history[turn] = s
         else:
             M, k = self.lattice.one_turn_map()

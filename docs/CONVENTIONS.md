@@ -10314,6 +10314,102 @@ flat ring both sides vanish identically.
   walk, which rebuilds bends as untilted sub-slices and reads the guide field as `y`;
 - a tilted wiggler; a tilt together with a misalignment (unchanged from V1).
 
+## The AC dipole: a kick that changes every turn (W1 — implemented 2026-10-08)
+
+`ACDipole(kick, tune, lag=0.0, plane="x", ramp=None)` — a thin dipole whose kick on pass
+`n` (0 = the first) is
+
+    theta_n = kick * ramp(n) * sin(2 pi (tune * n + lag))
+
+added to `px` (or `py`). `kick` is the peak angle [rad] — a field over the rigidity, like
+a `Corrector`'s, so **no `1/(1 + delta)`**: a field changes `P_x` by `q B L` whatever the
+momentum and `px = P_x / P0`. `tune` is the drive frequency over the revolution frequency.
+`lag` is **in turns**. `ramp = (r1, r2, r3, r4)` is xtrack's trapezoid (off, linear up,
+flat, linear down, off); `None` = full amplitude from turn 0 for ever. The stored peak is
+`amplitude` (the name `kick` is taken by `Element.kick()`).
+
+**Where the turn lives — the design decision.** The element's static maps (`matrix`,
+`kick`, `track`) are all the identity, so every optics function, closed orbit, normal
+form and Taylor map sees the **undriven** machine bit for bit. The per-turn kick is
+`drive_kick(turn, ref)`, applied by the turn loops, each passing its own index:
+
+- `track_turns` — both paths. Pass `k` (history row `k + 1`) is turn `k`. A driven ring's
+  linear path walks the element matrices rather than the one-turn matrix (a kick that
+  changes every turn cannot be folded into one matrix) — still exactly linear.
+- `track_bunch_losses` — both paths, same index.
+- `track_once(..., turn=None)` and `track_once_with_spin(..., turn=None)` — **a single pass
+  has no turn of its own**: with `turn=None` the dipole is its identity and the pass is the
+  undriven ring (asserted bit-for-bit against the ring without it). A hand-written turn
+  loop must pass `turn`.
+- `track`, `track_bunch` (single pass, no turn) — the undriven machine.
+
+A counter stored on the element was rejected: the closed-orbit Newton solves and the
+finite-difference Jacobians call `track` many times a turn and would each see a different
+kick. Spin: the orbit takes the drive, the spin does not precess in the thin dipole
+(`accsim.spin`'s thin-element omission), then follows the driven orbit. Taper: a powered
+dipole, its `amplitude` is scaled like a corrector's kick. Scenario files refuse it (no
+editor support yet). It takes no misalignment arguments (a uniform kick has no centre).
+
+### The exact steady state — the gate that needs no arbiter
+
+With `A` the linear map from the lattice start to the dipole, `B` from the dipole round
+to the start, `b` the kicked coordinate's unit vector and `lambda = e^{2 pi i nu}`, a
+**linear** ring has the particular solution `z_n = Im(z_hat lambda^n)` at the start,
+
+    z_hat = (lambda I - B A)^{-1} B b A e^{2 pi i lag}.
+
+A particle started on it stays on it, **signed**, turn for turn: `1.8e-13` relative over
+600 turns (7 beats) against a `1e-11` gate. The two errors an amplitude-only gate cannot
+see each miss by **order one** (asserted): a turn index off by one (3.0x the amplitude) and
+a flipped kick sign (3.9x). At the dipole the amplitude has a closed form (sympy-derived in
+the test, not recalled):
+
+    x_hat = kick beta sin(2 pi Q) / (2 (cos 2 pi nu - cos 2 pi Q))
+          = (kick beta / 4) (cot pi (Q - nu) + cot pi (Q + nu)),
+
+in phase with the kick, **independent of alpha**. Tracked to `1.5e-13`. The textbook
+`kick beta / (4 tan pi (Q - nu))` is the first term alone and is `0.8%` off at
+`Q - nu = 0.012` (asserted to be off). Note `kick / x_hat` is exactly Miyamoto's
+`eff_grad` — the AC dipole's driven optics is a thin quadrupole of that strength (W2).
+
+**The exact path is not linear, and the miss is gated on its order.** `track()` uses the
+exact drift (`x += L px / pz`, cubic in the angle), so on the exact path the relative miss
+from the linear identity goes as the amplitude squared: halving the kick divides it by
+`3.99998` (gate 3.8-4.2). It accumulates with the turns (it is the drift's detuning):
+`8.1e-6` at a 4e-5 rad kick after 300 turns.
+
+**The ramp law.** Switched on abruptly from rest, the leftover free oscillation (tracked
+minus steady state) is as large as the driven one, and its Courant-Snyder invariant is
+constant to `1.3e-13` — it is a free oscillation. A linear ramp of `N` turns has kinks at
+its corners, so the leftover goes as **`1/N`**: slope `-1.0006` over `N = 125..1292`
+(gate -1.05 to -0.95), with `(Q - nu) N` on half-integers so the two corners' leftovers add
+rather than beat.
+
+### Two arbiters, each with a convention to match first
+
+- **xtrack `ACDipole`** (`tests/reference/test_ac_dipole_xtrack.py`): `lag` in turns
+  (docstring says radians; the C multiplies by `2 pi`); kick `volt * 0.3 / p0c[GeV]` with
+  `0.3` exact; `at_turn` from 0, as accsim. The ramp field is truncated to `uint16` in the C
+  (ramps past 65535 turns break there). Drift model matched: the linear walk against
+  `model="expanded"` (`1.2e-13`), the exact path against `model="exact"` (`2.1e-13`), the
+  crossed pair asserted different — 1500 turns, ramped up and down, `lag = 0.13`.
+- **MAD-X `HACDIPOLE` + `TRACK`** (`tests/reference/test_ac_dipole_madx.py`): **MAD-X counts
+  the dipole's turns from 1** — pass `n` is MAD-X turn `n + 1`, for the phase *and* the
+  ramp, so the same drive is `lag - nu` and `ramp + 1` there (without the shift: 110% off).
+  `TRACK`'s drift is the **exact** one: with the drive off MAD-X matches accsim's exact path
+  to `3e-12` and its linear walk only to `7e-6`. With both matched it agrees with the exact
+  path to `1.0e-12`. The `1.1e-6` residual "quadratic in amplitude" that the 2026-10-06
+  filter run saw between MAD-X and xtrack is this drift, localised; an order-of-magnitude
+  estimate that the drift was 400x too small to own it was wrong, and the drive-off run is
+  what settled it. `TRACK` writes `checkpoint_restart.dat` in its working directory, so the
+  test `chdir`s MAD-X into `tmp_path`.
+
+### What W1 does not do
+
+Miyamoto's driven optics (xtrack's `twiss_mode`, the `eff_grad` thin quadrupole) is W2;
+the editor and scenario format; a chromatic or amplitude-dependent driven response; and
+coupling (a skew-rotated drive).
+
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 
 **The scenario format** (`accsim-scenario/1`, `src/accsim/scenario.py`) is the seam

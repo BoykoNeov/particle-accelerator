@@ -38,8 +38,46 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | S | the solenoid — the magnet whose field points along the beam | **S1** the element and its map (2026-09-06); **S2** its field, spin, radiation and the taper it unblocks (2026-09-06) | — |
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
-| V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); AC dipole (two arbiters, not opened) |
+| V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08) | W2 — Miyamoto's driven optics (the `eff_grad` thin quadrupole, xtrack's twiss mode) |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**Axis W opened and shipped W1 on 2026-10-08** — the **AC dipole**: a thin dipole whose kick
+oscillates at a drive tune near the betatron tune, swinging the whole beam coherently — how
+real rings measure their optics. The first element whose action depends on the turn. Chosen
+from the 2026-10-06 filter run (two tracking arbiters). Full detail in `docs/CONVENTIONS.md`
+-> *The AC dipole*.
+
+The findings, in the order they changed the milestone:
+
+- **The turn is not the element's to keep.** Its static maps are the identity, so every
+  optics function sees the undriven machine bit for bit; the per-turn kick is applied by the
+  turn loops (`track_turns`, `track_bunch_losses`), each passing its own index. A single pass
+  (`track_once`) has no turn and is the undriven ring unless handed one — asserted, because a
+  hand-written loop would otherwise silently get no drive. A counter on the element would
+  have handed every Newton step a different kick.
+- **The sharp gate needs no arbiter, and it is signed.** A linear ring has an exact
+  steady-state solution (one linear solve); a particle started on it stays on it to
+  `1.8e-13` over 600 turns. A turn index off by one and a flipped kick sign each miss by order
+  one — both invisible to an amplitude-only gate. The closed form at the dipole was derived
+  in sympy: two resonance terms, independent of alpha; the textbook one-term form is 0.8% off
+  and is asserted to be.
+- **The exact path is gated on an order, not a tolerance.** The exact drift's cubic term makes
+  the miss from the linear solution go as the amplitude squared (ratio `3.99998` for half the
+  kick). A linear ramp leaves a free oscillation falling as `1/N` (slope `-1.0006`), against an
+  abrupt switch-on that leaves one as large as the driven motion.
+- **MAD-X counts the dipole's turns from 1, and its TRACK drift is exact.** Pass `n` is MAD-X
+  turn `n + 1` for the phase *and* the ramp; without the shift the two codes miss by 110%. With
+  the drive off MAD-X matches accsim's exact path to `3e-12` — which **localises** the filter
+  run's "quadratic MAD-X residual" to the drift. An estimate that the drift was 400x too small
+  to own it was wrong; the drive-off run is what settled it. Both matched: `1.0e-12`.
+- **xtrack agrees on both paths once its drift model is named**: `model="expanded"` against
+  the linear walk (`1.2e-13`), `model="exact"` against `track()` (`2.1e-13`), crossed pair
+  asserted different. Its `lag` is in turns (the docstring says radians).
+
+**What W1 leaves open:** W2, Miyamoto's driven optics — `kick / x_hat` is exactly xtrack's
+`eff_grad`, so the driven beta-beat is a thin quadrupole of that strength, with two arbiters
+(xtrack's twiss mode, and tracking). The editor and scenario format (refused, asserted).
 
 **Tools closed the collimator-length mismatch on 2026-10-08.** A collimator's jaws are a gap
 in a block of metal, so a beam crossing 1 m of collimator crosses 1 m of empty space. The

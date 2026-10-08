@@ -23,6 +23,7 @@ from .collider import (
 from .coords import COORD_NAMES, DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements import (
     AcceptanceElement,
+    ACDipole,
     Aperture,
     BeamBeam,
     Collimator,
@@ -231,6 +232,7 @@ __all__ = [
     "Wiggler",
     "RFCavity",
     "AcceptanceElement",
+    "ACDipole",
     "Aperture",
     "Collimator",
     "MomentumAperture",

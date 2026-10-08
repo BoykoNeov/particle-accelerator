@@ -43,6 +43,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .coords import DELTA
+from .elements.acdipole import ACDipole
 from .elements.aperture import AcceptanceElement
 from .elements.beambeam import BeamBeam
 from .elements.corrector import Corrector
@@ -183,6 +184,9 @@ _STRENGTHS: tuple[tuple[type, tuple[str, ...]], ...] = (
     (Octupole, ("k3",)),
     (ThinOctupole, ("k3l",)),
     (Corrector, ("kick_x", "kick_y")),
+    # An AC dipole is a powered dipole like a corrector: its kick is a field over the
+    # rigidity, so a tapered one keeps the same angle for the beam it actually carries.
+    (ACDipole, ("amplitude",)),
     # A wiggler is a powered magnet like any other, and ``h0`` is its strength
     # (T2). Scaling it is the Q2 statement in the form this element takes: a
     # tapered wiggler **is** the design wiggler seen at a rescaled momentum, and
