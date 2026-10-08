@@ -4049,14 +4049,34 @@ adiabatic damping that must accompany it (`accsim.accelerate`).
 ## Beam losses / apertures (Stage 4 — implemented; momentum acceptance B4)
 
 Acceptance boundaries with survival/loss accounting. All of them subclass
-**`AcceptanceElement`**: an optics-transparent element (`matrix()` is the identity)
-whose physics is the predicate `survives(states)`, with loss *accounting* done by the
-tracking pass rather than the element. `track_bunch_losses` dispatches on that base
-class, so a new boundary only has to implement the predicate.
+**`AcceptanceElement`**: a field-free element whose map is a **drift of its own length**
+(the identity when thin) and whose physics is the predicate `survives(states)`, with loss
+*accounting* done by the tracking pass rather than the element. `track_bunch_losses`
+dispatches on that base class, so a new boundary only has to implement the predicate.
 
-- **`Aperture(shape, half_x, half_y=None, length=0.0)`** — an **optics-transparent**
-  element: `matrix()` is the identity, so inserting one never perturbs Twiss,
-  tunes, dispersion, or the one-turn map. Its physics is a *predicate*,
+**A thick boundary is a drift, not the identity (2026-10-08).** `matrix()` is the drift
+matrix of `length` and `track()` the exact drift (`drift_matrix` / `exact_drift`, shared
+with `Drift` so the two cannot drift apart). Before, a thick boundary's map was the
+identity while `s`, the circumference and an RF harmonic's frequency all counted its
+length: the ring was longer than its own map. Arbiters: MAD-X's `COLLIMATOR`,
+`RCOLLIMATOR` and `ECOLLIMATOR` all give a drift's 6x6 to the last digit
+(`tests/reference/test_collimator_madx.py`), and xtrack's MAD-X loader converts all three
+with `convert_drift_like`. A thin boundary is still exactly the identity, bit for bit.
+
+**The loss pass tests a thick boundary at both faces** — the entry face before the
+element moves the particle (logged at the element's `s`) and the exit face after (logged
+at `s + length`); a thin one once, at its `s`. This is **exact**: inside the jaw the path
+is a straight line (the exact drift's too — `px/pz` is constant), every shape is convex,
+so a path inside at both faces is inside all along. It retired the Stage-4 approximation
+(survival checked once, so a particle peaking inside a jaw went uncaught). Exit-only
+would have been a silent regression: a particle converging through the entry face would
+stop being lost. `editor/accsim-track.js` mirrors both, gated in
+`tests/analytic/test_tracking_port.py`.
+
+- **`Aperture(shape, half_x, half_y=None, length=0.0)`** — **optics-transparent when
+  thin** (the default): `matrix()` is the identity, so inserting one never perturbs
+  Twiss, tunes, dispersion, or the one-turn map; with a length it is a drift. Its
+  physics is a *predicate*,
   `survives(states)`, on the transverse `(x, y)`:
   - `"circular"` (radius `R = half_x`): `x² + y² ≤ R²`;
   - `"elliptical"`: `(x/half_x)² + (y/half_y)² ≤ 1`;
@@ -4065,11 +4085,7 @@ class, so a new boundary only has to implement the predicate.
   (inclusive `≤`), matching xtrack `LimitRect`/`LimitEllipse`; tests stay off the
   knife-edge. `survives` is vectorised: `(6,)→bool`, `(6,N)→(N,)`.
 - **`Collimator`** — the same geometric test with finite `length` (default 1 mm)
-  and a label. **Approximation (flagged):** survival is checked at the element
-  only, not continuously along the jaw, so a particle whose transverse excursion
-  *peaks inside* a finite jaw and returns within the aperture at the exit is not
-  caught. Negligible for pencil-thin collimators; costs accuracy only for long
-  jaws with large local betatron slope.
+  and a label: a drift of that length, tested at both faces (exact, see above).
 - **`MomentumAperture(half_delta, center=0.0, length=0.0)`** (B4) — the longitudinal
   counterpart: `|delta − center| ≤ half_delta`. Only `delta` is consulted, so it is a
   *momentum* acceptance and not a full longitudinal one; a `zeta` boundary is a different
@@ -10459,11 +10475,11 @@ tracked with it has the same tune at every energy.
   the tapered bend, `kinematic_slices` and multipole slicing (`n_slices = 1`; the editor
   exposes neither). It refuses what the editor's optics refuse (a rolled or displaced bend,
   a design tilt) with an error, never a silent answer.
-- **Open, found on the way: the collimator's length.** accsim's `AcceptanceElement` is
-  optics-transparent — its matrix and its `track()` are the identity even with a length (a
-  `Collimator` defaults to 1 mm) — while the editor's optics port draws it as a *drift* of that
-  length. No preset holds a collimator, so the optics cross-check never met it. The tracker
-  follows the package (identity). Which side is right is not settled here.
+- **Resolved 2026-10-08: the collimator's length.** accsim's `AcceptanceElement` was the
+  identity even with a length, while the editor's optics drew a *drift*. The drift is right
+  (MAD-X and xtrack agree — see *Beam losses / apertures*); the package now drifts and tests
+  both faces, and the tracker port follows. The zoo's collimator is 0.5 m long so the
+  element-by-element gate sees the drift, and a 2 m jaw gates the two faces.
 - **Open, found on the way: the scenario format drops tracking-only options silently.**
   `element_to_dict` writes no `kinematic_slices` (Quadrupole) or `n_slices` (Sextupole, Octupole),
   and `element_from_dict` ignores them if present. Only the Dipole's `fringe` is carried (and

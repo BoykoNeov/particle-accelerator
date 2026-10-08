@@ -39,7 +39,27 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); AC dipole (two arbiters, not opened) |
-| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07) | a 6D-matched injected beam on rings with a cavity in dispersion; the collimator-length mismatch |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**Tools closed the collimator-length mismatch on 2026-10-08.** A collimator's jaws are a gap
+in a block of metal, so a beam crossing 1 m of collimator crosses 1 m of empty space. The
+package said the identity (while still counting the length in `s`, the circumference and an
+RF harmonic's frequency — the ring was longer than its own map); the editor's optics said a
+drift. **The drift is right:** MAD-X's three collimator types give a drift's 6x6 to the last
+digit, and xtrack's MAD-X loader converts all three as drifts. Full detail in
+`docs/CONVENTIONS.md` -> *Beam losses / apertures*.
+
+- **The fix had a trap: where survival is tested.** The loss pass tested *after* each
+  element and logged the entry `s`; with the identity that covered both faces. With a drift,
+  exit-only would silently stop losing a particle converging through the entry face. A thick
+  boundary is now tested at **both** faces, each logging its own `s`.
+- **Two faces are exact, so a flagged approximation retired.** Inside the jaw the path is a
+  straight line (the exact drift's too) and every opening is convex, so inside at both faces
+  is inside all along. The Stage-4 note that a particle peaking inside a jaw went uncaught
+  is gone, not narrowed.
+- **The editor's gate had a collimator and could not see it.** The zoo's was 1 mm long; it is
+  0.5 m now, and against the old tracker both the element gate and a new 2 m two-face gate
+  fail (checked).
 
 **Tools shipped injection on 2026-10-07** — the editor can now inject a beam with an aiming
 error, a shape mismatch and an energy spread and **track** it turn by turn (the deferred item of
@@ -67,7 +87,7 @@ The findings, in the order they changed the milestone:
   on the cavity-free `kicked-ring`.
 
 **What it leaves open:** a 6D-matched injected beam (the coupling above), radiation damping (off,
-labelled), and the collimator-length mismatch between the package (identity) and the editor's
+labelled), and the collimator-length mismatch (closed 2026-10-08) between the package (identity) and the editor's
 optics (a drift), found on the way.
 
 **Axis V shipped V3 on 2026-10-07** — **spin through a tilted bend**. V1's refusal is
@@ -712,7 +732,8 @@ advanced/optional — stub, don't build, unless asked.**
   geometric acceptance boundary (circular / elliptical / rectangular), with a
   vectorised `survives(states)` predicate and an inclusive on-boundary convention
   matching xtrack. `Collimator` is the finite-length jaw (entry/exit check only —
-  the interior-peak miss is flagged). Predicate geometry pinned with hand-placed,
+  the interior-peak miss is flagged; *2026-10-08: a thick boundary is now a drift
+  tested at both faces, which is exact — see the Tools entry at the top*). Predicate geometry pinned with hand-placed,
   off-knife-edge particles (`tests/analytic/test_aperture.py`). See CONVENTIONS.md
   → *Beam losses / apertures*.
 - ✅ **Loss-aware tracking + `LossResult`** — `Tracker.track_bunch_losses(bunch,

@@ -115,44 +115,59 @@ class Drift(Element):
     """
 
     def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
-        L = self.length
-        M = np.eye(DIM)
-        M[X, PX] = L
-        M[Y, PY] = L
-        M[ZETA, DELTA] = L / ref.gamma0**2
-        return M
+        return drift_matrix(self.length, ref)
 
     def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
-        """The exact field-free map — see the class docstring for the derivation.
+        """The exact field-free map — see the class docstring for the derivation."""
+        return exact_drift(state, self.length, ref)
 
-        Vectorised over a trailing particle axis, so a ``(6,)`` state and a ``(6, n)``
-        bunch take the same path. A zero-length drift returns the state untouched
-        rather than evaluating ``pz``, so a marker-length element is exactly the
-        identity even for a particle whose ``pz`` would be ``NaN``.
-        """
-        st = np.asarray(state, dtype=float)
-        L = self.length
-        if L == 0.0:
-            return st.copy()
 
-        px, py, delta = st[PX], st[PY], st[DELTA]
-        one_plus = 1.0 + delta
-        angle_sq = px * px + py * py
-        # NaN for a particle with no forward momentum is a *documented* return value
-        # (class docstring), and callers such as
-        # :func:`accsim.orbit.closed_orbit_nonlinear` turn it into their own error. So
-        # the sqrt's warning is noise rather than a signal, and is silenced here only —
-        # never the value itself, which still propagates as NaN.
-        with np.errstate(invalid="ignore"):
-            pz = np.sqrt(one_plus * one_plus - angle_sq)
+def drift_matrix(length: float, ref: ReferenceParticle) -> np.ndarray:
+    """The linear matrix of a field-free length — :class:`Drift`'s, shared.
 
-        # 1 - E/(E0 pz), rationalised so nothing cancels — see the class docstring.
-        # E/E0 via hypot to keep the large-momentum limit clean.
-        E_over_E0 = np.hypot(ref.momentum_eV * one_plus, ref.mass_eV) / ref.total_energy_eV
-        slip = delta * (2.0 + delta) / ref.gamma0**2 - angle_sq
+    Also the matrix of a thick :class:`~accsim.elements.aperture.AcceptanceElement`,
+    whose jaws the beam crosses field-free. Exactly the identity at ``length = 0``.
+    """
+    L = length
+    M = np.eye(DIM)
+    M[X, PX] = L
+    M[Y, PY] = L
+    M[ZETA, DELTA] = L / ref.gamma0**2
+    return M
 
-        out = st.copy()
-        out[X] = st[X] + L * px / pz
-        out[Y] = st[Y] + L * py / pz
-        out[ZETA] = st[ZETA] + L * slip / (pz * (pz + E_over_E0))
-        return out
+
+def exact_drift(state: np.ndarray, length: float, ref: ReferenceParticle) -> np.ndarray:
+    """The exact field-free map of :class:`Drift` (derivation in its docstring), shared.
+
+    Vectorised over a trailing particle axis, so a ``(6,)`` state and a ``(6, n)``
+    bunch take the same path. A zero length returns the state untouched rather than
+    evaluating ``pz``, so a marker-length element is exactly the identity even for a
+    particle whose ``pz`` would be ``NaN``. Also the tracked map of a thick
+    :class:`~accsim.elements.aperture.AcceptanceElement`.
+    """
+    st = np.asarray(state, dtype=float)
+    L = length
+    if L == 0.0:
+        return st.copy()
+
+    px, py, delta = st[PX], st[PY], st[DELTA]
+    one_plus = 1.0 + delta
+    angle_sq = px * px + py * py
+    # NaN for a particle with no forward momentum is a *documented* return value
+    # (the Drift docstring), and callers such as
+    # :func:`accsim.orbit.closed_orbit_nonlinear` turn it into their own error. So
+    # the sqrt's warning is noise rather than a signal, and is silenced here only —
+    # never the value itself, which still propagates as NaN.
+    with np.errstate(invalid="ignore"):
+        pz = np.sqrt(one_plus * one_plus - angle_sq)
+
+    # 1 - E/(E0 pz), rationalised so nothing cancels — see the Drift docstring.
+    # E/E0 via hypot to keep the large-momentum limit clean.
+    E_over_E0 = np.hypot(ref.momentum_eV * one_plus, ref.mass_eV) / ref.total_energy_eV
+    slip = delta * (2.0 + delta) / ref.gamma0**2 - angle_sq
+
+    out = st.copy()
+    out[X] = st[X] + L * px / pz
+    out[Y] = st[Y] + L * py / pz
+    out[ZETA] = st[ZETA] + L * slip / (pz * (pz + E_over_E0))
+    return out

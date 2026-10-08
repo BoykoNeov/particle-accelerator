@@ -18,8 +18,8 @@
  *
  * What it deliberately omits: radiation (no damping, no quantum excitation — an electron
  * beam here filaments but never shrinks), spin, and the tapered bend. Losses are the
- * Python `track_bunch_losses` rule: a particle outside an Aperture/Collimator after that
- * element is lost and frozen.
+ * Python `track_bunch_losses` rule: a particle outside an Aperture after it, or outside
+ * a Collimator at either of its two faces, is lost and frozen.
  *
  * Coordinates: (x, px, y, py, zeta, delta), Xsuite / MAD-X ordering, as everywhere.
  * Dependency: accsim-optics.js (reference particle, catalogue, resolve).
@@ -413,9 +413,9 @@
         return (s) => { s[PX] = s[PX] + kx; s[PY] = s[PY] + ky; };
       }
       case "Wiggler": return (s) => wiggler(s, el, ref);
-      // Optics-transparent acceptance boundaries: identity map (accsim AcceptanceElement),
-      // their physics is the survival predicate below.
-      case "Aperture": case "Collimator": return () => {};
+      // Acceptance boundaries (accsim AcceptanceElement): no field, so the exact drift of
+      // their length (a no-op when thin); their physics is the survival predicate below.
+      case "Aperture": case "Collimator": return (s) => driftExact(s, L, ref);
       default: throw new Error("tracking: no map for element type " + el.type);
     }
   }
@@ -466,16 +466,21 @@
     const elements = O.resolve(raw, ref);
     const steps = elements.map((el) => elementStep(el, ref));
     const survive = elements.map(survivalTest);
-    return { ref, elements, steps, survive };
+    const thick = elements.map((el, i) => survive[i] !== null && O.elementLength(el) > 0.0);
+    return { ref, elements, steps, survive, thick };
   }
 
   /** One pass of one particle (a 6-array, updated in place). Returns the index of the
-   *  element where it was lost, or -1 if it survived the turn. */
+   *  element where it was lost, or -1 if it survived the turn. A thick boundary (a
+   *  Collimator) is tested at its entry face — a particle lost there is frozen before the
+   *  jaw moves it — and at its exit face; a thin one once. Exact for a drift through a
+   *  convex opening, as in `track_bunch_losses`. */
   function trackTurn(machine, s) {
-    const { steps, survive } = machine;
+    const { steps, survive, thick } = machine;
     for (let i = 0; i < steps.length; i++) {
-      steps[i](s);
       const t = survive[i];
+      if (thick[i] && !t(s)) return i;
+      steps[i](s);
       if (t !== null && !t(s)) return i;
     }
     return -1;

@@ -96,14 +96,16 @@ ZOO = {
             "shape": "rectangular",
             "half_x": 0.05,
             "half_y": 0.03,
-            "length": 0.001,
+            "length": 0.5,
         },
         {"type": "Drift", "length": 0.3},
     ],
 }
 # Types whose map is exactly linear (or the identity): a matrix-vs-exact contrast on them
-# would be zero by construction, so they are left out of the "not blind" check.
-_LINEAR = {"ThinQuadrupole", "ThinSkewQuadrupole", "Corrector", "Aperture", "Collimator"}
+# would be zero by construction, so they are left out of the "not blind" check. A thick
+# Collimator is not among them: it is the exact drift of its length (2026-10-08), and the
+# zoo's is long enough that the identity it used to be fails the gate by orders.
+_LINEAR = {"ThinQuadrupole", "ThinSkewQuadrupole", "Corrector", "Aperture"}
 
 
 def _states(n: int, seed: int, ax: float, ap: float, az: float, ad: float) -> np.ndarray:
@@ -228,6 +230,45 @@ def test_losses_match_the_package_turn_and_element() -> None:
 
     assert (js_turn == 0).any() and (js_turn > 0).any() and (js_turn < 0).any()
     assert set(np.array(res["lostAt"])[js_turn >= 0]) == {len(lat.elements) - 1}
+
+
+def test_a_thick_collimator_loses_at_the_same_face() -> None:
+    """A 2 m jaw tested at both faces, as ``track_bunch_losses`` does.
+
+    The face is read off the frozen state: a particle lost at the entry face is frozen
+    before the jaw drifts it, one lost at the exit face after — 1 mm apart here, which a
+    port checking the wrong face (or only one) could not hide below the gate. Each of the
+    three outcomes — entry face, exit face, survivor — is asserted to occur.
+    """
+    a, L = 5.0e-3, 2.0
+    scenario = {
+        "format": "accsim-scenario/1",
+        "name": "a thick jaw",
+        "periodic": False,
+        "reference": _REF,
+        "elements": [
+            {"type": "Drift", "length": 1.0},
+            {"type": "Collimator", "shape": "rectangular", "half_x": a, "half_y": a, "length": L},
+            {"type": "Drift", "length": 1.0},
+        ],
+    }
+    # entry face position = x0 + px * 1 m; exit = that + px * L. Each is >= 0.1a off the edge.
+    x_entry = np.array([1.2, 0.8, -0.8, 0.9, 0.3]) * a
+    x_exit = np.array([0.8, 1.2, -1.2, -0.9, 0.6]) * a
+    states = np.zeros((5, 6))
+    states[:, 1] = (x_exit - x_entry) / L
+    states[:, 0] = x_entry - states[:, 1]
+    (res,) = _node(
+        [{"scenario": scenario, "states": states.tolist(), "turns": 1, "mode": "losses"}]
+    )
+    assert "error" not in res, res.get("error")
+
+    lat = load_scenario(scenario).lattice
+    out = Tracker(lat).track_bunch_losses(Bunch(states.T.copy()), n_turns=1, nonlinear=True)
+    assert list(out.loss_s) == pytest.approx([1.0, 1.0 + L, 1.0 + L, np.nan, np.nan], nan_ok=True)
+    assert np.array_equal(np.array(res["lostTurn"]), out.loss_turn)
+    assert np.array_equal(np.array(res["lostAt"]), out.loss_element)
+    assert _rel_dev(np.array(res["states"], dtype=float), out.states.T) < GATE
 
 
 def test_the_tracker_refuses_what_the_editor_refuses() -> None:

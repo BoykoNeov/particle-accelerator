@@ -138,7 +138,7 @@
     Aperture: {
       t: "Aperture",
       b: { n: "how big the hole is", s: "beam-pipe limit (geometry only here)", p: "drift matrix; clipping is a tracking-time test" },
-      n: "The size of the hole the beam has to fit through. Nothing on this page stops a particle — this is a note about the geometry. The actual scraping happens when accsim tracks particles in Python.",
+      n: "The size of the hole the beam has to fit through. The optics curves ignore it; on the Injection tab a particle that strays outside it is lost there.",
       s: "A half-width in x and y with a circular, elliptical or rectangular shape. Its linear map is a drift, so it changes no curve here; what it is for is comparing its half-width against the rms beam size on the Beam size tab.",
       p: "Drift matrix of the stated length. The shape test is applied per-particle during tracking in accsim, not in the linear map.",
     },
@@ -146,8 +146,8 @@
       t: "Collimator",
       b: { n: "jaws that scrape the beam's edge", s: "jaws, with a length", p: "drift matrix; clipping is a tracking-time test" },
       n: "A pair of jaws deliberately closed in on the beam to scrape off the outermost particles, so they are lost somewhere chosen rather than somewhere expensive.",
-      s: "Same as an aperture but with a real length. Its linear map is a drift; the scraping is a tracking-time test in accsim, so no curve on this page will move when you close the jaws.",
-      p: "Drift matrix of the stated length; the shape test lives in accsim's tracking.",
+      s: "Same as an aperture but with a real length, and the beam drifts through that length like empty space. Closing the jaws moves no optics curve; on the Injection tab a particle is lost if it is outside the jaws at either end. Checking both ends is enough, because inside the jaws every particle travels in a straight line.",
+      p: "Drift matrix of the stated length (MAD-X and xtrack treat a collimator the same way). In tracking it is the exact drift, and the shape test runs at the entry face and the exit face, which is exact for a straight path through a convex opening.",
     },
   };
 

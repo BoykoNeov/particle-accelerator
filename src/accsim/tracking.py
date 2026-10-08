@@ -303,6 +303,13 @@ class Tracker:
         and **frozen**: its state stops advancing and it is skipped on every later
         element and turn.
 
+        A thin boundary is tested once, at its ``s``. A **thick** one (a
+        :class:`~accsim.elements.aperture.Collimator`) is tested at its entry face
+        (logged at its ``s``, before the jaw moves the particle) and at its exit face
+        (logged at ``s + length``). That is exact, not a sampling: the jaw is a drift,
+        so each path through it is a straight line, and a straight line inside a
+        convex opening at both ends is inside all the way.
+
         ``nonlinear=False`` (default) acts with each element's affine 6x6, hoisted
         out of the turn loop. ``nonlinear=True`` routes every element through its
         :meth:`~accsim.elements.element.Element.track` instead, so a sextupole's
@@ -340,9 +347,21 @@ class Tracker:
                 k = elem.kick(ref)
                 maps.append((elem.matrix(ref), k[:, None] if k.any() else None))
 
+        def cull(elem: AcceptanceElement, ei: int, turn: int, s_face: float) -> None:
+            inside = np.asarray(elem.survives(states), dtype=bool)
+            newly = alive & ~inside
+            if newly.any():
+                loss_turn[newly] = turn
+                loss_s[newly] = s_face
+                loss_element[newly] = ei
+                alive[newly] = False
+
         for turn in range(n_turns):
             s = 0.0
             for ei, elem in enumerate(self.lattice.elements):
+                thick_boundary = isinstance(elem, AcceptanceElement) and elem.length > 0.0
+                if thick_boundary:
+                    cull(elem, ei, turn, s)  # the entry face, before the jaw moves anyone
                 if alive.any():
                     if nonlinear:
                         states[:, alive] = elem.track(
@@ -354,14 +373,10 @@ class Tracker:
                             states[:, alive] = M @ states[:, alive]
                         else:
                             states[:, alive] = M @ states[:, alive] + k_col
-                if isinstance(elem, AcceptanceElement):
-                    inside = np.asarray(elem.survives(states), dtype=bool)
-                    newly = alive & ~inside
-                    if newly.any():
-                        loss_turn[newly] = turn
-                        loss_s[newly] = s
-                        loss_element[newly] = ei
-                        alive[newly] = False
+                if thick_boundary:
+                    cull(elem, ei, turn, s + elem.length)  # the exit face
+                elif isinstance(elem, AcceptanceElement):
+                    cull(elem, ei, turn, s)  # thin: one face, where it sits
                 s += elem.length
 
         return LossResult(states, alive, loss_turn, loss_s, loss_element)

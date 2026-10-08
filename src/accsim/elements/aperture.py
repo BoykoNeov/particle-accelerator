@@ -6,32 +6,46 @@ import abc
 
 import numpy as np
 
-from ..coords import DELTA, DIM, X, Y
+from ..coords import DELTA, X, Y
 from ..reference import ReferenceParticle
+from .drift import drift_matrix, exact_drift
 from .element import Element
 
 _SHAPES = ("circular", "elliptical", "rectangular")
 
 
 class AcceptanceElement(Element):
-    """Base for an **optics-transparent acceptance boundary** — a predicate, not a map.
+    """Base for an **acceptance boundary** — a predicate, plus the space it occupies.
 
-    Every acceptance element shares two properties. Its linear transfer matrix is
-    the identity, so inserting one never perturbs Twiss, tunes, dispersion or the
-    one-turn map; and its physics is a *predicate*, :meth:`survives`, rather than a
+    Every acceptance element shares two properties. It has no field, so its map is
+    a **drift of its own length**: the identity when thin, so inserting a thin one
+    never perturbs Twiss, tunes, dispersion or the one-turn map, and a field-free
+    length the beam crosses when thick (a collimator's jaws are a gap in a block of
+    metal). And its physics is a *predicate*, :meth:`survives`, rather than a
     transformation. Loss **accounting** — which particle dies, and at what
     longitudinal ``s`` — is not done here: it lives in the loss-aware tracking pass
     (:meth:`accsim.tracking.Tracker.track_bunch_losses`), which walks the lattice
-    and consults each acceptance element's predicate. Keeping the boundary in the
-    element sequence is what makes its ``s`` well-defined.
+    and consults each acceptance element's predicate — at both faces of a thick
+    one. Keeping the boundary in the element sequence is what makes its ``s``
+    well-defined.
+
+    **Why a drift and not the identity (2026-10-08).** Until then a thick boundary's
+    map was the identity while ``s``, the circumference and an RF harmonic's
+    frequency all counted its length — the ring was longer than its own map. MAD-X's
+    ``COLLIMATOR``/``RCOLLIMATOR``/``ECOLLIMATOR`` give a drift's transfer matrix to
+    the last digit, and xtrack's MAD-X loader converts all three as drifts.
 
     Subclasses differ only in *which* coordinates they test:
     :class:`Aperture` tests ``(x, y)``, :class:`MomentumAperture` tests ``delta``.
     """
 
     def _matrix_body(self, ref: ReferenceParticle) -> np.ndarray:
-        """Identity: an acceptance boundary does not bend, focus, or slip the beam."""
-        return np.eye(DIM)
+        """A drift of the element's length: no bend, no focusing; the identity when thin."""
+        return drift_matrix(self.length, ref)
+
+    def _track_body(self, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+        """The exact drift of the element's length (its ``1/pz``); the identity when thin."""
+        return exact_drift(state, self.length, ref)
 
     @abc.abstractmethod
     def survives(self, states: np.ndarray) -> np.ndarray | np.bool_:
@@ -46,8 +60,9 @@ class AcceptanceElement(Element):
 class Aperture(AcceptanceElement):
     r"""A geometric transverse acceptance boundary — particles outside are lost.
 
-    The transverse :class:`AcceptanceElement`: optics-transparent, with its physics
-    in the predicate :meth:`survives`, tested against ``(x, y)``. See that base class
+    The transverse :class:`AcceptanceElement`: a drift of its length (the identity
+    when thin), with its physics in the predicate :meth:`survives`, tested against
+    ``(x, y)``. See that base class
     for how loss accounting is divided between the element and the tracking pass.
     :class:`MomentumAperture` is the longitudinal counterpart.
 
@@ -63,13 +78,14 @@ class Aperture(AcceptanceElement):
     stay off the knife-edge, so the convention only matters at the measure-zero
     edge.
 
-    A :class:`Collimator` (a thin jaw of finite ``length``) is the same geometric
-    test with ``length > 0`` and a label. **Approximation (Stage 4):** survival is
-    checked at the element only, not continuously along the jaw, so a particle
-    whose transverse excursion *peaks inside* a finite-length collimator and
-    returns within the aperture at the exit is not caught. For the pencil-thin
-    collimators of a simple loss map this is negligible; it costs accuracy only
-    for long jaws with large local betatron slope.
+    A :class:`Collimator` (a jaw of finite ``length``) is the same geometric test
+    with ``length > 0`` and a label. **Survival along a thick jaw is exact.** The
+    loss pass tests both faces, and nothing in between is needed: inside the jaw
+    the beam drifts, so ``x(s)`` and ``y(s)`` are straight lines (the exact drift's
+    too — ``px/pz`` is constant), and every shape here is convex, so a trajectory
+    inside at both faces is inside all along. (Until 2026-10-08 the jaw was the
+    identity and checked once, and a flagged Stage-4 approximation said a particle
+    peaking inside it went uncaught; the drift and the two faces retired it.)
     """
 
     def __init__(
@@ -125,9 +141,10 @@ class Collimator(Aperture):
     """A finite-length geometric aperture (a jaw). See :class:`Aperture`.
 
     Identical geometric test to :class:`Aperture`, but with a non-zero
-    ``length`` (default 1 mm) so it occupies real longitudinal space in the loss
-    map. The entry/exit-only survival check (see the :class:`Aperture`
-    approximation note) is the only fidelity cost.
+    ``length`` (default 1 mm) so it occupies real longitudinal space: the beam
+    drifts through it, exactly as MAD-X's collimators and xtrack's import of them
+    do, and the loss pass checks it at the entry face and the exit face, which is
+    exact for a straight path through a convex opening (see :class:`Aperture`).
     """
 
     def __init__(
@@ -189,6 +206,8 @@ class MomentumAperture(AcceptanceElement):
         ``0.0``, which is correct only where the closed orbit is on-momentum.
     length
         Longitudinal extent [m]; ``0.0`` (thin) by default, as for :class:`Aperture`.
+        A thick one is a drift, and ``delta`` does not change in a drift, so its two
+        faces always agree.
     """
 
     def __init__(
