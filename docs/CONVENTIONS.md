@@ -10414,8 +10414,8 @@ rather than beat.
 ### What W1 does not do
 
 Miyamoto's driven optics (xtrack's `twiss_mode`, the `eff_grad` thin quadrupole) is W2
-(below); the editor and scenario format; a chromatic or amplitude-dependent driven
-response; and coupling (a skew-rotated drive).
+(below); the editor and scenario format; the chromatic driven response (W3, below) and an
+amplitude-dependent one (W4, not opened); and coupling (a skew-rotated drive).
 
 ### Driven optics: the beam the dipole swings sees one more gradient (W2 — implemented 2026-10-08)
 
@@ -10479,6 +10479,65 @@ mu, tune) — one JIT build, the dipole's fields reset between cases through
 `line.element_dict` (the line *view* reads a string like `"v"` as a variable name). The
 tracking leg is W1's: accsim's driven tracking is held to the steady state and to xtrack's
 turn by turn, so it is not paid for twice.
+
+### The chromatic driven response: each momentum is swung by its own amount (W3 — implemented 2026-10-09)
+
+`driven_amplitude(lattice, *, delta=0.0, step=1e-7) -> {plane: u_hat}` (`accsim.twiss`). For
+a particle **held** at momentum `delta`, about the closed orbit at that momentum, the
+driven coordinate at the dipole is `u_n = u_hat sin(2 pi (nu n + lag))` (full amplitude, no
+ramp), with W1's closed form evaluated on **its own** optics, the on-orbit Twiss at `delta`:
+
+    u_hat = kick beta(delta) sin 2 pi Q(delta) / (2 (cos 2 pi nu - cos 2 pi Q(delta))).
+
+Signed: `> 0` with the drive below the tune (in phase with the kick), `< 0` above it
+(antiphase). Conventions and facts:
+
+- **The kick does not scale with momentum, in all three codes.** accsim, xtrack's
+  `ACDipole` and MAD-X's `HACDIPOLE` all add the full `kick` to `px` at `delta = 0.05`
+  (asserted in both reference legs). A field kick changes `P_x` by `q B L` whatever the
+  momentum and `px = P_x / P0`. The *angle* `x'` is `kick / (1 + delta)`, which the
+  `(x, px)` optics already carries.
+- **Only the exact path sees it.** Element matrices carry no `delta`, so the default linear
+  walk of `track_turns` swings every momentum by `u_hat(0)` (bit for bit, asserted, on a
+  dispersion-free ring). On W1's thin ring the whole natural chromaticity (`Q' = -1.529`)
+  comes from the drift's `x += L px / (1 + delta)`. The thin quadrupole's kick is canonical
+  and has no `1/(1 + delta)`.
+- **The slope** (sympy):
+  `d ln u_hat / d delta = b + 2 pi Q' (c cos mu - 1) / (sin mu (c - cos mu))`, where
+  `c = cos 2 pi nu`, `mu = 2 pi Q`, `b = beta'/beta` (MAD8). The pole at the drive gives the
+  shorthand `-Q' / (Q - nu)`, about 130 per unit `delta` at `Q - nu = 0.012`. That shorthand
+  is 1.8% off on the straight ring and 1.2% off on the bent one; both are asserted.
+- **A beam swings more than its on-momentum particle.** With a Gaussian spread, the beam
+  average is `<u_hat> / u_hat(0) = 1 + (1/2) (u_hat''/u_hat) sigma^2 + O(sigma^4)`, whose
+  near-resonance bulk is `(Q' sigma / (Q - nu))^2`: 1.7% of the swing at `sigma = 1e-3`
+  (so 3.4% in a beta read off the amplitude squared). Gated on two orders: the excess
+  quarters, and the remainder after the `sigma^2` term falls 16-fold.
+- **The driven swing does not decohere; the switch-on transient does.** Switched on
+  abruptly, each particle's free oscillation is as large as its driven one. The free parts
+  spread in tune and their centroid dies; the driven parts all run at `nu`. Measured on a
+  201-momentum quadrature: 0.96 of the swing early, `1.4e-6` after 600 turns. The linear
+  walk keeps the transient (no tune spread). Use a weighted grid, not a sample: 401 sampled
+  momenta leave a `~1%` finite-sample floor that looks like a residual.
+- **Refused:** a drive on the particle's own tune at that `delta` (`ResonantLatticeError`;
+  `nu` or `1 - nu` equal to `frac Q(delta)`). A momentum spread wide enough to reach the
+  drive puts part of the beam on resonance; on W1's ring that is at `delta = +7.8e-3`.
+- **Not modelled:** synchrotron motion (with RF, `delta` oscillates and the response grows
+  sidebands; this is the frozen-`delta` answer). `driven_twiss` and `driven_gradient` stay
+  on-momentum and take no `delta`.
+
+**The order of the tracking miss names the nonlinearity.** W1's steady-state solve built
+from the Jacobians of `track()` on the orbit at `delta` is exact for the linearised
+particle; tracking leaves it through the map's lowest nonlinearity. On the straight ring
+that is the exact drift's cubic term, so halving the kick divides the relative miss by 4
+(`3.9997`). On W2's bent ring the sector bends' second-order terms come first: the ratio is
+**2** (`1.998`), and the miss carries a mean shift `~ kick^2` and a `2 nu` line, the
+signature of a quadratic map. Localised 2026-10-09. The pre-committed gate (4 on both rings)
+held only for the straight one.
+
+**Arbiters:** xtrack (`model="exact"`) agrees turn by turn at `delta = 4e-3` to `9.4e-14`,
+and MAD-X `TRACK` (start given as `pt`, from `(1 + delta)^2 = 1 + 2 pt / beta0 + pt^2`) to
+`8.1e-13`. The on-momentum particle misses them by 0.64 and 0.77. xtrack's default ramp
+`(0, 0, 0, 0)` means "off", and its ramp is `uint16`.
 
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 

@@ -39,11 +39,42 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08) | named, not opened: editor/scenario support; a chromatic or amplitude-dependent driven response; a skew (coupled) drive |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09) | named, not opened: W4 the amplitude-dependent response; editor/scenario support; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
 
-**W3 — the chromatic driven response (opened 2026-10-09; gates pre-committed here before
-any code).** An off-momentum particle has its own tune `Q(delta) = Q + Q' delta + ...` and
+**Axis W shipped W3 on 2026-10-09** — the **chromatic driven response**: an off-momentum
+particle has its own tune and beta, so the same AC dipole swings it by its own amount, and
+near the resonance the lever is large (~130 per unit `delta` on W1's ring).
+`driven_amplitude(lattice, delta=...)`. Full detail in `docs/CONVENTIONS.md` -> *The
+chromatic driven response*. All nine pre-committed gates pass, one of them corrected:
+
+- **The order of the tracking miss names the nonlinearity, and the pre-commitment had it
+  half wrong.** On the straight ring, halving the kick divides the miss by 4 (the exact
+  drift's cubic term), as pre-committed. On the bent ring it divides by **2**. The miss has
+  a mean shift that goes as `kick^2` and a `2 nu` line, so the sector bends' second-order
+  terms come first. The gate is now 4 and 2, each with its cause named.
+- **A beam swings more than its on-momentum particle**, by `(Q' sigma / (Q - nu))^2` to
+  leading order. That is 1.7% at `sigma = 1e-3` (3.4% in a beta read from it). The
+  coefficient is gated as the second derivative, by two orders (4.04 and 16.99), not fitted.
+- **The driven swing does not decohere; the switch-on transient does.** The centroid
+  error is 0.96 early and `1.4e-6` after 600 turns, on a weighted momentum grid. A
+  401-particle *sample* left a `~1%` floor that was finite-sample noise, not physics; the
+  grid is why the gate is sharp. The linear walk keeps the transient forever: it has no
+  chromaticity at all (named limitation, asserted bit for bit).
+- **The slope is derived** (sympy) and holds to second order in the step (ratio 4.000). The
+  near-resonance shorthand `-Q'/(Q - nu)` is 1.2-1.8% off and asserted to be.
+- **The kick convention is three-way consistent**: accsim, xtrack and MAD-X all add the full
+  kick off momentum. Turn by turn at `delta = 4e-3`, xtrack agrees to `9.4e-14` and MAD-X to
+  `8.1e-13`; the on-momentum particle misses both by 0.64-0.77.
+- Infrastructure note: `sp.limit` hung on the pole of the slope; `sp.series` gives it in
+  0.2 s.
+
+**What W3 leaves open:** W4, the amplitude-dependent driven response (a Duffing-type cubic
+with no exact solution, possibly two stable amplitudes). The off-momentum driven *optics*.
+Synchrotron sidebands with RF on. The editor.
+
+**W3 — the chromatic driven response (opened 2026-10-09; the gates below were pre-committed
+before any code; see the shipped entry above for what changed).** An off-momentum particle has its own tune `Q(delta) = Q + Q' delta + ...` and
 its own beta, so the same drive swings it by a different amount. Near the resonance the
 lever is large: the steady-state amplitude goes as `1 / (Q(delta) - nu)`, so a relative
 slope of about `-Q' / (Q - nu)` per unit `delta` (~127 on W1's ring). The named W1/W2

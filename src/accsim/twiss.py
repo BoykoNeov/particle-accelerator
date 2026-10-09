@@ -396,8 +396,9 @@ def driven_twiss(lattice: Lattice) -> list[Twiss]:
     does not see it, and a matched "dispersion" of the substituted ring would be a number
     with no physical meaning.
 
-    On-momentum and linear: a chromatic or amplitude-dependent driven response is not
-    modelled. The element's own static maps stay the identity — nothing else in the
+    On-momentum and linear: how far an off-momentum particle is swung is
+    :func:`driven_amplitude` (W3); its driven optics, and an amplitude-dependent
+    response, are not modelled. The element's own static maps stay the identity — nothing else in the
     package sees the gradient.
     """
     grads = driven_gradient(lattice)
@@ -419,6 +420,57 @@ def driven_twiss(lattice: Lattice) -> list[Twiss]:
         if "y" in sites:
             n = replace(n, beta_y=d.beta_y, alpha_y=d.alpha_y, mu_y=d.mu_y)
         out.append(n)
+    return out
+
+
+def driven_amplitude(
+    lattice: Lattice, *, delta: float = 0.0, step: float = 1e-7
+) -> dict[str, float]:
+    r"""How far each AC dipole swings a particle of momentum ``delta``, at the dipole (W3).
+
+    The steady state of W1 for a particle **frozen** at ``delta``: about the closed orbit
+    at that momentum, the driven coordinate at the dipole is
+    ``u_n = u_hat * sin(2 pi (nu n + lag))`` (full amplitude, no ramp), with
+
+        u_hat = kick beta sin 2 pi Q / (2 (cos 2 pi nu - cos 2 pi Q)),
+
+    ``beta`` and ``Q`` the particle's **own** — the on-orbit optics at ``delta``
+    (:func:`propagate_twiss_on_orbit`). ``u_hat > 0`` with the drive below the tune (in
+    phase with the kick), ``< 0`` above it (in antiphase). Returns ``{plane: u_hat}`` [m].
+
+    It is chromatic, and strongly so near the resonance: ``u_hat`` goes as
+    ``1 / (Q(delta) - nu)``, so its relative slope is about ``-Q' / (Q - nu)`` per unit
+    ``delta`` — the drive pulls hardest on the particles whose own tune it sits closest
+    to. The exact slope is ``b + 2 pi Q' (c cos mu - 1) / (sin mu (c - cos mu))``
+    (``c = cos 2 pi nu``, ``mu = 2 pi Q``, ``b`` the MAD8 chromatic beta at the dipole).
+    A beam with a momentum spread therefore swings *more* on average than its
+    on-momentum particle, by ``(Q' sigma_delta / (Q - nu))^2`` to leading order — the
+    bias an AC-dipole measurement of such a beam reads.
+
+    **The default linear walk of** :meth:`~accsim.tracking.Tracker.track_turns` **does
+    not see this**: element matrices carry no ``delta``, so there every momentum swings
+    by ``u_hat(0)``. ``nonlinear=True`` (``track()``) does.
+
+    With an RF cavity in the ring ``delta`` oscillates and the response grows synchrotron
+    sidebands; this is the answer for a particle held at ``delta``, not that. Raises
+    :class:`ResonantLatticeError` when the particle's own tune sits on the drive tune
+    (``u_hat`` diverges), :class:`ValueError` for no dipole or two in one plane, and
+    :class:`CoupledLatticeError` through the on-orbit optics.
+    """
+    sites = _ac_dipole_sites(lattice)
+    optics = propagate_twiss_on_orbit(lattice, delta=delta, step=step)
+    end = optics[-1]
+    out = {}
+    for plane, (idx, acd) in sites.items():
+        at = optics[idx]
+        beta, mu = (at.beta_x, end.mu_x) if plane == "x" else (at.beta_y, end.mu_y)
+        c_nu, c_q = math.cos(2.0 * math.pi * acd.tune), math.cos(mu)
+        if abs(c_nu - c_q) < 1e-12:
+            raise ResonantLatticeError(
+                f"drive tune {acd.tune} is on this particle's own tune "
+                f"(Q = {mu / (2.0 * math.pi)} at delta = {delta}): the driven amplitude diverges"
+            )
+        out[plane] = acd.amplitude * beta * math.sin(mu) / (2.0 * (c_nu - c_q))
     return out
 
 
