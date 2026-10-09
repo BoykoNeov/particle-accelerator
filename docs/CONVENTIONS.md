@@ -10509,9 +10509,11 @@ Signed: `> 0` with the drive below the tune (in phase with the kick), `< 0` abov
   is 1.8% off on the straight ring and 1.2% off on the bent one; both are asserted.
 - **A beam swings more than its on-momentum particle.** With a Gaussian spread, the beam
   average is `<u_hat> / u_hat(0) = 1 + (1/2) (u_hat''/u_hat) sigma^2 + O(sigma^4)`, whose
-  near-resonance bulk is `(Q' sigma / (Q - nu))^2`: 1.7% of the swing at `sigma = 1e-3`
-  (so 3.4% in a beta read off the amplitude squared). Gated on two orders: the excess
-  quarters, and the remainder after the `sigma^2` term falls 16-fold.
+  near-resonance bulk is `(Q' sigma / (Q - nu))^2`: 1.7% of the swing at `sigma = 1e-3`.
+  Gated at the dipole on two orders: the excess quarters, and the remainder after the
+  `sigma^2` term falls 16-fold. What it does to an optics measurement made with such a beam
+  elsewhere in the ring (where the momenta are no longer exactly in phase) is reasoned,
+  not run.
 - **The driven swing does not decohere; the switch-on transient does.** Switched on
   abruptly, each particle's free oscillation is as large as its driven one. The free parts
   spread in tune and their centroid dies; the driven parts all run at `nu`. Measured on a

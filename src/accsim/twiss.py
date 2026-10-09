@@ -398,8 +398,8 @@ def driven_twiss(lattice: Lattice) -> list[Twiss]:
 
     On-momentum and linear: how far an off-momentum particle is swung is
     :func:`driven_amplitude` (W3); its driven optics, and an amplitude-dependent
-    response, are not modelled. The element's own static maps stay the identity — nothing else in the
-    package sees the gradient.
+    response, are not modelled. The element's own static maps stay the identity —
+    nothing else in the package sees the gradient.
     """
     grads = driven_gradient(lattice)
     sites = _ac_dipole_sites(lattice)
@@ -445,7 +445,8 @@ def driven_amplitude(
     (``c = cos 2 pi nu``, ``mu = 2 pi Q``, ``b`` the MAD8 chromatic beta at the dipole).
     A beam with a momentum spread therefore swings *more* on average than its
     on-momentum particle, by ``(Q' sigma_delta / (Q - nu))^2`` to leading order — the
-    bias an AC-dipole measurement of such a beam reads.
+    excess, at the dipole. (What it does to optics *measured* with such a beam elsewhere
+    in the ring is reasoned, not gated.)
 
     **The default linear walk of** :meth:`~accsim.tracking.Tracker.track_turns` **does
     not see this**: element matrices carry no ``delta``, so there every momentum swings

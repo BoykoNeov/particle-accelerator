@@ -54,7 +54,7 @@ chromatic driven response*. All nine pre-committed gates pass, one of them corre
   a mean shift that goes as `kick^2` and a `2 nu` line, so the sector bends' second-order
   terms come first. The gate is now 4 and 2, each with its cause named.
 - **A beam swings more than its on-momentum particle**, by `(Q' sigma / (Q - nu))^2` to
-  leading order. That is 1.7% at `sigma = 1e-3` (3.4% in a beta read from it). The
+  leading order. That is 1.7% at `sigma = 1e-3`, measured at the dipole. The
   coefficient is gated as the second derivative, by two orders (4.04 and 16.99), not fitted.
 - **The driven swing does not decohere; the switch-on transient does.** The centroid
   error is 0.96 early and `1.4e-6` after 600 turns, on a weighted momentum grid. A
@@ -131,7 +131,8 @@ Gates, pre-committed:
    `u_hat(0)` by `(1/2) u_hat''/u_hat sigma_delta^2 + O(sigma^4)`. Its leading
    near-resonance term is `(Q' sigma_delta / (Q - nu))^2`: 1.6% at `sigma_delta = 1e-3` on
    W1's ring. Gated on the order (halving sigma quarters the excess) and on the sign.
-   An AC-dipole measurement of a beam with energy spread reads this bias.
+   An AC-dipole measurement of a beam with energy spread reads this bias (shipped: gated
+   at the dipole only; the measurement consequence is reasoned, not run).
 9. **xtrack** (`model="exact"`) and **MAD-X `TRACK`** (start given in `pt`): an off-momentum
    particle at `delta = 4e-3`, driven, turn by turn against accsim's exact path, gated at
    measured floors. One pass at `delta = 0.05` asserts the kick convention in each code.

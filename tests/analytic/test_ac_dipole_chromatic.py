@@ -10,7 +10,7 @@ and near the resonance the lever is large — ``u_hat ~ 1 / (Q(delta) - nu)``, a
 slope of about ``-Q' / (Q - nu)``, ~130 per unit ``delta`` on W1's ring. Two consequences
 are the milestone's physics: a beam with a momentum spread swings **more** on average than
 its on-momentum particle, by ``(Q' sigma_delta / (Q - nu))^2`` to leading order (the bias an
-AC-dipole optics measurement reads), and a spread wide enough to reach the drive tune puts
+AC-dipole optics measurement would read — reasoned, gated only at the dipole), and a spread wide enough to reach the drive tune puts
 part of the beam on its own resonance (refused, not returned as a number).
 
 The sharp gates need no arbiter. W1's steady-state solve, built from the Jacobians of
@@ -33,6 +33,7 @@ import sympy as sp
 from accsim import (
     PROTON_MASS_EV,
     PX,
+    PY,
     ACDipole,
     Dipole,
     Drift,
@@ -42,6 +43,7 @@ from accsim import (
     ThinQuadrupole,
     Tracker,
     X,
+    Y,
     driven_amplitude,
 )
 from accsim.orbit import closed_orbit_nonlinear, linearised_element_maps
@@ -76,13 +78,14 @@ def _ring(kind: str, acd: ACDipole | None = None, first: bool = False) -> Lattic
     return Lattice(els, REF)
 
 
-def _q(kind: str) -> float:
-    return tunes_on_orbit(_ring(kind))[0]
+def _q(kind: str, plane: str = "x") -> float:
+    return tunes_on_orbit(_ring(kind))[0 if plane == "x" else 1]
 
 
-def _drive(kind: str, kick: float, side: int = 1) -> ACDipole:
+def _drive(kind: str, kick: float, side: int = 1, plane: str = "x") -> ACDipole:
     """``side = +1``: drive below the tune; ``-1``: above."""
-    return ACDipole(kick=kick, tune=_q(kind) % 1.0 - side * OFFSET, lag=LAG)
+    nu = _q(kind, plane) % 1.0 - side * OFFSET
+    return ACDipole(kick=kick, tune=nu, lag=LAG, plane=plane)
 
 
 def _steady(lat: Lattice, idx: int, acd: ACDipole, delta: float, n: int, solve_at=None):
@@ -98,7 +101,7 @@ def _steady(lat: Lattice, idx: int, acd: ACDipole, delta: float, n: int, solve_a
         B = m @ B
     lam = np.exp(2j * np.pi * acd.tune)
     b = np.zeros(6)
-    b[PX] = 1.0
+    b[PX if acd.plane == "x" else PY] = 1.0
     zhat = np.linalg.solve(
         lam * np.eye(6) - B @ A, B @ b * acd.amplitude * np.exp(2j * np.pi * acd.lag)
     )
@@ -172,6 +175,26 @@ def test_driven_amplitude_is_the_tracked_swing_at_the_dipole(
     wave = u * np.sin(2.0 * np.pi * (acd.tune * np.arange(601) + LAG))
     assert np.max(np.abs(got[:, X] - orbit[X] - wave)) < gate * abs(u)
     assert u > 0.0  # below the tune: in phase with the kick
+
+
+@pytest.mark.parametrize("delta", [-DELTA, DELTA])
+def test_a_vertical_drive_reads_the_vertical_optics(delta: float) -> None:
+    """The ``y`` branch, on the bent ring where the planes differ (``Q_y != Q_x``, and only
+    ``x`` has dispersion). Read as the horizontal answer it would be wrong by order one."""
+    acd = _drive("bent", 1e-7, plane="y")
+    lat = _ring("bent", acd, first=True)
+    amp = driven_amplitude(lat, delta=delta)
+    assert set(amp) == {"y"}
+    u = amp["y"]
+    orbit, osc = _steady(lat, 0, acd, delta, 600)
+    got = Tracker(lat).track_turns(Particle.from_array(orbit + osc[0]), 600, nonlinear=True)
+    wave = u * np.sin(2.0 * np.pi * (acd.tune * np.arange(601) + LAG))
+    assert np.max(np.abs(got[:, Y] - orbit[Y] - wave)) < 1e-5 * abs(u)
+    # the drive stays in its plane to first order: x moves by u^2-sized amounts (2.4e-12 m,
+    # 1.6e-6 of u; the bends' second order), not by anything linear in the drive
+    assert np.max(np.abs(got[:, X] - orbit[X])) < 1e-5 * abs(u)
+    as_x = ACDipole(kick=1e-7, tune=acd.tune, lag=LAG)
+    assert abs(driven_amplitude(_ring("bent", as_x, first=True), delta=delta)["x"] / u - 1) > 0.1
 
 
 @pytest.mark.parametrize("kind", ["fodo", "bent"])
