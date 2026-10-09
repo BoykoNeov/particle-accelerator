@@ -42,6 +42,74 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08) | named, not opened: editor/scenario support; a chromatic or amplitude-dependent driven response; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
 
+**W3 — the chromatic driven response (opened 2026-10-09; gates pre-committed here before
+any code).** An off-momentum particle has its own tune `Q(delta) = Q + Q' delta + ...` and
+its own beta, so the same drive swings it by a different amount. Near the resonance the
+lever is large: the steady-state amplitude goes as `1 / (Q(delta) - nu)`, so a relative
+slope of about `-Q' / (Q - nu)` per unit `delta` (~127 on W1's ring). The named W1/W2
+candidate "a chromatic or amplitude-dependent driven response" is **two** features; W3 is
+the chromatic one. The amplitude-dependent one (no exact solution — a Duffing-type cubic)
+is **W4**, named and not opened.
+
+Orientation facts (measured 2026-10-09, W1's thin FODO, `Q' = -1.529`): the thin quadrupole
+kicks `px` with no `1/(1+delta)` (canonical) and the drift carries it, so W1's own ring has
+its full natural chromaticity on the exact path. **xtrack's and MAD-X's `ACDipole` /
+`HACDIPOLE` both add the full `kick` to `px` at `delta = 0.05`** — no `1/(1+delta)`, the same
+as accsim. The convention is three-way consistent, so it is asserted, not discovered.
+
+Deliverable: `driven_amplitude(lattice, *, delta=0.0) -> {plane: u_hat}` in `accsim.twiss` —
+the signed steady-state amplitude at each dipole about the closed orbit at `delta`, from the
+on-orbit optics (`propagate_twiss_on_orbit`) at that momentum. `driven_twiss` /
+`driven_gradient` stay on-momentum (no `delta` argument): W3 does not add one.
+
+Gates, pre-committed:
+
+1. **The linear walk is blind to it, asserted as a named limitation.** The element matrices
+   carry no `delta`, so on a dispersion-free ring the default `track_turns` gives the same
+   `x` at `delta = 4e-3` as on momentum, bit for bit. Only `nonlinear=True` sees chromaticity.
+2. **The identity off momentum, on the exact path, gated on an order.** W1's steady-state
+   solve with `A`, `B` from the Jacobians of `track()` on the closed orbit at `delta`, the
+   motion measured about that orbit. A particle started on it stays on it, and the miss
+   comes from the exact drift's cubic term, so halving the kick quarters it (ratio in
+   3.8-4.2). Run at `delta = +-4e-3`, on W1's ring and on W2's bent ring (`D_x != 0` at the
+   dipole, so the orbit really moves). **Control:** the on-momentum solution handed to the
+   same off-momentum particle misses by order one.
+3. **`driven_amplitude` is what the particle does.** Signed and in phase with the kick, it
+   equals the tracked amplitude at the dipole to the exact-path floor. At `delta = 0` it
+   equals W1's closed form on the design optics, to the Jacobian's precision.
+4. **The slope, derived in sympy, not recalled.**
+   `d ln u_hat / d delta = b + 2 pi Q' (c cos mu - 1) / (sin mu (c - cos mu))`, where
+   `c = cos 2 pi nu`, `mu = 2 pi Q`, and `b` is the MAD8 chromatic beta at the dipole.
+   A finite difference of `driven_amplitude` matches it, gated on the order (halving the
+   step quarters the residual). The near-resonance shorthand `-Q' / (Q - nu)` is asserted
+   to be a different number.
+5. **The direction.** With the drive below the tune and `Q' < 0`, a particle above
+   momentum has its tune pulled *toward* the drive and swings more; one below swings less.
+   The other side of the tune reverses this. Both are asserted.
+6. **Refused on the particle's own resonance.** A drive tune placed on `Q(delta)` raises
+   `ResonantLatticeError` at that `delta`, rather than returning a number with no meaning.
+   This is the physics the milestone exists to state: a momentum spread can reach the drive.
+7. **A driven beam does not decohere; its switch-on transient does.** A bunch whose
+   momenta sit on a uniform grid, each weighted by its Gaussian share (so finite-sample
+   noise cannot pose as a residual), with the drive switched on abruptly. Early on the
+   centroid is far from the steady state: the free oscillation is as large as the driven
+   one. Late on (`n >= 600`) the centroid lands on the weighted mean of `driven_amplitude`.
+   **Control:** on the linear walk, which is blind to chromaticity, the free part never
+   decays.
+8. **The beam swings more than its on-momentum particle.** The weighted mean exceeds
+   `u_hat(0)` by `(1/2) u_hat''/u_hat sigma_delta^2 + O(sigma^4)`. Its leading
+   near-resonance term is `(Q' sigma_delta / (Q - nu))^2`: 1.6% at `sigma_delta = 1e-3` on
+   W1's ring. Gated on the order (halving sigma quarters the excess) and on the sign.
+   An AC-dipole measurement of a beam with energy spread reads this bias.
+9. **xtrack** (`model="exact"`) and **MAD-X `TRACK`** (start given in `pt`): an off-momentum
+   particle at `delta = 4e-3`, driven, turn by turn against accsim's exact path, gated at
+   measured floors. One pass at `delta = 0.05` asserts the kick convention in each code.
+
+Refused or named, not built: the off-momentum driven *optics* (`driven_twiss` at `delta`);
+synchrotron motion (with RF, `delta` oscillates and the response grows synchrotron
+sidebands, so `driven_amplitude` answers for a particle *frozen* at `delta` and says so);
+W4, the amplitude-dependent response; a skew drive; editor and scenario support.
+
 **Axis W shipped W2 on 2026-10-08** — the **driven optics**: the beam an AC dipole swings
 moves as if the ring had one more thin gradient at the dipole, of exactly the strength that
 pulls the tune onto the drive tune, so an optics measurement made with an AC dipole reads
