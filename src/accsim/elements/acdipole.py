@@ -19,7 +19,7 @@ class ACDipole(Element):
 
     On turn ``n`` (counted from 0, the first pass) it adds
 
-        theta_n = kick * ramp(n) * sin(2 pi (tune * n + lag))
+        theta_n = kick * ramp(n) * sin(2 pi (tune * n + tune_rate * n^2 / 2 + lag))
 
     to ``px`` (``plane="x"``) or ``py`` (``plane="y"``). ``kick`` is the peak deflection
     angle [rad], an integrated field over the rigidity, exactly as a
@@ -29,6 +29,13 @@ class ACDipole(Element):
     frequency in units of the revolution frequency (only its fractional part matters on
     a ring). ``lag`` is a phase **in turns**, as in xtrack and MAD-X — both of which
     multiply it by ``2 pi`` (xtrack's docstring says radians; its C does not).
+
+    ``tune_rate`` [per turn] sweeps the drive (W5): the instantaneous drive tune on turn
+    ``n`` is ``tune + tune_rate * n``, and the phase advances by
+    ``2 pi (tune + tune_rate * (n + 1/2))`` from turn ``n`` to ``n + 1``. ``0`` (the
+    default) is W1's fixed drive, bit for bit. Neither xtrack's ``ACDipole`` nor MAD-X's
+    ``HACDIPOLE`` has a sweep; the fixed-drive optics (:func:`~accsim.twiss.driven_twiss`
+    and its siblings) refuse a swept dipole.
 
     ``ramp = (r1, r2, r3, r4)`` [turns] is xtrack's trapezoid: off before ``r1``, a
     linear rise to full amplitude at ``r2``, flat until ``r3``, a linear fall to zero at
@@ -57,6 +64,7 @@ class ACDipole(Element):
         plane: str = "x",
         ramp: Sequence[int] | None = None,
         name: str | None = None,
+        tune_rate: float = 0.0,
     ) -> None:
         super().__init__(0.0, name=name)
         if plane not in _PLANES:
@@ -75,6 +83,7 @@ class ACDipole(Element):
             ramp = tuple(int(r) for r in ramp)
         self.amplitude = float(kick)
         self.tune = float(tune)
+        self.tune_rate = float(tune_rate)
         self.lag = float(lag)
         self.plane = plane
         self.ramp: tuple[int, int, int, int] | None = ramp
@@ -101,12 +110,14 @@ class ACDipole(Element):
     def drive_kick(self, turn: int, ref: ReferenceParticle) -> np.ndarray:
         """The ``(6,)`` kick added on pass ``turn`` (0 = the first), after the identity body."""
         out = np.zeros(DIM)
-        phase = 2.0 * math.pi * (self.tune * turn + self.lag)
+        sweep = 0.5 * self.tune_rate * turn * turn  # exactly 0.0 for a fixed drive
+        phase = 2.0 * math.pi * (self.tune * turn + sweep + self.lag)
         out[_PLANES[self.plane]] = self.amplitude * self.ramp_factor(turn) * math.sin(phase)
         return out
 
     def __repr__(self) -> str:
         return (
             f"ACDipole(kick={self.amplitude}, tune={self.tune}, lag={self.lag}, "
-            f"plane={self.plane!r}, ramp={self.ramp}{self._repr_tail()})"
+            f"plane={self.plane!r}, ramp={self.ramp}, tune_rate={self.tune_rate}"
+            f"{self._repr_tail()})"
         )

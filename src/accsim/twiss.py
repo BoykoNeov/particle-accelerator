@@ -319,13 +319,23 @@ def tunes(lattice: Lattice) -> tuple[float, float]:
     return end.mu_x / (2.0 * math.pi), end.mu_y / (2.0 * math.pi)
 
 
-def _ac_dipole_sites(lattice: Lattice) -> dict[str, tuple[int, object]]:
-    """``{plane: (index, ACDipole)}`` — at most one per plane, at least one in all."""
+def _ac_dipole_sites(lattice: Lattice, swept_ok: bool = False) -> dict[str, tuple[int, object]]:
+    """``{plane: (index, ACDipole)}`` — at most one per plane, at least one in all.
+
+    A swept dipole (``tune_rate != 0``, W5) is refused unless ``swept_ok``: the driven
+    optics describe the steady state of a *fixed* drive, and a swept one has none.
+    """
     from .elements.acdipole import ACDipole
 
     sites: dict[str, tuple[int, object]] = {}
     for i, elem in enumerate(lattice.elements):
         if isinstance(elem, ACDipole):
+            if elem.tune_rate != 0.0 and not swept_ok:
+                raise ValueError(
+                    f"ACDipole at element {i} is swept (tune_rate = {elem.tune_rate}): the "
+                    "driven optics describe the steady state of a fixed drive, which a swept "
+                    "one never reaches — see driven_fold_tune and autoresonance_threshold (W5)"
+                )
             if elem.plane in sites:
                 raise ValueError(
                     f"driven optics needs at most one ACDipole per plane; found two in "
@@ -516,13 +526,13 @@ class _ResponseCurve:
     local maxima are folds, and nothing here nests one root solve inside another.
     """
 
-    def __init__(self, lattice: Lattice, caller: str) -> None:
+    def __init__(self, lattice: Lattice, caller: str, swept_ok: bool = False) -> None:
         from .elements.acdipole import ACDipole
         from .elements.drift import Drift
         from .elements.octupole import ThinOctupole
         from .elements.quadrupole import ThinQuadrupole
 
-        sites = _ac_dipole_sites(lattice)
+        sites = _ac_dipole_sites(lattice, swept_ok)
         if len(sites) != 1:
             raise NotImplementedError(
                 f"{caller}: a dipole in each plane is not modelled — the octupoles' cross "
@@ -827,6 +837,122 @@ def driven_fold_kick(lattice: Lattice) -> dict[str, float | None]:
                 return {curve.plane: float(curve.kick_of(far)[0])}
             return {curve.plane: None}
     raise AssertionError("driven_fold_kick: the drive tune is not on the response curve")
+
+
+# ---------------------------------------------------------------------------
+# W5: the drive-tune sweep -- where a sweep loses the particle, and where it locks
+# ---------------------------------------------------------------------------
+
+#: The capture threshold of the universal autoresonance equation
+#: ``i dPsi/dtau + (tau - |Psi|^2) Psi = mu`` started at ``Psi = 0`` with the drive ramped
+#: on far from resonance (Fajans & Friedland, Am. J. Phys. 69, 1096 (2001), quote 0.411).
+#: Integrated, not recalled: ``tests/analytic/test_ac_dipole_sweep.py`` re-derives it.
+_AUTORESONANCE_MU_C = 0.41060
+
+
+def _with_fixed_drive(lattice: Lattice, idx: int, acd: object, tune: float) -> Lattice:
+    """``lattice`` with its dipole replaced by a fixed drive of the same kick at ``tune``."""
+    from .elements.acdipole import ACDipole
+
+    fixed = ACDipole(acd.amplitude, tune % 1.0, acd.lag, acd.plane, name=acd.name)
+    elements = list(lattice.elements)
+    elements[idx] = fixed
+    return Lattice(elements, lattice.ref)
+
+
+def driven_fold_tune(lattice: Lattice) -> dict[str, float | None]:
+    """The drive tune at which a slow sweep toward the tune loses the particle (W5).
+
+    Sweeping the drive tune toward the natural tune from the side the detuning pulls to
+    (below it when the tune falls with amplitude, above when it rises), a particle rides
+    :func:`driven_states`'s small in-phase state, which grows, until that state meets
+    the unstable middle one and vanishes. This is that tune: where
+    :func:`driven_fold_kick` equals the dipole's kick, the fold read in tune at fixed
+    kick. Past it the particle is thrown off — onto **no** steady state: these rings
+    have no damping, so it keeps the large free oscillation it was flung into (the damped
+    oscillator's jump onto the other branch does not happen).
+
+    A slow sweep overshoots this tune by an amount that vanishes with the rate, as
+    ``rate^(4/5)`` to leading order (an undamped saddle-centre; a damped saddle-node
+    would give ``2/3``). Depends on the dipole's kick, not on its own tune, lag, ramp or
+    ``tune_rate``. Returns the fractional drive tune, as
+    :class:`~accsim.elements.acdipole.ACDipole` takes it, or ``None`` when there is no
+    fold within the model's reach (no detuning, or a kick so strong that the small state
+    reaches the validity cut of :func:`driven_states` first). Same model, scope and
+    refusals as :func:`driven_states`.
+    """
+    from scipy.optimize import brentq
+
+    curve = _ResponseCurve(lattice, "driven_fold_tune", swept_ok=True)
+    ((plane, (idx, acd)),) = _ac_dipole_sites(lattice, swept_ok=True).items()
+    a = float(curve._optics(np.array([0.0]))[2][0])
+    if a == 0.0:
+        return {plane: None}
+    q_nat = tunes(lattice)[0 if plane == "x" else 1]
+    toward = -1.0 if a < 0.0 else 1.0  # the side the detuning pulls the tune to
+    room = q_nat - 0.5 * curve.half if a < 0.0 else 0.5 * (curve.half + 1) - q_nat
+
+    def excess(dist: float) -> float:
+        """``F_c - kick`` with the drive ``dist`` from the tune on the pulling side."""
+        fixed = _with_fixed_drive(lattice, idx, acd, q_nat + toward * dist)
+        fc = driven_fold_kick(fixed)[plane]
+        return math.inf if fc is None else fc - curve.kick
+
+    # F_c rises from zero at the tune: double the distance until it passes the kick.
+    hi = 1e-6 * room
+    while (e_hi := excess(hi)) < 0.0:
+        hi *= 2.0
+        if hi >= 0.999 * room:
+            return {plane: None}
+    if not math.isfinite(e_hi):
+        return {plane: None}
+    dist = brentq(excess, 0.5 * hi, hi, xtol=1e-15, rtol=4.0 * np.finfo(float).eps)
+    return {plane: (q_nat + toward * dist) % 1.0}
+
+
+def autoresonance_threshold(lattice: Lattice) -> dict[str, float | None]:
+    r"""The kick above which a swept drive phase-locks the particle (W5).
+
+    Sweeping the drive *through* the tune in the direction the detuning moves it (down
+    when the tune falls with amplitude, up when it rises), a particle can lock onto the
+    drive and be carried out along :func:`driven_states`'s large branch, its own tune
+    following the drive's: **autoresonance**. Averaged over the turn (rotating wave), with
+    ``c = sqrt(J) e^{i psi}`` and ``psi`` the betatron phase relative to the drive's,
+
+        i dc/dn = -2 pi (Q - nu(n) + a |c|^2) c - i eps,     eps = theta sqrt(2 beta) / 4,
+
+    which is Fajans & Friedland's universal ``i Psi' + (tau - |Psi|^2) Psi = mu`` with
+    ``tau = sqrt(2 pi |nu_dot|) (n - n_cross)`` and
+    ``mu = eps sqrt(2 pi |a|) / (2 pi |nu_dot|)^(3/4)``. It locks iff
+    ``mu > mu_c = 0.41060``:
+
+        theta_th = 4 mu_c (2 pi |nu_dot|)^(3/4) / (sqrt(2 beta) sqrt(2 pi |a|)),
+
+    ``beta`` the natural beta at the dipole, ``a = dQ/dJ`` the natural first-order
+    detuning (octupoles and the exact drift's share, as in :func:`driven_states`),
+    ``nu_dot`` the dipole's ``tune_rate``. Natural optics, so it carries W4's
+    natural-frame error. That error vanishes for slow sweeps: on the W4 fixture the
+    tracked threshold exceeds this by 0.4% at ``1e-6`` per turn, the excess falling as
+    ``sqrt(rate)``. ``mu_c`` assumes the drive was switched on gently, far from
+    resonance; an abrupt switch-on moves it at the 1% level.
+
+    Returns ``{plane: theta_th}`` [rad], or ``None`` when the sweep runs against the
+    detuning (``a nu_dot <= 0``: nothing locks at any kick). Raises :class:`ValueError`
+    for a fixed drive (``tune_rate = 0``). Same model, scope and refusals as
+    :func:`driven_states`.
+    """
+    curve = _ResponseCurve(lattice, "autoresonance_threshold", swept_ok=True)
+    ((plane, (_, acd)),) = _ac_dipole_sites(lattice, swept_ok=True).items()
+    if acd.tune_rate == 0.0:
+        raise ValueError(
+            "autoresonance_threshold: the ACDipole is not swept (tune_rate = 0) — a fixed "
+            "drive does not lock; see driven_states"
+        )
+    _, beta, a = (float(v[0]) for v in curve._optics(np.array([0.0])))
+    if a * acd.tune_rate <= 0.0:
+        return {plane: None}
+    theta = 4.0 * _AUTORESONANCE_MU_C * (2.0 * math.pi * abs(acd.tune_rate)) ** 0.75
+    return {plane: theta / (math.sqrt(2.0 * beta) * math.sqrt(2.0 * math.pi * abs(a)))}
 
 
 def is_stable(one_turn: np.ndarray) -> bool:

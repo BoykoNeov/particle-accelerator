@@ -39,11 +39,62 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10) | **W5** the drive-tune sweep — opened 2026-10-10, gates pre-committed (no closed hysteresis loop: the undamped ring follows, departs or autoresonates); named, not opened: editor/scenario support; a skew (coupled) drive |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10) | named, not opened: editor/scenario support; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
 
+**Axis W shipped W5 on 2026-10-10**: the **drive-tune sweep**. `ACDipole(tune_rate=...)`
+sweeps the drive. `driven_fold_tune` gives where a sweep toward the tune loses the particle,
+and `autoresonance_threshold` the kick above which a sweep through it locks. The fixed-drive
+optics refuse a swept dipole. Full detail is in `docs/CONVENTIONS.md` -> *The drive-tune
+sweep*. The pre-committed correction stands: **there is no closed hysteresis loop.** These
+rings are undamped, so the up-sweep rides the small state and is thrown off onto no steady
+state, while the down-sweep autoresonates onto the large branch. All nine pre-committed
+gates pass, three of them with a corrected detail. What changed between pre-commitment and
+code:
+
+- **The threshold formula is right to the coefficient.** The tracked threshold sits above
+  it by 0.825%, 0.585% and 0.415%, an excess falling by 1.410 per halving of the rate. That
+  is the `sqrt 2` of a natural-optics correction first order in `kick / u ~ rate^(1/2)`.
+  `mu_c = 0.41060` is integrated in the test; the literature's 0.411 is recalled. Against
+  `rate^(2/3)` the thresholds drift 12.7%.
+- **"Locked" is the swing's size, not its in-step part.** Near the threshold the libration
+  is large, and a 300-turn in-step average caught it at its low point: locked at 1.009,
+  unlocked at 1.010, locked again at 1.012. The size test (the last 300 turns past 0.35 of
+  the backbone) switches once, at `1e-4` resolution.
+- **The control against the detuning gates growth, not size** (gate 7). At 10x the
+  threshold, a particle swept the wrong way leaves the crossing with a free swing as large
+  as a locked one's. Its RMS swing does not grow from `tau = 30` to `60` (0.998); the
+  locked one's does (1.38).
+- **The hysteresis needs one kick** (gate 5). The pre-commitment pointed at gate 2's
+  up-sweep, whose kick puts `13/40` exactly on the fold. So an up-sweep at the down-sweep's
+  kick `2e-4` runs beside it: at `13/40` it sits on the exact small orbit, while the
+  down-sweep sits 1.4-4.9% from the exact large one.
+- **The bare ring has a fold** (gate 8, pre-committed `None`). The exact drift detunes
+  upward, so a fold sits 0.001 above the tune at kick `2e-4`. `None` is gated at a kick
+  (`2e-2`) that puts the fold beyond the model's reach.
+- **Past the fold, two of three sweeps lose the particle** (gate 4) at the exact fold kick
+  of `13/40`. The third is left swinging 3.4x the single steady state.
+- **The departure.** The overshoot past the exact fold is `3.76e-4, 2.24e-4, 1.33e-4` in
+  tune (ratios 1.68). The cubic's fold tune is `1.8e-5` below the exact one. The
+  `rate^(4/5)` power holds on the averaged equation: 2.1%, against 12.8% for `2/3`.
+- **The following.** The in-phase swing stays on the exact small orbit to `1.0e-4`. The lag
+  halves with the rate (1.94-2.11).
+- **xtrack**, handed the sweep as a per-turn `lag`, follows accsim to `4.7e-13` over 600
+  turns through the tune.
+- **Cost.** The W5 file runs about 3.5 minutes. Its sweeps are batched, one particle per
+  column, each column driven by its own element.
+
+**What W5 leaves open:**
+- the oscillation left behind after the departure (an adiabatic invariant of the separatrix
+  crossing; named);
+- the locked particle's libration;
+- a damped sweep;
+- non-linear chirps;
+- the editor;
+- a skew (coupled) drive.
+
 **W5 — the drive-tune sweep (opened 2026-10-10; the gates below were pre-committed before
-any code).** An AC dipole whose drive tune moves slowly, turn by turn, through the region
+any code; see the shipped entry above for what changed).** An AC dipole whose drive tune moves slowly, turn by turn, through the region
 where W4 found up to three steady states. The roadmap named this "the hysteresis loop".
 **That premise is wrong for this machine, and the entry says so up front.** The textbook
 loop (sweep up, jump down at one fold; sweep down, jump up at the other) belongs to a
