@@ -49,7 +49,7 @@ optics refuse a swept dipole. Full detail is in `docs/CONVENTIONS.md` -> *The dr
 sweep*. The pre-committed correction stands: **there is no closed hysteresis loop.** These
 rings are undamped, so the up-sweep rides the small state and is thrown off onto no steady
 state, while the down-sweep autoresonates onto the large branch. All nine pre-committed
-gates pass, three of them with a corrected detail. What changed between pre-commitment and
+gates pass, four of them (4, 5, 7, 8) with a corrected detail. What changed between pre-commitment and
 code:
 
 - **The threshold formula is right to the coefficient.** The tracked threshold sits above

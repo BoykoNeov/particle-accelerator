@@ -872,10 +872,12 @@ def driven_fold_tune(lattice: Lattice) -> dict[str, float | None]:
     have no damping, so it keeps the large free oscillation it was flung into (the damped
     oscillator's jump onto the other branch does not happen).
 
-    A slow sweep overshoots this tune by an amount that vanishes with the rate, as
-    ``rate^(4/5)`` to leading order (an undamped saddle-centre; a damped saddle-node
-    would give ``2/3``). Depends on the dipole's kick, not on its own tune, lag, ramp or
-    ``tune_rate``. Returns the fractional drive tune, as
+    A slow sweep overshoots this tune by an amount that vanishes with the rate. The
+    reduced motion near the fold is an undamped saddle-centre, whose overshoot goes as
+    ``rate^(4/5)`` to leading order (a damped saddle-node would give ``2/3``); that power
+    is gated on the averaged equation, while on the ring only the convergence is (it is
+    too slow there to tell the two apart). Depends on the dipole's kick, not on its own
+    tune, lag, ramp or ``tune_rate``. Returns the fractional drive tune, as
     :class:`~accsim.elements.acdipole.ACDipole` takes it, or ``None`` when there is no
     fold within the model's reach (no detuning, or a kick so strong that the small state
     reaches the validity cut of :func:`driven_states` first). Same model, scope and
