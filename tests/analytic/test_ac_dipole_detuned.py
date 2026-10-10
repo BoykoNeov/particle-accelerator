@@ -272,6 +272,8 @@ def test_three_states_below_the_fold_and_one_above() -> None:
     above = _ring(_acd(1.02 * fc), k3l)
     (only,) = driven_states(above)["x"]
     assert only.amplitude < 0.0 and only.stable
+    # Weak on its own (it passes if Newton merely stalls); the fold claim is carried by
+    # the extrapolation below, which measures where the exact orbits actually merge.
     z, _, _ = _periodic_orbit(above, _seed(above, small, 1.02 * fc, NU), 40, it=20)
     if z is not None:  # whatever Newton found from the small state's seed, it is not small
         u, _ = _dipole_amplitude(above, z, 40, NU)
@@ -414,6 +416,19 @@ def test_on_an_equal_tune_ring_the_undriven_plane_is_pumped() -> None:
 
 
 # --- 11. refusals -------------------------------------------------------------------------
+def test_a_state_past_the_validity_cut_is_refused_not_dropped() -> None:
+    """Driven hard enough, a branch of the response runs into the validity cut before it
+    reaches the kick: a state exists where first-order detuning cannot see it. Refused
+    (measured: 100x the fold on the pushing ring, 20x on the pulling one) — never a
+    shorter tuple that looks complete."""
+    fc = driven_fold_kick(_ring(_acd(1e-5), -2000.0))["x"]
+    assert len(driven_states(_ring(_acd(30 * fc), 2000.0))["x"]) == 1
+    assert len(driven_states(_ring(_acd(10 * fc), -2000.0))["x"]) == 1
+    for k3l, f in ((2000.0, 100.0), (-2000.0, 20.0)):
+        with pytest.raises(ValueError, match="first-order detuning"):
+            driven_states(_ring(_acd(f * fc), k3l))
+
+
 @pytest.mark.parametrize(
     "intruder",
     [Dipole(1.0, 0.01), ThinSextupole(1.0), Quadrupole(0.5, 0.1), ThinOctupole(100.0, dx=1e-3)],

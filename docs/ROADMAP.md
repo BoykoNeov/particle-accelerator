@@ -63,7 +63,10 @@ pre-committed gates pass. What changed between pre-commitment and code:
 - **A validity cut that was not pre-committed.** Near the driven ring's stability edges,
   `beta_d` diverges and the first-order formula invented tiny states with a "detuning" of
   0.3, plus a spurious fold on the pushing side. A state is now returned only if its tune
-  shift is smaller than the driven ring's distance from its integer or half-integer.
+  shift is smaller than the driven ring's distance from its integer or half-integer. A
+  kick strong enough to push a branch into that cut is **refused** with a `ValueError`,
+  not answered with fewer states: 100x the fold on the pushing ring, 20x on the pulling
+  one. `driven_fold_kick`'s `None` means no fold within the model's reach.
 - **The drift's detuning** `3 L gamma^2 / (16 pi)` is now derived (sympy, anchored on J2) and
   tracked (x4.000 / x16.00).
 - **Past the fold the particle is lost, not parked on the large state.** The ramp to
@@ -90,7 +93,8 @@ from the drive, **up to three** when it pulls the tune toward it — a small in-
 kick** the small one disappears and a beam ramped up through it is thrown off. That fold is
 the operational number: how hard an AC dipole may be driven on a ring with octupoles.
 
-Orientation facts (measured 2026-10-10 in `W:\temp\claude\w4`, on W1's 6-cell thin FODO
+Orientation facts (measured 2026-10-10 by throwaway probes, each re-measured by a gate in
+`tests/analytic/test_ac_dipole_detuned.py` and `tests/_w4_driven_orbits.py`; on W1's 6-cell thin FODO
 with the focusing split, `K1L = +0.25 / -0.22`, so `Qx = 1.3441`, `Qy = 1.0409`; drive
 `nu = 13/40`, lag 0.13, dipole after the first drift where `beta_x = 3.80`, `alpha_x != 0`):
 

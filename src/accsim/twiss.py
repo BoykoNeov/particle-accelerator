@@ -622,9 +622,8 @@ class _ResponseCurve:
         a = a + _DRIFT_DETUNING * np.sum(self.drift_l[:, None] * g_drift * g_drift, axis=0)
         return q, beta, a
 
-    def s(self, g: np.ndarray | float) -> np.ndarray:
-        """``u^2`` on the curve at ``g`` (NaN where the driven ring is unstable or ``< 0``)."""
-        g = np.atleast_1d(np.asarray(g, dtype=float))
+    def _s_and_cut(self, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """``(u^2 or NaN, cut)``: ``cut`` marks points refused *only* by the validity cut."""
         with np.errstate(divide="ignore", invalid="ignore"):
             q, beta, a = self._optics(g)
             s = 2.0 * beta * (self.target - q) / a
@@ -635,8 +634,23 @@ class _ResponseCurve:
         # nothing at all. Outside that, the curve is not drawn.
         room = np.minimum(q - 0.5 * self.half, 0.5 * (self.half + 1) - q)
         ok = np.isfinite(s) & (s >= 0.0) & (g > self.lo) & (g < self.hi) & (g != 0.0)
-        ok &= np.abs(self.target - q) < room
-        return np.where(ok, s, np.nan)
+        valid = np.abs(self.target - q) < room
+        return np.where(ok & valid, s, np.nan), ok & ~valid
+
+    def s(self, g: np.ndarray | float) -> np.ndarray:
+        """``u^2`` on the curve at ``g`` (NaN where the driven ring is unstable, ``u^2 < 0``,
+        or past the validity cut)."""
+        return self._s_and_cut(np.atleast_1d(np.asarray(g, dtype=float)))[0]
+
+    def _cut_edge(self, inside: float, outside: float) -> float:
+        """The last ``g`` before the validity cut, between a valid and a cut sample."""
+        for _ in range(100):
+            mid = 0.5 * (inside + outside)
+            if np.isfinite(self.s(mid)[0]):
+                inside = mid
+            else:
+                outside = mid
+        return inside
 
     def kick_of(self, g: np.ndarray | float) -> np.ndarray:
         """``|kick|`` that sustains the steady state at ``g``."""
@@ -670,12 +684,22 @@ class _ResponseCurve:
 
     def pieces(self) -> list[tuple[float, float]]:
         """Monotone stretches of ``|kick|(g)``, as ``(g_start, g_end)`` pairs, walking out
-        from ``g = 0`` on each side. Every local maximum met is recorded in ``self.folds``.
+        from ``g = 0`` on each side. Every local maximum met is recorded in ``self.folds``;
+        every stretch end at the validity cut, in ``self.cut_ends`` as ``(g, rising)``
+        (``rising``: ``|kick|`` grows toward the cut).
         """
         out: list[tuple[float, float]] = []
         self.folds: list[float] = []
+        self.cut_ends: list[tuple[float, bool]] = []
         for end in (self.lo, self.hi):
             g = self._grid(end)
+            s, cut = self._s_and_cut(g)
+            # Each stretch that meets the cut ends exactly on it, not one sample short.
+            g = g.copy()
+            for idx in range(len(g) - 1):
+                for a, b in ((idx, idx + 1), (idx + 1, idx)):
+                    if np.isfinite(s[a]) and cut[b]:
+                        g[a] = self._cut_edge(g[a], g[b])
             k = self.kick_of(g)
             finite = np.isfinite(k)
             i = 0
@@ -697,6 +721,10 @@ class _ResponseCurve:
                             self.folds.append(g_ext)
                 breaks.append(float(seg_g[-1]))
                 out += list(zip(breaks[:-1], breaks[1:], strict=True))
+                if i > 0 and cut[i - 1]:
+                    self.cut_ends.append((float(seg_g[0]), bool(len(d) and d[0] < 0.0)))
+                if j + 1 < len(g) and cut[j + 1]:
+                    self.cut_ends.append((float(seg_g[-1]), bool(len(d) and d[-1] > 0.0)))
                 i = j + 1
         return out
 
@@ -737,9 +765,16 @@ def driven_states(lattice: Lattice) -> dict[str, tuple[DrivenState, ...]]:
     which is all a first-order detuning can give them.
 
     Returns ``{plane: (DrivenState, ...)}`` sorted by amplitude, for the one driven
-    plane. Linear in the action, on momentum, the driven plane only: an equal-tune ring
-    can pump the *other* plane parametrically at ``2 nu`` (``y = 0`` stays a solution,
-    but not a stable one) and that is not modelled. Refuses (:class:`NotImplementedError`)
+    plane. **First order in the detuning, with a validity cut:** a state is drawn only
+    where its tune shift is smaller than the driven ring's distance from its integer or
+    half-integer (beyond that ``beta_d`` diverges and the formula invents states). If a
+    branch of the response runs into that cut before reaching the dipole's kick — a
+    strong enough drive — a state lies where the model cannot see it, and this raises
+    :class:`ValueError` rather than return the rest as if they were all.
+
+    Linear in the action, on momentum, the driven plane only: an equal-tune ring can
+    pump the *other* plane parametrically at ``2 nu`` (``y = 0`` stays a solution, but
+    not a stable one) and that is not modelled. Refuses (:class:`NotImplementedError`)
     bends, sextupoles, thick magnets, misalignments and a dipole in each plane; raises
     :class:`ResonantLatticeError` for an integer or half-integer drive tune.
     """
@@ -753,6 +788,18 @@ def driven_states(lattice: Lattice) -> dict[str, tuple[DrivenState, ...]]:
             g = brentq(lambda x: float(curve.kick_of(x)[0]) - curve.kick, a, b, xtol=1e-300)
             u = curve.sign * curve.kick / g
             states.append(DrivenState(u, curve.stable_at(g)))
+    for g_cut, rising in curve.cut_ends:
+        k_cut = float(curve.kick_of(g_cut)[0])
+        if (curve.kick >= k_cut) if rising else (curve.kick <= k_cut):
+            # The stretch that runs into the cut would cross this kick beyond it: a
+            # state exists there that a first-order detuning cannot describe. Refuse
+            # rather than return the others as if they were all of them.
+            raise ValueError(
+                f"driven_states: at kick {curve.kick} a steady state lies past the reach of "
+                "first-order detuning (its tune shift would exceed the driven ring's "
+                "distance from its integer or half-integer, near |kick| = "
+                f"{k_cut:.4g}); lower the kick"
+            )
     return {curve.plane: tuple(sorted(states, key=lambda st: st.amplitude))}
 
 
@@ -763,8 +810,10 @@ def driven_fold_kick(lattice: Lattice) -> dict[str, float | None]:
     state of :func:`driven_states`. Where the detuning pulls the tune toward the drive,
     that state meets the unstable middle one at this kick (a saddle-node fold) and
     vanishes: driven any harder, the particle is thrown off — onto the large state at
-    best, out of the machine on the rings tested. ``None`` where the detuning pushes the
-    tune away and the small state continues for ever. Depends on the drive tune and the
+    best, out of the machine on the rings tested. ``None`` where the small state has no
+    fold within the model's reach: the detuning pushes the tune away, and the small
+    state continues until it meets :func:`driven_states`'s validity cut (past which
+    first-order detuning says nothing, fold or not). Depends on the drive tune and the
     ring, not on the dipole's own kick, lag or ramp. Same model, scope and refusals as
     :func:`driven_states`.
     """

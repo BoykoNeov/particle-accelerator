@@ -10616,6 +10616,11 @@ Facts and conventions:
   nothing, with a "detuning" of 0.3. So a state is returned only if its detuning shift is
   smaller than the driven ring's distance from its integer or half-integer
   (`|T - q| < room`). This is a cut on the model's validity, not a tuning knob.
+  If the dipole's kick is strong enough that a branch of the response runs into the cut
+  first (100x the fold on the pushing ring, 20x on the pulling one), a state lies where the
+  model cannot see it. `driven_states` then raises `ValueError` rather than return a
+  shorter tuple that looks complete. `driven_fold_kick`'s `None` means no fold within the
+  model's reach.
 - **The direction.** The fold exists only when the detuning pulls toward the drive:
   `k3l < 0` with the drive below the tune, `k3l > 0` above it. The other two combinations
   give one state, at W1's sign, at every kick tried.
