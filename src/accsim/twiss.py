@@ -397,8 +397,9 @@ def driven_twiss(lattice: Lattice) -> list[Twiss]:
     with no physical meaning.
 
     On-momentum and linear: how far an off-momentum particle is swung is
-    :func:`driven_amplitude` (W3); its driven optics, and an amplitude-dependent
-    response, are not modelled. The element's own static maps stay the identity —
+    :func:`driven_amplitude` (W3), and how far a particle whose tune moves with its
+    swing is :func:`driven_states` (W4); its driven optics at either is not
+    modelled. The element's own static maps stay the identity —
     nothing else in the package sees the gradient.
     """
     grads = driven_gradient(lattice)
@@ -473,6 +474,310 @@ def driven_amplitude(
             )
         out[plane] = acd.amplitude * beta * math.sin(mu) / (2.0 * (c_nu - c_q))
     return out
+
+
+# ---------------------------------------------------------------------------
+# W4: the amplitude-dependent driven response -- Duffing's cubic, in the driven frame
+# ---------------------------------------------------------------------------
+
+#: The exact drift's kinematic detuning per unit length and per ``gamma_u^2``:
+#: ``dQ_u/dJ_u = 3 L gamma_u^2 / (16 pi)``, the phase average of the ``p^4 / 8`` in
+#: ``-sqrt(1 - p^2)``. Derived in sympy in ``tests/analytic/test_ac_dipole_detuned.py``.
+_DRIFT_DETUNING = 3.0 / (16.0 * math.pi)
+
+
+@dataclass(frozen=True)
+class DrivenState:
+    """One steady state of a driven particle whose tune moves with its amplitude (W4).
+
+    ``amplitude`` is the signed swing at the dipole [m], ``u_n = amplitude * sin(2 pi
+    (nu n + lag))`` exactly as in :func:`driven_amplitude`: ``> 0`` in phase with the
+    kick, ``< 0`` in antiphase. ``stable`` is True for an elliptic steady state (a
+    particle started near it librates about it) and False for a hyperbolic one (it runs
+    away along the separatrix).
+    """
+
+    amplitude: float
+    stable: bool
+
+
+class _ResponseCurve:
+    """The driven-frame response curve of the one AC dipole in ``lattice``.
+
+    Parametrised by W2's gradient ``g``: the steady state is a free oscillation of the
+    ring with ``p_u += g u`` at the dipole, so for each ``g`` that ring's tune ``q(g)``,
+    its betas and its first-order detuning ``a(g)`` are fixed, and asking its tune at
+    action ``J_d = u^2 / (2 beta_d)`` to be the drive tune ``T`` fixes ``u^2``:
+
+        s(g) = u^2 = 2 beta_d(g) (T - q(g)) / a(g).
+
+    The kick that sustains it is ``|kick| = |g| sqrt(s)`` (``kick = g u``), explicit in
+    ``g``: the steady states of a given kick are the level crossings of that curve, its
+    local maxima are folds, and nothing here nests one root solve inside another.
+    """
+
+    def __init__(self, lattice: Lattice, caller: str) -> None:
+        from .elements.acdipole import ACDipole
+        from .elements.drift import Drift
+        from .elements.octupole import ThinOctupole
+        from .elements.quadrupole import ThinQuadrupole
+
+        sites = _ac_dipole_sites(lattice)
+        if len(sites) != 1:
+            raise NotImplementedError(
+                f"{caller}: a dipole in each plane is not modelled — the octupoles' cross "
+                "detuning couples the two planes' cubics into one system"
+            )
+        ((plane, (idx, acd)),) = sites.items()
+        for elem in lattice.elements:
+            if not isinstance(elem, (Drift, ThinQuadrupole, ThinOctupole, ACDipole)):
+                raise NotImplementedError(
+                    f"{caller}: {type(elem).__name__} {elem.name!r} is not modelled. The "
+                    "driven-frame cubic is written for straight rings of drifts, thin "
+                    "quadrupoles and thin octupoles: a bend's leading nonlinearity is second "
+                    "order, a sextupole detunes at second order through its own resonance "
+                    "denominators, and a thick magnet's kinematic terms are not in it"
+                )
+            if elem.is_misaligned or getattr(elem, "tilt", 0.0) != 0.0:
+                raise NotImplementedError(
+                    f"{caller}: the misaligned or tilted {type(elem).__name__} {elem.name!r} "
+                    "is not modelled — it moves the closed orbit off the octupoles' centres, "
+                    "and the feed-down is not in the cubic"
+                )
+        if abs(math.sin(2.0 * math.pi * acd.tune)) < 1e-12:
+            raise ResonantLatticeError(
+                f"{caller}: drive tune {acd.tune} is an integer or half-integer; the driven "
+                "ring would sit on its own integer or half-integer resonance"
+            )
+        if acd.amplitude == 0.0:
+            raise ValueError(f"{caller}: the ACDipole's kick is zero — it drives nothing")
+        self.plane, self.kick = plane, abs(acd.amplitude)
+        self.sign = math.copysign(1.0, acd.amplitude)
+        block = 0 if plane == "x" else 1
+        ref = lattice.ref
+
+        # Natural 2x2 maps from the dipole to every octupole and drift entrance, walking
+        # once round the ring from the dipole (which is the identity) back to it.
+        n = len(lattice.elements)
+        C = np.eye(2)
+        oct_c, oct_k, drift_c, drift_l = [], [], [], []
+        for j in [*range(idx + 1, n), *range(idx)]:
+            elem = lattice.elements[j]
+            if isinstance(elem, ThinOctupole):
+                oct_c.append(C)
+                oct_k.append(elem.k3l)
+            elif isinstance(elem, Drift):
+                drift_c.append(C)
+                drift_l.append(elem.length)
+            C = _blocks(elem.matrix(ref))[block] @ C
+        self.one_turn = C
+        self.oct_c = np.array(oct_c).reshape(-1, 2, 2)
+        self.oct_k = np.array(oct_k)
+        self.drift_c = np.array(drift_c).reshape(-1, 2, 2)
+        self.drift_l = np.array(drift_l)
+
+        cos_mu = 0.5 * (C[0, 0] + C[1, 1])
+        if abs(cos_mu) >= 1.0:
+            raise UnstableLatticeError(f"{caller}: the undriven {plane} plane is unstable")
+        q_nat = tunes(lattice)[block]
+        self.half = math.floor(2.0 * q_nat)  # the half-integer cell both tunes live in
+        nu = acd.tune % 1.0
+        same_half = (self.half % 2 == 0) == (nu < 0.5)
+        self.target = math.floor(q_nat) + (nu if same_half else 1.0 - nu)
+        self.cos_mu = cos_mu
+        m12 = C[0, 1]
+        # Stable driven rings: |cos mu + g m12 / 2| < 1. g = 0 (u infinite) splits it.
+        ends = sorted((2.0 * (-1.0 - cos_mu) / m12, 2.0 * (1.0 - cos_mu) / m12))
+        self.lo, self.hi = ends
+        # W2's gradient: the ring whose tune IS the drive tune, where s = 0 exactly.
+        self.g_w2 = 2.0 * (math.cos(2.0 * math.pi * self.target) - cos_mu) / m12
+
+    def _optics(self, g: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """``(q, beta_d at the dipole, a)`` of the driven ring for each ``g``."""
+        R = self.one_turn
+        c = self.cos_mu + 0.5 * g * R[0, 1]
+        sin_d = np.sqrt(np.clip(1.0 - c * c, 0.0, None))
+        if self.half % 2:
+            q = 0.5 * (self.half + 1) - np.arccos(c) / (2.0 * math.pi)
+            sin_d = -sin_d
+        else:
+            q = 0.5 * self.half + np.arccos(c) / (2.0 * math.pi)
+        # Matched at the dipole entrance, one turn = R G with G = [[1, 0], [g, 1]] ...
+        beta = R[0, 1] / sin_d
+        alpha = (R[0, 0] + g * R[0, 1] - R[1, 1]) / (2.0 * sin_d)
+        # ... then across the gradient: alpha jumps by -g beta (W2), beta does not.
+        alpha = alpha - g * beta
+        gamma = (1.0 + alpha * alpha) / beta
+
+        def carry(Cs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            c11, c12 = Cs[:, 0, 0, None], Cs[:, 0, 1, None]
+            c21, c22 = Cs[:, 1, 0, None], Cs[:, 1, 1, None]
+            b = c11 * c11 * beta - 2.0 * c11 * c12 * alpha + c12 * c12 * gamma
+            gm = c21 * c21 * beta - 2.0 * c21 * c22 * alpha + c22 * c22 * gamma
+            return b, gm
+
+        b_oct, _ = carry(self.oct_c)
+        _, g_drift = carry(self.drift_c)
+        a = _INV_16PI * np.sum(self.oct_k[:, None] * b_oct * b_oct, axis=0)
+        a = a + _DRIFT_DETUNING * np.sum(self.drift_l[:, None] * g_drift * g_drift, axis=0)
+        return q, beta, a
+
+    def s(self, g: np.ndarray | float) -> np.ndarray:
+        """``u^2`` on the curve at ``g`` (NaN where the driven ring is unstable or ``< 0``)."""
+        g = np.atleast_1d(np.asarray(g, dtype=float))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            q, beta, a = self._optics(g)
+            s = 2.0 * beta * (self.target - q) / a
+        s = np.where(g == self.g_w2, 0.0, s)  # exactly on the drive tune: u = 0
+        # First-order detuning means nothing once it moves the tune further than the
+        # driven ring sits from its integer / half-integer: near those edges beta_d
+        # diverges and the formula invents states at amplitudes where the octupole does
+        # nothing at all. Outside that, the curve is not drawn.
+        room = np.minimum(q - 0.5 * self.half, 0.5 * (self.half + 1) - q)
+        ok = np.isfinite(s) & (s >= 0.0) & (g > self.lo) & (g < self.hi) & (g != 0.0)
+        ok &= np.abs(self.target - q) < room
+        return np.where(ok, s, np.nan)
+
+    def kick_of(self, g: np.ndarray | float) -> np.ndarray:
+        """``|kick|`` that sustains the steady state at ``g``."""
+        g = np.atleast_1d(np.asarray(g, dtype=float))
+        return np.abs(g) * np.sqrt(self.s(g))
+
+    def _grid(self, end: float) -> np.ndarray:
+        """``g`` from 0 (exclusive) to ``end`` (exclusive), dense at both ends."""
+        t = np.unique(
+            np.concatenate([np.geomspace(1e-9, 0.5, 800), 1.0 - np.geomspace(1e-12, 0.5, 800)])
+        )
+        g = end * t
+        if 0.0 < self.g_w2 / end < 1.0:
+            g = np.sort(np.append(g, self.g_w2))
+            if end < 0.0:
+                g = g[::-1]
+        return g
+
+    def _refine(self, a: float, b: float, sign: float) -> float:
+        """The local maximum (``sign = 1``) or minimum (``-1``) of ``|kick|(g)`` in ``(a, b)``."""
+        from scipy.optimize import minimize_scalar
+
+        lo, hi = min(a, b), max(a, b)
+        res = minimize_scalar(
+            lambda x: -sign * float(self.kick_of(x)[0]),
+            bounds=(lo, hi),
+            method="bounded",
+            options={"xatol": 1e-14 * max(abs(lo), abs(hi))},
+        )
+        return float(res.x)
+
+    def pieces(self) -> list[tuple[float, float]]:
+        """Monotone stretches of ``|kick|(g)``, as ``(g_start, g_end)`` pairs, walking out
+        from ``g = 0`` on each side. Every local maximum met is recorded in ``self.folds``.
+        """
+        out: list[tuple[float, float]] = []
+        self.folds: list[float] = []
+        for end in (self.lo, self.hi):
+            g = self._grid(end)
+            k = self.kick_of(g)
+            finite = np.isfinite(k)
+            i = 0
+            while i < len(g):
+                if not finite[i]:
+                    i += 1
+                    continue
+                j = i
+                while j + 1 < len(g) and finite[j + 1]:
+                    j += 1
+                seg_g, seg_k = g[i : j + 1], k[i : j + 1]
+                breaks = [float(seg_g[0])]
+                d = np.sign(np.diff(seg_k))
+                for m in range(1, len(d)):
+                    if d[m] != d[m - 1] and d[m - 1] != 0.0:
+                        g_ext = self._refine(seg_g[m - 1], seg_g[m + 1], d[m - 1])
+                        breaks.append(g_ext)
+                        if d[m - 1] > 0.0:  # a maximum of |kick|: a fold
+                            self.folds.append(g_ext)
+                breaks.append(float(seg_g[-1]))
+                out += list(zip(breaks[:-1], breaks[1:], strict=True))
+                i = j + 1
+        return out
+
+    def stable_at(self, g: float) -> bool:
+        """Elliptic iff ``|kick|`` grows with ``|u|`` along the curve.
+
+        The averaged (rotating-frame) Hamiltonian of a driven, detuned oscillator is
+        ``K = -d r^2/2 + a r^4/8 - eps X``; on its fixed points (``P = 0``)
+        ``K_XX = d eps / d X`` and ``K_PP = eps / X``, and a fixed point is elliptic iff
+        their product is positive.
+        """
+        # Stay inside the stretch: clear of g = 0, the drive tune (u = 0) and the edges.
+        h = 1e-4 * min(abs(g), abs(g - self.g_w2), abs(g - self.lo), abs(g - self.hi))
+        dk = float(self.kick_of(g + h)[0] - self.kick_of(g - h)[0])
+        du = float(np.sqrt(self.s(g + h))[0] - np.sqrt(self.s(g - h))[0])
+        return dk * du > 0.0
+
+
+def driven_states(lattice: Lattice) -> dict[str, tuple[DrivenState, ...]]:
+    r"""Every steady state of a driven particle whose tune moves with amplitude (W4).
+
+    W1's closed form assumes the tune is a property of the ring. Swung hard, a particle
+    sees its own tune move — an octupole's first-order ``dQ/dJ``, and the exact drift's
+    kinematic ``3 L gamma^2 / (16 pi)`` — and the swing feeds back on the distance to
+    resonance that sets it. The steady-state condition becomes Duffing's cubic: **one**
+    state when the detuning pushes the tune away from the drive, **three** when it pulls
+    the tune toward it and the kick is below :func:`driven_fold_kick` — a small swing in
+    phase with W1's (stable), a large one on the other side of the resonance (stable) and
+    one between them (unstable).
+
+    It is solved in the **driven frame** (W2): the steady state is a free oscillation of
+    the ring with the thin gradient ``g = kick / u`` at the dipole, so its condition is
+    that ring's tune plus that ring's detuning at action ``u^2 / (2 beta_d)`` equal to
+    the drive tune, with the betas of the *driven* ring at the octupoles and in the
+    drifts. Putting the natural tune and betas into W1's formula instead misses by a
+    fixed fraction of the nonlinear correction (W2's beta beat): its error is first order
+    in the correction, this one's second. The large states are first order in ``Q - nu``,
+    which is all a first-order detuning can give them.
+
+    Returns ``{plane: (DrivenState, ...)}`` sorted by amplitude, for the one driven
+    plane. Linear in the action, on momentum, the driven plane only: an equal-tune ring
+    can pump the *other* plane parametrically at ``2 nu`` (``y = 0`` stays a solution,
+    but not a stable one) and that is not modelled. Refuses (:class:`NotImplementedError`)
+    bends, sextupoles, thick magnets, misalignments and a dipole in each plane; raises
+    :class:`ResonantLatticeError` for an integer or half-integer drive tune.
+    """
+    from scipy.optimize import brentq
+
+    curve = _ResponseCurve(lattice, "driven_states")
+    states = []
+    for a, b in curve.pieces():
+        ka, kb = float(curve.kick_of(a)[0]), float(curve.kick_of(b)[0])
+        if (ka - curve.kick) * (kb - curve.kick) < 0.0:
+            g = brentq(lambda x: float(curve.kick_of(x)[0]) - curve.kick, a, b, xtol=1e-300)
+            u = curve.sign * curve.kick / g
+            states.append(DrivenState(u, curve.stable_at(g)))
+    return {curve.plane: tuple(sorted(states, key=lambda st: st.amplitude))}
+
+
+def driven_fold_kick(lattice: Lattice) -> dict[str, float | None]:
+    """The kick past which the small driven state no longer exists (W4).
+
+    Ramping an AC dipole up from zero carries the particle along the small, in-phase
+    state of :func:`driven_states`. Where the detuning pulls the tune toward the drive,
+    that state meets the unstable middle one at this kick (a saddle-node fold) and
+    vanishes: driven any harder, the particle is thrown off — onto the large state at
+    best, out of the machine on the rings tested. ``None`` where the detuning pushes the
+    tune away and the small state continues for ever. Depends on the drive tune and the
+    ring, not on the dipole's own kick, lag or ramp. Same model, scope and refusals as
+    :func:`driven_states`.
+    """
+    curve = _ResponseCurve(lattice, "driven_fold_kick")
+    for a, b in curve.pieces():
+        if curve.g_w2 in (a, b):
+            # The small state's stretch rises from |kick| = 0 at the drive tune. It ends
+            # either where the curve runs out (g -> 0, a ring edge: no fold) or at a fold.
+            far = b if a == curve.g_w2 else a
+            if far in curve.folds:
+                return {curve.plane: float(curve.kick_of(far)[0])}
+            return {curve.plane: None}
+    raise AssertionError("driven_fold_kick: the drive tune is not on the response curve")
 
 
 def is_stable(one_turn: np.ndarray) -> bool:

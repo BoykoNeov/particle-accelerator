@@ -39,11 +39,49 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09) | **W4 opened 2026-10-10** — the amplitude-dependent response, gates pre-committed below; named, not opened: editor/scenario support; a skew (coupled) drive |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10) | named, not opened: editor/scenario support; a skew (coupled) drive; a drive-tune sweep (hysteresis) |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
 
-**W4 — the amplitude-dependent driven response (opened 2026-10-10; the gates below are
-pre-committed before any code).** A particle swung hard enough sees its own tune move with
+**Axis W shipped W4 on 2026-10-10**: the **amplitude-dependent driven response**. A swung
+particle's tune moves with its swing, so the steady state solves Duffing's cubic. There
+are three states when the detuning pulls toward the drive, and a fold kick past which the
+small one is gone and a ramped beam is thrown off. `driven_states`, `driven_fold_kick`. Full
+detail is in `docs/CONVENTIONS.md` -> *The amplitude-dependent driven response*. All eleven
+pre-committed gates pass. What changed between pre-commitment and code:
+
+- **Solve it in the driven frame, not in W1's formula.** With the natural optics the miss
+  falls x4 per halving of the kick (a coefficient error, W2's beta beat). In the driven frame
+  it falls x16 (16.03 / 15.97 / 16.15, vertical 16.03). Gate 3's "miss" is the *relative*
+  miss: the absolute one falls x32, because the amplitude halves too. The first run tripped
+  on exactly that.
+- **The exact fold is 1.0014 `F_c`.** It is measured where the exact small and middle orbits
+  merge: the square of their gap is linear in the kick, extrapolated to zero. This replaced
+  "exists at 0.998, gone at 1.002", which spent 40 s on Newton failing to find an orbit that
+  does not exist.
+- **Gate 9's kicks are fractions of the plane's own fold.** The vertical fold is 19x lower
+  (`2.1e-5`), so gate 3's absolute kicks sat on it, with a 30% nonlinear correction.
+- **A validity cut that was not pre-committed.** Near the driven ring's stability edges,
+  `beta_d` diverges and the first-order formula invented tiny states with a "detuning" of
+  0.3, plus a spurious fold on the pushing side. A state is now returned only if its tune
+  shift is smaller than the driven ring's distance from its integer or half-integer.
+- **The drift's detuning** `3 L gamma^2 / (16 pi)` is now derived (sympy, anchored on J2) and
+  tracked (x4.000 / x16.00).
+- **Past the fold the particle is lost, not parked on the large state.** The ramp to
+  1.3 `F_c` ends in NaN, the exact drift's square root.
+- **Reference legs.** xtrack follows the exact orbits to `8.6e-15`, MAD-X to `3.7e-14`
+  (`2.4e-13` on the unstable state). A cpymad gotcha: numpy 2's `np.float64(...)` repr
+  crashes MAD-X's parser, so cast to `float`.
+
+**What W4 leaves open:**
+- a drive-tune sweep (the hysteresis loop);
+- the free tune of a particle under the drive;
+- the vertical pump's stop band;
+- second order in the detuning;
+- bends, sextupoles, thick magnets, two planes;
+- the editor.
+
+**W4 — the amplitude-dependent driven response (opened 2026-10-10; the gates below were
+pre-committed before any code; see the shipped entry above for what changed).** A particle swung hard enough sees its own tune move with
 its amplitude (an octupole, and the exact drift itself), so the swing feeds back on the
 distance to resonance that sets it. Near the drive the steady-state condition becomes a
 cubic in the amplitude (Duffing's): one steady state when the detuning pushes the tune away

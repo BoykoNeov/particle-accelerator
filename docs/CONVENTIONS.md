@@ -10541,6 +10541,118 @@ and MAD-X `TRACK` (start given as `pt`, from `(1 + delta)^2 = 1 + 2 pt / beta0 +
 `8.1e-13`. The on-momentum particle misses them by 0.64 and 0.77. xtrack's default ramp
 `(0, 0, 0, 0)` means "off", and its ramp is `uint16`.
 
+### The amplitude-dependent driven response: Duffing's cubic, in the driven frame (W4 — implemented 2026-10-10)
+
+`driven_states(lattice) -> {plane: (DrivenState(amplitude, stable), ...)}` and
+`driven_fold_kick(lattice) -> {plane: float | None}` (`accsim.twiss`). A particle swung hard
+sees its tune move with its amplitude, and the swing feeds back on the distance to
+resonance that sets it. The steady state is then a root of a cubic. There is **one** root
+when the detuning pushes the tune away from the drive, and **three** when it pulls the tune
+toward it, below the fold kick:
+
+- a small swing in phase with W1's (stable);
+- a large swing on the far side of the resonance, in antiphase (stable);
+- one between them (unstable).
+
+`amplitude` is signed as in W1, `u_n = amplitude sin(2 pi (nu n + lag))` at the dipole.
+
+**The condition, in the driven frame.** The steady state is a free oscillation of the ring
+with W2's gradient `g = kick / u` at the dipole (exact for the linear ring). Adding the
+detuning to first order, that ring's tune at action `J_d = u^2 / (2 beta_d)` must equal the
+drive tune:
+
+    q(g) + a_d(g) u^2 / (2 beta_d(g)) = T,     a_d = sum k3l beta_d,oct^2 / (16 pi) + sum 3 L gamma_d^2 / (16 pi),
+
+with every beta and gamma the **driven** ring's: at the dipole, at each octupole, and in
+each drift. `T` is the drive tune folded into the natural tune's half-integer cell, as in W2.
+The code walks the curve in `g`, not in `u`:
+- for a given `g` the driven ring is fixed, so `u^2 = s(g)` is explicit;
+- the sustaining kick is `|kick| = |g| sqrt(s(g))`;
+- the steady states are the level crossings of that curve, and its local maxima are folds.
+
+No root solve sits inside another.
+
+Facts and conventions:
+
+- **The natural-optics cubic has a coefficient error.** It puts `Q + a J` with the natural
+  `beta` and `a` into W1's closed form. Its miss is a fixed fraction of the nonlinear
+  correction: ~2.4% with the octupole at the dipole, 24% at `beta = 15.7` against the
+  dipole's 3.80. Halving the kick divides that miss by **4**, the same as the correction
+  (4.00, 4.00, 4.02 on the three fixtures). The driven-frame miss falls by **16** (16.03,
+  15.97, 16.15; vertical drive 16.03).
+- **The 16 is what tests the driven-frame condition.** It is reasoned, from W2 plus
+  first-order perturbation theory on the substituted ring, and not derived further.
+- **A control catches the blind spot.** It reads the octupole's beta at the dipole and falls
+  x4.01 on the high-beta fixture. It is identical to the real cubic where the octupole sits
+  at the dipole, which is why that fixture exists.
+- **The large states miss at first order in `Q - nu`, not in the kick.** Their detuning must
+  cancel `Q - nu`, so `a J ~ Q - nu` is forced on them. Halving `Q - nu` at a fixed
+  `kick / F_c` divided the antiphase miss by 2.85, then 2.47, heading for 2. That is 0.7% at
+  `Q - nu = 0.019` on the fixture.
+- **The exact drift detunes**: `dQ_u/dJ_u = 3 L gamma_u^2 / (16 pi)` per drift, and
+  `dQ_x/dJ_y = L gamma_x gamma_y / (8 pi)`.
+  - Derived in sympy by phase-averaging the `+ (px^2 + py^2)^2 / 8` of `-sqrt(1 - p^2)`. The
+    same machinery is anchored on J2's octupole coefficients.
+  - Tracked: the free tune shift falls x4.000 and its residual x16.00 per halving of
+    amplitude.
+  - It enters the cubic privately. `total_detuning` keeps its meaning and its stated
+    exclusion. On the fixture it is 0.06% of `a`, the same size as the driven-frame miss, so
+    leaving it out would have broken the order gate.
+- **Stability.** In the rotating frame the averaged Hamiltonian is
+  `K = -d r^2/2 + a r^4/8 - eps X`. On its fixed points `K_XX = d eps/dX` and `K_PP = eps/X`,
+  and a fixed point is elliptic iff their product is positive, that is iff `|kick|` grows
+  with `|u|` along the curve. Every flag on the fixtures matches the exact Floquet type
+  (middle state: real pair 12.30 x 0.0813).
+- **The fold** (saddle-node).
+  - Predicted: `4.0755e-4` for `k3l = -2000` at the dipole, `nu = 13/40`.
+  - Exact: where the exact small and middle orbits merge (the square of their gap is linear
+    in the kick there), measured at **1.0014 `F_c`**.
+  - A slow ramp to 0.7 `F_c` lands on the small state to 1.2e-4. A ramp to 1.3 `F_c` loses the
+    particle: the exact drift's square root goes NaN, rather than the particle settling on
+    the large state.
+  - The vertical fold on the same ring is 19x lower (`2.1e-5`, `nu = 1/40` near `Qy`).
+- **Validity cut.** Near the edges of the driven ring's stability, `beta_d` diverges and the
+  first-order formula invents states. These are tiny amplitudes at which the octupole does
+  nothing, with a "detuning" of 0.3. So a state is returned only if its detuning shift is
+  smaller than the driven ring's distance from its integer or half-integer
+  (`|T - q| < room`). This is a cut on the model's validity, not a tuning knob.
+- **The direction.** The fold exists only when the detuning pulls toward the drive:
+  `k3l < 0` with the drive below the tune, `k3l > 0` above it. The other two combinations
+  give one state, at W1's sign, at every kick tried.
+- **The undriven plane can be pumped (not modelled, asserted).** On the equal-tune ring the
+  driven `x` motion modulates the octupole's vertical gradient (`k3l x^2 / 2`) at `2 nu`.
+  With `Qy` near `nu` that is a parametric drive, and the vertical 40-turn Floquet block
+  leaves the unit circle. `y = 0` stays invariant, so the horizontal answer stands, but a
+  beam with vertical size would grow. The W4 fixture splits the tunes (`K1L = +0.25/-0.22`)
+  for this reason.
+- **Scope, refused (`NotImplementedError`):**
+  - bends, because their leading nonlinearity is second order (W3's ratio 2);
+  - sextupoles, because their second-order detuning carries resonance denominators that
+    would sit at `nu` in the driven frame;
+  - thick magnets, because their kinematic terms are not in the cubic;
+  - misaligned or tilted elements, because of feed-down;
+  - a dipole in each plane, because the cross detuning couples the two cubics.
+
+  Off-momentum is not a parameter. A zero kick is a `ValueError`, and an integer or
+  half-integer drive is a `ResonantLatticeError`.
+- **The exact truth.** With a rational drive tune `p/q`, every steady state is a period-`q`
+  orbit of the exact driven map, found by Newton on the `q`-turn map in `(u, p_u)` with the
+  other plane at zero (invariant). It is shared as `tests/_w4_driven_orbits.py`, and the
+  reference legs track those same orbits.
+  - xtrack (`Multipole(knl=[0,0,0,k3l])`, `Drift(model="exact")`, `ACDipole` on) follows
+    them turn by turn to `8.6e-15` and returns them to themselves to `1.9e-14`.
+  - MAD-X `TRACK` (thin `MULTIPOLE`, `HACDIPOLE` at `lag - nu`) does the same to `3.7e-14`,
+    and `2.4e-13` on the unstable middle state.
+  - These check the map, not the cubic.
+  - cpymad gotcha: interpolate `float(x)`, never a numpy scalar, into MAD-X input. NumPy 2's
+    repr `np.float64(...)` crashes the parser ("MAD-X has stopped working!").
+- **Named, not built:**
+  - a drive-tune sweep, which would give the hysteresis loop (`ACDipole`'s tune is fixed);
+  - the free tune of a particle under the drive (the AC-dipole detuning-measurement
+    literature says it is not the free detuning; recalled, not checked);
+  - the vertical pump's stop band;
+  - second order in the detuning.
+
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 
 **The scenario format** (`accsim-scenario/1`, `src/accsim/scenario.py`) is the seam
