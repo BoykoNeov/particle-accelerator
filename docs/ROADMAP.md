@@ -39,8 +39,167 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10) | named, not opened: editor/scenario support; a skew (coupled) drive; a drive-tune sweep (hysteresis) |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10) | **W5** the drive-tune sweep — opened 2026-10-10, gates pre-committed (no closed hysteresis loop: the undamped ring follows, departs or autoresonates); named, not opened: editor/scenario support; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**W5 — the drive-tune sweep (opened 2026-10-10; the gates below were pre-committed before
+any code).** An AC dipole whose drive tune moves slowly, turn by turn, through the region
+where W4 found up to three steady states. The roadmap named this "the hysteresis loop".
+**That premise is wrong for this machine, and the entry says so up front.** The textbook
+loop (sweep up, jump down at one fold; sweep down, jump up at the other) belongs to a
+*damped* oscillator. The rings in W4's scope have no damping, so the two sweep directions do
+two different, and sharper, things:
+
+- **Sweeping toward the tune from the pulling side** (drive below the tune with `k3l < 0`),
+  the particle rides W4's small in-phase state, lagging the drive by an amount proportional
+  to the sweep rate, until the small state meets the middle one (W4's fold, now read as a
+  fold in tune at fixed kick). There it is thrown off. It does **not** land on the other
+  steady state: it is left with a large free oscillation, about 2 cm on the fixture, against
+  a steady state of 2-4 mm.
+- **Sweeping the other way, through the tune** (drive from above the tune down, `k3l < 0`),
+  the particle can **phase-lock** onto the drive and be carried out along W4's large
+  antiphase branch, its own tune falling with its growing amplitude in step with the drive.
+  This is **autoresonance**. It happens only above a threshold kick that grows as the sweep
+  rate to the power 3/4.
+
+The two directions leave the particle on different branches at the same instantaneous drive
+tune: that is the hysteresis, and it is open (the up-sweep never returns to a steady state).
+
+Orientation facts (measured 2026-10-10 by throwaway probes; W4's split-tune FODO,
+`k3l = -2000` at the dipole, `Qx = 1.3441`, natural `dQ/dJ = a = -574.4 m^-1` with the
+exact drift's share, `beta_x = 3.80` at the dipole, lag 0.13):
+
+- **The abrupt switch-on contaminates everything.** A drive switched on at full strength
+  leaves a free oscillation as large as the driven one (max|x| 2.5e-3 against an in-phase
+  swing of 1.3e-3), and nothing damps it. Every gate starts the particle on the **exact**
+  steady state (W4's period-`q` orbit at a rational start tune) or ramps the drive on far
+  from resonance.
+- **Following the small branch.** From the exact period-10 orbit at `3/10`, swept up at
+  `8e-6 ... 1e-6` per turn with the kick at W4's exact fold for `13/40`: at `5/16` and
+  `8/25` the demodulated in-phase swing equals the exact small orbit to `<= 1.7e-4`
+  relative (80-turn window). The quadrature (the lag behind the drive) **halves with the
+  rate**: x1.99, x2.00, x1.94 at `8/25`.
+- **The departure** (detected per turn, `|x| > 1.5 cm`) lies past the exact fold
+  `13/40` by `6.56e-4, 3.76e-4, 2.24e-4, 1.33e-4` in tune at those four rates (ratios 1.75,
+  1.68, 1.68). The overshoot converges on the exact fold, but too slowly to read its power
+  off the ring.
+- **The overshoot's power is 4/5, derived on the averaged equation, not on the ring.** Near
+  a fold of an *undamped* oscillator the reduced motion is a saddle-centre,
+  `X'' = X^2 + alpha t` (Painleve I after scaling); scaling `X ~ alpha^(2/5)`,
+  `t ~ alpha^(-1/5)` gives an overshoot in tune `~ alpha^(4/5)`. (A *damped* saddle-node
+  gives `2/3`; a remembered `2/3` would have been wrong here.) On the averaged equation
+  `i Psi' = -(d - |Psi|^2) Psi + mu`, swept through its fold, the halving ratio climbs
+  1.63 -> 1.72 over ten halvings toward `2^(4/5) = 1.741`, the gap shrinking by `2^(-1/5)`
+  per halving: the next term is `alpha^1`. The two-term law `A alpha^(4/5) + B alpha`,
+  fitted on the two slowest rates, predicts the other eight to `<= 2.2%`; with `2/3` in
+  place of `4/5` it misses by up to 41%.
+- **No landing.** Past the fold the up-swept particle's in-phase swing is near zero and its
+  free oscillation ~1.9 cm, nearly independent of the rate (0.0188, 0.0190, 0.0192 m
+  max|x| at `nu = 0.38`, three rates) against a single steady state of -1.8e-3 to -3.7e-3
+  m there. The near rate-independence is an adiabatic invariant (the separatrix area at
+  the fold); it is **named, not predicted** (its averaged-Hamiltonian value carries W4's
+  natural-optics coefficient error, and a separatrix crossing's invariant converges in
+  the rate only logarithmically).
+- **Capture.** From the exact period-8 orbit at `3/8` (one state, antiphase), swept down
+  with kick `2e-4` (`~55x` the threshold): at `13/40` and `5/16` the 2000-turn demodulated
+  swing is antiphase and 1.4-4.9% from the exact large orbit, at three rates. The particle
+  carries a libration about the locked state that does **not** shrink with the rate (it is
+  set while crossing the resonance); it is named, not gated.
+- **The threshold, from the universal equation.** The rotating-wave reduction
+  `i c' = -2 pi (Q - nu(n) + a |c|^2) c - i eps`, `eps = theta sqrt(2 beta) / 4`, `c =
+  sqrt(J) e^(i psi)`, maps onto Fajans & Friedland's `i Psi' + (tau - |Psi|^2) Psi = mu`
+  with `tau = sqrt(2 pi |nu_dot|) (n - n_cross)` and
+  `mu = eps sqrt(2 pi |a|) / (2 pi |nu_dot|)^(3/4)`, when `a nu_dot > 0` (the sweep moves
+  the drive the way the detuning moves the tune). Capture iff `mu > mu_c`. So
+
+      theta_th = 4 mu_c (2 pi |nu_dot|)^(3/4) / (sqrt(2 beta) sqrt(2 pi |a|)).
+
+  `mu_c` integrated here, not recalled: **0.41060** with the drive ramped on far from
+  resonance (start-independent to `1e-6` over three starts; the recalled value is 0.411),
+  0.41300 with an abrupt start at `tau = -30` (start-dependent at the 0.6% level).
+- **The tracked threshold converges on it.** Abrupt start at `tau = -30` against
+  `mu_c(-30)`: measured / predicted = 1.0085, 1.0065, 1.0045, 1.0035 (+-0.0005) at
+  `4e-6 ... 5e-7`. The excess falls by about `sqrt 2` per halving of the rate (the capture
+  amplitude is `~ rate^(1/4)`, and the natural-optics error W4 measured is first order in
+  `kick / u ~ rate^(1/2)`). With the drive ramped on over `tau in [-80, -40]` against
+  0.41060, bisected to `1e-4`: 1.00825, 1.00585, 1.00415, 1.00295 at `4e-6 ... 5e-7`. The
+  excess falls by **1.410, 1.410, 1.407** per halving: the `sqrt 2` law, so the formula's
+  coefficient is right and its only error is that vanishing correction.
+- **No arbiter has the swept element.** xtrack's `ACDipole` has a fixed `freq` and `lag`,
+  MAD-X's `HACDIPOLE` a fixed `FREQ` and `LAG`. xtrack can be handed the chirp by resetting
+  `lag` before each one-turn track: a transcription check of the element, not of the
+  physics. The exact map (`track()`) is the truth, as in W4.
+
+Deliverable:
+- `ACDipole(..., tune_rate=0.0)`: the drive phase on turn `n` is
+  `2 pi (tune n + tune_rate n^2 / 2 + lag)`, so the instantaneous drive tune is
+  `tune + tune_rate n` (the phase advances by `2 pi (tune + tune_rate (n + 1/2))` from
+  turn `n` to `n + 1`). `tune_rate = 0` is W1's element, bit for bit. Static maps stay the
+  identity.
+- `driven_fold_tune(lattice) -> {plane: float | None}` (`accsim.twiss`): the drive tune,
+  on the pulling side of the natural tune, at which the small state of the dipole's kick
+  vanishes — where a slow sweep toward the tune loses the particle. `None` when the
+  detuning has no fold (no octupole, or the kick is beyond the model's reach). It is the
+  inverse of `driven_fold_kick` in its tune argument.
+- `autoresonance_threshold(lattice) -> {plane: float | None}`: the kick above which a sweep
+  at the dipole's `tune_rate` through the tune phase-locks, from the formula above with the
+  natural `beta` at the dipole and the natural `a` (W4's first-order detuning, octupoles
+  plus the exact drift's share). `None` when `a tune_rate <= 0` (the sweep runs against the
+  detuning: nothing locks) or `a = 0`.
+- `driven_twiss`, `driven_amplitude`, `driven_states` and `driven_fold_kick` describe a fixed
+  drive and **refuse** a swept dipole (`ValueError`), rather than answer at its turn-0 tune.
+
+Scope: W4's (on momentum, one `ACDipole`, straight rings of `Drift`, `ThinQuadrupole`,
+`ThinOctupole` and the dipole), linear chirp only.
+
+Gates, pre-committed:
+
+1. **The element.** `tune_rate = 0` tracks bit for bit as W1's element; the kick on turn
+   `n` is `kick ramp(n) sin(2 pi (nu n + nu_dot n^2 / 2 + lag))`, asserted against the
+   phase accumulated turn by turn with the increment `nu + nu_dot (n + 1/2)`; the static
+   maps are the identity; the four fixed-drive functions refuse a swept dipole.
+2. **Following the small branch.** From the exact period-10 orbit at `3/10`, kick at W4's
+   exact fold for `13/40`, swept up at `4e-6, 2e-6, 1e-6`: at `5/16` and `8/25` the
+   in-phase swing equals the exact small orbit to `1e-3` relative, and the quadrature
+   halves with the rate (each ratio in 1.8-2.2).
+3. **The departure converges on the exact fold.** In the same runs the per-turn departure
+   (`|x| > 1.5 cm`) lies past `13/40`; the overshoot falls monotonically with the rate,
+   each ratio in 1.5-2.0, and is below `2e-4` in tune at `1e-6`. **The power is gated on the
+   averaged equation**: at six rates halving from `1e-2`, overshoot
+   `= A alpha^(4/5) + B alpha` fitted on the two slowest predicts the other four to 3%
+   (measured `<= 2.1%` at two detection radii); the same fit with `2/3`, `2/3 + 1/5` misses
+   one by more than 5% (measured 10-13%).
+4. **No landing.** After the departure, at `nu = 0.36`, the particle's free oscillation
+   exceeds three times the single steady state's swing there (it is on no steady state).
+5. **Capture on the reverse sweep.** From the exact period-8 orbit at `3/8`, kick `2e-4`,
+   swept down at `4e-6` and `2e-6`: at `13/40` and `5/16` the 2000-turn swing is antiphase
+   and within 6% of the exact large orbit (the in-phase small and middle states are the
+   alternatives it is not on). This is the hysteresis: at `13/40` the up-sweep (gate 2's
+   run) is on the small state and the down-sweep on the large one.
+6. **The threshold.** `mu_c` re-derived in the test by integrating the universal equation
+   with a ramped start (0.41060 to `1e-4`), and the scaling that maps the ring onto it
+   checked in sympy. On the ring, the drive ramped on over `tau in [-80, -40]` and the
+   sweep ended at `tau = +60`: at `4e-6, 2e-6, 1e-6` the tracked threshold (bisected to
+   `1e-4` relative) sits above `autoresonance_threshold` by an excess that falls by
+   `sqrt 2` per halving of the rate, each ratio in 1.33-1.50 (measured 1.410, 1.410), and
+   is below 0.5% at `1e-6` (measured 0.415%). **Control:** the same thresholds against a
+   `rate^(2/3)` or `rate^(1/2)` law in place of `3/4` drift by more than 5% across the
+   three rates.
+7. **The mirror.** `k3l = +2000`, drive above the tune: the **up**-sweep locks (above
+   `1.03 x` the threshold, not below `0.97 x`, at `2e-6`), and the down-sweep departs past
+   `driven_fold_tune`, which lies above the tune. A sweep against the detuning at `10x` the
+   mirrored threshold does not lock, and `autoresonance_threshold` returns `None` for it.
+8. **`driven_fold_tune` is `driven_fold_kick` inverted.** On both fixtures,
+   `driven_fold_kick` at the returned tune equals the dipole's kick to `1e-9` relative;
+   `None` on the bare ring.
+9. **Reference, transcription only.** xtrack's `ACDipole` with `lag` reset before each
+   one-turn track reproduces accsim's swept turn-by-turn orbit at its measured floor.
+
+Refused or named, not built: the oscillation left behind after the departure (an adiabatic
+invariant of the separatrix crossing; named, see above); the locked particle's libration;
+the threshold's coefficient beyond the order of its convergence; a damped sweep (radiation
+needs bends, which W4 refuses); non-linear chirps; the vertical pump, two planes, bends,
+sextupoles, off momentum (W4's refusals stand).
 
 **Axis W shipped W4 on 2026-10-10**: the **amplitude-dependent driven response**. A swung
 particle's tune moves with its swing, so the steady state solves Duffing's cubic. There
