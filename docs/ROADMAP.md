@@ -39,8 +39,117 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09) | named, not opened: W4 the amplitude-dependent response; editor/scenario support; a skew (coupled) drive |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09) | **W4 opened 2026-10-10** — the amplitude-dependent response, gates pre-committed below; named, not opened: editor/scenario support; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**W4 — the amplitude-dependent driven response (opened 2026-10-10; the gates below are
+pre-committed before any code).** A particle swung hard enough sees its own tune move with
+its amplitude (an octupole, and the exact drift itself), so the swing feeds back on the
+distance to resonance that sets it. Near the drive the steady-state condition becomes a
+cubic in the amplitude (Duffing's): one steady state when the detuning pushes the tune away
+from the drive, **up to three** when it pulls the tune toward it — a small in-phase swing
+(stable), a large antiphase one (stable) and one between them (unstable). Past a **fold
+kick** the small one disappears and a beam ramped up through it is thrown off. That fold is
+the operational number: how hard an AC dipole may be driven on a ring with octupoles.
+
+Orientation facts (measured 2026-10-10 in `W:\temp\claude\w4`, on W1's 6-cell thin FODO
+with the focusing split, `K1L = +0.25 / -0.22`, so `Qx = 1.3441`, `Qy = 1.0409`; drive
+`nu = 13/40`, lag 0.13, dipole after the first drift where `beta_x = 3.80`, `alpha_x != 0`):
+
+- **The truth needs no arbiter.** With a rational drive tune `p/q` every steady state is a
+  period-`q` orbit of the exact driven map (`track()`, exact drift, thin octupole), found by
+  Newton on the `q`-turn map in `(x, px)` (`y = py = 0` is invariant). `|F| ~ 1e-17`. Its
+  stability is the type of the `q`-turn Jacobian: complex pair on the unit circle or a real
+  pair with product 1 (12.30 x 0.0813 measured on the middle state).
+- **The natural-optics cubic has a coefficient error; the driven-frame one does not.**
+  Putting `Q + a J` (natural `beta`, `a = dQ/dJ`) into W1's closed form misses the exact
+  orbit by a fixed ~2.4% of the nonlinear correction (24% when the octupole sits at
+  `beta = 15.7` rather than at the dipole): halving the kick divides that miss by **4**, the
+  same as the correction itself. The cause is W2's beta beat. Doing it in the **driven
+  frame** fixes it: the steady state is a free oscillation of the ring with W2's gradient
+  `g = kick / u` at the dipole, so the condition is *that* ring's tune plus *its* detuning
+  `a_d J_d = nu` (`a_d` from the driven betas at the octupole and in the drifts,
+  `J_d = u^2 / (2 beta_d)` at the dipole). Its miss falls by **16** per halving
+  (15.5-16.6 measured over kicks 8e-5 to 1e-5, three fixtures). The 16 is what tests the
+  driven-frame condition; it is reasoned (W2 plus first-order perturbation theory on the
+  substituted ring), not derived beyond that.
+- **The fold is sharp.** Driven-frame fold kick `4.075e-4` (`k3l = -2000` at the dipole);
+  the exact small and middle orbits exist at `1.001 F_c` and are gone at `1.002 F_c`.
+- **The large states miss at first order in `Q - nu`**, not in the kick (`a J ~ Q - nu` is
+  forced on them): halving `Q - nu` at a fixed `kick / F_c` divides the miss by 2.85 then
+  2.47 (antiphase state; 2.63, 2.34 middle), heading for 2.
+- **The exact drift detunes by `3 L gamma_u^2 / (16 pi)` per drift** (`gamma_u` the
+  Twiss gamma, constant in a drift). Recalled, not yet derived; tracking agrees with the
+  free tune shift to order (shift x4.000, residual x16.00 per halving of amplitude).
+  Not in `total_detuning` (it says so); about 0.06% of `a` on the octupole fixture, the same
+  size as the driven-frame miss, so it must be in the cubic.
+- **A slow ramp lands on the small state** (0.7 `F_c` over 1500 turns: 4.7550 mm tracked vs
+  4.7544 mm exact) and **past the fold the particle is lost** (1.3 `F_c`: NaN, the drift's
+  square root).
+- **The undriven plane can be pumped.** On the equal-tune ring (`Qx = Qy`) the driven `x`
+  orbit's vertical Floquet block left the unit circle (kick 3e-4, `k3l = +2000`): `x^2`
+  modulates the octupole's vertical gradient at `2 nu`, a parametric drive when `Qy` sits
+  near `nu`. `y = 0` stays invariant, so the horizontal answer is unaffected, but a beam with
+  vertical size would grow. The fixture splits the tunes for this reason.
+
+Deliverable (`accsim.twiss`): `driven_states(lattice) -> {plane: (DrivenState, ...)}`, every
+real steady state of the one driven plane in the driven frame, each a signed amplitude at the
+dipole (`> 0` in phase with the kick) and a `stable` flag (elliptic when `|kick|` grows with
+`|u|` along the response curve); and `driven_fold_kick(lattice) -> {plane: float | None}`,
+the kick at which the small in-phase state merges with the middle one (`None` on the side
+where the detuning pushes the tune away and there is no fold). The kinematic drift detuning
+enters privately; `total_detuning` keeps its meaning.
+
+Scope: on momentum; one `ACDipole`; straight rings of `Drift`, `ThinQuadrupole`,
+`ThinOctupole` and the dipole, none misaligned. Everything else is refused, not
+approximated: a bend (its leading nonlinearity is second order — W3's ratio of 2), a
+sextupole (second-order detuning whose resonance denominators would sit at `nu` in the
+driven frame, ungated), thick magnets (their kinematic terms are not in the cubic), two
+dipoles (the cross-detuning couples the two cubics).
+
+Gates, pre-committed:
+
+1. **The drift's detuning, derived.** sympy phase-averages the exact drift's `p^4 / 8`
+   (direct) and `p_x^2 p_y^2 / 4` (cross) terms to `3 L gamma^2 / (16 pi)` and
+   `L gamma_x gamma_y / (8 pi)`. Anchored by free tracking on the bare ring: the tune shift
+   falls x4, its residual x16 per halving of amplitude (bands 3.9-4.1, 15-17).
+2. **The small state is the driven response to first order, and W1's at zero kick.** Its
+   relative correction from W1's closed form falls x4 per halving of the kick (3.9-4.1).
+3. **The order gate.** `driven_states` against the exact period-40 orbit on the small
+   state: the miss falls x16 per halving of the kick (last pair in 15-17), on three
+   fixtures — octupole at the dipole with `k3l = -2000` and `+2000`, and at `beta = 15.7`
+   (`k3l = -500`). **Controls, each asserted to fall x4 (3.5-4.5) and so fail the gate:**
+   the natural-optics cubic, and a driven-frame cubic that reads `beta_d` at the dipole for
+   the octupole (blind on the first two fixtures by construction, caught on the third).
+4. **The count.** At 0.98 `F_c` Newton from each predicted state converges to a distinct
+   exact orbit, each within 1% of its prediction; at 1.02 `F_c` only the antiphase state
+   exists and the seed of the small one does not converge to a small in-phase orbit. The
+   exact fold lies within 0.2% of `driven_fold_kick`.
+5. **The stability type.** Every predicted `stable` flag equals the exact Floquet type
+   (`|1/2 Tr| < 1` vs `> 1`) of its orbit, on every fixture state of gates 3-4.
+6. **The direction.** Three states (and a fold) only when the detuning pulls the tune toward
+   the drive: `k3l < 0` with the drive below the tune, `k3l > 0` above it. The other two
+   combinations give one state and `None` at every kick tried (up to 10x the mirrored
+   `F_c`).
+7. **The large states at first order in `Q - nu`.** At fixed `kick / F_c = 0.5`, halving
+   `Q - nu` twice (moving `Q` by `K1L`, `nu = 13/40` fixed): each ratio of misses in 2-3,
+   the second smaller than the first.
+8. **A ramp.** `ramp = (0, 1500, ...)` to 0.7 `F_c`: the tracked in-phase amplitude equals
+   the small state to 1e-3 relative. To 1.3 `F_c`: the particle passes the middle state's
+   amplitude (it leaves the branch).
+9. **The other plane.** Gate 3's first fixture driven in `y` (drive near `Qy`), x16.
+10. **Named limitation, asserted.** On the equal-tune ring the driven `x` orbit is
+    vertically unstable (the `2 nu` parametric pump); `driven_states` does not model it and
+    says so.
+11. **Reference codes, transcription only.** The exact period-40 orbit found by accsim,
+    handed to xtrack (`ACDipole`, `Multipole(knl=[0, 0, 0, k3l])`, exact drift) and to
+    MAD-X `TRACK` (turn + 1, `HACDIPOLE`, thin `MULTIPOLE`), returns to itself after 40
+    turns at each code's measured floor. This checks the truth's map, not the cubic.
+
+Refused or named, not built: a drive-tune sweep (the hysteresis loop; `ACDipole` has a fixed
+tune); the free tune of a particle under the drive (the AC-dipole detuning-measurement literature
+says it is not the free detuning; recalled, not checked here); the vertical pump's
+stop band; bends, sextupoles, thick magnets, off momentum, two planes.
 
 **Axis W shipped W3 on 2026-10-09** — the **chromatic driven response**: an off-momentum
 particle has its own tune and beta, so the same AC dipole swings it by its own amount, and
