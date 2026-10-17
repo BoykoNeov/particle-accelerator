@@ -22,6 +22,7 @@ Fixture: W4's split-tune FODO, ``k3l = -2000`` at the dipole, a damper right aft
 
 from __future__ import annotations
 
+import functools
 import math
 from fractions import Fraction
 
@@ -298,9 +299,10 @@ def _exact_fold(predicted_kick: float, g_fold: float, fracs) -> float:
     return k1 + s1 * (k1 - k2) / (s2 - s1)
 
 
-@pytest.fixture(scope="module")
-def folds() -> dict[str, float]:
-    """Predicted and exact fold kicks at 17/50."""
+@functools.cache
+def _fold_kicks() -> dict[str, float]:
+    """Predicted and exact fold kicks at 17/50 (shared with the sweep gates of
+    ``test_damped_sweep.py``)."""
     curve = _DampedResponseCurve(_lat(1e-5, NU17), "test")
     g_small, g_large = curve.fold_pair()
     small, large = (float(curve.kick_of(g)[0]) for g in (g_small, g_large))
@@ -310,6 +312,11 @@ def folds() -> dict[str, float]:
         "small_exact": _exact_fold(small, g_small, (0.996, 0.998)),
         "large_exact": _exact_fold(large, g_large, (1.002, 1.004)),
     }
+
+
+@pytest.fixture(scope="module")
+def folds() -> dict[str, float]:
+    return _fold_kicks()
 
 
 def test_the_folds_match_the_exact_ones(folds: dict[str, float]) -> None:

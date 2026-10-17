@@ -39,8 +39,54 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10) | **W6** the damped sweep — a lumped `Damper`, the damped driven response, and the closed hysteresis loop (opened 2026-10-17, gates pre-committed); named, not opened: editor/scenario support; a skew (coupled) drive |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18) | named, not opened: damped autoresonance; editor/scenario support; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**Axis W shipped W6 on 2026-10-18**: the **damped sweep**, and with it the closed hysteresis
+loop. `Damper(rate, plane)` takes a fixed fraction of the swing once a turn (the turn loops
+apply it; its static maps are the identity). `driven_states`, `driven_fold_kick` and
+`driven_fold_tune` model it, `DrivenState` gains `quadrature`, and `driven_jump_tunes` gives
+where a sweep jumps up and where it drops back. Swept toward the tune, the particle rides the
+small state and jumps onto the large one; swept back, it rides the large one and drops.
+Full detail is in `docs/CONVENTIONS.md` -> *The damper*, *The damped driven response* and
+*The damped sweep*. All fifteen pre-committed gates pass, five of them (9, 10, 11, 12-13, 14)
+with a corrected detail. What changed between pre-commitment and code:
+
+- **The way the swing is read off a sweep was biased** (gates 11-13). The probes divided a
+  40-turn projection by 20, which is exact only over a whole number of drive cycles; at 0.34
+  it is off by up to 3.5%. A least-squares fit per window fixes it, and the ring then agrees
+  with the averaged equation to 0.05-0.28% (pre-committed measurement 1.0-3.6%).
+- **Past the bistable region, each sweep lags** (gate 11, pre-committed: each direction on
+  the exact state to 1%). The lag is proportional to the rate and opposite going up and
+  down: 2.5% at `1e-6`, halving with the rate. The gate is now that each direction's miss
+  halves and that the two directions' mean is the exact state to 1% (measured 0.11%).
+- **The response curve needed a grid-independent fold detector** (gate 10). Near the onset
+  the two folds merge between grid samples, and the package grid reported the onset late
+  (excess `7.3e-4` against `5.2e-4` at `Gamma = 0.001`, breaking the halving). Where the
+  sampled slope dips without changing sign, a bounded search now finds whether it turns.
+  The onset is bisected on the curve having both folds (an internal of `driven_jump_tunes`),
+  not on `driven_jump_tunes` returning a pair.
+- **The exact large-state end needed a careful seed** (gate 9). Newton started at the
+  predicted saddle slid onto the sink at 1.004 times the end (a zero gap, a fold 0.4% off).
+  The sink is found first, and the saddle is seeded at its prediction moved by the sink's
+  miss. The large end is read off the curve at 17/50, the limit the pre-committed bisection
+  on `driven_jump_tunes` converges to; at the exact end, `driven_jump_tunes` lands `1.25e-5`
+  from 17/50.
+- **The bracket thresholds are 10% and 90%** of the way from the fold's swing to the large
+  state's (gate 14): 3.357 and 4.195 around the Airy 3.419 (the probes' 2.53 and 3.95 came
+  from thresholds not recorded). Local exponents 0.653-0.680.
+- **`driven_fold_tune` would have answered `None` on every damped ring.** Its W5 search
+  starts at the tune, where a damped response has no fold yet. Damped, it is
+  `driven_jump_tunes`'s first tune (gated equal).
+- **The quadrature's sign depends on which half the drive tune is written in.** The model's
+  phasor is the conjugate of the drive's when the drive is given as `1 - nu`. Gated by an
+  exact orbit at 33/50.
+- **Stability is exact.** Every sink's 50-turn multipliers have modulus `e^(-50 Gamma)`; the
+  saddle's two multiply to `e^(-100 Gamma)`.
+
+**What W6 leaves open:** damped autoresonance (`autoresonance_threshold` refuses a damper);
+damping toward a non-zero closed orbit; amplitude-dependent damping; editor and scenario
+support for the damper; a skew (coupled) drive.
 
 **W6 — the damped sweep (opened 2026-10-17; the gates below were pre-committed before any
 code).** W5 found no closed hysteresis loop because the rings in W4's scope have no damping.

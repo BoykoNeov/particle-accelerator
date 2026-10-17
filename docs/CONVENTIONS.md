@@ -10954,6 +10954,55 @@ first tune (gated equal).
 Cost: `driven_jump_tunes` builds about a hundred curves, about 3 s. The test file runs in about
 two minutes.
 
+### The damped sweep: the hysteresis loop closes (W6 part c — implemented 2026-10-18)
+
+No new code; `tests/analytic/test_damped_sweep.py` gates what a swept drive does on a damped
+ring. The ring is tracked exactly, one particle per column, each column driven by its own
+`ACDipole`, the damper right after the dipole (`p *= 1 - rate` in the loop, as the turn loops
+apply it), all from rest.
+
+**Reading the swing off a sweep.** A sliding 40-turn window, centred, fitted by **least
+squares** to `u sin(phi) + v cos(phi)` against the drive's own swept phase
+`phi_n = 2 pi (nu n + nu_dot n^2 / 2 + lag)` (W5's `_demod`, vectorised by cumulative sums).
+The plain projection `2 / W sum x sin(phi)` is biased by up to 3.5% here: 40 turns hold 13.6
+drive cycles at 0.34, and the cross terms of a non-whole number of cycles do not cancel. The
+probes used the projection; it was most of their ring-versus-averaged-equation difference
+(1.0-3.6%, now 0.05-0.28%) and the whole of a 2.5-3% "miss" past the bistable region that
+did not fall with the rate.
+
+**The loop** at kick `1.99e-5`. Up from 0.33 the particle rides the small state; down from
+0.35 the large one. At 17/50 they sit 1.2% and 2.6% from the exact small and large period-50
+orbits at `1e-6` per turn. That miss is the **sweep's lag**: proportional to the rate (halving
+ratios 1.87-2.00 from `1e-6` to `5e-7`), and in opposite directions up and down, so past the
+region (0.344) each direction misses the one exact state by 2.5% and their mean by 0.11%
+(0.01% at `5e-7`). Nothing is lost.
+
+**The jumps** (kick pinned at the exact fold of 17/50; the jump is the swing crossing 5 mm)
+agree with W5's rotating-wave equation plus the damper's `-Gamma c`,
+
+    dc/dn = 2 pi i (d + a |c|^2) c - eps - Gamma c,   d = q_d - nu(n),
+
+its own fold pinned at the ring's distance `q_d - 17/50` and read under the same rule (its
+swing is `sqrt(2 beta) |c|`), started from rest as far away as the ring: up 0.05-0.26% at
+`4e-6, 2e-6, 1e-6`; down 0.22-0.28% at `1e-6, 5e-7, 2.5e-7`. The rule is part of the
+measurement: the particle needs `~1 / Gamma` turns to settle, during which the drive moves as
+far as the overshoot.
+
+**The passage power is 2/3**, on the averaged equation, at kick `1.99e-5`. On the centre
+manifold of the fold (the Jacobian's null vector; the other eigenvalue is `-2 Gamma` exactly),
+`X' = k1 alpha n + k2 X^2`, a Riccati equation whose blow-up time is the first zero of
+`Ai(-x)`: overshoot `-> Omega_0 alpha^(2/3) / |k1 k2|^(1/3)`, `Omega_0 = 2.33811` from
+`scipy.special.ai_zeros` (`|k1 k2| = 0.3198`, Airy value 3.419). Local exponents over six
+halvings from `1e-6` are 0.653-0.680 (a threshold mid-way between the fold's swing and the
+large state's); the approach is slow, a transit term near `alpha log(1/alpha)`. At
+`1.95e-9`, the overshoot over `alpha^(2/3)` is 3.357 with a threshold 10% of the way from
+the fold's swing to the large state's and 4.195 at 90%: the Airy value lies between.
+
+**The control.** With `rate = 0` the batched damped sweep reproduces W5's up-sweep bit for
+bit, and W5's no-landing holds: undamped, the particle lands on nothing.
+
+Cost: about 70 s (the W5 sweep it reuses is cached when both files run in one session).
+
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 
 **The scenario format** (`accsim-scenario/1`, `src/accsim/scenario.py`) is the seam
