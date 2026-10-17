@@ -519,10 +519,16 @@ class DrivenState:
     kick, ``< 0`` in antiphase. ``stable`` is True for an elliptic steady state (a
     particle started near it librates about it) and False for a hyperbolic one (it runs
     away along the separatrix).
+
+    ``quadrature`` (W6) is the part of the swing a quarter turn behind the drive [m]:
+    ``u_n = amplitude sin(phi_n) + quadrature cos(phi_n)``, ``phi_n = 2 pi (nu n + lag)``.
+    Zero without a :class:`~accsim.elements.damper.Damper`; with one, the drive pays for
+    the damping through it, and ``stable`` means a sink (nearby particles spiral in).
     """
 
     amplitude: float
     stable: bool
+    quadrature: float = 0.0
 
 
 class _ResponseCurve:
@@ -540,21 +546,27 @@ class _ResponseCurve:
     local maxima are folds, and nothing here nests one root solve inside another.
     """
 
-    def __init__(self, lattice: Lattice, caller: str, swept_ok: bool = False) -> None:
+    def __init__(
+        self, lattice: Lattice, caller: str, swept_ok: bool = False, damped_ok: bool = False
+    ) -> None:
         from .elements.acdipole import ACDipole
+        from .elements.damper import Damper
         from .elements.drift import Drift
         from .elements.octupole import ThinOctupole
         from .elements.quadrupole import ThinQuadrupole
 
-        sites = _ac_dipole_sites(lattice, swept_ok)
+        sites = _ac_dipole_sites(lattice, swept_ok, damped_ok)
         if len(sites) != 1:
             raise NotImplementedError(
                 f"{caller}: a dipole in each plane is not modelled — the octupoles' cross "
                 "detuning couples the two planes' cubics into one system"
             )
         ((plane, (idx, acd)),) = sites.items()
+        allowed = (Drift, ThinQuadrupole, ThinOctupole, ACDipole)
+        if damped_ok:
+            allowed = (*allowed, Damper)
         for elem in lattice.elements:
-            if not isinstance(elem, (Drift, ThinQuadrupole, ThinOctupole, ACDipole)):
+            if not isinstance(elem, allowed):
                 raise NotImplementedError(
                     f"{caller}: {type(elem).__name__} {elem.name!r} is not modelled. The "
                     "driven-frame cubic is written for straight rings of drifts, thin "
@@ -608,6 +620,8 @@ class _ResponseCurve:
         nu = acd.tune % 1.0
         same_half = (self.half % 2 == 0) == (nu < 0.5)
         self.target = math.floor(q_nat) + (nu if same_half else 1.0 - nu)
+        # Written in the other half, the drive's phasor is the conjugate of the target's.
+        self.folded = not same_half
         self.cos_mu = cos_mu
         m12 = C[0, 1]
         # Stable driven rings: |cos mu + g m12 / 2| < 1. g = 0 (u infinite) splits it.
@@ -706,17 +720,31 @@ class _ResponseCurve:
         )
         return float(res.x)
 
+    def _walks(self) -> list[np.ndarray]:
+        """The ``g`` grids :meth:`pieces` walks: out from ``g = 0`` (where ``u`` changes
+        sign) to each edge of the stable driven rings."""
+        return [self._grid(self.lo), self._grid(self.hi)]
+
+    def state_at(self, g: float) -> tuple[float, float]:
+        """``(in-phase, quadrature)`` swing at the dipole of the steady state at ``g``."""
+        return self.sign * self.kick / g, 0.0
+
+    def _resolve(self, seg_g: np.ndarray, seg_k: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """A finite stretch of the walk, with samples added at any turning points the grid
+        steps over (W4's turning points are far apart: none)."""
+        return seg_g, seg_k
+
     def pieces(self) -> list[tuple[float, float]]:
-        """Monotone stretches of ``|kick|(g)``, as ``(g_start, g_end)`` pairs, walking out
-        from ``g = 0`` on each side. Every local maximum met is recorded in ``self.folds``;
-        every stretch end at the validity cut, in ``self.cut_ends`` as ``(g, rising)``
-        (``rising``: ``|kick|`` grows toward the cut).
+        """Monotone stretches of ``|kick|(g)``, as ``(g_start, g_end)`` pairs, along each of
+        :meth:`_walks`. Every local maximum met is recorded in ``self.folds``, every local
+        minimum in ``self.minima``; every stretch end at the validity cut, in
+        ``self.cut_ends`` as ``(g, rising)`` (``rising``: ``|kick|`` grows toward the cut).
         """
         out: list[tuple[float, float]] = []
         self.folds: list[float] = []
+        self.minima: list[float] = []
         self.cut_ends: list[tuple[float, bool]] = []
-        for end in (self.lo, self.hi):
-            g = self._grid(end)
+        for g in self._walks():
             s, cut = self._s_and_cut(g)
             # Each stretch that meets the cut ends exactly on it, not one sample short.
             g = g.copy()
@@ -734,7 +762,7 @@ class _ResponseCurve:
                 j = i
                 while j + 1 < len(g) and finite[j + 1]:
                     j += 1
-                seg_g, seg_k = g[i : j + 1], k[i : j + 1]
+                seg_g, seg_k = self._resolve(g[i : j + 1], k[i : j + 1])
                 breaks = [float(seg_g[0])]
                 d = np.sign(np.diff(seg_k))
                 for m in range(1, len(d)):
@@ -743,6 +771,8 @@ class _ResponseCurve:
                         breaks.append(g_ext)
                         if d[m - 1] > 0.0:  # a maximum of |kick|: a fold
                             self.folds.append(g_ext)
+                        else:
+                            self.minima.append(g_ext)
                 breaks.append(float(seg_g[-1]))
                 out += list(zip(breaks[:-1], breaks[1:], strict=True))
                 if i > 0 and cut[i - 1]:
@@ -765,6 +795,260 @@ class _ResponseCurve:
         dk = float(self.kick_of(g + h)[0] - self.kick_of(g - h)[0])
         du = float(np.sqrt(self.s(g + h))[0] - np.sqrt(self.s(g - h))[0])
         return dk * du > 0.0
+
+    def fold_pair(self) -> tuple[float | None, float | None]:
+        """``(g of the small state's fold, g of the large state's end)``, each ``None``
+        where the curve has none. Walking out from the drive tune (``u = 0``) the swing
+        grows; the first turning point of ``|kick|`` met is the small state's fold (a
+        maximum), the next the large state's end (a minimum, which only damping makes:
+        undamped, ``|kick|`` falls to zero at ``g = 0`` and the walk ends there).
+        """
+        ps = self.pieces()
+        i = next(i for i, (a, b) in enumerate(ps) if self.g_w2 in (a, b))
+        step = 1 if ps[i][0] == self.g_w2 else -1
+        ends: list[float] = []
+        while 0 <= i < len(ps):
+            near, far = ps[i] if step == 1 else ps[i][::-1]
+            if ends and near != ends[-1]:
+                break  # a gap in the curve: the stretch from the drive tune has ended
+            ends.append(far)
+            i += step
+        small = ends[0] if ends and ends[0] in self.folds else None
+        large = ends[1] if small is not None and len(ends) > 1 else None
+        return small, (large if large in self.minima else None)
+
+
+class _DampedResponseCurve(_ResponseCurve):
+    """The driven-frame response curve of a ring with dampers in the driven plane (W6).
+
+    In steady state the dipole's kick is a sinusoid at the drive tune, and so are ``u``
+    and ``p`` at the dipole, so it is ``g u + k p`` for two real numbers. With that
+    substituted for the dipole the ring has the steady state as a free oscillation at
+    ``e^(+-2 pi i nu)``: both eigenvalues on the unit circle, so the substituted one-turn
+    map has determinant 1. The dampers make the rest of the ring's determinant
+    ``prod(1 - rate)``, which fixes
+
+        k = 1 / prod(1 - rate) - 1
+
+    exactly: the part of the drive a quarter turn out of step with the swing replaces
+    exactly what the dampers take. ``g`` is then the curve's parameter, as in W4, and the
+    trace fixes the substituted ring's tune ``q(g)``. ``g = 0`` is an ordinary point here
+    (a drive wholly in quadrature with the swing), so the curve is one walk, not two.
+
+    The ring now has non-symplectic pieces, so there are no Twiss functions along it to
+    average the detuning over. It is first-order eigenvalue perturbation instead, with the
+    right eigenvector ``a_j`` and left eigenvector ``b_j`` carried to each octupole and
+    drift: the turn's eigenvalue moves by ``delta lambda / lambda = sum_j b_j^T E_j a_j /
+    (w^T v)``, ``E_j`` the fundamental harmonic of the element's cubic term (an octupole's
+    ``-(k3l / 8) |a_x|^2`` on ``p``, the exact drift's ``(3 L / 8) |a_p|^2`` on ``x``).
+    With no damping this is W4's curve to round-off.
+
+    **One term W4 did not need.** The kick's size is ``|u| |g + k p/u|``, and ``p/u`` at
+    the dipole moves with the eigenvector at first order in the detuning. W4 has ``k = 0``,
+    so it never sees it. Leaving it out costs a fixed fraction of the nonlinear
+    correction, proportional to the damping: the small-state miss then falls x4 per
+    halving of the kick where it falls x16 with it, and the large state's end moves by
+    several percent in kick. The eigenvector moves along the other eigenvector,
+    ``delta v = s lambda* sum_j b*_j^T E_j a_j / ((lambda - lambda*) w*^T v*) v*``.
+    """
+
+    #: Include the eigenvector's first-order move in ``p / u`` (the tests turn it off for
+    #: their control).
+    eigenvector_term = True
+
+    def __init__(self, lattice: Lattice, caller: str, swept_ok: bool = False) -> None:
+        from .elements.damper import Damper
+        from .elements.drift import Drift
+        from .elements.octupole import ThinOctupole
+
+        super().__init__(lattice, caller, swept_ok, damped_ok=True)
+        ((_, (idx, _)),) = _ac_dipole_sites(lattice, swept_ok, damped_ok=True).items()
+        block = 0 if self.plane == "x" else 1
+        ref = lattice.ref
+        n = len(lattice.elements)
+        # Maps from the dipole's exit to every octupole and drift entrance, dampers in.
+        W = np.eye(2)
+        walk, kind, par = [], [], []
+        for j in [*range(idx + 1, n), *range(idx)]:
+            elem = lattice.elements[j]
+            if isinstance(elem, ThinOctupole):
+                walk.append(W)
+                kind.append(True)
+                par.append(-elem.k3l / 8.0)
+            elif isinstance(elem, Drift):
+                walk.append(W)
+                kind.append(False)
+                par.append(3.0 * elem.length / 8.0)
+            if isinstance(elem, Damper) and elem.plane == self.plane:
+                W = _blocks(elem.damping_matrix())[block] @ W
+            else:
+                W = _blocks(elem.matrix(ref))[block] @ W
+        self.R = W  # the dipole's exit round to its entrance
+        self.k = 1.0 / float(np.linalg.det(W)) - 1.0
+        # rate = 0 runs this machinery (W4's curve to round-off) but damps nothing.
+        self.damped = any(
+            e.rate > 0.0
+            for e in lattice.elements
+            if isinstance(e, Damper) and e.plane == self.plane
+        )
+        self.walk = np.array(walk).reshape(-1, 2, 2)
+        self.walk_inv = np.linalg.inv(self.walk) if len(walk) else self.walk
+        self.is_oct = np.array(kind, dtype=bool)
+        self.coef = np.array(par)
+        R = self.R
+        # One turn T = R S, S = [[1, 0], [g, 1 + k]]: tr T = base + R12 g, det T = 1.
+        base = R[0, 0] + (1.0 + self.k) * R[1, 1]
+        self.lo, self.hi = sorted(((-2.0 - base) / R[0, 1], (2.0 - base) / R[0, 1]))
+        self.g_w2 = (2.0 * math.cos(2.0 * math.pi * self.target) - base) / R[0, 1]
+
+    def _damped(self, g: np.ndarray) -> dict[str, np.ndarray]:
+        """Per ``g``: the substituted ring's tune ``q``, ``s = |c|^2`` (the eigenvector's
+        weight), ``u2 = |u|^2`` at the dipole, ``kick``, ``ratio = p / u`` at the dipole
+        entrance and ``rho = u / kick`` (both complex, on the drive's phasor)."""
+        R, k = self.R, self.k
+        t11, t12 = R[0, 0] + R[0, 1] * g, R[0, 1] * (1.0 + k)
+        t22 = R[1, 1] * (1.0 + k)
+        c = 0.5 * (t11 + t22)
+        with np.errstate(invalid="ignore"):
+            arc = np.arccos(c) / (2.0 * math.pi)
+        q = 0.5 * (self.half + 1) - arc if self.half % 2 else 0.5 * self.half + arc
+        lam = np.exp(2j * math.pi * q)
+        # Right and left eigenvectors of T at lam (det T = 1).
+        v = np.array([np.broadcast_to(t12, g.shape).astype(complex), lam - t11])
+        w = np.array([lam - t22, np.broadcast_to(t12, g.shape).astype(complex)])
+        # Carried across the dipole: S v and w^T S^-1.
+        sv = np.array([v[0], g * v[0] + (1.0 + k) * v[1]])
+        ws = np.array([w[0] - w[1] * g / (1.0 + k), w[1] / (1.0 + k)])
+        a = np.einsum("jab,bg->jag", self.walk, sv)  # right vector at each element
+        b = np.einsum("ag,jab->jbg", ws, self.walk_inv)  # left vector at each element
+        oct_, cf = self.is_oct[:, None], self.coef[:, None]
+        # b^T E a: an octupole puts cf |a_x|^2 a_x on p; a drift cf |a_p|^2 a_p on x.
+        right = np.where(oct_, b[:, 1] * a[:, 0], b[:, 0] * a[:, 1])
+        size = np.where(oct_, np.abs(a[:, 0]) ** 2, np.abs(a[:, 1]) ** 2)
+        wv = w[0] * v[0] + w[1] * v[1]
+        dl = np.sum(cf * size * right, axis=0) / wv
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s = (self.target - q) / (dl.imag / (2.0 * math.pi))
+            if self.eigenvector_term:
+                # The eigenvector's own first-order move, along the other eigenvector v*.
+                cross_ = np.where(oct_, np.conj(b[:, 1]) * a[:, 0], np.conj(b[:, 0]) * a[:, 1])
+                cross = np.sum(cf * size * cross_, axis=0)
+                step = s * np.conj(lam) * cross / ((lam - np.conj(lam)) * np.conj(wv))
+                ratio = (v[1] + step * np.conj(v[1])) / (v[0] + step * np.conj(v[0]))
+            else:
+                ratio = v[1] / v[0]
+            u2 = s * np.abs(v[0]) ** 2
+            kick = np.sqrt(u2) * np.abs(g + k * ratio)
+            rho = 1.0 / (g + k * ratio)
+        if self.folded:  # the drive's phasor is the conjugate of lam's
+            ratio, rho = np.conj(ratio), np.conj(rho)
+        return {"q": q, "s": s, "u2": u2, "kick": kick, "ratio": ratio, "rho": rho}
+
+    def _s_and_cut(self, g: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        d = self._damped(g)
+        q, u2 = d["q"], np.where(g == self.g_w2, 0.0, d["u2"])
+        # The same validity cut as W4's (see there).
+        room = np.minimum(q - 0.5 * self.half, 0.5 * (self.half + 1) - q)
+        ok = (np.isfinite(u2) & (d["s"] >= 0.0)) | (g == self.g_w2)
+        ok &= (g > self.lo) & (g < self.hi)
+        valid = np.abs(self.target - q) < room
+        return np.where(ok & valid, u2, np.nan), ok & ~valid
+
+    def kick_of(self, g: np.ndarray | float) -> np.ndarray:
+        g = np.atleast_1d(np.asarray(g, dtype=float))
+        kick = np.where(g == self.g_w2, 0.0, self._damped(g)["kick"])
+        return np.where(np.isfinite(self.s(g)), kick, np.nan)
+
+    def _walks(self) -> list[np.ndarray]:
+        """One walk from ``lo`` to ``hi`` through ``g = 0`` and the drive tune, dense at
+        both edges and at ``g = 0`` (W4's grid on each side)."""
+        t = np.unique(
+            np.concatenate([np.geomspace(1e-9, 0.5, 800), 1.0 - np.geomspace(1e-12, 0.5, 800)])
+        )
+        g = np.concatenate([self.lo * t, self.hi * t, [0.0, self.g_w2]])
+        return [np.unique(g[(g > self.lo) & (g < self.hi)])]
+
+    def _resolve(self, seg_g: np.ndarray, seg_k: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Find turning-point pairs the grid steps over.
+
+        Near the onset of bistability the small state's fold and the large state's end
+        merge, and both can fall between two samples, so the walk sees no turning point at
+        all. A sign change of the slope cannot be hidden from the slope's own minimum,
+        though: wherever ``|d kick / d g|`` dips without changing sign across the samples,
+        its least value is found by a bounded search, and if the slope there has turned,
+        the two turning points either side of it are added as samples. Then the onset
+        found does not depend on the grid's spacing.
+        """
+        from scipy.optimize import minimize_scalar
+
+        sl = np.diff(seg_k) / np.diff(seg_g)
+        add: list[float] = []
+        for m in range(2, len(sl) - 2):
+            sgn = np.sign(sl[m])
+            if sgn == 0.0 or np.any(np.sign(sl[m - 2 : m + 3]) != sgn):
+                continue
+            if not (abs(sl[m]) < abs(sl[m - 1]) and abs(sl[m]) < abs(sl[m + 1])):
+                continue
+            # A real dip: near a hidden pair the slope sampled across it is at most 1/7 of
+            # the slope two samples away (1/7 when the turn sits on a sample, ~1/49 midway).
+            # A smooth bend, or round-off where the grid is dense near g = 0, is ~1.
+            if abs(sl[m]) > 0.5 * min(abs(sl[m - 2]), abs(sl[m + 2])):
+                continue
+            lo, hi = float(seg_g[m - 2]), float(seg_g[m + 3])
+            h = 1e-7 * (hi - lo)
+
+            def slope(x: float, h: float = h, sgn: float = sgn) -> float:
+                """The slope of ``|kick|`` at ``x`` in the stretch's direction."""
+                return sgn * float(self.kick_of(x + h)[0] - self.kick_of(x - h)[0]) / (2.0 * h)
+
+            bottom = minimize_scalar(
+                slope,
+                bounds=(lo + h, hi - h),
+                method="bounded",
+                options={"xatol": 1e-12 * (hi - lo)},
+            )
+            if bottom.fun >= 0.0:
+                continue
+            mid = float(bottom.x)
+            for a, b, s in ((lo, mid, -sgn), (mid, hi, sgn)):
+                turn = minimize_scalar(
+                    lambda x, s=s: s * float(self.kick_of(x)[0]),
+                    bounds=(a, b),
+                    method="bounded",
+                    options={"xatol": 1e-14 * max(abs(a), abs(b))},
+                )
+                add.append(float(turn.x))
+        if not add:
+            return seg_g, seg_k
+        g = np.unique(np.concatenate([seg_g, add]))
+        return g, self.kick_of(g)
+
+    def state_at(self, g: float) -> tuple[float, float]:
+        rho = complex(self._damped(np.array([g]))["rho"][0])
+        theta = self.sign * self.kick
+        return theta * rho.real, theta * rho.imag
+
+    def stable_at(self, g: float) -> bool:
+        """A sink iff ``|kick|`` grows with ``|u|`` along the curve: W4's rule, unchanged,
+        because the averaged equation's trace is ``-2 Gamma`` at every steady state, so
+        only the determinant's sign decides. ``g = 0`` is an ordinary point here."""
+        h = 1e-4 * min(abs(g - self.g_w2), abs(g - self.lo), abs(g - self.hi))
+        dk = float(self.kick_of(g + h)[0] - self.kick_of(g - h)[0])
+        du = float(np.sqrt(self.s(g + h))[0] - np.sqrt(self.s(g - h))[0])
+        return dk * du > 0.0
+
+
+def _response_curve(lattice: Lattice, caller: str, swept_ok: bool = False) -> _ResponseCurve:
+    """W4's curve, or W6's when a :class:`~accsim.elements.damper.Damper` acts on the
+    driven plane. A damper on the other plane only is allowed and ignored: the planes are
+    uncoupled in this scope, so it cannot reach the driven one."""
+    from .elements.damper import Damper
+
+    sites = _ac_dipole_sites(lattice, swept_ok, damped_ok=True)
+    planes = {e.plane for e in lattice.elements if isinstance(e, Damper)}
+    if len(sites) == 1 and next(iter(sites)) in planes:
+        return _DampedResponseCurve(lattice, caller, swept_ok)
+    return _ResponseCurve(lattice, caller, swept_ok, damped_ok=True)
 
 
 def driven_states(lattice: Lattice) -> dict[str, tuple[DrivenState, ...]]:
@@ -802,16 +1086,8 @@ def driven_states(lattice: Lattice) -> dict[str, tuple[DrivenState, ...]]:
     bends, sextupoles, thick magnets, misalignments and a dipole in each plane; raises
     :class:`ResonantLatticeError` for an integer or half-integer drive tune.
     """
-    from scipy.optimize import brentq
-
-    curve = _ResponseCurve(lattice, "driven_states")
-    states = []
-    for a, b in curve.pieces():
-        ka, kb = float(curve.kick_of(a)[0]), float(curve.kick_of(b)[0])
-        if (ka - curve.kick) * (kb - curve.kick) < 0.0:
-            g = brentq(lambda x: float(curve.kick_of(x)[0]) - curve.kick, a, b, xtol=1e-300)
-            u = curve.sign * curve.kick / g
-            states.append(DrivenState(u, curve.stable_at(g)))
+    curve = _response_curve(lattice, "driven_states")
+    states = [state for _, state in _states_on(curve)]
     for g_cut, rising in curve.cut_ends:
         k_cut = float(curve.kick_of(g_cut)[0])
         if (curve.kick >= k_cut) if rising else (curve.kick <= k_cut):
@@ -825,6 +1101,20 @@ def driven_states(lattice: Lattice) -> dict[str, tuple[DrivenState, ...]]:
                 f"{k_cut:.4g}); lower the kick"
             )
     return {curve.plane: tuple(sorted(states, key=lambda st: st.amplitude))}
+
+
+def _states_on(curve: _ResponseCurve) -> list[tuple[float, DrivenState]]:
+    """``(g, state)`` for every crossing of the dipole's kick along ``curve``."""
+    from scipy.optimize import brentq
+
+    out = []
+    for a, b in curve.pieces():
+        ka, kb = float(curve.kick_of(a)[0]), float(curve.kick_of(b)[0])
+        if (ka - curve.kick) * (kb - curve.kick) < 0.0:
+            g = brentq(lambda x: float(curve.kick_of(x)[0]) - curve.kick, a, b, xtol=1e-300)
+            u, quad = curve.state_at(g)
+            out.append((g, DrivenState(u, curve.stable_at(g), quad)))
+    return out
 
 
 def driven_fold_kick(lattice: Lattice) -> dict[str, float | None]:
@@ -841,7 +1131,7 @@ def driven_fold_kick(lattice: Lattice) -> dict[str, float | None]:
     ring, not on the dipole's own kick, lag or ramp. Same model, scope and refusals as
     :func:`driven_states`.
     """
-    curve = _ResponseCurve(lattice, "driven_fold_kick")
+    curve = _response_curve(lattice, "driven_fold_kick")
     for a, b in curve.pieces():
         if curve.g_w2 in (a, b):
             # The small state's stretch rises from |kick| = 0 at the drive tune. It ends
@@ -882,9 +1172,11 @@ def driven_fold_tune(lattice: Lattice) -> dict[str, float | None]:
     :func:`driven_states`'s small in-phase state, which grows, until that state meets
     the unstable middle one and vanishes. This is that tune: where
     :func:`driven_fold_kick` equals the dipole's kick, the fold read in tune at fixed
-    kick. Past it the particle is thrown off — onto **no** steady state: these rings
-    have no damping, so it keeps the large free oscillation it was flung into (the damped
-    oscillator's jump onto the other branch does not happen).
+    kick. Past it the particle is thrown off. Undamped, onto **no** steady state: it
+    keeps the large free oscillation it was flung into. With a
+    :class:`~accsim.elements.damper.Damper` in the driven plane (W6) it settles onto the
+    large state instead, and this is the first tune of :func:`driven_jump_tunes`
+    (``None`` below the onset of bistability, where the small state never folds).
 
     A slow sweep overshoots this tune by an amount that vanishes with the rate. The
     reduced motion near the fold is an undamped saddle-centre, whose overshoot goes as
@@ -899,8 +1191,11 @@ def driven_fold_tune(lattice: Lattice) -> dict[str, float | None]:
     """
     from scipy.optimize import brentq
 
-    curve = _ResponseCurve(lattice, "driven_fold_tune", swept_ok=True)
-    ((plane, (idx, acd)),) = _ac_dipole_sites(lattice, swept_ok=True).items()
+    curve = _response_curve(lattice, "driven_fold_tune", swept_ok=True)
+    if isinstance(curve, _DampedResponseCurve) and curve.damped:
+        plane, jumps = _damped_jumps(lattice, "driven_fold_tune")
+        return {plane: None if jumps is None else jumps[0]}
+    ((plane, (idx, acd)),) = _ac_dipole_sites(lattice, swept_ok=True, damped_ok=True).items()
     a = float(curve._optics(np.array([0.0]))[2][0])
     if a == 0.0:
         return {plane: None}
@@ -924,6 +1219,121 @@ def driven_fold_tune(lattice: Lattice) -> dict[str, float | None]:
         return {plane: None}
     dist = brentq(excess, 0.5 * hi, hi, xtol=1e-15, rtol=4.0 * np.finfo(float).eps)
     return {plane: (q_nat + toward * dist) % 1.0}
+
+
+class _DampedFolds:
+    """The two folds of a damped ring's response as functions of the drive tune (W6).
+
+    The drive is placed ``dist`` from the **damped** tune ``q_d`` on the side the
+    detuning pulls to. Close to ``q_d`` the response has one state and no fold; beyond the
+    onset ``dist_on`` it has the small state's fold and the large state's end, whose
+    kicks both rise with ``dist`` from the one kick they share at the onset.
+    """
+
+    def __init__(self, lattice: Lattice, caller: str) -> None:
+        curve = _response_curve(lattice, caller, swept_ok=True)
+        ((plane, (idx, acd)),) = _ac_dipole_sites(lattice, swept_ok=True, damped_ok=True).items()
+        if not isinstance(curve, _DampedResponseCurve) or not curve.damped:
+            raise ValueError(
+                f"{caller}: no damping in the driven plane — undamped, the large state never "
+                "ends, so a sweep back never drops; see driven_fold_tune"
+            )
+        self.lattice, self.caller, self.plane, self.idx, self.acd = lattice, caller, plane, idx, acd
+        self.kick = curve.kick
+        self.a = float(curve._optics(np.array([0.0]))[2][0])  # the undamped detuning's sign
+        R = curve.R
+        arc = math.acos(0.5 * np.trace(R) / math.sqrt(np.linalg.det(R))) / (2.0 * math.pi)
+        half = curve.half
+        self.q_d = 0.5 * (half + 1) - arc if half % 2 else 0.5 * half + arc
+        self.toward = -1.0 if self.a < 0.0 else 1.0
+        self.room = self.q_d - 0.5 * half if self.a < 0.0 else 0.5 * (half + 1) - self.q_d
+
+    def tune(self, dist: float) -> float:
+        """The fractional drive tune ``dist`` from ``q_d`` on the pulling side."""
+        return (self.q_d + self.toward * dist) % 1.0
+
+    def kicks(self, dist: float) -> tuple[float | None, float | None]:
+        """``(small state's fold, large state's end)`` kicks with the drive at ``dist``."""
+        fixed = _with_fixed_drive(self.lattice, self.idx, self.acd, self.tune(dist))
+        curve = _DampedResponseCurve(fixed, self.caller, swept_ok=True)
+        return tuple(None if g is None else float(curve.kick_of(g)[0]) for g in curve.fold_pair())
+
+    def onset(self) -> float | None:
+        """``dist_on``, to bisection precision from above (the pair exists there), or
+        ``None`` if no pair appears before the half-integer."""
+        lo, hi = 0.0, 1e-6 * self.room
+        while None in self.kicks(hi):
+            lo, hi = hi, 2.0 * hi
+            if hi >= 0.999 * self.room:
+                return None
+        while hi - lo > 1e-14 * hi:
+            mid = 0.5 * (lo + hi)
+            if None in self.kicks(mid):
+                lo = mid
+            else:
+                hi = mid
+        return hi
+
+    def jumps(self) -> tuple[float, float] | None:
+        """The drive tunes where the small fold and the large end reach the dipole's kick."""
+        from scipy.optimize import brentq
+
+        if self.a == 0.0 or (d_on := self.onset()) is None:
+            return None
+        if self.kick <= self.kicks(d_on)[0]:
+            return None  # below the onset of bistability: the small state never folds
+        out = []
+        for which in (0, 1):
+
+            def excess(dist: float, which: int = which) -> float:
+                k = self.kicks(dist)[which]
+                if k is None:
+                    raise ValueError(
+                        f"{self.caller}: the response lost its folds at {self.tune(dist)} — "
+                        "past the reach of first-order detuning; lower the kick"
+                    )
+                return k - self.kick
+
+            lo, hi = d_on, 2.0 * d_on
+            while excess(hi) < 0.0:
+                lo, hi = hi, 2.0 * hi
+                if hi >= 0.999 * self.room:
+                    return None
+            dist = brentq(excess, lo, hi, xtol=1e-15, rtol=4.0 * np.finfo(float).eps)
+            out.append(self.tune(dist))
+        return out[0], out[1]
+
+
+def _damped_jumps(lattice: Lattice, caller: str) -> tuple[str, tuple[float, float] | None]:
+    folds = _DampedFolds(lattice, caller)
+    return folds.plane, folds.jumps()
+
+
+def driven_jump_tunes(lattice: Lattice) -> dict[str, tuple[float, float] | None]:
+    """Where a damped ring's swept drive jumps up, and where it drops back (W6).
+
+    With a :class:`~accsim.elements.damper.Damper` in the driven plane the response of
+    :func:`driven_states` is a closed hysteresis loop. Swept toward the tune from the side
+    the detuning pulls to, the particle rides the small state until it folds (the first
+    tune) and settles onto the large one; swept back, it rides the large state until that
+    ends (the second tune, further from the tune), where the drive can no longer pay for
+    the damping, and drops onto the small one. Returns ``{plane: (small_fold,
+    large_fold)}``, fractional drive tunes at the dipole's kick.
+
+    ``None`` below the onset of bistability: the two folds appear together a distance
+    ``sqrt(3) Gamma / (2 pi)`` beyond the damped tune (``Gamma`` the amplitude decrement
+    per turn, to first order in it), at one kick; a weaker drive has one state at every
+    tune. Also ``None`` without detuning, or when a fold lies past the validity cut of
+    :func:`driven_states`. A slow sweep overshoots both tunes, by ``rate^(2/3)``
+    asymptotically (a damped saddle-node; W5's undamped ``4/5`` does not apply).
+
+    Depends on the dipole's kick, not on its own tune, lag, ramp or ``tune_rate``. Raises
+    :class:`ValueError` with no damping in the driven plane (undamped, the large state never
+    ends: see :func:`driven_fold_tune`). Same model, scope and refusals as
+    :func:`driven_states`.
+    """
+    plane, jumps = _damped_jumps(lattice, "driven_jump_tunes")
+    return {plane: jumps}
 
 
 def autoresonance_threshold(lattice: Lattice) -> dict[str, float | None]:

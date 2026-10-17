@@ -10825,8 +10825,9 @@ radiation, and it adds no quantum excitation.
 - Refused: `accelerate()` (it walks the elements itself), scenario files (no editor support),
   `taper()` (its unknown-element rule: a damping rate is not a field it knows how to scale),
   and `driven_gradient`, `driven_twiss`, `driven_amplitude` (`NotImplementedError`: their
-  static maps would silently answer for the undamped ring). `driven_states`,
-  `driven_fold_kick` and `driven_fold_tune` refuse it too until part (b).
+  static maps would silently answer for the undamped ring) and `autoresonance_threshold`
+  (damped autoresonance is not modelled). `driven_states`, `driven_fold_kick` and
+  `driven_fold_tune` model it since part (b), below.
 - `tracked_tunes` is allowed, and reads the damped tune (`2.3e-14` from the closed form at
   1024 turns): a real decaying weight on a pure line leaves the NAFF peak where it was.
 
@@ -10860,6 +10861,98 @@ formula misses it by 2.68% at `13/40`, against that estimate's 2.50% (pre-commit
 ring with exact drifts and the octupole, started off the steady state and tracked 600
 turns, it follows accsim turn by turn to `1.2e-14` (damper after the dipole) and `9.6e-15`
 (part of a cell away). A transcription check of the element.
+
+### The damped driven response (W6 part b — implemented 2026-10-18)
+
+`driven_states`, `driven_fold_kick` and `driven_fold_tune` accept a `Damper` in the driven
+plane, and `driven_jump_tunes(lattice) -> {plane: (small_fold, large_fold) | None}` is new.
+`tests/analytic/test_damped_response.py` gates it.
+
+**The driven frame survives damping.** In steady state the kick at the dipole is
+`g u + k p` (`u`, `p` at the dipole entrance). With that substituted the ring's one turn
+`T = R S`, `S = [[1, 0], [g, 1 + k]]`, `R` the dipole's exit round to its entrance with the
+dampers' `damping_matrix()` in it, has the steady state as a free oscillation at
+`e^(2 pi i nu)`, so `det T = 1`:
+
+    k = 1 / det R - 1 = rate / (1 - rate)    (one damper),
+
+exactly: the drive's quadrature part replaces exactly what the damper takes. Gated on the
+exact linear steady state (the periodic solution of the affine 40-turn map), demodulated
+at every element boundary: `g = (k_hat - k p_hat) / u_hat` is real to `1e-12` and equals
+the curve's W2 gradient, and `p / u` everywhere is `T`'s eigenvector carried round, to
+`1e-12`.
+
+**The curve** (`_DampedResponseCurve`) is W4's, parametrised by `g` with `q(g)` from the
+trace. Without Twiss along a non-symplectic ring, the detuning is first-order eigenvalue
+perturbation with the right eigenvector `a_j` and the left `b_j` carried to every octupole
+and drift: `delta lambda / lambda = sum b_j^T E_j a_j / (w^T v)`, `E_j` the fundamental
+harmonic of the cubic (octupole `-(k3l / 8) |a_x|^2` on `p`; exact drift `(3 L / 8) |a_p|^2`
+on `x`). Then `s = (T_target - q) / (Im(delta lambda / lambda) / 2 pi)`, `|u|^2 = s |v_0|^2`,
+`kick = |u| |g + k p/u|`, and the complex swing is `theta / (g + k p/u)`.
+- **The eigenvector term.** `p / u` moves with the eigenvector at first order, along the
+  other eigenvector: `delta v = s lambda* sum b*^T E a / ((lambda - lambda*) w*^T v*) v*`.
+  W4 has `k = 0` and never sees it. Without it the small state's miss is a fixed fraction of
+  the nonlinear correction (`3.36e-3` at `Gamma = 0.003`, constant across kicks to 0.08%,
+  halving with `Gamma`: ratio `1.998`), falling x4 per halving of the kick (4.002-4.009);
+  with it, x16 (16.03-16.10) at all three damper positions. It is
+  `_DampedResponseCurve.eigenvector_term`, which the control turns off.
+- **One walk, not two.** Damped, `g = 0` is an ordinary point (a drive wholly in quadrature
+  with the swing), so `pieces()` walks `lo .. hi` once (`_walks()`; W4 still walks out from
+  0 on each side, bit for bit). `pieces()` now also records minima (`self.minima`).
+- **Hidden turning points** (`_resolve`). Near the onset of bistability the small state's
+  fold and the large state's end merge, and both fall between grid samples: the package
+  grid reported the onset late (excess `7.3e-4` instead of `5.2e-4` at `Gamma = 0.001`,
+  which broke the halving). Wherever the sampled slope dips to under half its value two
+  samples away without changing sign, a bounded search finds the slope's least value; if it
+  has turned, the two turning points either side are added as samples. Such a dip is at
+  most 1/7 of its neighbours' (1/7 with the turn on a sample, ~1/49 midway); a smooth bend,
+  or round-off where the grid is dense near `g = 0`, is ~1 (86 such dips per curve, all
+  skipped; refining them all cost 30x the time). Not done for W4 (`_resolve` returns the
+  samples unchanged there).
+- **The quadrature's sign.** The curve's eigenvalue is `e^(2 pi i T_target)`. When the drive
+  is written in the other half (`nu > 1/2` with the tune below, or the reverse), the
+  drive's phasor is its conjugate, so `p / u` and `u / kick` are conjugated (`folded`).
+  The in-phase part cannot see this; gated by an exact period-50 orbit at `33/50` (miss
+  `4.2e-7`, quadrature sign right).
+- **Stability: a sink iff `|kick|` grows with `|u|`**, W4's rule: the averaged equation's
+  trace is `-2 Gamma` at every steady state, so only the determinant's sign decides.
+  Confirmed exactly: every sink's 50-turn multipliers have modulus `e^(-50 Gamma) = 0.8607`,
+  and the saddle's two multiply to `e^(-100 Gamma)`.
+- `DrivenState.quadrature` is `theta Im(rho)`, `u_n = amplitude sin(phi_n) + quadrature
+  cos(phi_n)`; still sorted by the in-phase `amplitude`.
+- **Rate 0.** A damper with `rate = 0` runs this machinery (W4's numbers to `1e-12`) but
+  `damped` is False: `driven_fold_tune` takes W4's path and `driven_jump_tunes` refuses it,
+  as it refuses a ring without a damper (`ValueError`: undamped, the large state never
+  ends). A damper on the other plane only is accepted and ignored (the planes are
+  uncoupled in this scope).
+
+**The two folds and the jumps** (`_DampedFolds`). The drive is placed `dist` from the
+**damped** tune `q_d` (from `R`: `cos 2 pi q_d = tr R / (2 sqrt(det R))`) on the side the
+detuning pulls to. `fold_pair()` walks out from the drive tune (`u = 0`): the first turning
+point is the small state's fold (a maximum), the next the large state's end (a minimum).
+Below the onset `dist_on` the curve has neither; `onset()` doubles then bisects on "both
+exist". Both fold kicks rise with `dist` from the one kick they share there (the cusp,
+`4.96e-6` at `Gamma = 0.003`, `dist_on = 8.28e-4`), so each tune is a bracketed root
+starting at `dist_on`. **W5's `driven_fold_tune` search would return `None` on every damped
+ring**: it starts at the tune, where no fold exists yet. Damped, it is `driven_jump_tunes`'s
+first tune (gated equal).
+
+**Measured at `17/50`, `Gamma = 0.003`, damper after the dipole.**
+- Folds: small `3.72291e-5` against exact `3.72506e-5` (`-5.79e-4`); large end `1.15872e-5`
+  against `1.16063e-5` (`-1.64e-3`). Exact by W4's gap² extrapolation, with one fix: near a
+  fold the predicted saddle sits off the exact one by more than the pair's own size, and
+  Newton seeded there slid onto the sink at 1.004 times the large end (a zero gap, a fold
+  0.4% off). The test finds the sink first and seeds the saddle at its prediction moved by
+  the sink's miss, then asserts one sink and one saddle.
+- At the exact fold kicks, `driven_jump_tunes` puts the small fold `1.5e-6` and the large
+  end `1.25e-5` from `0.34`. At kick `1.99e-5`: `(0.34137, 0.33299)`, the tracked sweeps'
+  `0.341` and `0.333`.
+- Onset excess over `sqrt(3) Gamma / (2 pi)`: `2.05e-3, 1.03e-3, 5.17e-4` at `Gamma = 0.004,
+  0.002, 0.001` (ratios 1.99, 1.99). The `sqrt 3` is sympy's, from `n ((D + A n)^2 + G^2) =
+  eps^2` with its first two derivatives zero.
+
+Cost: `driven_jump_tunes` builds about a hundred curves, about 3 s. The test file runs in about
+two minutes.
 
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 

@@ -42,9 +42,9 @@ from accsim import (
     Particle,
     Tracker,
     X,
+    autoresonance_threshold,
     driven_amplitude,
     driven_gradient,
-    driven_states,
     driven_twiss,
 )
 from accsim.tune import tracked_tunes
@@ -223,9 +223,13 @@ def test_construction_guards_and_refusals() -> None:
     with pytest.raises(NotImplementedError, match="Damper"):
         _scaled(Damper(0.01), 0.99)  # taper(): it does not know a damper's strength
     lat = _damped(_acd(KICK, NU))
-    for fn in (driven_gradient, driven_twiss, driven_amplitude, driven_states):
+    for fn in (driven_gradient, driven_twiss, driven_amplitude):
         with pytest.raises(NotImplementedError, match="Damper"):
             fn(lat)
+    # Damped autoresonance is not modelled (W6 part b teaches driven_states the damper).
+    swept = _damped(ACDipole(KICK, NU, LAG, tune_rate=-1e-6))
+    with pytest.raises(NotImplementedError, match="Damper"):
+        autoresonance_threshold(swept)
 
 
 # --- 2. the damped linear ring ------------------------------------------------------------

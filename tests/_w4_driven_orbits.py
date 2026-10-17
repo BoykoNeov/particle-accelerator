@@ -18,6 +18,7 @@ from accsim import (
     PX,
     PY,
     ACDipole,
+    Damper,
     Drift,
     Lattice,
     ReferenceParticle,
@@ -64,13 +65,16 @@ def _acd(kick: float, nu: float = NU, plane: str = "x", ramp=None) -> ACDipole:
 
 # --- the exact truth: period-q orbits of the driven map -----------------------------------
 def _q_turns(lat: Lattice, states: np.ndarray, q: int) -> np.ndarray:
-    """``(6, n)`` states at the lattice start, carried ``q`` turns by ``track()`` + drive."""
+    """``(6, n)`` states at the lattice start, carried ``q`` turns by ``track()`` + drive
+    (and any :class:`~accsim.Damper`, applied as the turn loops apply it)."""
     s = states.copy()
     for turn in range(q):
         for e in lat.elements:
             s = e.track(s, lat.ref)
             if isinstance(e, ACDipole):
                 s = s + e.drive_kick(turn, lat.ref)[:, None]
+            elif isinstance(e, Damper):
+                s = e.damp(s)
     return s
 
 
@@ -132,6 +136,8 @@ def _dipole_amplitude(lat: Lattice, z: np.ndarray, q: int, nu: float, plane: str
             s = e.track(s, lat.ref)
             if isinstance(e, ACDipole):
                 s = s + e.drive_kick(turn, lat.ref)[:, None]
+            elif isinstance(e, Damper):
+                s = e.damp(s)
     ph = 2 * np.pi * (nu * np.arange(q) + LAG)
     us = np.array(us)
     return 2 / q * float(np.sum(us * np.sin(ph))), 2 / q * float(np.sum(us * np.cos(ph)))
