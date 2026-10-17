@@ -49,7 +49,7 @@ apply it; its static maps are the identity). `driven_states`, `driven_fold_kick`
 where a sweep jumps up and where it drops back. Swept toward the tune, the particle rides the
 small state and jumps onto the large one; swept back, it rides the large one and drops.
 Full detail is in `docs/CONVENTIONS.md` -> *The damper*, *The damped driven response* and
-*The damped sweep*. All fifteen pre-committed gates pass, five of them (9, 10, 11, 12-13, 14)
+*The damped sweep*. All fifteen pre-committed gates pass, six of them (9, 10, 11, 12, 13, 14)
 with a corrected detail. What changed between pre-commitment and code:
 
 - **The way the swing is read off a sweep was biased** (gates 11-13). The probes divided a
@@ -73,8 +73,12 @@ with a corrected detail. What changed between pre-commitment and code:
   on `driven_jump_tunes` converges to; at the exact end, `driven_jump_tunes` lands `1.25e-5`
   from 17/50.
 - **The bracket thresholds are 10% and 90%** of the way from the fold's swing to the large
-  state's (gate 14): 3.357 and 4.195 around the Airy 3.419 (the probes' 2.53 and 3.95 came
-  from thresholds not recorded). Local exponents 0.653-0.680.
+  state's (gate 14): 3.357 and 4.195 around the Airy 3.419. **They were chosen after the
+  run**, not pre-committed (the probes' 2.53 and 3.95 came from thresholds not recorded),
+  and the low side brackets only for a threshold close to the fold's swing: at 20% it is
+  3.72, above the Airy value, at this rate. The bracket is evidence that the Airy value
+  lies between early and late detection, not a test with margin; the exponents
+  (0.653-0.680, pre-committed band 0.62-0.72) carry the 2/3.
 - **`driven_fold_tune` would have answered `None` on every damped ring.** Its W5 search
   starts at the tune, where a damped response has no fold yet. Damped, it is
   `driven_jump_tunes`'s first tune (gated equal).

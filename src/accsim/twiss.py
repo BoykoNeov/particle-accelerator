@@ -570,7 +570,8 @@ class _ResponseCurve:
                 raise NotImplementedError(
                     f"{caller}: {type(elem).__name__} {elem.name!r} is not modelled. The "
                     "driven-frame cubic is written for straight rings of drifts, thin "
-                    "quadrupoles and thin octupoles: a bend's leading nonlinearity is second "
+                    "quadrupoles and thin octupoles (and dampers, where the caller models "
+                    "them): a bend's leading nonlinearity is second "
                     "order, a sextupole detunes at second order through its own resonance "
                     "denominators, and a thick magnet's kinematic terms are not in it"
                 )
@@ -1085,6 +1086,19 @@ def driven_states(lattice: Lattice) -> dict[str, tuple[DrivenState, ...]]:
     not a stable one) and that is not modelled. Refuses (:class:`NotImplementedError`)
     bends, sextupoles, thick magnets, misalignments and a dipole in each plane; raises
     :class:`ResonantLatticeError` for an integer or half-integer drive tune.
+
+    **With a** :class:`~accsim.elements.damper.Damper` **in the driven plane (W6)** the
+    drive must pay for the damping, so each state also has a ``quadrature`` part (a
+    quarter turn behind the drive), ``stable`` means a sink, and the large state ends at a
+    second fold (:func:`driven_jump_tunes`). The kick is then ``g u + k p`` in the driven
+    frame, ``k = rate / (1 - rate)``, and the detuning comes from eigenvector
+    perturbation (see ``docs/CONVENTIONS.md`` -> *The damped driven response*). The
+    states are still sorted by the in-phase ``amplitude``, but with damping that order is
+    not each state's identity: near the large state's end its in-phase part and the
+    middle state's both pass the small state's (at 1.0002 times the end at 17/50, the
+    middle state sorts before the small one). Pick states by the size of the swing or by
+    ``stable``, not by position. A damper on the other plane is ignored (the planes are
+    uncoupled here).
     """
     curve = _response_curve(lattice, "driven_states")
     states = [state for _, state in _states_on(curve)]
@@ -1129,7 +1143,9 @@ def driven_fold_kick(lattice: Lattice) -> dict[str, float | None]:
     state continues until it meets :func:`driven_states`'s validity cut (past which
     first-order detuning says nothing, fold or not). Depends on the drive tune and the
     ring, not on the dipole's own kick, lag or ramp. Same model, scope and refusals as
-    :func:`driven_states`.
+    :func:`driven_states`, a damper included: damped, it is the small state's fold (the
+    large state's end is the second tune of :func:`driven_jump_tunes`), and ``None``
+    below the onset of bistability too, where the small state never folds.
     """
     curve = _response_curve(lattice, "driven_fold_kick")
     for a, b in curve.pieces():

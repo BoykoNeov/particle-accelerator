@@ -353,7 +353,8 @@ def test_the_passage_goes_as_the_rate_to_the_two_thirds() -> None:
     threshold); convergence is slow (a transit term near ``alpha log(1/alpha)``). At
     ``1.95e-9`` the overshoot over ``alpha^(2/3)`` brackets the Airy value (3.419) between
     a threshold 10% of the way from the fold's swing to the large state's (3.357) and one
-    90% of the way (4.195). No tolerance on the Airy value itself."""
+    90% of the way (4.195); those two thresholds were chosen after the run (at 20%
+    the low side is already 3.72). No tolerance on the Airy value itself."""
     beta = _averaged()[1]
     eps = KICK_LOOP * math.sqrt(2.0 * beta) / 4.0  # W5's eps = theta sqrt(2 beta) / 4
     _, r_f, r_l, k12 = _fold_reduction(eps)
