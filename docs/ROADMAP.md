@@ -39,8 +39,174 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18) | named, not opened: damped autoresonance; editor/scenario support; a skew (coupled) drive |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18) | **W7** damped autoresonance (opened 2026-10-18); named, not opened: editor/scenario support; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**W7 — damped autoresonance (opened 2026-10-18; the gates below were pre-committed before any
+code).** W5 found the kick above which a drive swept through the tune locks the particle and
+carries it out along the large branch (`autoresonance_threshold`). W6 added a damper and made
+that function refuse it. With damping, two things change. **The threshold rises**: the drive
+now pays for the damping while it captures. And **a locked particle no longer rides on for
+ever**: it falls out where the drive can no longer pay for both the damping and the growth
+that the sweep demands of it.
+
+**The parameter is the damping against the sweep, not the damping.** With W6's `-i Gamma c`
+added, the averaged equation maps onto the damped universal one
+
+    i Psi' + (tau - |Psi|^2) Psi = mu - i gamma Psi,     gamma = Gamma / sqrt(2 pi |nu_dot|),
+
+with W5's `tau` and `mu` (`Gamma` the amplitude decrement per turn). At fixed `gamma` the ring
+maps onto it exactly, so the honest limit is a fixed `gamma` as the rate falls. At a fixed
+`Gamma`, a slower sweep raises `gamma`, and past `gamma ~ 0.1` the lock stops being a threshold
+at all: the particle simply follows the damped steady state (W6). W6's fixture sits at
+`gamma ~ 1`, far past that.
+
+Orientation facts (measured 2026-10-18 by throwaway probes; W4's fixture, `k3l = -2000`, the
+damper right after the dipole with `rate = 1 - e^(-2 Gamma)`, `Gamma = gamma sqrt(2 pi
+|nu_dot|)` per column; capture read as `|Psi|^2 > tau / 2` at a read time `tau_read`, the
+drive ramped on over `tau in [-80, -40]` as for W5's `mu_c`):
+
+- **The threshold `mu_th(gamma)`, integrated:** 0.41060 at 0 (W5's `mu_c`), 0.42237 at
+  0.0125, 0.43444 at 0.025, 0.45960 at 0.05, 0.47273 at 0.0625, 0.48629 at 0.075, 0.51459 at
+  0.1 (read at `tau = 10`). The rise is linear at small `gamma`, slope 0.94 (excesses 0.01177
+  and 0.02384 at 0.0125 and 0.025: ratio 2.025).
+- **It does not depend on when it is read**, to `1e-6` for `gamma <= 0.0625` (read times 16
+  to 40), `6e-5` at 0.075, `3.5e-4` at 0.0875, `4.7e-4` at 0.1 (read 10 against 14).
+- **It softens; there is no sharp edge.** The peak `|Psi|^2` of a run jumps across a 4% step
+  in `mu` by at most 21x at `gamma = 0.05`, 9.1x at 0.075, 4.6x at 0.1, 2.9x at 0.125 and 2.2x
+  at 0.15. Past about 0.15 every "threshold" a probe found came from its own read-out rule,
+  not from a jump. **The scope stops at `gamma = 0.1`, by choice** (a jump above 4x, read
+  dependence under `1e-3`).
+- **The energy balance.** From the damped equation, `d|Psi|^2/dtau = -2 gamma |Psi|^2 - 2 mu
+  Im(Psi) <= 2 mu |Psi| - 2 gamma |Psi|^2`. Locked, `|Psi|^2` follows `tau`, so the drive must
+  supply `d|Psi|^2/dtau = 1`. That is possible only between the roots
+  `|Psi|_(+-) = (mu +- sqrt(mu^2 - 2 gamma)) / (2 gamma)`. Below `mu = sqrt(2 gamma)` nothing
+  stays locked at any amplitude, and a locked particle falls out near `|Psi|_+`. In the ring's
+  units, `sqrt(J_esc) = (eps + sqrt(eps^2 - 2 Gamma |nu_dot / a|)) / (2 Gamma)`, which is W6's
+  large-state end `eps / Gamma` when the sweep stops. Swept, the particle falls out earlier,
+  by `1/gamma` in `tau`: in tune, by **the distance the drive moves in one damping time,
+  `|nu_dot| / Gamma`**.
+- **The escape, on the averaged equation** (the peak of `|Psi|`): 1.9-3.0 `tau` units past
+  the root `|Psi|_+^2` (at `gamma = 0.05, 0.1` and `mu = 1.2-3 mu_th`), and short of W6's
+  static end `(mu / gamma)^2` by 7.9-8.2 at `gamma = 0.1` and 17.8-18.0 at 0.05. At
+  `gamma = 0.1`, `mu = 0.669`: escape 36.86, root 34.02, static end 44.76.
+- **On the ring, the threshold converges on `mu_th(gamma)` by W5's `sqrt 2` law.** Bisected to
+  `3e-5` in `f = kick / theta_th(gamma)`, read before the drive reaches 1/3 (next point), the
+  excess over the formula is
+  - at `gamma = 0.05` and rates `1e-6, 5e-7, 2.5e-7`: 0.486%, 0.341%, 0.243% (ratios 1.425,
+    1.403);
+  - at `gamma = 0.075`, same rates: 0.527%, 0.374%, 0.263% (ratios 1.409, 1.422);
+  - at `gamma = 0.1` and `4e-6, 2e-6, 1e-6`: 1.151%, 0.819%, 0.578% (ratios 1.405, 1.417).
+
+  Against W5's undamped formula the same thresholds sit 12% high at `gamma = 0.05`
+  (`0.45960 / 0.41060 = 1.119`). Mapping `gamma` with the damper's `rate` (about `2 Gamma`) in
+  place of `Gamma` puts them 11% low (`mu_th(0.1) / mu_th(0.05) = 1.120`). Neither offset
+  converges with the rate.
+- **On this ring, a locked particle is lost at 1/3.** The tune falls with amplitude, toward 1/3,
+  0.0108 below the tune. In the first ring probe (`gamma = 0.1`, rates `1e-6 ... 4e-6`), six
+  locks had a model escape below 1/3. Five ended with the drive tune 0.3329-0.3346, within
+  `1.5e-3` above 1/3. The sixth (the deepest at the fastest rate) survived it and was lost at
+  0.3124, next to 5/16. Deeper locks (`gamma = 0.05`, `1.04` and `1.5 mu_th`) survive 1/3 and
+  are lost at 3/10 (drive tunes 0.299-0.301 at three rates). The averaged equation cannot see
+  either: they are resonances of the driven ring that the turn average discards. Their mechanism
+  is **named, not derived**. Every ring gate reads before the drive reaches 1/3. W5's read at
+  `tau = +60` lies past it: the first probe's "threshold rising as the sweep slows" at
+  `gamma = 0.05` was this, not damping.
+- **On the ring, the escape converges on the integrated one, more slowly on this ring.** At
+  `gamma = 0.1`, `mu = 0.669` (1.3 `mu_th`), slow enough that the escape lies above 1/3, the
+  relative miss in escape distance (from the damped tune) is `-9.31, -6.95, -5.43, -4.09,
+  -2.93%` at `4e-7, 2e-7, 1e-7, 5e-8, 2.5e-8` (ratios 1.34, 1.28, 1.33, 1.40). The mirror ring
+  (`k3l = +2000`, swept up) misses `+14.8, +9.49, +6.39%` at `4e-7, 2e-7, 1e-7`. The part odd in
+  the detuning's sign, half the mirror's miss minus the W4 ring's, is 12.06, 8.22, 5.91%
+  (ratios 1.47, 1.39), W5's `sqrt 2`. The even part (2.75, 1.27, 0.48%) falls faster. Against
+  the escape, the closed-form root is 7.7% early and the static end 21% late.
+
+Deliverable:
+- `autoresonance_threshold` accepts dampers in the driven plane: `theta_th = 4 mu_th(gamma)
+  (2 pi |nu_dot|)^(3/4) / (sqrt(2 beta) sqrt(2 pi |a|))`, with `gamma = Gamma / sqrt(2 pi
+  |nu_dot|)` and `Gamma = -1/2 sum ln(1 - rate)` over the dampers in that plane (the exact
+  per-turn shrink of the linear ring, W6 gate 2). `mu_th` is a table on `gamma in [0, 0.1]`
+  (step 0.0025), integrated with the read rule above and interpolated by a cubic spline. Its
+  first entry is `mu_c`. It raises `ValueError` past `gamma = 0.1` and points to
+  `driven_jump_tunes`, since the sweep then follows the steady state. **With no damper it
+  runs W5's code, bit for bit.**
+- `autoresonance_escape_tune(lattice) -> {plane: float | None}` (`accsim.twiss`): the drive tune
+  at which a locked particle's swing peaks and it falls out. The damped universal equation is
+  integrated at the dipole's `mu` and the ring's `gamma` (ramped start, the peak of `|Psi|`),
+  and the result mapped to tune with `nu = q_d + nu_dot tau / kappa` (`q_d` W6's damped tune,
+  `kappa = sqrt(2 pi |nu_dot|)`). `None` when the kick is below the threshold or the sweep runs
+  against the detuning. `ValueError` with no damper (in the model the lock then never ends),
+  for a fixed drive, and past `gamma = 0.1`. The docstring states the closed-form root as the
+  leading order and its 2-3 `tau` lag, and that a low-order resonance of the drive tune on the
+  way (1/3 on the W4 fixture) can end the lock first, unmodelled.
+- W6's test that `autoresonance_threshold` refuses a damper is replaced (a recorded
+  correction, not a regression).
+
+Scope: W6's (on momentum, one swept `ACDipole`, straight rings of `Drift`, `ThinQuadrupole`,
+`ThinOctupole`, `Damper`), first order in the detuning, linear chirp, `gamma <= 0.1`.
+
+Gates, pre-committed:
+
+*(a) The averaged equation* (`tests/analytic/test_damped_autoresonance.py`).
+1. **The mapping and the energy balance, in sympy.** W5's mapping with `-i Gamma c` added gives
+   the damped universal equation with `gamma = Gamma / sqrt(2 pi |nu_dot|)`.
+   `d|Psi|^2/dtau = -2 gamma |Psi|^2 - 2 mu Im(Psi)`; the two roots as above; in the ring's
+   units, `sqrt(J_+) -> eps / Gamma` as `nu_dot -> 0`.
+2. **The table.** Re-derived in the test by bisection at `gamma = 0.025, 0.05, 0.075, 0.1`, it
+   agrees with the table to `2e-5`. The spline at the midpoints `0.0125, 0.0625, 0.0875`
+   agrees with re-derivation to `2e-5`. The first entry is `_AUTORESONANCE_MU_C` exactly.
+3. **The read-out does not set the answer.** At `gamma = 0.05`, read times 20 and 40 agree to
+   `1e-5` (measured `1e-6`). At `gamma = 0.1`, 10 and 14 agree to `1e-3` relative (measured
+   `4.7e-4`).
+4. **The order at small damping.** `(mu_th(0.025) - mu_c) / (mu_th(0.0125) - mu_c)` lies in
+   1.95-2.10 (measured 2.025).
+5. **The scope's edge.** The largest peak-`|Psi|^2` jump across a 4% step in `mu` exceeds 4x at
+   `gamma = 0.1` (measured 4.6) and is under 3x at 0.15 (measured 2.2). `autoresonance_threshold`
+   raises just past 0.1.
+6. **The escape against its closed form.** At `gamma = 0.05, 0.1` and `mu = 1.2, 1.5, 2, 3
+   mu_th`, the integrated escape lies past the root `|Psi|_+^2` by 1.5-3.5 `tau` (measured
+   1.9-3.0), and short of `(mu / gamma)^2` by between `0.75 / gamma` and `0.95 / gamma`
+   (measured 0.79-0.82 and 0.89-0.90). The averaged equation has no rate, so this is a fixed
+   statement, not a convergence.
+
+*(b) The ring.*
+7. **Undamped is W5.** `autoresonance_threshold` returns W5's numbers bit for bit on every
+   undamped ring of W5's tests, which pass unchanged.
+8. **The threshold converges.** At `gamma = 0.05` and `0.075`, rates `1e-6, 5e-7, 2.5e-7`,
+   read at `tau = 20` and `16` (before 1/3), bisected in two passes to `1e-4`. Each excess over
+   `autoresonance_threshold` is positive, falls with halving ratios in 1.33-1.50, and is under
+   0.4% at `2.5e-7` (measured 0.243% and 0.263%). **Controls:** against the undamped formula and
+   against `gamma` mapped with `rate` in place of `Gamma`, the tracked threshold is off by more
+   than 8% at every rate, an offset that moves by less than 1% between rates.
+9. **The escape converges.** At `gamma = 0.1`, `mu = 1.3 mu_th`, rates `4e-7, 2e-7, 1e-7`, on
+   both rings (`k3l = -2000` swept down, `+2000` swept up): the relative miss of the tracked
+   escape (the peak of the demodulated swing) against `autoresonance_escape_tune`, in distance
+   from the damped tune. The odd part's halving ratios lie in 1.30-1.60 (measured 1.47, 1.39),
+   the even part is smaller than the odd part at every rate, and both rings miss by under 7% at
+   `1e-7` (measured 5.4% and 6.4%).
+10. **Control: the static end is not the escape.** At `1e-7` on both rings of gate 9,
+    `driven_jump_tunes`' large-state end lies beyond the tracked escape by more than 10% of the
+    escape distance. Estimated from the averaged end `(mu / gamma)^2`: 28% and 14%, against
+    the integrated escape's 5.4% and 6.4%. At `4e-7` on the mirror ring the static end is
+    *closer* than the integrated escape (5.8% against 14.8%), because the uncorrected
+    detuning's late bias happens to offset it there, so the control is gated at the slowest
+    rate only.
+11. **Lost at 1/3.** W4's ring, `gamma = 0.1`, `mu = 1.5 mu_th`, rate `1e-6`: the tracked lock
+    ends with the drive tune within `1.5e-3` above 1/3, while `autoresonance_escape_tune` lies
+    more than 0.005 below 1/3 (measured 0.3339 against 0.3234). Named, not modelled.
+12. **The mirror locks too.** `k3l = +2000`, swept up, `gamma = 0.05`, `1e-6`: the particle
+    locks at 1.02x the threshold and not at 0.98x. (Not probed. W5's undamped mirror locked at
+    1.03x and not at 0.97x, and gate 8's excess at this `gamma` and rate is 0.49%.)
+
+Refused or named, not built: the resonances that end a lock early (named); the locked
+particle's libration; `gamma > 0.1` (W6's adiabatic following, a crossover not modelled);
+damping toward a non-zero closed orbit; amplitude-dependent damping; non-linear chirps; the
+vertical pump, two planes, bends, sextupoles, off momentum (W4's refusals stand). No arbiter has
+the element, and the reference legs of W5 and W6 already transcribe the swept dipole and the
+damper, so W7 adds none.
+
+Cost: the ring gates need slow sweeps (`1e-7` per turn, up to `~1.6e5` turns), one particle
+per column, rates batched into one sweep per ring. Target: under 6 minutes for the file.
 
 **Axis W shipped W6 on 2026-10-18**: the **damped sweep**, and with it the closed hysteresis
 loop. `Damper(rate, plane)` takes a fixed fraction of the swing once a turn (the turn loops
