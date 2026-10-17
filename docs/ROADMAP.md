@@ -39,8 +39,194 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10) | named, not opened: editor/scenario support; a skew (coupled) drive |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10) | **W6** the damped sweep — a lumped `Damper`, the damped driven response, and the closed hysteresis loop (opened 2026-10-17, gates pre-committed); named, not opened: editor/scenario support; a skew (coupled) drive |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**W6 — the damped sweep (opened 2026-10-17; the gates below were pre-committed before any
+code).** W5 found no closed hysteresis loop because the rings in W4's scope have no damping.
+This milestone adds damping and closes the loop: swept toward the tune, the particle rides the
+small state and **jumps up** onto the large one at the small state's fold; swept back, it
+rides the large state and **drops** onto the small one at the large state's own end (a second
+fold, which damping creates). Three parts, committed separately: (a) the element, (b) the
+damped steady response, (c) the sweep.
+
+**Where the damping comes from — a new element, not the package's radiation.** Radiation
+damping in accsim happens inside bends, and W4's model refuses bends (their leading
+nonlinearity is second order). So the damping is a lumped thin element, `Damper`: once a
+turn it multiplies the driven plane's momentum by `1 - rate`. That is exactly the net
+transverse effect of a turn of radiation plus RF (Sands: the photons take momentum along
+the direction of motion, the cavity gives back only the longitudinal part), and it is also
+the textbook ideal feedback kicker. A kicker can change only the momentum, so the map
+touches `p` and not `x`. It is xtrack's `LineSegmentMap(damping_rate_px=...)` convention
+(read in the source, `elements.py`: `damping_factors[1,1] -= damping_rate_px`, applied as
+`px *= factor`).
+
+Orientation facts (measured 2026-10-17 by throwaway probes on W4's split-tune FODO,
+`k3l = -2000` at the dipole, the damper immediately after the dipole, `rate = 1 - e^(-2
+Gamma)` with `Gamma` the amplitude decrement per turn):
+
+- **The linear ring.** One turn has `|lambda|^2 = 1 - rate` exactly (to `1e-15`). The tune
+  moves: `cos mu_d = (2 cos mu - rate (cos mu - alpha sin mu)) / (2 sqrt(1 - rate))`, with
+  `alpha` the natural alpha at the damper; first order `-rate alpha / (4 pi)` (`-1.990e-4`
+  at `Gamma = 0.003`, `alpha = 0.418`, measured `-1.990e-4`). Placed where `alpha = 0` it
+  moves the tune only at second order.
+- **The damped steady state at the dipole** (damper right after the kick), sympy-derived:
+  `x_hat = theta beta (1 - rate) sin mu / [(2 - rate)(cos 2 pi nu - cos mu) - rate alpha sin mu
+  + i rate sin 2 pi nu]`, with `x_n = Re(x_hat) sin(phi_n) + Im(x_hat) cos(phi_n)`. It is W1's
+  formula at `rate = 0`. The quadrature (the part a quarter turn behind the drive) is the new
+  physics: `-0.0128` against an in-phase `0.491` mm at `13/40`, about `Gamma / (2 pi (Q - nu))`.
+- **The driven frame survives damping, and the damping fixes the drive's out-of-phase part.**
+  In steady state the kick is `g u + k p` at the dipole. The ring with that substituted for
+  the dipole has eigenvalues `e^(+-2 pi i nu)`, so its determinant is 1, which fixes
+  `k = rate / (1 - rate)` exactly: the drive's quadrature part replaces exactly what the
+  damper takes. The trace fixes `g`. The detuning enters by first-order eigenvalue
+  perturbation, with left and right eigenvectors in place of Twiss (the ring has
+  non-symplectic pieces). With no damper this is W4's curve to `2.7e-14`.
+- **A term the first damped model missed.** The kick's size follows from `p / u` at the
+  dipole through `k`, and `p / u` moves with the eigenvector at first order in the
+  detuning. Leaving that out costs a fixed fraction of the nonlinear correction,
+  proportional to `Gamma` (0.336% at `Gamma = 0.003`, 0.168% at `0.0015`): the small-state
+  miss then falls only x4 per halving of the kick. With the first-order eigenvector change
+  included it falls **x16** (16.08, 16.03), at three damper positions (at the dipole, and
+  before elements 7 and 15). That term moved the large state's end from 3.6% off in kick to
+  0.15%.
+- **Two exact folds at `17/50`, `Gamma = 0.003`** (exact: the squared gap between the merging
+  exact period-50 orbits, extrapolated to zero, W4's method). The small state's fold: kick
+  `3.72506e-5`, predicted `-5.8e-4` relative. The large state's end: kick `1.16063e-5`,
+  predicted `-1.6e-3`. The middle state's 50-turn multipliers straddle 1 (1.03, 0.72).
+- **The loop closes.** At kick `1.99e-5`, swept up and down at `1e-6 ... 4e-6` per turn: up,
+  the particle rides the small state (under 2 mm) and jumps near `0.341` onto the large one;
+  down, it rides the large one (to 11 mm) and drops near `0.333`. Past the region both sit on
+  the one state (6.05 mm at `0.342`, both directions). Nothing is lost.
+- **The jumps converge on the exact folds, and the averaged equation predicts by how much.**
+  With each kick pinned to put its exact fold at `17/50`, the jump detected as the
+  demodulated swing (40-turn window) crossing 5 mm:
+  - up, at `4e-6, 2e-6, 1e-6`: past `17/50` by `6.12, 3.80, 2.40e-4`;
+  - down, at `1e-6, 5e-7, 2.5e-7`: by `5.88, 4.05, 2.71e-4`.
+  The averaged equation `i c' = -2 pi (d + a|c|^2) c - i eps - i Gamma c`, its own fold pinned at
+  the same distance below the damped tune and read with the same rule, gives `6.18, 3.90,
+  2.49e-4` and `5.84, 4.03, 2.69e-4`. **The detection rule is part of the measurement**: the
+  particle needs `~1 / Gamma = 333` turns to settle on the new state, during which the drive
+  moves as far as the overshoot itself. So the ring is gated against the averaged equation
+  under one rule, not against a guessed band.
+- **The passage power is 2/3 here, not W5's 4/5**, and only asymptotically. Near a damped fold
+  the motion reduces to first order, `X' = k1 alpha n + k2 X^2` (the other direction relaxes
+  at `2 Gamma`), whose blow-up time is the Airy zero `Omega_0 = 2.33811`: overshoot
+  `-> Omega_0 alpha^(2/3) / |k1 k2|^(1/3)`. On the averaged equation the local exponent sits
+  at 0.659-0.689 from `1e-6` to `7.8e-9` per turn (for a mid-way detection threshold), and the
+  overshoot over `alpha^(2/3)` brackets the Airy value 3.42 between a low and a high
+  threshold (2.53 and 3.95 at `1.95e-9`). Convergence is slow: the settling transit adds a
+  term near `alpha log(1/alpha)`. At the ring's rates the large state's end is not yet
+  asymptotic (halving ratios 1.45-1.49 against `2^(2/3) = 1.587`).
+- **The onset of bistability.** The averaged cubic has three states only beyond
+  `|Q_d - nu| = sqrt(3) Gamma / (2 pi)` (`Q_d` the damped tune). The corrected model's onset
+  approaches it: excess `2.05e-3, 1.03e-3, 5.2e-4` at `Gamma = 0.004, 0.002, 0.001` (halving
+  with `Gamma`).
+- **Damping is not amplitude-dependent at the level that mattered.** A free decay from 2-10 mm
+  loses `3.00e-3` per turn in amplitude at every size, within the noise of a Courant-Snyder
+  read-out on a nonlinear ring. The 3.6% miss above was the eigenvector term, not this.
+
+Deliverable:
+- `Damper(rate, plane="x", name=None)` (`accsim.elements`), `0 <= rate < 1`. **The turn
+  loops apply it, as they apply the AC dipole's kick**: its static maps (`matrix`, `kick`,
+  `track`) are the identity, so every optics function, closed orbit, normal form and Taylor
+  map sees the undamped machine (how a real ring's optics is quoted), and none of them can
+  silently return a number for a non-symplectic one-turn map. `track_turns` (both paths),
+  `track_bunch_losses` (both paths), `track_once(turn=k)` and `track_once_with_spin(turn=k)`
+  damp; a single pass with `turn=None` does not. Elements act in list order, so a damper
+  after the dipole damps the kick too. It damps toward the **design** orbit (`p -> 0`), not
+  the closed orbit: on a ring whose closed orbit is not zero at the damper, the tracked
+  orbit settles off it by `O(rate)` (stated, not modelled; the W4 scope has a zero closed
+  orbit). Refused: `accelerate()` (as the AC dipole), scenario files (no editor support),
+  `taper()` (already, by its unknown-element rule). `tracked_tunes` is allowed and measures
+  the damped tune.
+- `DrivenState` gains `quadrature: float = 0.0` (the swing's part a quarter turn behind the
+  drive; `amplitude` stays the in-phase part). `driven_states`, `driven_fold_kick` and
+  `driven_fold_tune` accept dampers in the driven plane and solve the damped driven-frame
+  curve above. **With no damper they run W4's code, bit for bit.** Stability: elliptic in W4
+  becomes a sink here, and the rule is unchanged (stable iff the kick grows with the swing),
+  because the averaged equation's trace is `-2 Gamma` at every steady state.
+- `driven_jump_tunes(lattice) -> {plane: (small_fold, large_fold) | None}`: the drive tunes at
+  the dipole's kick where the small state ends (a sweep toward the tune jumps up) and where
+  the large state ends (a sweep back drops down). `None` below the onset of bistability.
+  Requires a damper (`ValueError` without one: undamped, the large state never ends; see
+  `driven_fold_tune`).
+- Refused on a damped ring: `driven_gradient`, `driven_twiss`, `driven_amplitude`
+  (`NotImplementedError`: their linear answers have no quadrature) and
+  `autoresonance_threshold` (damped autoresonance is not modelled).
+
+Scope: W4's (on momentum, one `ACDipole`, straight rings of `Drift`, `ThinQuadrupole`,
+`ThinOctupole`, the dipole, and now `Damper`), first order in the detuning, linear chirp.
+
+Gates, pre-committed:
+
+*(a) The element.*
+1. **Identity outside the turn loops; damping inside.** `matrix`, `kick` and `track` are the
+   identity; `rate = 0` tracks bit for bit as the ring without the element, both paths;
+   `track_turns` with a damper equals a hand-written loop applying `p *= 1 - rate` at its
+   place, bit for bit; the three refusals raise.
+2. **The damped linear ring.** The tracked linear path's free oscillation shrinks its
+   Courant-Snyder-normalised amplitude by exactly `(1 - rate)^(n/2)` over full turns at the
+   damper (to `1e-12`), and its turn-by-turn phase advance is `mu_d` from the closed form
+   above (to `1e-12`). `tracked_tunes` returns `mu_d / 2 pi` to its own documented floor.
+3. **The damped steady state.** W1's identity `z_hat = (lambda I - B A)^(-1) B b A e^(2 pi i
+   lag)`, with the damper inside `A` or `B`, tracked signed for 600 turns to `1e-11`
+   relative, with the damper right after the dipole, right before it, and two cells away.
+   The closed form `x_hat` above (derived in sympy in the test) to `1e-12` against it.
+   **Control:** W1's undamped formula misses the quadrature by `Gamma / (2 pi (Q - nu))` to
+   within 10%.
+4. **xtrack** (reference): a zero-length `LineSegmentMap` with `damping_rate_px = rate` and
+   an identity linear part, next to its `ACDipole`, follows accsim turn by turn to `1e-12`.
+   A transcription check of the element, not of the physics. If the segment map cannot be
+   made the identity, the entry says so and the leg is dropped, not bent.
+
+*(b) The damped steady response.*
+5. **The driven frame with damping.** `k = rate / (1 - rate)` exactly; W1's damped steady
+   state is the eigenvector of the substituted ring at `e^(2 pi i nu)` (`p / u` at every
+   element boundary to `1e-12`).
+6. **Undamped is W4.** On a ring without a damper the three functions return W4's numbers bit
+   for bit, and the damped machinery at `rate = 0` agrees with them to `1e-12`.
+7. **The order gate.** Small states against exact period-40 orbits at `13/40`, `Gamma =
+   0.003`, kicks `3.2e-5, 1.6e-5, 8e-6`, at three damper positions: the relative miss falls
+   by 15-17 per halving (measured 16.03-16.10). **Control**, the same model without the
+   eigenvector term: by 3.9-4.1 (measured 4.00-4.01), its miss over the nonlinear correction
+   constant across the kicks and proportional to `Gamma` (ratio of `Gamma = 0.003` to
+   `0.0015` in 1.95-2.05; measured 2.00).
+8. **Stability.** At `17/50`, kicks 2% inside both folds: every `stable` flag matches the exact
+   50-turn multipliers (sink: both inside the unit circle; middle: one outside).
+9. **The folds.** At `17/50`, `Gamma = 0.003`: `driven_fold_kick` within 0.2% of the exact
+   small-state fold (measured `5.8e-4`); the large state's end, read off `driven_jump_tunes`
+   as a kick by bisection, within 0.3% of the exact one (measured `1.6e-3`). At the exact
+   fold kicks, `driven_jump_tunes` puts the corresponding fold within `5e-5` of `0.34`.
+10. **The onset.** The model's onset of bistability, found by bisecting the drive tune at
+    which `driven_jump_tunes` first returns a pair, lies beyond `sqrt(3) Gamma / (2 pi)` below
+    the damped tune by an excess under 0.3% that halves with `Gamma` (ratios 1.9-2.1 at
+    `0.004, 0.002, 0.001`). The `sqrt 3` is derived in sympy from the averaged cubic, not
+    recalled.
+
+*(c) The sweep.*
+11. **The loop closes.** Kick `1.99e-5`, rate `1e-6`, from rest at `0.33` up to `0.346` and
+    from `0.35` down to `0.33`: at the tune where each sweep passes `17/50` (inside the
+    bistable region), the up-sweep's demodulated swing is within 3% of the exact small orbit
+    and the down-sweep's within 3% of the exact large orbit (each a period-50 orbit); beyond
+    the region the two land on the same exact state to 1%. Nothing is lost.
+12. **The jump up converges.** Kick at the exact small-state fold for `17/50`, rates `4e-6,
+    2e-6, 1e-6`: the swing first crosses 5 mm past `17/50` by an overshoot that falls with
+    the rate and is within 5% of the averaged equation's at each rate (measured 1.0-3.6%).
+13. **The drop converges.** Kick at the exact large-state end for `17/50`, rates `1e-6, 5e-7,
+    2.5e-7`: the swing last exceeds 5 mm past `17/50` by an overshoot that falls with the rate
+    and is within 5% of the averaged equation's at each rate (measured 0.6-0.7%).
+14. **The power, on the averaged equation.** At the small-state fold, local exponents over
+    halvings from `1e-6` to `1.6e-8` lie in 0.62-0.72 (measured 0.659-0.685), every one more
+    than 0.1 from 4/5. The overshoot over `alpha^(2/3)` at `1.95e-9` brackets the Airy value
+    `Omega_0 / |k1 k2|^(1/3)` between a low and a high detection threshold (`k1`, `k2` from
+    the center-manifold reduction at the fold, computed in the test; `Omega_0` the first
+    zero of `Ai(-x)`, computed, not recalled). No tolerance on the Airy value itself.
+15. **The control.** With `rate = 0` W5's up-sweep (its gate 4, no landing) is reproduced bit
+    for bit with the element present.
+
+Cost: the (c) file should stay near W5's 3.5 minutes (sweeps batched one particle per
+column; exact orbits at `q <= 50`).
 
 **Axis W shipped W5 on 2026-10-10**: the **drive-tune sweep**. `ACDipole(tune_rate=...)`
 sweeps the drive. `driven_fold_tune` gives where a sweep toward the tune loses the particle,
