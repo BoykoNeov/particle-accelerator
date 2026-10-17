@@ -16,6 +16,7 @@ import numpy as np
 from .coords import DELTA, DIM, PX, PY, ZETA, X, Y
 from .elements.acdipole import ACDipole
 from .elements.aperture import AcceptanceElement
+from .elements.damper import Damper
 from .lattice import Lattice
 from .radiation_kick import RADIATION_MODELS, STOCHASTIC_MODELS
 
@@ -178,6 +179,21 @@ def _plus(state: np.ndarray, k: np.ndarray) -> np.ndarray:
     return state + (k if np.ndim(state) == 1 else k[:, None])
 
 
+#: Elements whose action belongs to a turn loop, not to their static map: an
+#: :class:`~accsim.elements.acdipole.ACDipole` (a kick that depends on the turn, W1) and a
+#: :class:`~accsim.elements.damper.Damper` (a damping applied once a turn, W6).
+_TURN_ELEMENTS = (ACDipole, Damper)
+
+
+def _turn_action(elem: object, state: np.ndarray, turn: int, ref: object) -> np.ndarray:
+    """What a turn loop does at ``elem`` after its (identity) static map, on pass ``turn``."""
+    if isinstance(elem, ACDipole):
+        return _plus(state, elem.drive_kick(turn, ref))
+    if isinstance(elem, Damper):
+        return elem.damp(state)
+    return state
+
+
 class Tracker:
     """Pushes particles / bunches through a lattice using its linear map."""
 
@@ -246,13 +262,15 @@ class Tracker:
         pass has no turn of its own:** with ``turn=None`` (the default) an AC dipole is
         its static identity map, so this is the *undriven* machine — bit for bit the same
         lattice with the dipole removed. A hand-written turn loop must pass the turn to
-        get the drive; :meth:`track_turns` and :meth:`track_bunch_losses` do.
+        get the drive; :meth:`track_turns` and :meth:`track_bunch_losses` do. A
+        :class:`~accsim.elements.damper.Damper` likewise damps only when ``turn`` is given
+        (W6): a single pass is the undamped machine.
         """
         ref = self.lattice.ref
         for elem in self.lattice.elements:
             state = elem.track(state, ref, radiation=radiation, rng=rng)
-            if turn is not None and isinstance(elem, ACDipole):
-                state = _plus(state, elem.drive_kick(turn, ref))
+            if turn is not None and isinstance(elem, _TURN_ELEMENTS):
+                state = _turn_action(elem, state, turn, ref)
         return state
 
     def track_once_with_spin(
@@ -277,11 +295,11 @@ class Tracker:
         ref = self.lattice.ref
         for elem in self.lattice.elements:
             state, spin = elem.track_with_spin(state, spin, ref, radiation=radiation, rng=rng)
-            if turn is not None and isinstance(elem, ACDipole):
-                # The orbit takes the drive; the spin does not, because thin elements
-                # do not precess in accsim.spin (its documented omission). The spin then
-                # follows the driven orbit through every thick element downstream.
-                state = _plus(state, elem.drive_kick(turn, ref))
+            if turn is not None and isinstance(elem, _TURN_ELEMENTS):
+                # The orbit takes the drive (or the damping); the spin does not, because
+                # thin elements do not precess in accsim.spin (its documented omission).
+                # The spin then follows the orbit through every thick element downstream.
+                state = _turn_action(elem, state, turn, ref)
         return state, spin
 
     def _track_once(self, state: np.ndarray) -> np.ndarray:
@@ -368,7 +386,7 @@ class Tracker:
             for elem in self.lattice.elements:
                 k = elem.kick(ref)
                 maps.append((elem.matrix(ref), k[:, None] if k.any() else None))
-        driven = [isinstance(elem, ACDipole) for elem in self.lattice.elements]
+        driven = [isinstance(elem, _TURN_ELEMENTS) for elem in self.lattice.elements]
 
         def cull(elem: AcceptanceElement, ei: int, turn: int, s_face: float) -> None:
             inside = np.asarray(elem.survives(states), dtype=bool)
@@ -397,7 +415,7 @@ class Tracker:
                         else:
                             states[:, alive] = M @ states[:, alive] + k_col
                     if driven[ei]:
-                        states[:, alive] += elem.drive_kick(turn, ref)[:, None]
+                        states[:, alive] = _turn_action(elem, states[:, alive], turn, ref)
                 if thick_boundary:
                     cull(elem, ei, turn, s + elem.length)  # the exit face
                 elif isinstance(elem, AcceptanceElement):
@@ -430,7 +448,9 @@ class Tracker:
         An :class:`~accsim.elements.acdipole.ACDipole` is driven on both paths, with
         pass ``k`` (row ``k + 1``) at turn index ``k``. Its kick changes every turn, so
         on a driven ring the linear path walks the element matrices instead of the
-        one-turn matrix — the same linear map, applied in pieces.
+        one-turn matrix — the same linear map, applied in pieces. A
+        :class:`~accsim.elements.damper.Damper` damps on both paths (W6); on an undriven
+        ring the linear path folds its damping matrix into the one-turn map.
         """
         if n_turns < 0:
             raise ValueError(f"n_turns must be >= 0, got {n_turns}")
@@ -440,6 +460,7 @@ class Tracker:
         s = particle.state.copy()
         ref = self.lattice.ref
         drives = [e for e in self.lattice.elements if isinstance(e, ACDipole)]
+        dampers = [e for e in self.lattice.elements if isinstance(e, Damper)]
         if nonlinear:
             for turn in range(1, n_turns + 1):
                 s = self.track_once(s, radiation, rng, turn=turn - 1)
@@ -447,15 +468,27 @@ class Tracker:
         elif drives:
             # A kick that changes every turn cannot be folded into one matrix, so a
             # driven ring walks the element matrices — still exactly linear.
-            maps = [(e.matrix(ref), e.kick(ref), isinstance(e, ACDipole)) for e in self.lattice]
+            maps = [
+                (e.matrix(ref), e.kick(ref), isinstance(e, _TURN_ELEMENTS)) for e in self.lattice
+            ]
             for turn in range(1, n_turns + 1):
-                for elem, (M, k, is_drive) in zip(self.lattice, maps, strict=True):
+                for elem, (M, k, is_turn) in zip(self.lattice, maps, strict=True):
                     s = M @ s + k
-                    if is_drive:
-                        s = s + elem.drive_kick(turn - 1, ref)
+                    if is_turn:
+                        s = _turn_action(elem, s, turn - 1, ref)
                 history[turn] = s
         else:
-            M, k = self.lattice.one_turn_map()
+            if dampers:
+                # A damping is the same every turn, so it folds into the one-turn map: the
+                # lattice's own product with each damper's static identity replaced by its
+                # damping matrix (rate = 0 is the undamped map bit for bit).
+                M, k = np.eye(DIM), np.zeros(DIM)
+                for elem in self.lattice.elements:
+                    Me = elem.damping_matrix() if isinstance(elem, Damper) else elem.matrix(ref)
+                    M = Me @ M
+                    k = Me @ k + elem.kick(ref)
+            else:
+                M, k = self.lattice.one_turn_map()
             for turn in range(1, n_turns + 1):
                 s = M @ s + k
                 history[turn] = s

@@ -58,6 +58,7 @@ import numpy as np
 
 from .coords import DELTA, DIM, PX, PY
 from .elements.acdipole import ACDipole
+from .elements.damper import Damper
 from .elements.rfcavity import RFCavity
 from .lattice import Lattice
 from .reference import ReferenceParticle
@@ -211,6 +212,14 @@ def accelerate(lattice: Lattice, particle: Particle, n_turns: int) -> RampResult
             "accelerate() does not apply an ACDipole's drive (W1): an energy ramp with an "
             "AC dipole running is not modelled. Track the driven ring with "
             "Tracker.track_turns at fixed energy instead."
+        )
+    if any(isinstance(e, Damper) for e in lattice.elements):
+        # Same loop, same reason: it would track the ring undamped. A lumped damping rate
+        # during a ramp is also unvalidated (radiation damping scales as E^3).
+        raise NotImplementedError(
+            "accelerate() does not apply a Damper (W6): an energy ramp with a lumped "
+            "damping is not modelled. Track the damped ring with Tracker.track_turns at "
+            "fixed energy instead."
         )
     ref0 = lattice.ref
     mass = ref0.mass_eV

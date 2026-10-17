@@ -319,14 +319,28 @@ def tunes(lattice: Lattice) -> tuple[float, float]:
     return end.mu_x / (2.0 * math.pi), end.mu_y / (2.0 * math.pi)
 
 
-def _ac_dipole_sites(lattice: Lattice, swept_ok: bool = False) -> dict[str, tuple[int, object]]:
+def _ac_dipole_sites(
+    lattice: Lattice, swept_ok: bool = False, damped_ok: bool = False
+) -> dict[str, tuple[int, object]]:
     """``{plane: (index, ACDipole)}`` — at most one per plane, at least one in all.
 
     A swept dipole (``tune_rate != 0``, W5) is refused unless ``swept_ok``: the driven
-    optics describe the steady state of a *fixed* drive, and a swept one has none.
+    optics describe the steady state of a *fixed* drive, and a swept one has none. A
+    :class:`~accsim.elements.damper.Damper` (W6) is refused unless ``damped_ok``: its
+    static map is the identity, so a function that does not model it would silently
+    answer for the undamped ring, and a damped steady state has a quadrature part these
+    linear answers have no place for.
     """
     from .elements.acdipole import ACDipole
+    from .elements.damper import Damper
 
+    if not damped_ok:
+        for i, elem in enumerate(lattice.elements):
+            if isinstance(elem, Damper):
+                raise NotImplementedError(
+                    f"Damper at element {i}: this driven-optics function does not model "
+                    "damping (W6) — its answer would be the undamped ring's"
+                )
     sites: dict[str, tuple[int, object]] = {}
     for i, elem in enumerate(lattice.elements):
         if isinstance(elem, ACDipole):

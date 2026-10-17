@@ -6,6 +6,7 @@ from .acdipole import ACDipole
 from .aperture import AcceptanceElement, Aperture, Collimator, MomentumAperture
 from .beambeam import BeamBeam
 from .corrector import Corrector
+from .damper import Damper
 from .dipole import Dipole
 from .drift import Drift
 from .element import Element
@@ -25,6 +26,7 @@ __all__ = [
     "Dipole",
     "Corrector",
     "ACDipole",
+    "Damper",
     "Sextupole",
     "ThinSextupole",
     "Octupole",

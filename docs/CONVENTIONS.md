@@ -10788,6 +10788,79 @@ largest swing (1.8 cm). That checks the transcription of the element, not the ph
 - non-linear chirps;
 - W4's other refusals: two planes, bends, sextupoles, thick magnets, off momentum.
 
+### The damper: a lumped damping, applied once a turn (W6 part a — implemented 2026-10-17)
+
+`Damper(rate, plane="x")` (`accsim.elements`), `0 <= rate < 1`. On each pass of a turn loop
+
+    p_u -> (1 - rate) p_u        (u = x or y; nothing else changes).
+
+**What it stands for.** Two real things with this one map:
+- a ring's radiation damping net of the RF. Photons carry momentum along the direction of
+  motion, so a turn's radiation scales `(P_x, P_y, P_s)` together; the cavity returns only
+  the longitudinal part, leaving `px, py -> (1 - U0/E0) px, py` (Sands);
+- an ideal feedback kicker, which can change only the momentum.
+
+accsim's own radiation lives inside bends (B2), and W4's driven-response model refuses bends.
+This element is how a straight ring gets damping at all. It is **not** the package's
+radiation, and it adds no quantum excitation.
+
+**Conventions.**
+- `rate` is xtrack's `LineSegmentMap(damping_rate_px=...)`: the source sets
+  `damping_factors[1, 1] = 1 - damping_rate_px` and applies `px *= factor`.
+- The amplitude decrement per turn is `Gamma = -ln(1 - rate) / 2`; the tests write
+  `rate = 1 - e^(-2 Gamma)`.
+- **The turn loops apply it, as they apply the AC dipole's kick.** `matrix`, `kick` and
+  `track` are the identity. Every optics function, closed orbit, normal form and Taylor map
+  sees the undamped ring (how a real ring's optics is quoted), and none can return a number
+  built on a one-turn map whose determinant is not 1. `track_turns` (both paths),
+  `track_bunch_losses` (both paths), `track_once(turn=k)` and `track_once_with_spin(turn=k)`
+  damp; `track_once` with `turn=None` does not. The tracker's shared hook is
+  `_TURN_ELEMENTS` / `_turn_action`. On an undriven ring the linear path folds
+  `damping_matrix()` into the one-turn map (`rate = 0` is the undamped map bit for bit).
+- **List order is the physics.** A damper right after an AC dipole damps that turn's kick
+  too. The closed form below is for that placement.
+- **It damps toward the design orbit** (`p -> 0`), not the closed orbit. On a ring whose
+  closed orbit is not zero at the damper, the tracked orbit settles off it by `O(rate)`.
+  Stated, not modelled; W4's scope has a zero closed orbit.
+- Refused: `accelerate()` (it walks the elements itself), scenario files (no editor support),
+  `taper()` (its unknown-element rule: a damping rate is not a field it knows how to scale),
+  and `driven_gradient`, `driven_twiss`, `driven_amplitude` (`NotImplementedError`: their
+  static maps would silently answer for the undamped ring). `driven_states`,
+  `driven_fold_kick` and `driven_fold_tune` refuse it too until part (b).
+- `tracked_tunes` is allowed, and reads the damped tune (`2.3e-14` from the closed form at
+  1024 turns): a real decaying weight on a pure line leaves the NAFF peak where it was.
+
+**The damped linear ring.** One turn has determinant `1 - rate`, so `|lambda|^2 = 1 - rate`
+exactly (measured `4e-16`). A kick on `p` alone also moves the tune where `alpha != 0`:
+
+    cos mu_d = (2 cos mu - rate (cos mu - alpha sin mu)) / (2 sqrt(1 - rate)),
+
+with `alpha` the natural alpha at the damper; first order `-rate alpha / (4 pi)` (`-1.990e-4`
+at `alpha = 0.418`, `-9.35e-4` at `alpha = 1.96`, `Gamma = 0.003`). The tracked linear
+motion, projected on the damped ring's left eigenvector, is `lambda^n` times its start to
+`3e-14` over 400 turns at three places.
+
+**The damped steady state.** W1's `z_hat = (lambda I - B A)^(-1) B b A e^(2 pi i lag)` holds
+with the damper's matrix inside `A` or `B`: tracked signed for 600 turns to `1.4e-13`, with
+the damper right after the dipole, right before it, and part of a cell away. (Whole cells
+away would repeat the dipole's `alpha` on W4's fixture and test nothing new.) With the
+damper right after the kick, sympy gives
+
+    x_hat = theta beta (1 - rate) sin mu
+            / [(2 - rate)(cos 2 pi nu - cos mu) - rate alpha sin mu + i rate sin 2 pi nu],
+    x_n = Re(x_hat) sin(phi_n) + Im(x_hat) cos(phi_n),
+
+which is W1's formula at `rate = 0` (tracked to `1.9e-13`). `Im(x_hat) < 0`: the damped
+swing lags the drive by a quarter turn's worth of `Gamma / (2 pi (Q - nu))`. W1's undamped
+formula misses it by 2.68% at `13/40`, against that estimate's 2.50% (pre-committed: within
+10%).
+
+**xtrack** (`tests/reference/test_damper_xtrack.py`): a zero-length `LineSegmentMap` with
+`qx = qy = 0`, equal betas and `damping_rate_px = rate` is the damping alone. On W4's driven
+ring with exact drifts and the octupole, started off the steady state and tracked 600
+turns, it follows accsim turn by turn to `1.2e-14` (damper after the dipole) and `9.6e-15`
+(part of a cell away). A transcription check of the element.
+
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 
 **The scenario format** (`accsim-scenario/1`, `src/accsim/scenario.py`) is the seam
