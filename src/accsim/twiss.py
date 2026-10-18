@@ -1533,10 +1533,12 @@ def autoresonance_escape_tune(lattice: Lattice) -> dict[str, float | None]:
     On W4's fixture the tracked escape converges on it as the rate falls at fixed
     ``gamma``: by 5-6% at ``1e-7`` per turn and ``gamma = 0.1``, the part odd in the
     detuning's sign falling by ``sqrt 2`` per halving (the uncorrected natural optics,
-    as for :func:`autoresonance_threshold`). **Not modelled:** a low-order resonance of
-    the drive tune between the tune and this escape can end the lock first. The rotating-
-    wave average discards it; on the W4 fixture a lock that would pass 1/3 usually ends
-    there.
+    as for :func:`autoresonance_threshold`). **Not modelled:** an island chain of the
+    ring's own (a resonance of the free ring, present with no drive) between the tune and
+    this escape can end the lock first. The rotating-wave average discards it. On the W4
+    fixture the six-island chain at 1/3 ends most locks that reach it (W8): whether one
+    survives depends on the drive's phase as it meets the chain, and the slower the sweep
+    the fewer do (none of 64 phases at ``2.5e-7`` per turn, ``gamma = 0.05``).
 
     Returns ``{plane: fractional drive tune}``, or ``None`` when the kick is below the
     threshold, when a kick just above it does not lock in the integration (the tabulated

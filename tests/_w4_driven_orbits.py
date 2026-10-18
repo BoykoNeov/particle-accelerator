@@ -123,6 +123,19 @@ def _periodic_orbit(lat: Lattice, z: np.ndarray, q: int, plane: str = "x", it: i
     return z, float(np.max(np.abs(F))), J
 
 
+def _fixed_points(lat: Lattice, q: int, seeds, plane: str = "x") -> list:
+    """The distinct fixed points of the ``q``-turn map that Newton reaches from ``seeds``
+    (each a ``(u, p_u)`` pair): ``[(z, Jacobian), ...]``. On a ring without a drive these
+    are the points of its period-``q`` orbits (W8's island chains)."""
+    found: list = []
+    for z0 in seeds:
+        z, _, J = _periodic_orbit(lat, z0, q, plane)
+        if z is None or any(np.max(np.abs(z - f)) < 1e-9 for f, _ in found):
+            continue
+        found.append((z, J))
+    return found
+
+
 def _dipole_amplitude(lat: Lattice, z: np.ndarray, q: int, nu: float, plane: str = "x"):
     """``(in-phase, quadrature)`` amplitude of ``u`` at the dipole over one period."""
     iu, ip = _plane_ix(plane)
