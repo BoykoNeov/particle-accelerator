@@ -39,11 +39,37 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18) | **W7** damped autoresonance (opened 2026-10-18); named, not opened: editor/scenario support; a skew (coupled) drive |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; the resonances that end a lock early |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
 
+**Axis W shipped W7 on 2026-10-18**: **damped autoresonance**. `autoresonance_threshold`
+accepts a damper: the threshold is W5's formula with `mu_c` replaced by `mu_th(gamma)`, a table
+integrated on the damped universal equation (`gamma = Gamma / sqrt(2 pi |nu_dot|)`, up to 0.1).
+`autoresonance_escape_tune` gives the drive tune where a locked particle falls out, because the
+drive can no longer pay for both the damping and the growth the sweep demands. Full detail is
+in `docs/CONVENTIONS.md` -> *Damped autoresonance*. All twelve pre-committed gates pass as
+written; the measured values sit where the orientation probes put them (threshold excesses
+0.485-0.245% and 0.525-0.265%, ratios 1.400-1.415; escape odd-part ratios 1.458 and 1.391;
+lost at 0.3338 against a model 0.3235). What changed between pre-commitment and code:
+
+- **Gate 8's second control at `gamma = 0.075`** maps to `gamma = 0.15`, past the table. The
+  test integrates that threshold by the table's own rule (0.655). That reading is not a
+  sharp jump there, but any reading of it lies far off (-25%).
+- **Gate 5's grid** is relative to the threshold (4% steps around `mu_th(0.1)`) where the
+  probe scanned a fixed `mu` grid. The jumps came out 4.2x at 0.1 (probe 4.6x) and 2.4x at
+  0.15 (probe 2.2x), both inside the pre-committed bounds.
+- **The scope edge needed a `1e-9` relative slack.** `gamma` computed from a damper built
+  for exactly 0.1 lands a few ulps above it.
+- **W6's test that `autoresonance_threshold` refuses a damper** now checks that it refuses
+  W6's own ring for its `gamma` (1.2), the recorded correction.
+
+**What W7 leaves open:** the resonances that end a lock early (1/3 and 3/10 on the W4 fixture;
+named); the locked particle's libration; the crossover past `gamma = 0.1` into W6's adiabatic
+following; damping toward a non-zero closed orbit; amplitude-dependent damping; editor and
+scenario support; a skew (coupled) drive.
+
 **W7 — damped autoresonance (opened 2026-10-18; the gates below were pre-committed before any
-code).** W5 found the kick above which a drive swept through the tune locks the particle and
+code; see the shipped entry above for what changed).** W5 found the kick above which a drive swept through the tune locks the particle and
 carries it out along the large branch (`autoresonance_threshold`). W6 added a damper and made
 that function refuse it. With damping, two things change. **The threshold rises**: the drive
 now pays for the damping while it captures. And **a locked particle no longer rides on for
