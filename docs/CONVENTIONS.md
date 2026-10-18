@@ -11527,8 +11527,8 @@ betatron part only, with the editor's own `D, D'` (never fitted from the sample)
   the particle stays put: ~0.47 mm against a 0.81 mm beam. Measured: a beam with no aiming error
   and no mismatch shows a betatron emittance ~1.4x the injected one within two turns, pulsing
   1.1x–1.5x thereafter; removing the cavity, or setting `sigma_delta = 0`, keeps it at 1 to 1–2%.
-  The beam this tab injects is matched in the 4D-plus-dispersion sense only; a 6D-matched beam
-  is not built. The tab prints the shift and the beam size whenever a cavity has `|D| > 1 mm`.
+  **Resolved 2026-10-18 by the 6D-matched beam (next section).** The old warning now prints only
+  for a cavity ring whose 6D modes cannot be separated.
 - **The page (step 3).** An *Injection* tab: settings (aiming error, shape mismatch as ratios to
   the ring's own beta/alpha, emittance multiple, `sigma_delta`, energy offset, particle count,
   turns), a normalised phase-space plot at the injection point (axes fixed at injection; dots
@@ -11539,6 +11539,72 @@ betatron part only, with the editor's own `D, D'` (never fitted from the sample)
   sextupoles/octupoles add an amplitude spread the dashed curve leaves out. Tracking runs in
   ~12 ms slices per frame (500 particles x 217 elements is ~5.9 ms a turn) and pauses when the
   tab is left; any edit marks the run stale. `scripts/build_editor.py` now inlines **6** scripts.
+
+### The 6D-matched beam (step 4 — 2026-10-18, `normalForm6`, `tests/analytic/test_injection_6d.py`)
+
+On a ring with a working RF cavity (`Q_s > 0`) the injected beam is the one the one-turn **6x6**
+map leaves unchanged, `Sigma = W diag(eps_1, eps_1, eps_2, eps_2, eps_3, eps_3) W^T`, with `W`
+the 6D normal form. A ring without RF has no 6D form and keeps the 4D path above, unchanged.
+
+- **`normalForm6(M)` (`editor/accsim-optics.js`) is a port of `normal_form(M, "6d")` by a
+  different route.** The editor has no eigen-solver. `N = M + M^-1` (`M^-1 = -S M^T S`) has
+  eigenvalues `2 cos mu_k`, each twice. Half the traces of `N, N^2, N^3` are their power sums, and
+  Newton's identities turn those into a cubic, solved by the trigonometric three-real-root
+  formula. Mode `k`'s plane is the range of the real projector `P_k = prod_(j != k) (N - 2 cos mu_j)
+  / (2 cos mu_k - 2 cos mu_j)`. In it `b = -(M - cos mu) a / sin mu`, and `a` is the combination of
+  a `P_k` column and its image that gives `b` a zero own-plane position component. The pair is
+  scaled to `a . S . b = 1` with `a`'s own-plane position positive: **the package's phase
+  convention**, so the two `W` agree entry for entry (`1.5e-15` of `max |W|`, gated to
+  `1e-12` on four fixtures, including a displaced orbit and `alpha, D' != 0`). Modes are
+  labelled by the plane holding the largest share of `P_k`'s rows. It refuses (code
+  `degenerate`) when two `cos mu` are within `1e-6`. The editor's `W^-1 = -S W^T S` is the
+  inverse only because `W` is symplectic, and that is gated (`1e-13`).
+- **What the settings mean on such a ring.**
+  - Mode `k = 1, 2`'s normalised pair is `sqrt(eps) N(beta_k, alpha_k)^-1 N(beta_i, alpha_i) g`
+    plus `N(beta_k, alpha_k)^-1 (du, dpu)`. The shape mismatch is against the **mode** Twiss
+    (`beta_k = W[2k,2k]^2`, `alpha_k = -W[2k,2k] W[2k+1,2k]`, the package's `mode_beta` /
+    `mode_alpha`; 12.98 m against the uncoupled 13.07 m on `electron-ring`). The aiming error is a
+    pure betatron (mode-`k`) excursion: lab `x` moves by exactly `du` (`W[0,1] = 0`), lab `px` by
+    `du'` to a few parts in 1e3 (`det` of the 2x2 block is `1 - 4e-3`), and a small `delta, zeta`
+    rides along.
+  - `eps_3 = sigma_delta^2 / (W[5,4]^2 + W[5,5]^2)`, the longitudinal mode's own spread. The
+    transverse modes add theirs to the lab `sigma_delta^2` (`1.5e-5` relative on `electron-ring`,
+    `2.0e-5` on `wiggler-ring`). A choice, not hidden: the gates hold the sampler to
+    `W diag(eps) W^T`, not to a lab `sigma_delta`.
+  - The energy offset is the mode-3 point with `zeta = 0, delta = delta0`, so the centroid moves
+    by `NormalForm.dispersion * delta0`. That is the **dynamic** dispersion, 1.68 m on
+    `electron-ring` and 1.74 m on `wiggler-ring`, against the static 1.47 m on both.
+- **Every reading moves with it.** `ringOptics` replaces `twiss` by the mode Twiss and the
+  dynamic dispersion (the uncoupled one stays as `twiss4`), and `betatronPart` returns the mode
+  pair of `W^-1 (x - x_co)` mapped back through `N(beta_k, alpha_k)`. That is a betatron
+  coordinate in metres whose Courant-Snyder action with the mode Twiss is the mode action
+  exactly. So `beamStats`, the phase-space plot, `Bmag`, the predicted `<J>` and the mismatch
+  defaults needed no change of their own. **Measured the old way, the matched beam looks wrong.**
+  Stripped with the static dispersion it reads a steady 1.19x on `wiggler-ring`, which is why the
+  readings had to move all together.
+- **The old beam was mismatched by about 21%, and its own covariance says so.** The 4D sampler's
+  beam has `<J_1> = 1.210 eps` (`wiggler-ring`) and `1.218 eps` (`electron-ring` at 6.5 MV) in the
+  mode coordinates. Built analytically from the old construction, that number is the tracked
+  turn-0 value to `1e-10`, and tracking keeps it to `8e-3`.
+- **Off resonance the matched beam holds.** Over 1000 turns its mode emittance stays within
+  `7.1e-3 / 4.7e-4` of the injected value on `wiggler-ring` (`sigma_delta = 7e-4 / 3.5e-4`) and
+  `4.9e-3 / 3.3e-4` on `electron-ring` at 6.5 MV. It is a wobble, not a growth, and it vanishes
+  with `sigma_delta`. The scaling is steeper than first order (ratios 15, then 2), and the owner
+  is **not localised**: the RF sine, the chromatic beta-beat and resonance tails are candidates.
+- **On the default `electron-ring` even the matched beam grows, and the third synchrotron
+  sideband owns it.** `Q_1 + 3 Q_s - 6 = +0.00086` there, with mode tunes from the normal form.
+  `<J_1>` reaches 1.48x at 600 turns, and the page shows 1.99x at 1000. At fixed voltage, with
+  only the focusing quadrupoles scaled, the 600-turn growth follows the tune: 1.56x at `+0.0017`,
+  below 1.01x at `-0.0087` and `+0.0073` (gated). A voltage scan alone could not settle it,
+  because voltage moves `Q_s`, `W` and the RF nonlinearity together. The peak sits `0.0017` above
+  the linear condition: **measured, not localised** (the RF sine lowers `Q_s` with amplitude,
+  which is the obvious suspect, untested). The page warns, via `sidebandNear`, whenever some
+  `|Q_k + m Q_s|` (`k = 1, 2`, `|m| <= 3`) is within `5e-3` of an integer. The preset is left as
+  it is: the growth is physics, and it is a teaching case.
+- **Not covered.** The closed orbit is still the editor's 4D one (`zeta = delta = 0`). On a ring
+  with correctors *and* a cavity, the 6D fixed point carries a small `delta_co`, which comes from
+  the orbit's path-length change (I4). The injected beam is then centred off it by that amount.
+  The presets with a cavity have no correctors, so it does not arise there.
 
 ## Toolchain / environment notes
 

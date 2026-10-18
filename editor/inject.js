@@ -17,6 +17,13 @@
  *       decoherence  |centroid_n| / |centroid_0| = |(1/N) sum_p exp(i 2pi Q' delta_p n)|
  *                    (frozen delta, linear chromaticity — the sample's own, not a Gaussian)
  *
+ * On a ring with an RF cavity all of the above happens in the ring's 6D NORMAL MODES (the
+ * normal form W of the one-turn 6x6 map, accsim-optics.js normalForm6): the matched beam is
+ * Sigma = W diag(eps) W^T, the mismatch is against the mode Twiss, the energy offset rides the
+ * dynamic dispersion, and every statistic reads the mode coordinates W^-1 (x - x_co). A ring
+ * without RF has no 6D form and uses the uncoupled Twiss and the static dispersion, as before.
+ * Gates: tests/analytic/test_injection.py (4D), tests/analytic/test_injection_6d.py (6D).
+ *
  * It adds no physics of its own: the motion is accsim-track.js (a port of the package's
  * element-by-element tracker), the optics are accsim-optics.js. Radiation is OFF — an
  * electron beam here filaments but never damps — and the page says so.
