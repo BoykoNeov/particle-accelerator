@@ -65,6 +65,10 @@ islands outside the unstable ones (`1.5` and `0.75 Delta / a`), and the islands'
   quadrupole*, not after the first drift.
 - **Cost**: about 80 s on a loaded box against a target of a minute; a third of it is the W8
   helper re-run for the 3/10 parity check.
+- **Suite totals at ship (2026-10-18, both on a loaded box)**: analytic 2186 passed, 513
+  deselected, in 2 h 32 min; the reference sweep (`-m reference -n 8`) 513 passed in 16.5 min.
+  The two slowest analytic tests (W8's survival gates, 25 and 17 min) track the ring and do
+  not call `island_chain()`.
 
 **W9 — `island_chain()`: the free ring's island chain as a package function (opened
 2026-10-18; the gates below were pre-committed before any test code).** W8 found its chains
