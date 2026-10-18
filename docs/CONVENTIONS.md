@@ -11091,7 +11091,7 @@ swing^2 / (2 beta lam^2)`, `lam^2 = kappa / (2 pi |a|)`.
   1/3 and end at 3/10. These are resonances of the driven ring that the turn average
   discards. **Named, not modelled**, and stated in `autoresonance_escape_tune`'s docstring.
   *(Corrected by W8, 2026-10-18: the survival held for W7's one lag, 0.13; over 64 lags it
-  depends on the drive's phase, 43 of 64 at `1e-6` and none at `2.5e-7`. Both chains belong
+  depends on the drive's phase, at `1.5 mu_th` 43 of 64 at `1e-6` and none at `2.5e-7`. Both chains belong
   to the free ring (six islands at 1/3, ten at 3/10), with no drive at all. See W8 in
   `docs/ROADMAP.md`.)*
   This also means a lock read past 1/3 is not a capture test: W5's read at `tau = +60`
@@ -11131,7 +11131,7 @@ ray through a stable point over a band of launch `J`; times the slope of the fre
 curve at the chain (`-492`, against `-574` at small amplitude), its half-width is within
 3.2% (plateau `1.804e-5` to `2.384e-5` with the tune within `3e-5` of 1/3: 1.428e-3 against 1.383e-3; gate 6%) of the pendulum's.
 
-**The lock ends inside the chain, and whether it survives depends on the drive's phase.**
+**The lock ends at the chain, and whether it survives depends on the drive's phase.**
 `gamma = 0.05` (W7's columns, damper right after the dipole), 64 lags over `[0, 1/6)`, read
 `|Psi|^2 / tau > 1/2` on a 200-turn least-squares window at drive tunes 0.322 and 0.318 (the
 40-turn window cannot tell a particle caught in the chain, at tune 1/3, from a locked one at
@@ -11142,13 +11142,16 @@ curve at the chain (`-492`, against `-574` at small amplitude), its half-width i
 | 1.5 | 60 | 52 | 43 | 8 | 0 |
 | 2.0 | 60 | 43 | 24 | 8 | 1 |
 
-Locked columns read 0.91 or more, lost ones at most 0.0003. Every lost lock's swing peaks
-with the drive below `1/3 + 1.383e-3`, the chain's outer edge (at most `+5.1e-4` above 1/3),
-with medians within `1.02e-3` (`-1.02e-3` to `+4.0e-4`, on the eight configurations with at least 8 lost) of 1/3. **Slower sweeps lose more**, because the island chain
-is fixed by the ring while the lock's own width in action shrinks with the sweep. **No monotone
-trend in the drive strength** (orientation: survivors at `f = 1.25` and 3 straddle those at 1.5
-and 2): a "capture width over island width" ratio is refuted, and no derived scaling replaces
-it.
+Locked columns read 0.91 or more, lost ones at most 0.0003. No lost lock's swing peaks with
+the drive above `1/3 + 1.383e-3`, the chain's outer edge (at most `+5.1e-4` above 1/3), and on
+the eight configurations with at least 8 lost the medians lie within `1.02e-3` of 1/3
+(`-1.02e-3` to `+4.0e-4`). The gate is one-sided. Below the chain there is a tail, down to
+`-3.5e-3` (about 2.5 half-widths under the inner edge), and it is not gated. The loss tune is
+the peak of W7's 40-turn swing, which has the blind spot named above: a particle caught in the
+chain still looks in step over 40 turns, so the tail may partly be that read-out. **Slower
+sweeps lose more** (measured; no mechanism is claimed for the rate). **No monotone trend in the
+drive strength** (orientation: survivors at `f = 1.25` and 3 straddle those at 1.5 and 2): a
+"capture width over island width" ratio is refuted, and no derived scaling replaces it.
 
 **The 1/6 repeat in lag is kinematics.** Lags `l`, `l + 1/6` and `l + 1/2` give the same
 outcome at every lag although the trajectories differ.
@@ -11195,7 +11198,7 @@ term every column survives.
 **Traps found on the way.**
 - The 40-turn survival read misclassifies particles caught in the chain (above).
 - A single lag is an anecdote. W7's "deeper locks survive 1/3" was lag 0.13, which happens to
-  survive; 43 of 64 lags do at `1e-6` and none at `2.5e-7`.
+  survive; at `1.5 mu_th`, 43 of 64 lags do at `1e-6` and none at `2.5e-7`.
 - A survival test at one turn shortly after the chain counts a lock that has just been lost
   as a survivor, because it is still decaying from the chain's amplitude.
 - Importing `scripts/nicepytest.py` from a probe runs the whole suite (it calls `pytest.main`

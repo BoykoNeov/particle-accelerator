@@ -1536,9 +1536,10 @@ def autoresonance_escape_tune(lattice: Lattice) -> dict[str, float | None]:
     as for :func:`autoresonance_threshold`). **Not modelled:** an island chain of the
     ring's own (a resonance of the free ring, present with no drive) between the tune and
     this escape can end the lock first. The rotating-wave average discards it. On the W4
-    fixture the six-island chain at 1/3 ends most locks that reach it (W8): whether one
-    survives depends on the drive's phase as it meets the chain, and the slower the sweep
-    the fewer do (none of 64 phases at ``2.5e-7`` per turn, ``gamma = 0.05``).
+    fixture (W8, ``gamma = 0.05``, 1.5 times the threshold kick) the six-island chain at 1/3
+    ends 4 of 64 drive phases' locks at ``4e-6`` per turn and all 64 at ``2.5e-7``: whether
+    one survives depends on the drive's phase as it meets the chain, and the fraction lost
+    rises as the sweep slows.
 
     Returns ``{plane: fractional drive tune}``, or ``None`` when the kick is below the
     threshold, when a kick just above it does not lock in the integration (the tabulated

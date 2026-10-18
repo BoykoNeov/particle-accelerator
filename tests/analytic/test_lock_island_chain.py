@@ -348,11 +348,13 @@ def test_survival_falls_as_the_sweep_slows() -> None:
 
 
 @pytest.mark.slow
-def test_locks_end_inside_the_chain() -> None:
+def test_no_lock_ends_past_the_chain() -> None:
     """On every configuration where at least 8 of 64 lose the lock, every loss tune (the peak
     of W7's demodulated swing) lies below the chain's outer edge ``1/3 + omega / (pi m)``
-    (measured at most ``+0.52e-3``), and the median within ``omega / (pi m)`` of 1/3
-    (measured within ``0.83e-3``)."""
+    (measured at most ``+0.51e-3``), and the median within ``omega / (pi m)`` of 1/3
+    (measured within ``1.02e-3``). One-sided: a tail below the chain (to ``-3.5e-3``) is not
+    gated, and the 40-turn read-out cannot tell a particle caught in the chain from a locked
+    one, so part of that tail may be the read-out."""
     b = _ring_batch()
     half = _omega() / (math.pi * M)
     checked = 0

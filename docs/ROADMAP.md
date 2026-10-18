@@ -43,11 +43,13 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
 
 **Axis W shipped W8 on 2026-10-18**: **the island chain that ends a lock early**, tests only
-(`tests/analytic/test_lock_island_chain.py`, about 5.5 minutes on a quiet box). The 1/3 loss
+(`tests/analytic/test_lock_island_chain.py`; about 5.5 minutes on a quiet box, an estimate made before gate 4's sign-flip columns were added, and 13 under full load). The 1/3 loss
 W7 named is the free ring's own six-island chain, found with no drive at all. Whether a lock
 survives it depends on the drive's phase as it meets the chain, and slower sweeps lose more
 (60, 52, 43, 8, 0 of 64 at `f = 1.5` from `4e-6` to `2.5e-7`). A reduced model built from two
-exact free-ring measurements reproduces the surviving fraction to 4 of 64. Full detail is in
+exact free-ring measurements reproduces the surviving fraction to 4 of 64. Locks end at the
+chain: none past its outer edge, with an ungated tail below it down to `-3.5e-3` that the
+40-turn loss read-out may partly cause. Full detail is in
 `docs/CONVENTIONS.md` -> *The island chain that ends a lock early*. Five gates pass as
 written. What changed between pre-commitment and code:
 
@@ -275,7 +277,7 @@ drive ramped on over `tau in [-80, -40]` as for W5's `mu_c`):
   are lost at 3/10 (drive tunes 0.299-0.301 at three rates). The averaged equation cannot see
   either: they are resonances of the driven ring that the turn average discards. Their mechanism
   is **named, not derived**. *(Corrected by W8: that survival held for the one lag tested; over
-  64 lags it depends on the drive's phase and falls to none as the sweep slows. Both are the
+  64 lags it depends on the drive's phase and, at `1.5 mu_th`, falls to none as the sweep slows. Both are the
   free ring's own island chains, six islands at 1/3 and ten at 3/10, not resonances of the
   driven ring.)* Every ring gate reads before the drive reaches 1/3. W5's read at
   `tau = +60` lies past it: the first probe's "threshold rising as the sweep slows" at
