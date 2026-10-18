@@ -39,8 +39,96 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; a package `island_chain()`; a theory of the survival fraction |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18) | **W9** `island_chain()`, the free ring's period-`q` orbits as a package function (opened 2026-10-18); named, not opened: editor/scenario support; a skew (coupled) drive; a theory of the survival fraction |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**W9 — `island_chain()`: the free ring's island chain as a package function (opened
+2026-10-18; the gates below were pre-committed before any test code).** W8 found its chains
+with a test helper (`_fixed_points` in `tests/_w4_driven_orbits.py`): Newton on the `q`-turn
+map from a seed grid, keeping every distinct point it reaches. That only worked on W4's ring:
+the orbit there is at zero, and a hand cut (`J > J_guess / 4`) threw the origin away. W8
+deferred a package function because nothing in the package consumes it; it is built now as
+an analysis function a user calls, like `closed_orbit_nonlinear`, and W8's tests become its
+first consumer.
+
+What it is: `island_chain(lattice, tune, action, *, plane="x")` returns the period-`q` orbits
+of the **free** ring (no drive, no damper) whose rotation is `tune = p/q` per turn (mod 1),
+searched near Courant-Snyder `action` about the nonlinear closed orbit, in one uncoupled
+plane. Each orbit carries its `q` points in turn order, their actions and phases (W8's
+convention: `h = sqrt(2J) e^(-i phi)`, `phi = atan2(-p_hat, u_hat)`), the trace of the
+`q`-turn Jacobian, stability (`|trace| < 2`) and the libration `arccos(trace / 2) / q` per
+turn. The chain carries its island count `m` (the points on stable orbits), the mean
+libration `omega`, and the pendulum half-width in tune `omega / (pi m)` (W8 gate 2). Three
+filters replace the hand cut, each principled: an orbit shorter than `q` is dropped (the
+closed orbit is a period-1 orbit; a composite `q` also catches the orbits of its divisors);
+an orbit whose summed per-turn phase advance is not `p` turns is dropped (on the same
+`q`-turn map, a `1/4` and a `3/4` orbit are both fixed points); and Newton's points are
+completed into whole orbits by the one-turn map, so a seed grid that reaches one member
+yields all `q`. Refused, with the reason: a live `ACDipole` (the driven orbits are
+`driven_states`'), a live `Damper` (it contracts area, so `|trace| < 2` no longer means
+elliptic), and a ring whose `q`-turn map leaks out of the plane (a skew quadrupole, a skew
+sextupole, a vertical orbit through an octupole) or changes `delta` (a cavity off phase).
+
+Orientation facts (measured 2026-10-18 by throwaway probes):
+
+- **A closed form exists for an octupole-driven 4-island chain, and the probe matches it.**
+  One thin octupole drives `4Q = p` at **first** order, through `F_4000 = f4000 (e^(-8 pi i
+  Q) - 1)` (`resonance_driving_terms`) and the detuning `a = dQ/dJ` (`amplitude_detuning`).
+  With `Delta = p/4 - Q > 0` and the per-turn Hamiltonian in the frame turning at `p/4`,
+  `H = -2 pi Delta J + pi a J^2 - 8 |F| J^2 cos(4 psi - arg F)` (the generator is `-H`), the
+  fixed points are `J = pi Delta / (pi a -+ 8|F|)`. For one octupole `8|F| / (pi a) = 1/3`
+  exactly, so the **stable** orbit sits at `1.5 Delta / a` and the **unstable** at `0.75
+  Delta / a` (not at `Delta / a`: the resonant term moves both). The stable libration is
+  `4 pi Delta` per turn, the unstable growth `2 sqrt(2) pi Delta`. On W4's 6-cell FODO
+  retuned to `Q_x = 1.25 - Delta` (`kf` solved, `kd = -0.22`, octupole `k3l = 2e4` after the
+  first drift): one stable and one unstable 4-point orbit; relative misses of `J_s, J_u,
+  omega` are `2.1e-2, 5.2e-3, 1.3e-3` at `Delta = 0.02, 0.01, 0.005` (`J_s`; the others
+  alike): **second order in `Delta`**, ratio about 4.1 per halving.
+- **The islands' phase is `arg F` minus a half-step.** The stable points sit at `4 phi = arg F
+  - 4 pi Delta` (mod `2 pi`) to `1.3e-5, 6.4e-6, 3.3e-6` rad: the entrance fixed point is the
+  averaged Hamiltonian's rotated back by half a turn's slip (the symmetric BCH splitting of
+  `R(2 pi (Q - p/4)) exp(:F:)`).
+- **The exact drift's kinematic detuning is a floor, not a miss.** At `k3l = 2e3` the `J`
+  misses level off at `-6.3e-4` (stable) and `-3.1e-4` (unstable), ratio 2, which an extra
+  detuning `a_k` predicts (`-1.5 a_k / a` and `-0.75 a_k / a`, `a_k / a = 4.2e-4`);
+  `amplitude_detuning` excludes the drift. At `k3l = 2e4` the floor is ten times lower.
+- **The libration is measurable by tracking alone.** Nudging a stable point by `1e-4` of its
+  `u` and timing the upward zero crossings of `u - u_s` every `q` turns over 3000 samples
+  gives `arccos(tr / 2) / q` to `1.4e-6` (4-island ring) and `1.6e-5` (W8's 1/3 chain).
+
+Gates, pre-committed:
+
+1. **W8's chains, unchanged.** On W8's free ring, `island_chain(ring, 1/3, 2.08e-5)` returns
+   two stable 3-point orbits (trace `1.99389 +- 1e-5`) and two unstable (`2.00597 +- 1e-5`),
+   `m = 6`; `island_chain(ring, 3/10, 9.5e-5)`, one of each, 10 points, `m = 10`. Every point
+   is within `1e-12` (in `x`, m, and `px`) of a point the W8 helper finds. W8's tests are
+   rewired to the function and pass as written, the slow gates included.
+2. **The first-order closed forms, to second order in `Delta`.** On the 4-island ring above
+   (`k3l = 2e4`, `Delta = 0.02, 0.01, 0.005`): one stable and one unstable 4-point orbit;
+   the relative misses of `J_s`, `J_u`, `omega` (the function's `libration`) and of the
+   unstable trace against `2 cosh(4 lambda)` each fall by a factor between 3.2 and 5 per
+   halving of `Delta`, and are below `70 Delta^2`. The stable phases satisfy `4 phi = arg F -
+   4 pi Delta` to within `1e-2` of `4 pi Delta`, the residual falling at least by 1.6 per
+   halving. The closed forms are derived in sympy in the test from `H` above, not typed in.
+3. **Tracking, independent of the solver.** From each stable point (both rings), the tracked
+   rotation over `100 q` turns is `p/q` to `1e-12` and the point returns to itself after `q`
+   turns to `1e-12` of its amplitude; nudged by `1e-4` of `u`, the libration timed from zero
+   crossings matches `libration` to `1e-4` (measured `1.4e-6`, `1.6e-5`). The same holds on
+   the 4-island ring with a horizontal corrector moving the closed orbit by about a
+   millimetre (the search centred on that orbit).
+4. **The filters.** On the 4-island ring at `Delta = 0.01`, near the chain's action:
+   `tune = 3/4` returns no orbits though the W8 helper reaches 8 points there (wrong
+   rotation); `tune = 1/8` on the 8-turn map returns none though Newton reaches the period-4
+   points (too short); the closed orbit is never returned.
+5. **The refusals.** A live `ACDipole`, a live `Damper`, a skew quadrupole, a skew sextupole
+   each raise with a message naming the cause; a zero-amplitude `ACDipole` and a zero-rate
+   `Damper` do not change the result.
+
+Scope: one transverse plane, on momentum, the free ring. Named, not built: chains in a
+coupled ring (a 4D search), off-momentum chains, the island-chain search without an action
+guess (scanning the tracked tune for plateaus), and any survival prediction.
+
+Cost: target under a minute for the new file outside W8's slow gates.
 
 **Axis W shipped W8 on 2026-10-18**: **the island chain that ends a lock early**, tests only
 (`tests/analytic/test_lock_island_chain.py`; about 5.5 minutes on a quiet box, an estimate made before gate 4's sign-flip columns were added, and 13 under full load). The 1/3 loss
