@@ -1251,6 +1251,88 @@ The findings, in the order they changed the milestone:
 **What W1 leaves open:** W2, Miyamoto's driven optics (shipped 2026-10-08, above). The
 editor and scenario format (refused, asserted).
 
+**Tools — a 6D-matched injected beam (opened 2026-10-18; the gates below were pre-committed
+before any test code).** On a ring whose RF cavity sits in dispersion the Injection tab's
+"matched" beam is not matched: it is drawn from the uncoupled Twiss plus the static
+dispersion, and the cavity's energy kicks couple `delta` into `x` (synchrotron-betatron
+coupling). Its measured size pulses 1.0x to 1.5x (`electron-ring`) and 1.0x to 1.7x
+(`wiggler-ring`) with no aiming error at all. The fix is the beam the one-turn **6x6** map
+leaves unchanged: `Sigma = W diag(eps_1, eps_1, eps_2, eps_2, eps_3, eps_3) W^T`, with `W`
+the 6D normal form (`accsim.twiss.normal_form(M, method="6d")`, O1).
+
+What it is:
+
+- **`normalForm6(M)` in `editor/accsim-optics.js`**, a port of `normal_form(M, "6d")` by a
+  different route: there is no eigen-solver in the editor, so the three `cos mu_k` are the roots
+  of a cubic (Newton's identities on the traces of `N = M + M^-1`, `M^-1 = -S M^T S`), each
+  mode's invariant plane is the real projector `P_k = prod_(j != k) (N - 2 cos mu_j)/(2 cos mu_k -
+  2 cos mu_j)`, and the eigenvector's real and imaginary parts are built in that plane with the
+  package's phase convention (own-plane position component of `Im v` zero, `Re v . S . Im v = 1`,
+  own-plane position of `Re v` positive). Same `W`, no complex arithmetic. Refused when two
+  `cos mu` are within `1e-6` of each other (the projector divides by their difference).
+- **The injected beam on a ring with RF is drawn in normal-mode coordinates.** Mode `k`'s
+  normalised pair is `sqrt(eps_k) N(beta_k, alpha_k)^-1 N(beta_i, alpha_i) g` (the mismatch is now
+  against the **mode** Twiss, `beta_k = W[2k,2k]^2`, `alpha_k = -W[2k,2k] W[2k+1,2k]`, the
+  package's `mode_beta` / `mode_alpha`); `eps_3 = sigma_delta^2 / (W[5,4]^2 + W[5,5]^2)` (the
+  longitudinal mode's own spread; the transverse modes add their share, `1.5e-5` relative, which
+  is recorded, not hidden); the energy offset rides the **dynamic** dispersion `W[:,5] / W[5,5]`
+  (`NormalForm.dispersion`, 1.68 m on `electron-ring` against the static 1.47 m); the aiming
+  error is a pure betatron (mode-1/2) excursion at the injection point.
+- **Every reading on that ring moves to the same coordinates at once**: `beamStats`, the
+  phase-space plot and its circle, `Bmag`, the predicted `<J>` and the mismatch defaults read the
+  mode Twiss and the mode coordinates `W^-1 (x - x_co)`. A ring without RF has no 6D normal form
+  and keeps today's 4D path, untouched.
+
+Orientation facts (measured 2026-10-18 by throwaway probes):
+
+- **The projector `W` is the package's `W`.** On `electron-ring` and `wiggler-ring` the
+  difference is `1.5e-15` and `7.6e-16` of `max |W|`.
+- **Measured the old way, a 6D-matched beam looks wrong.** Stripped with the static dispersion
+  the matched beam reads a steady 1.19x on `wiggler-ring` (the dynamic and static dispersions
+  differ by 19%). The mode emittance reads 1.000.
+- **The old beam is mismatched by 21%, and that has a closed form.** In mode coordinates the 4D
+  sampler's beam has `<J_1> = 1.210 eps` (`wiggler-ring`), `1.218 eps` (`electron-ring` at 6.5 MV),
+  from its own covariance at turn 0; tracked over 1000 turns it stays there to `8e-3`.
+- **The 6D-matched beam holds, off resonance.** Over 1000 turns on `wiggler-ring` its mode
+  emittance stays within `7.1e-3, 4.7e-4, 2.4e-4` of the injected value at `sigma_delta = 7e-4,
+  3.5e-4, 1.75e-4` (on `electron-ring` at 6.5 MV: `4.9e-3, 3.3e-4, 7.3e-5`). It is a wobble, not
+  a growth (end of run `2e-4`), and it vanishes as `sigma_delta -> 0`. The scaling is steeper
+  than first order and is **not localised** (the RF sine, the chromatic beta-beat and resonance
+  tails are all candidates).
+- **On the default `electron-ring` the matched beam still grows, and a resonance owns it.** The
+  6D-matched beam's `<J_1>` reaches 1.27 at 400 turns and 1.48 at 600. At fixed voltage,
+  scaling the focusing quadrupoles so that the mode tune moves, the growth over 600 turns peaks
+  at `Q_1 + 3 Q_s - 6 = +0.0017` (1.56) and falls below 1% by `-0.0087` and `+0.0073`. This is
+  the third synchrotron sideband of the integer, `Q_1 + 3 Q_s` = integer. The preset sits at
+  `+0.00086`. The peak's offset from the linear condition is **measured, not localised**.
+
+Gates, pre-committed:
+
+1. **The port.** `normalForm6` against `normal_form(lattice.one_turn_map(), method="6d")` on
+   `electron-ring`, `wiggler-ring`, `electron-ring` rolled one element on, and `kicked-ring`
+   with `electron-ring`'s cavity inserted and rolled (a displaced orbit, `alpha != 0`, `D' !=
+   0`): `W` to `1e-12` of `max |W|`, the three tunes to `1e-12`. `W` is symplectic to `1e-13`
+   (the editor's `W^-1 = -S W^T S` relies on it), and `W^-1 M W` is block rotation to `1e-12`.
+2. **The sampler.** On the rolled cavity rings, the moment-matched beam's covariance about the
+   orbit is `W diag(eps) W^T` built from the **package's** `W` to `1e-12`. With a mismatch and
+   an aiming error, its mode-1/2 `<J>` is `eps Bmag(beta_k, alpha_k; beta_i, alpha_i) +
+   J(offset)` with the package's `mode_beta` / `mode_alpha` to `1e-12`. An energy offset alone
+   moves the centroid by `NormalForm.dispersion * delta0` and leaves `<J_1> = <J_2> = eps` to
+   `1e-12`.
+3. **Tracking.** On `wiggler-ring` and `electron-ring` at 6.5 MV, tracked 1000 turns: the
+   6D-matched beam's per-turn mode emittance stays within `1.5e-2` of the injected value at
+   `sigma_delta = 7e-4` and within `1e-3` at `3.5e-4`, and the residual falls by at least 2 per
+   halving of `sigma_delta`. The control, the 4D sampler's beam on the same rings, sits at its
+   closed-form `<J_1>` (asserted above 1.15) to `2e-2`. The 6D beam is matched, and the old one
+   was not, by an amount the formula names.
+4. **The owner of `electron-ring`'s growth.** On `electron-ring`, at fixed voltage with the
+   focusing quadrupoles scaled to put `Q_1 + 3 Q_s - 6` at `+0.0017`, `-0.0087` and `+0.0073`:
+   `<J_1>` after 600 turns is above 1.3 at the first and below 1.01 at the other two. The page
+   names the sideband whenever some `|Q_k +- m Q_s|` (`k = 1, 2`, `m = 1..3`) is within `5e-3` of
+   an integer, and asserts it does so on `electron-ring` (`k = 1`, `m = 3`) and not on
+   `wiggler-ring`.
+5. **Nothing moved on a ring without RF.** The existing `test_injection.py` passes unchanged.
+
 **Tools closed the collimator-length mismatch on 2026-10-08.** A collimator's jaws are a gap
 in a block of metal, so a beam crossing 1 m of collimator crosses 1 m of empty space. The
 package said the identity (while still counting the length in `s`, the circumference and an
