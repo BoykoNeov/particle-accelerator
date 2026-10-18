@@ -188,9 +188,9 @@ def test_the_matched_beam_is_w_diag_eps_w_transpose(name: str) -> None:
     """The drawn beam's covariance about the package's closed orbit is ``W diag(eps) W^T``
     with the package's ``W``, entry by entry, each relative to ``sqrt(Sigma_ii Sigma_jj)``.
     Moment-matched sampling makes this a round-off gate. The control: the 4D sampler's
-    beam on the same ring misses the same comparison at the percent level."""
+    beam on the same ring misses the same comparison, by 23% in its worst entry (measured)."""
     inj = {"n": 600, "seed": 7}
-    X, r, _co, nf = _sample(name, inj)
+    X, r, co, nf = _sample(name, inj)
     p = r["inj"]
     want = nf.w @ np.diag(_eps(nf.w, p["emit_x"], p["emit_y"], p["sigma_delta"])) @ nf.w.T
     got = X.T @ X / len(X)
@@ -198,6 +198,12 @@ def test_the_matched_beam_is_w_diag_eps_w_transpose(name: str) -> None:
     rel = np.abs(got - want)[norm > 0] / norm[norm > 0]
     assert np.max(rel) < 1e-12
     assert abs(np.trace(got) / np.trace(want) - 1.0) < 1e-12
+
+    (r4,) = _node([{"scenario": FIXTURES[name], "mode": "inject", "inj": inj, "sampler": "4d"}])
+    X4 = np.array(r4["initial"], dtype=float) - co
+    got4 = X4.T @ X4 / len(X4)
+    rel4 = np.abs(got4 - want)[norm > 0] / norm[norm > 0]
+    assert np.max(rel4) > 1e-2  # the control: the old beam is not this one
 
 
 @pytest.mark.parametrize("name", ROLLED, ids=str)
@@ -253,6 +259,7 @@ def test_an_energy_offset_rides_the_dynamic_dispersion(name: str) -> None:
     assert abs(mean[4]) < 1e-15 and mean[5] == pytest.approx(d0, rel=1e-12)
     u = X @ np.linalg.inv(nf.w).T
     assert (0.5 * (u[:, 0] ** 2 + u[:, 1] ** 2)).mean() == pytest.approx(p["emit_x"], rel=1e-12)
+    assert (0.5 * (u[:, 2] ** 2 + u[:, 3] ** 2)).mean() == pytest.approx(p["emit_y"], rel=1e-12)
     assert abs(D[0] / r["optics"]["twiss4"]["disp_x"] - 1.0) > 0.1  # not the static D
 
 
