@@ -34,6 +34,7 @@ Conventions (see ``docs/CONVENTIONS.md``):
 from __future__ import annotations
 
 import cmath
+import functools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -1352,8 +1353,210 @@ def driven_jump_tunes(lattice: Lattice) -> dict[str, tuple[float, float] | None]
     return {plane: jumps}
 
 
+#: W7: the capture threshold ``mu_th(gamma)`` of the *damped* universal equation
+#: ``i Psi' + (tau - |Psi|^2) Psi = mu - i gamma Psi`` on ``gamma = 0, 0.0025, ..., 0.1``.
+#: Started at ``Psi = 0`` with the drive ramped on over ``tau in [-80, -40]`` (as ``mu_c``),
+#: captured iff ``|Psi|^2 > tau / 2`` at ``tau_read = min(40, 0.7 |Psi|_+^2)``, ``|Psi|_+`` the
+#: energy-balance root of :func:`autoresonance_escape_tune`. The read time does not matter
+#: to ``1e-6`` up to ``gamma = 0.0625`` and to ``5e-4`` (relative) at 0.1, where the jump
+#: has softened to 4.6x. Integrated, not recalled: re-derived in
+#: ``tests/analytic/test_damped_autoresonance.py``. The first entry is ``mu_c``.
+_AUTORESONANCE_GAMMA_STEP = 0.0025
+_AUTORESONANCE_GAMMA_MAX = 0.1
+_AUTORESONANCE_MU_TH = (
+    _AUTORESONANCE_MU_C,
+    0.4129335,
+    0.4152740,
+    0.4176264,
+    0.4199910,
+    0.4223676,
+    0.4247568,
+    0.4271583,
+    0.4295725,
+    0.4319996,
+    0.4344397,
+    0.4368929,
+    0.4393595,
+    0.4418396,
+    0.4443335,
+    0.4468413,
+    0.4493631,
+    0.4518993,
+    0.4544500,
+    0.4570155,
+    0.4595960,
+    0.4621917,
+    0.4648029,
+    0.4674299,
+    0.4700729,
+    0.4727322,
+    0.4754082,
+    0.4781011,
+    0.4808114,
+    0.4835392,
+    0.4862850,
+    0.4890492,
+    0.4918321,
+    0.4946342,
+    0.4974550,
+    0.5002935,
+    0.5031468,
+    0.5060089,
+    0.5088699,
+    0.5117195,
+    0.5146602,
+)
+
+
+@functools.cache
+def _autoresonance_mu_th_spline():
+    from scipy.interpolate import CubicSpline
+
+    grid = _AUTORESONANCE_GAMMA_STEP * np.arange(len(_AUTORESONANCE_MU_TH))
+    return CubicSpline(grid, np.array(_AUTORESONANCE_MU_TH))
+
+
+def _autoresonance_mu_th(gamma: float) -> float:
+    """``mu_th(gamma)``, the table interpolated (``mu_c`` itself at ``gamma = 0``)."""
+    if gamma == 0.0:
+        return _AUTORESONANCE_MU_C
+    return float(_autoresonance_mu_th_spline()(gamma))
+
+
+class _Autoresonance:
+    """A swept ring mapped onto the (damped) universal equation (W5, W7).
+
+    ``beta`` and ``a`` are the natural beta at the dipole and first-order ``dQ/dJ``,
+    ``kappa = sqrt(2 pi |nu_dot|)``, ``Gamma`` the amplitude decrement per turn of the
+    dampers in the driven plane (``-1/2 ln prod(1 - rate)``, the exact per-turn shrink of
+    the linear ring) and ``gamma = Gamma / kappa``.
+    """
+
+    def __init__(self, lattice: Lattice, caller: str) -> None:
+        curve = _response_curve(lattice, caller, swept_ok=True)
+        ((plane, (_, acd)),) = _ac_dipole_sites(lattice, swept_ok=True, damped_ok=True).items()
+        if acd.tune_rate == 0.0:
+            raise ValueError(
+                f"{caller}: the ACDipole is not swept (tune_rate = 0) — a fixed drive does "
+                "not lock; see driven_states"
+            )
+        _, beta, a = (float(v[0]) for v in curve._optics(np.array([0.0])))
+        self.lattice, self.caller, self.curve = lattice, caller, curve
+        self.plane, self.acd, self.beta, self.a = plane, acd, beta, a
+        self.damped = isinstance(curve, _DampedResponseCurve) and curve.damped
+        self.kappa = math.sqrt(2.0 * math.pi * abs(acd.tune_rate))
+        self.Gamma = -0.5 * math.log(float(np.linalg.det(curve.R))) if self.damped else 0.0
+        self.gamma = self.Gamma / self.kappa
+        if self.gamma > _AUTORESONANCE_GAMMA_MAX * (1.0 + 1e-9):  # round-off at the edge
+            raise ValueError(
+                f"{caller}: the damping against the sweep, gamma = Gamma / sqrt(2 pi "
+                f"|nu_dot|) = {self.gamma:.4g}, is past {_AUTORESONANCE_GAMMA_MAX}: there the "
+                "lock is no longer a threshold (the jump softens into following the damped "
+                "steady state) — see driven_jump_tunes"
+            )
+
+    def against(self) -> bool:
+        """The sweep runs against the detuning (or there is none): nothing locks."""
+        return self.a * self.acd.tune_rate <= 0.0
+
+    def theta(self, mu: float) -> float:
+        """The kick whose universal drive strength is ``mu``."""
+        theta = 4.0 * mu * (2.0 * math.pi * abs(self.acd.tune_rate)) ** 0.75
+        return theta / (math.sqrt(2.0 * self.beta) * math.sqrt(2.0 * math.pi * abs(self.a)))
+
+    def mu(self) -> float:
+        """The dipole's own ``mu``."""
+        return abs(self.acd.amplitude) / self.theta(1.0)
+
+
+def _universal_escape(mu: float, gamma: float) -> float:
+    """``tau`` at which ``|Psi|`` peaks on the damped universal equation, started at rest
+    with the drive ramped on over ``[-80, -40]``: where a locked particle falls out. The
+    integration stops once ``tau - |Psi|^2 = 20``, well past the end of the lock (while
+    locked, ``|Psi|^2`` follows ``tau``)."""
+    from scipy.integrate import solve_ivp
+    from scipy.optimize import minimize_scalar
+
+    def rhs(t: float, y: np.ndarray) -> list[float]:
+        psi = y[0] + 1j * y[1]
+        m = mu * min(1.0, max(0.0, (t + 80.0) / 40.0))
+        dpsi = -1j * (m - (t - abs(psi) ** 2) * psi) - gamma * psi
+        return [dpsi.real, dpsi.imag]
+
+    def gone(t: float, y: np.ndarray) -> float:
+        return t - (y[0] ** 2 + y[1] ** 2) - 20.0
+
+    gone.terminal, gone.direction = True, 1.0
+    t_max = 2.0 * (mu / gamma) ** 2 + 40.0  # beyond the static end (mu / gamma)^2
+    sol = solve_ivp(
+        rhs, (-80.0, t_max), [0.0, 0.0], method="DOP853", rtol=1e-10, atol=1e-12,
+        events=gone, dense_output=True,
+    )  # fmt: skip
+    if not len(sol.t_events[0]):
+        raise RuntimeError("the damped universal equation never lost its lock")  # pragma: no cover
+    t_end = float(sol.t_events[0][0])
+    grid = np.linspace(max(-80.0, t_end - 60.0), t_end, 6001)
+    r2 = np.sum(sol.sol(grid) ** 2, axis=0)
+    k = int(np.argmax(r2))
+    lo, hi = grid[max(k - 1, 0)], grid[min(k + 1, len(grid) - 1)]
+    best = minimize_scalar(
+        lambda t: -float(np.sum(sol.sol(t) ** 2)), bounds=(lo, hi), method="bounded",
+        options={"xatol": 1e-10},
+    )  # fmt: skip
+    return float(best.x)
+
+
+def autoresonance_escape_tune(lattice: Lattice) -> dict[str, float | None]:
+    r"""Where a damped, autoresonantly locked particle falls out of the lock (W7).
+
+    Locked (:func:`autoresonance_threshold`), the swing grows with the sweep: the drive
+    must supply that growth and pay for the damping. On the damped universal equation
+    ``i Psi' + (tau - |Psi|^2) Psi = mu - i gamma Psi`` (W5's ``tau`` and ``mu``,
+    ``gamma = Gamma / sqrt(2 pi |nu_dot|)``), ``d|Psi|^2/dtau = -2 gamma |Psi|^2 - 2 mu
+    Im(Psi)``, while locked ``|Psi|^2`` follows ``tau`` (a growth of 1), so the lock can
+    hold only below
+
+        |Psi|_+ = (mu + sqrt(mu^2 - 2 gamma)) / (2 gamma),
+
+    in the ring's units ``sqrt(J_+) = (eps + sqrt(eps^2 - 2 Gamma |nu_dot / a|)) / (2 Gamma)``.
+    That is the leading order: it lands short of W6's static large-state end ``eps /
+    Gamma`` by the distance the drive moves in one damping time (``|nu_dot| / Gamma`` in
+    tune), and the particle actually falls out 2-3 ``tau`` units after it. This function
+    integrates the universal equation instead and returns the drive tune at the peak of
+    the swing, ``q_d + nu_dot tau_esc / sqrt(2 pi |nu_dot|)``, ``q_d`` the damped tune.
+
+    On W4's fixture the tracked escape converges on it as the rate falls at fixed
+    ``gamma``: by 5-6% at ``1e-7`` per turn and ``gamma = 0.1``, the part odd in the
+    detuning's sign falling by ``sqrt 2`` per halving (the uncorrected natural optics,
+    as for :func:`autoresonance_threshold`). **Not modelled:** a low-order resonance of
+    the drive tune between the tune and this escape can end the lock first. The rotating-
+    wave average discards it; on the W4 fixture a lock that would pass 1/3 usually ends
+    there.
+
+    Returns ``{plane: fractional drive tune}``, or ``None`` when the kick is below the
+    threshold or the sweep runs against the detuning. Raises :class:`ValueError` with no
+    damping in the driven plane (the model's lock then never ends), for a fixed drive, and
+    past ``gamma = 0.1``. Same model, scope and refusals as :func:`driven_states`.
+    """
+    ar = _Autoresonance(lattice, "autoresonance_escape_tune")
+    if not ar.damped:
+        raise ValueError(
+            "autoresonance_escape_tune: no damping in the driven plane — undamped, a locked "
+            "particle rides the large branch for ever (to the reach of the model); see "
+            "autoresonance_threshold"
+        )
+    if ar.against():
+        return {ar.plane: None}
+    mu = ar.mu()
+    if mu < _autoresonance_mu_th(ar.gamma):
+        return {ar.plane: None}
+    q_d = _DampedFolds(lattice, ar.caller).q_d
+    tau = _universal_escape(mu, ar.gamma)
+    return {ar.plane: (q_d + ar.acd.tune_rate * tau / ar.kappa) % 1.0}
+
+
 def autoresonance_threshold(lattice: Lattice) -> dict[str, float | None]:
-    r"""The kick above which a swept drive phase-locks the particle (W5).
+    r"""The kick above which a swept drive phase-locks the particle (W5, damped W7).
 
     Sweeping the drive *through* the tune in the direction the detuning moves it (down
     when the tune falls with amplitude, up when it rises), a particle can lock onto the
@@ -1378,23 +1581,28 @@ def autoresonance_threshold(lattice: Lattice) -> dict[str, float | None]:
     ``sqrt(rate)``. ``mu_c`` assumes the drive was switched on gently, far from
     resonance; an abrupt switch-on moves it at the 1% level.
 
+    **With a** :class:`~accsim.elements.damper.Damper` **in the driven plane (W7)** the
+    averaged equation gains ``-i Gamma c`` and the universal one ``-i gamma Psi``, with
+    ``gamma = Gamma / sqrt(2 pi |nu_dot|)`` the damping against the sweep (``Gamma`` the
+    amplitude decrement per turn). The drive now pays for the damping while it captures,
+    and ``mu_c`` becomes ``mu_th(gamma)``, integrated and tabulated (0.4596 at ``gamma =
+    0.05``, 0.5146 at 0.1; it rises linearly at first, slope 0.94). The same formula
+    holds with ``mu_th`` in place of ``mu_c``, and the tracked threshold converges on it
+    by the same ``sqrt(rate)`` law at fixed ``gamma``. Past ``gamma = 0.1`` the lock is no
+    longer a sharp threshold (the jump softens into following the damped steady state,
+    :func:`driven_jump_tunes`), and this raises. A locked particle no longer rides on for
+    ever: see :func:`autoresonance_escape_tune`. With no damper, W5's ``mu_c`` exactly.
+
     Returns ``{plane: theta_th}`` [rad], or ``None`` when the sweep runs against the
     detuning (``a nu_dot <= 0``: nothing locks at any kick). Raises :class:`ValueError`
-    for a fixed drive (``tune_rate = 0``). Same model, scope and refusals as
-    :func:`driven_states`.
+    for a fixed drive (``tune_rate = 0``) and past ``gamma = 0.1``. Same model, scope and
+    refusals as :func:`driven_states`.
     """
-    curve = _ResponseCurve(lattice, "autoresonance_threshold", swept_ok=True)
-    ((plane, (_, acd)),) = _ac_dipole_sites(lattice, swept_ok=True).items()
-    if acd.tune_rate == 0.0:
-        raise ValueError(
-            "autoresonance_threshold: the ACDipole is not swept (tune_rate = 0) — a fixed "
-            "drive does not lock; see driven_states"
-        )
-    _, beta, a = (float(v[0]) for v in curve._optics(np.array([0.0])))
-    if a * acd.tune_rate <= 0.0:
-        return {plane: None}
-    theta = 4.0 * _AUTORESONANCE_MU_C * (2.0 * math.pi * abs(acd.tune_rate)) ** 0.75
-    return {plane: theta / (math.sqrt(2.0 * beta) * math.sqrt(2.0 * math.pi * abs(a)))}
+    ar = _Autoresonance(lattice, "autoresonance_threshold")
+    if ar.against():
+        return {ar.plane: None}
+    mu = _autoresonance_mu_th(ar.gamma) if ar.damped else _AUTORESONANCE_MU_C
+    return {ar.plane: ar.theta(mu)}
 
 
 def is_stable(one_turn: np.ndarray) -> bool:

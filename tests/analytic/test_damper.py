@@ -226,9 +226,10 @@ def test_construction_guards_and_refusals() -> None:
     for fn in (driven_gradient, driven_twiss, driven_amplitude):
         with pytest.raises(NotImplementedError, match="Damper"):
             fn(lat)
-    # Damped autoresonance is not modelled (W6 part b teaches driven_states the damper).
+    # W6 refused damped autoresonance here; W7 models it (a recorded correction). This
+    # ring's damping against a 1e-6 sweep is gamma = 1.2, past the sharp threshold's scope.
     swept = _damped(ACDipole(KICK, NU, LAG, tune_rate=-1e-6))
-    with pytest.raises(NotImplementedError, match="Damper"):
+    with pytest.raises(ValueError, match="gamma"):
         autoresonance_threshold(swept)
 
 
