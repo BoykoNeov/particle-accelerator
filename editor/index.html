@@ -1520,10 +1520,12 @@
         target: Math.max(1, Math.round(+this.settings.turns || 1000)), env: { x: [1], y: [1] }, R: {} };
       // Phase-space axes are fixed at injection: every particle keeps its own action, so the
       // radii it can reach are the ones it starts with (to a few % of chromatic beta-beat).
-      // Not with an RF cavity in dispersion: there the energy kicks move the radii by tens of
-      // percent (synchrotron-betatron coupling), so the axes get room for it — dots that still
-      // leave are dropped, never clamped.
-      const head = optics.hasRF ? 1.6 : 1.12;
+      // With an RF cavity the coordinates are the ring's 6D normal modes, where that still
+      // holds; a little more room for a ring near a synchrotron sideband, where the actions
+      // grow. Only a cavity ring with no 6D form (a degenerate one) keeps the wide 4D axes,
+      // where energy kicks move the radii by tens of percent. Dots that leave are dropped,
+      // never clamped.
+      const head = optics.normal ? 1.25 : optics.hasRF ? 1.6 : 1.12;
       for (const pl of ["x", "y"]) {
         let m = 0;
         for (const s of states) { const q = this.norm(s, run, pl); m = Math.max(m, Math.hypot(q[0], q[1])); }
@@ -1616,6 +1618,15 @@
       this.built = true;
       this.reflect();
     },
+    /** The injection optics (inject.js ringOptics) for the current analysis, computed once per
+     *  result — the note is redrawn every frame while a beam is tracked. null if it fails. */
+    opticsFor(sc) {
+      if (this._optics && this._optics.result === state.result) return this._optics.optics;
+      let optics = null;
+      try { optics = INJ.ringOptics(sc); } catch (e) { optics = null; }
+      this._optics = { result: state.result, optics };
+      return optics;
+    },
     /** The plain-language note above the plots: what this machine will do, and what is left out. */
     noteHTML() {
       const sc = state.scenario, r = state.result;
@@ -1628,12 +1639,24 @@
       if (xi == null) out.push(`<p>No chromaticity is available for this ring, so no prediction is shown.</p>`);
       else if (!(Math.abs(xi) * sd > 0)) out.push(`<p>With ${sd > 0 ? "zero chromaticity" : "no energy spread"} every particle turns at the same rate, so the beam keeps its injected shape for good. Add an energy spread (or octupoles) to see it smear.</p>`);
       else if (hasRF && r.Qs > 0) out.push(`<p>This ring has an <b>RF cavity</b>: each particle's energy swings up and down every ≈${fmt(1 / r.Qs, 3)} turns, so the energy-driven smearing undoes itself. The spread in phase never exceeds 2|Q′|σδ/Qₛ = <b>${fmt(2 * Math.abs(xi) * sd / r.Qs, 2)} rad</b> — the wobble fades only slightly and keeps coming back. Remove the cavity to watch the beam smear out.</p>`);
+      else if (hasRF) out.push(`<p>This ring has an RF cavity but no stable synchrotron motion (check the RF phase), so expect the energies to run away.</p>`);
+      else out.push(`<p>No RF cavity: every particle keeps its energy, so the energy spread steadily spreads the phases. The wobble should halve after ≈ <b>${fmt(0.1874 / (Math.abs(xi) * sd), 3)} turns</b> (0.187 / |Q′|σδ, Q′ = ${fmt(xi, 4)}); the dashed curve is the prediction from these particles' own energies.</p>`);
       // A cavity where the dispersion is not zero couples the energy kicks into sideways
-      // motion (synchrotron-betatron coupling): a beam matched in the 4D sense used here is
-      // then NOT matched, and its measured size pulses even with no aiming error at all.
-      // Per pass the cavity changes delta by ~2 pi Q_s sigma_delta (rms), which moves the
+      // motion (synchrotron-betatron coupling). The beam is then matched, and measured, in
+      // the ring's 6D normal modes (inject.js, tests/analytic/test_injection_6d.py). Only a
+      // ring whose 6D form cannot be built falls back to the 4D beam, with the old warning:
+      // per pass the cavity changes delta by ~2 pi Q_s sigma_delta (rms), which moves the
       // particle's reference path by D times that while its position stays put.
-      if (hasRF && r.Qs > 0 && sd > 0 && r.twissBoundaries) {
+      const optics = this.opticsFor(sc);
+      if (optics && optics.normal) {
+        const D6 = optics.twiss.disp_x, D4 = optics.twiss4.disp_x;
+        out.push(`<p>The beam is matched with the cavity included: energy and sideways motion are set up together, as the ring's own <b>6D modes</b>, and every number here is measured in those modes. That matters wherever the cavity sits where the beam's path depends on its energy: here at the injection point, while a particle's energy oscillates, the sideways shift that goes with it is D = <b>${fmt(D6, 3)} m</b>, not the ${fmt(D4, 3)} m of a particle whose energy is held fixed. A beam matched as if the energy were fixed arrives the wrong shape for the ring, and its size pulses.</p>`);
+        const sb = INJ.sidebandNear(optics);
+        if (sb) {
+          const Q = sb.plane === "x" ? "Qₓ" : "Qᵧ", sign = sb.m > 0 ? "+" : "−";
+          out.push(`<p><b class="off">Near a resonance:</b> ${Q} ${sign} ${Math.abs(sb.m)}Qₛ is only ${fmt(Math.abs(sb.distance), 2)} from a whole number. There the energy oscillation pushes the sideways motion in step every turn, and even this matched beam <b>grows</b> (on <i>electron-ring</i>, 0.0009 from Qₓ + 3Qₛ = 6, by about half in 600 turns). Move the tune by about 0.01 (strengthen or weaken the focusing quadrupoles slightly) and it stops.</p>`);
+        }
+      } else if (hasRF && r.Qs > 0 && sd > 0 && r.twissBoundaries) {
         let worst = null;
         sc.elements.forEach((e, k) => {
           if (e.type !== "RFCavity" || !(+e.voltage)) return;
@@ -1643,11 +1666,9 @@
         const em = +(sc.beam || {})[`emit_${this.plane}`] || 0;
         if (worst && Math.abs(worst.D) > 1e-3 && em > 0) {
           const shift = Math.abs(worst.D) * TWO_PI * r.Qs * sd, size = Math.sqrt(em * worst.beta);
-          out.push(`<p>The cavity also sits where the beam's path depends on its energy (dispersion D = ${fmt(worst.D, 3)} m), so each energy kick shifts particles sideways by about <b>${fmt(shift * 1e3, 2)} mm</b> against a beam size of ${fmt(size * 1e3, 2)} mm. Even a perfectly aimed beam's measured size therefore pulses here: the "matched" beam this tab injects ignores that coupling. Real rings put their cavities where D = 0.</p>`);
+          out.push(`<p>The cavity also sits where the beam's path depends on its energy (dispersion D = ${fmt(worst.D, 3)} m), so each energy kick shifts particles sideways by about <b>${fmt(shift * 1e3, 2)} mm</b> against a beam size of ${fmt(size * 1e3, 2)} mm. Even a perfectly aimed beam's measured size therefore pulses here: this ring's 6D modes could not be separated${optics && optics.normalError ? ` (${esc(optics.normalError)})` : ""}, so the "matched" beam this tab injects ignores that coupling. Real rings put their cavities where D = 0.</p>`);
         }
       }
-      else if (hasRF) out.push(`<p>This ring has an RF cavity but no stable synchrotron motion (check the RF phase), so expect the energies to run away.</p>`);
-      else out.push(`<p>No RF cavity: every particle keeps its energy, so the energy spread steadily spreads the phases. The wobble should halve after ≈ <b>${fmt(0.1874 / (Math.abs(xi) * sd), 3)} turns</b> (0.187 / |Q′|σδ, Q′ = ${fmt(xi, 4)}); the dashed curve is the prediction from these particles' own energies.</p>`);
       const nonlinear = sc.elements.some((e) => ["Sextupole", "ThinSextupole", "Octupole", "ThinOctupole"].includes(e.type) && +(e.k2 || e.k2l || e.k3 || e.k3l));
       if (nonlinear) out.push(`<p>This ring has sextupoles or octupoles: they also make a particle's turning rate depend on how far out it swings. That smears the beam too, and it is <b>not</b> in the dashed prediction, which counts energy alone.</p>`);
       return out.join("");
@@ -1672,7 +1693,7 @@
       const row = (k, v) => `<span>${k}</span><span>${v}</span>`;
       read.innerHTML = (r.stale ? `<span class="stale">Machine or settings changed — press Inject.</span>` : "") +
         row("turn", r.turn) + row("particles left", `${alive} / ${n}`) +
-        row(`injected ε${pl}`, `${fmt(eps, 3)} m·rad`) + row("mismatch Bmag", fmt(bm, 4)) +
+        row("matched in", r.optics.normal ? "6D modes (with the cavity)" : r.optics.hasRF ? "4D (6D modes not separable)" : "4D (no cavity)") + row(`injected ε${pl}`, `${fmt(eps, 3)} m·rad`) + row("mismatch Bmag", fmt(bm, 4)) +
         row("final size ⟨J⟩, formula", `${fmt(pred, 4)} m·rad`) + row("final size ⟨J⟩, this beam", `${fmt(J0, 4)} m·rad`) +
         (last[pl] ? row("rms emittance now", `${fmt(last[pl].emit, 4)} m·rad`) + row("now ÷ final", fmt(J0 > 0 ? last[pl].emit / J0 : NaN, 3)) : "");
       this.drawPhase(ps, r, pl);
@@ -1682,7 +1703,7 @@
       const W = svg.clientWidth || 400, H = svg.clientHeight || 240, pad = 22;
       const size = Math.max(40, Math.min(W - 2 * pad, H - 2 * pad - 14)), cx = W / 2, cy = pad + 14 + size / 2, R = r.R[pl], k = size / 2 / R;
       const J = r.stats[0][pl] ? r.stats[0][pl].meanJ : 0;
-      let h = `<text x="${pad}" y="15" class="ttl">Phase space at the injection point — ${pl} (normalised: a matched beam is round)</text>`;
+      let h = `<text x="${pad}" y="15" class="ttl">Phase space at the injection point — ${r.optics.normal ? `${pl}-like 6D mode` : pl} (normalised: a matched beam is round)</text>`;
       h += `<path class="ax" d="M${cx - size / 2} ${cy}H${cx + size / 2}M${cx} ${cy - size / 2}V${cy + size / 2}"/>`;
       let dots = "";
       for (let p = 0; p < r.states.length; p++) {

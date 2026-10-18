@@ -510,13 +510,13 @@
       t: "Aiming error",
       n: "How far off centre (Δx) and at what angle (Δx′) the beam arrives. The whole beam then swings back and forth around the ring's path.",
       s: "A centroid offset (Δx, Δx′) at the injection point. Once smeared, it adds its own action J = (γΔx² + 2αΔxΔx′ + βΔx′²)/2 to the beam's emittance.",
-      p: "Added to the closed orbit + Dδ; ⟨J⟩ = ε·Bmag + J(Δx, Δx′), derived in sympy and gated to round-off.",
+      p: "Added to the closed orbit + Dδ; ⟨J⟩ = ε·Bmag + J(Δx, Δx′), derived in sympy and gated to round-off. With an RF cavity it is a pure betatron excursion of the ring's 6D normal mode (tests/analytic/test_injection_6d.py).",
     },
     "inj:mismatch": {
       t: "Shape mismatch",
       n: "Whether the arriving beam has the shape the ring wants. A beam that is too narrow or too wide pulses in size every turn, then smears into a bigger round beam.",
       s: "The injected beam's own β and α, relative to the ring's at this point. The emittance grows by the mismatch factor Bmag = (βγᵢ − 2ααᵢ + γβᵢ)/2 ≥ 1.",
-      p: "Bmag − 1 = [(β − βᵢ)² + (αβᵢ − αᵢβ)²]/(2ββᵢ), so injection can only grow a beam; equality only when matched.",
+      p: "Bmag − 1 = [(β − βᵢ)² + (αβᵢ − αᵢβ)²]/(2ββᵢ), so injection can only grow a beam; equality only when matched. With an RF cavity β and α are the 6D normal mode's, not the uncoupled Twiss: the energy oscillation changes the matched shape.",
     },
     "inj:beam": {
       t: "Beam",
