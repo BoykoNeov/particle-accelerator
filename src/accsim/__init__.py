@@ -47,6 +47,7 @@ from .elements import (
     Wiggler,
 )
 from .geometry import SurveyTable, survey
+from .islands import IslandChain, IslandOrbit, island_chain
 from .lattice import Lattice, matrix_of
 from .lifetime import quantum_lifetime, quantum_lifetime_exact
 from .longitudinal import (
@@ -300,6 +301,9 @@ __all__ = [
     "autoresonance_threshold",
     "autoresonance_escape_tune",
     "DrivenState",
+    "island_chain",
+    "IslandChain",
+    "IslandOrbit",
     "closed_twiss_on_orbit",
     "propagate_twiss_on_orbit",
     "tunes_on_orbit",

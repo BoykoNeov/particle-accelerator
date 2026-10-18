@@ -27,14 +27,15 @@ from __future__ import annotations
 
 import functools
 import math
+from fractions import Fraction
 
 import numpy as np
 import pytest
 from scipy.optimize import brentq
 from test_damped_autoresonance import K3L, TP, _Column, _drive, _lat, _optics, _q_d
 
-from _w4_driven_orbits import IDX, _fixed_points, _ring
-from accsim import PX, ACDipole, X, closed_twiss
+from _w4_driven_orbits import IDX, _ring
+from accsim import PX, ACDipole, X, closed_twiss, island_chain
 
 FREE = _ring(None, K3L)  # no drive, no damper
 M = 6  # islands at 1/3
@@ -96,16 +97,12 @@ def _one_turn(z: np.ndarray) -> np.ndarray:
 
 
 @functools.cache
-def _chain(q: int, J_guess: float) -> tuple[tuple[np.ndarray, float], ...]:
-    """The free ring's period-``q`` fixed points near ``J_guess``: ``((z, trace), ...)``. The
-    origin, which a seed can also fall onto, is not part of a chain and is dropped."""
-    seeds = [
-        _launch(J, phi)[[X, PX], 0]
-        for J in J_guess * np.array([0.9, 1.0, 1.1])
-        for phi in np.linspace(0.0, TP, 36, endpoint=False)
-    ]
-    found = _fixed_points(FREE, q, seeds)
-    return tuple((z, float(np.trace(jac))) for z, jac in found if _cs(z)[0] > 0.25 * J_guess)
+def _chain(tune: Fraction, J_guess: float) -> tuple[tuple[np.ndarray, float], ...]:
+    """The free ring's chain turning ``tune`` near ``J_guess`` (:func:`accsim.island_chain`,
+    W9; W8 shipped with a test helper that the function replaced, to ``1e-15``):
+    ``((z, trace), ...)`` with ``z = (x, px)``."""
+    chain = island_chain(FREE, tune, J_guess)
+    return tuple((pt[[X, PX]], o.trace) for o in chain.orbits for pt in o.points)
 
 
 def _cycles(points: list[np.ndarray]) -> list[list[int]]:
@@ -141,7 +138,7 @@ def _index_of(points: list[np.ndarray], z: np.ndarray, tol: float) -> int | None
 @functools.cache
 def _omega() -> float:
     """The 1/3 chain's libration per turn: ``arccos(tr / 2) / 3`` of the stable orbit."""
-    traces = [t for _, t in _chain(3, 2.08e-5) if abs(t) < 2.0]
+    traces = [t for _, t in _chain(Fraction(1, 3), 2.08e-5) if abs(t) < 2.0]
     return math.acos(float(np.mean(traces)) / 2.0) / 3.0
 
 
@@ -167,7 +164,7 @@ def test_the_one_third_chain_has_six_islands() -> None:
     """Twelve fixed points of the free 3-turn map near ``J = 2e-5``: six stable (trace
     ``1.99389``) and six unstable (``2.00597``), two orbits of each, mapped onto each other by
     ``x -> -x``. Six islands: ``6Q = 8``, an even order, second order in ``k3l``."""
-    chain = _chain(3, 2.08e-5)
+    chain = _chain(Fraction(1, 3), 2.08e-5)
     assert len(chain) == 12
     stable = [z for z, t in chain if abs(t - 1.99389) < 1e-5]
     unstable = [z for z, t in chain if abs(t - 2.00597) < 1e-5]
@@ -181,7 +178,7 @@ def test_the_one_third_chain_has_six_islands() -> None:
 def test_the_three_tenths_chain_has_ten_islands() -> None:
     """Twenty fixed points of the free 10-turn map near ``J = 9.5e-5``: one stable period-10
     orbit (trace ``1.02002``) and one unstable (``3.1051``), each its own mirror image."""
-    chain = _chain(10, 9.5e-5)
+    chain = _chain(Fraction(3, 10), 9.5e-5)
     assert len(chain) == 20
     stable = [z for z, t in chain if abs(t - 1.02002) < 1e-4]
     unstable = [z for z, t in chain if abs(t - 3.1051) < 1e-3]
@@ -199,7 +196,7 @@ def test_the_plateau_width_is_the_libration_width() -> None:
     """Along the ray through a stable fixed point, the tracked free tune is 1/3 (to ``3e-5``)
     over a band of ``J``; times the detuning curve's slope at the chain, its half-width in
     tune is within 6% of the pendulum's ``omega / (pi m)`` (measured 2.4%)."""
-    stable = [z for z, t in _chain(3, 2.08e-5) if abs(t) < 2.0]
+    stable = [z for z, t in _chain(Fraction(1, 3), 2.08e-5) if abs(t) < 2.0]
     J_s, phi_s = min((_cs(z) for z in stable), key=lambda jp: abs(jp[1]))
     J = np.linspace(1.6e-5, 2.6e-5, 501)
     Q = _free_tunes(_launch(J, phi_s), 6000)
