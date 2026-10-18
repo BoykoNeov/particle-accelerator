@@ -39,11 +39,33 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18) | **W8 open** — the island chain that ends a lock early (gates pre-committed 2026-10-18); named, not opened: editor/scenario support; a skew (coupled) drive; a package `island_chain()` |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; a package `island_chain()`; a theory of the survival fraction |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
 
-**W8 — the island chain that ends a lock early (opened 2026-10-18; the gates below are
-pre-committed before any test code).** W7 found that on W4's ring a damped autoresonant lock
+**Axis W shipped W8 on 2026-10-18**: **the island chain that ends a lock early**, tests only
+(`tests/analytic/test_lock_island_chain.py`, about 5.5 minutes on a quiet box). The 1/3 loss
+W7 named is the free ring's own six-island chain, found with no drive at all. Whether a lock
+survives it depends on the drive's phase as it meets the chain, and slower sweeps lose more
+(60, 52, 43, 8, 0 of 64 at `f = 1.5` from `4e-6` to `2.5e-7`). A reduced model built from two
+exact free-ring measurements reproduces the surviving fraction to 4 of 64. Full detail is in
+`docs/CONVENTIONS.md` -> *The island chain that ends a lock early*. Five gates pass as
+written. What changed between pre-commitment and code:
+
+- **Gate 4's tolerance was too tight, and the floor is the phase's round-off.** The half-lag
+  trajectories differ by `3.6e-12` of the swing against a pre-committed `1e-12`: `lag + 1/2`
+  flips the drive through a phase near `8.5e4` rad, where doubles are `1.46e-11` apart. The
+  gate is now that spacing (derived, not tuned). A structural check was added: a drive of the
+  opposite **sign** gives the negated trajectory bit for bit, through the chain and past it.
+- **Gate 1's seeds can fall onto the origin**, a fixed point of every map (found when a wider
+  seed grid returned 21 points at 3/10). The chain finder drops points far below the chain's
+  action. 36 seed phases instead of 72 find all 20 at a quarter of the cost.
+- **Gate 6's model** steps at 0.5 turn (0.25 and 0.125 give the same survivors). With the exact
+  lags of the test it misses by at most 4 of 64 (the probe's 8 used a slightly different grid
+  and a rounded trace). The linear control misses by 19.
+- **Gate 2** measured 3.2% (probe 2.4%; the plateau is read with the tune within `3e-5` of 1/3).
+
+**W8 — the island chain that ends a lock early (opened 2026-10-18; the gates below were
+pre-committed before any test code; see the shipped entry above for what changed).** W7 found that on W4's ring a damped autoresonant lock
 is usually lost where the drive tune reaches 1/3, and called it "a resonance of the driven ring
 the turn average discards". Orientation probes say otherwise, and say what decides it.
 

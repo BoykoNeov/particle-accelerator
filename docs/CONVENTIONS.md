@@ -11106,6 +11106,106 @@ chirps; W4's refusals (two planes, bends, sextupoles, off momentum). No referenc
 and W6 already transcribe the swept dipole and the damper into xtrack, and no code has the
 physics.
 
+### The island chain that ends a lock early (W8 — tests only, 2026-10-18)
+
+No new package code; `tests/analytic/test_lock_island_chain.py` gates it, and
+`autoresonance_escape_tune`'s docstring now names the mechanism. The period-`q` fixed-point
+finder is `tests/_w4_driven_orbits.py::_fixed_points` (Newton on the `q`-turn map, from W4).
+
+**The chain is the free ring's.** W7 called the 1/3 loss "a resonance of the driven ring". With
+no drive and no damper, W4's ring (`k3l = -2000`) already has it: Newton on the 3-turn map
+finds six stable and six unstable fixed points near `J = 2e-5` (traces 1.99389 and 2.00597),
+two period-3 orbits of each kind, mapped onto each other by `x -> -x`. **Six islands**: the
+resonance `6Q = 8`. An octupole ring is symmetric under `x -> -x`, so every resonance it
+drives has even order; this one is second order in `k3l`. At 3/10 the 10-turn map has one
+stable and one unstable period-10 orbit (traces 1.02002 and 3.1051), each its own mirror:
+**ten islands**, `10Q = 13`, and much stronger. The free ring's aperture is near `J = 1.2e-4`
+(tune 0.29). A seed can also fall onto the origin, which is a fixed point of every map; the
+finder's caller drops it.
+
+**Its width, two ways.** The stable orbit's libration per turn, `omega = arccos(tr / 2) / q`
+(0.02606), gives the pendulum's half-width in tune `omega / (pi m)` (1.383e-3, `m = 6`): for
+`H = pi a dJ^2 + U cos(m theta)`, `omega^2 = 2 pi |a| m^2 U` and the separatrix half-width is
+`sqrt(2 U / (pi |a|)) = omega / (pi |a| m)` in action. Tracked, the free tune is 1/3 along the
+ray through a stable point over a band of launch `J`; times the slope of the free detuning
+curve at the chain (`-492`, against `-574` at small amplitude), its half-width is within
+3.2% (plateau `1.804e-5` to `2.384e-5` with the tune within `3e-5` of 1/3: 1.428e-3 against 1.383e-3; gate 6%) of the pendulum's.
+
+**The lock ends inside the chain, and whether it survives depends on the drive's phase.**
+`gamma = 0.05` (W7's columns, damper right after the dipole), 64 lags over `[0, 1/6)`, read
+`|Psi|^2 / tau > 1/2` on a 200-turn least-squares window at drive tunes 0.322 and 0.318 (the
+40-turn window cannot tell a particle caught in the chain, at tune 1/3, from a locked one at
+0.331: 40 turns hold only 0.08 cycles of the difference). Survivors:
+
+| `f` \ rate | `4e-6` | `2e-6` | `1e-6` | `5e-7` | `2.5e-7` |
+|---|---|---|---|---|---|
+| 1.5 | 60 | 52 | 43 | 8 | 0 |
+| 2.0 | 60 | 43 | 24 | 8 | 1 |
+
+Locked columns read 0.91 or more, lost ones at most 0.0003. Every lost lock's swing peaks
+with the drive below `1/3 + 1.383e-3`, the chain's outer edge (at most `+5.1e-4` above 1/3),
+with medians within `1.02e-3` (`-1.02e-3` to `+4.0e-4`, on the eight configurations with at least 8 lost) of 1/3. **Slower sweeps lose more**, because the island chain
+is fixed by the ring while the lock's own width in action shrinks with the sweep. **No monotone
+trend in the drive strength** (orientation: survivors at `f = 1.25` and 3 straddle those at 1.5
+and 2): a "capture width over island width" ratio is refuted, and no derived scaling replaces
+it.
+
+**The 1/6 repeat in lag is kinematics.** Lags `l`, `l + 1/6` and `l + 1/2` give the same
+outcome at every lag although the trajectories differ.
+- `l + 1/2` flips the drive. A drive of the opposite **sign** gives the negated trajectory bit
+  for bit (the ring's maps are odd in `x`, and IEEE negation is exact), through the chain and
+  past it. Through the **lag**, the negation holds only to the phase's round-off: at turn
+  36,000 the phase is about `8.5e4` rad, where doubles are `1.5e-11` apart, and the
+  trajectories differ by `3.6e-12` of the swing. (Pre-committed: `1e-12`. The gate is now
+  the spacing of doubles at the largest phase, a derived floor, with the exact sign flip as the
+  structural check.)
+- `l + 1/3` is nearly a one-turn time shift while the drive tune is near 1/3, and the damping
+  erases the earlier difference.
+
+Together they give a 1/6 period for any chain met near 1/3, so the lag period says nothing
+about the number of islands; the Newton orbits do.
+
+**A reduced model reproduces the surviving fraction.** W5/W7's rotating-wave equation plus one
+island harmonic,
+
+    dc/dn = 2 pi i (q_d - nu(n) + D(|c|^2)) c - eps - Gamma c + 3 i (U / J_r^3) c*^5 e^(-i chi(n)),
+    chi = 6 Phi_drive - 4 pi n,
+
+`H_island = U (J / J_r)^3 cos(6 psi_lab - 4 pi n + chi_0)` with `dc/dn = i dH/dc*`. Two inputs,
+both measured on the free ring and neither fitted to the lock: `D(J)`, the tracked detuning (a
+quartic through launches along `phi = 0`, away from the 1/3 and 3/10 chains), and
+`U = omega^2 / (2 pi |D'(J_r)| m^2)` from the exact chain, `J_r` where `q_d + D = 1/3`. The
+island's phase `chi_0` is not modelled, so the per-lag pattern is shifted and only fractions
+compare. RK4 at 0.5 turn (0.25 and 0.125 give the same survivors). Survivors (`f = 1.5` then
+2, rates as above):
+
+| | `4e-6` | `2e-6` | `1e-6` | `5e-7` | `2.5e-7` |
+|---|---|---|---|---|---|
+| ring | 60, 60 | 52, 43 | 43, 24 | 8, 8 | 0, 1 |
+| model, `D(J)` | 60, 60 | 55, 44 | 41, 20 | 5, 10 | 1, 1 |
+| model, linear `a J` | 50, 58 | 33, 38 | 44, 22 | 10, 6 | 0, 0 |
+
+The model sits within 4 of 64 of the ring everywhere. With the small-amplitude
+linear detuning (`a = -574`) in place of `D` it misses by 19 at `2e-6`, `f = 1.5`,
+and is as close as `D`'s model at most other configurations: the fraction is noisy (the
+surviving set is fragmented at slow rates), and the discrimination rests on the faster rates,
+where the speed at which the lock crosses the chain in action matters most. With no island
+term every column survives.
+
+**Traps found on the way.**
+- The 40-turn survival read misclassifies particles caught in the chain (above).
+- A single lag is an anecdote. W7's "deeper locks survive 1/3" was lag 0.13, which happens to
+  survive; 43 of 64 lags do at `1e-6` and none at `2.5e-7`.
+- A survival test at one turn shortly after the chain counts a lock that has just been lost
+  as a survivor, because it is still decaying from the chain's amplitude.
+- Importing `scripts/nicepytest.py` from a probe runs the whole suite (it calls `pytest.main`
+  at import). Probes lower their own priority instead.
+
+Not built: a theory of the survival fraction; the 3/10 chain as a second crossing (the outcome
+there carries the first crossing's history); the island's phase `chi_0`; a package
+`island_chain()` (no consumer yet; it would need its own seeding and refusals); the mirror
+ring's chains.
+
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 
 **The scenario format** (`accsim-scenario/1`, `src/accsim/scenario.py`) is the seam
