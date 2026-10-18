@@ -39,8 +39,125 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; the resonances that end a lock early |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18) | **W8 open** — the island chain that ends a lock early (gates pre-committed 2026-10-18); named, not opened: editor/scenario support; a skew (coupled) drive; a package `island_chain()` |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**W8 — the island chain that ends a lock early (opened 2026-10-18; the gates below are
+pre-committed before any test code).** W7 found that on W4's ring a damped autoresonant lock
+is usually lost where the drive tune reaches 1/3, and called it "a resonance of the driven ring
+the turn average discards". Orientation probes say otherwise, and say what decides it.
+
+Orientation facts (measured 2026-10-18 by throwaway probes; W4's ring, `k3l = -2000`, W7's
+column construction and damper; "survived" read W7's way, `|Psi|^2 / tau > 1/2`, but on a
+200-turn least-squares window at drive tunes 0.322 and 0.318, past the chain):
+
+- **The chain belongs to the free ring.** With no drive and no damper, the tune falls from
+  0.3441 and stays at exactly 1/3 over a band of amplitudes (launch `J` about `1.83e-5` to
+  `2.37e-5` along the ray through an island centre), and again at 3/10 (`J` about `9e-5` to
+  `1.03e-4`). Particles are lost past about `J = 1.2e-4` (tune 0.29). Newton on the free
+  ring's 3-turn map finds 12 fixed points near `J = 2e-5`: 6 stable (trace of the 3-turn
+  Jacobian 1.99389) and 6 unstable (2.00597), alternating in phase, so **six islands**: the
+  even-order resonance `6Q = 8`, second order in `k3l` (an octupole ring is symmetric under
+  `x -> -x`, so every resonance it drives has even order). `x -> -x` maps the stable points
+  onto each other. At 3/10 the 10-turn map has 10 stable (1.02002) and 10 unstable (3.10511)
+  points: **ten islands**, `10Q = 13`, much stronger.
+- **Its width.** The stable orbit's libration `omega = arccos(tr / 2) / 3 = 0.02606` per turn
+  gives the pendulum half-width in tune `omega / (pi m) = 1.383e-3` (`m = 6`). The tracked
+  plateau along the ray through a stable point, times the free ring's local slope there
+  (`dQ/dJ = -492`, against `-574` at small amplitude), gives 1.35e-3: 2.4% apart.
+- **Where locks end.** At `gamma = 0.05` (`f = 1.5, 2`; `1e-6, 5e-7, 2.5e-7`) and `gamma =
+  0.1` (`f = 1.5`; `1e-6, 5e-7`), 64 lags each, every lost lock's swing peaks with the drive at
+  most `+0.52e-3` above 1/3, inside the chain's outer edge `1/3 + 1.383e-3`. The medians lie
+  `-0.83e-3` to `+0.45e-3` from 1/3. A few end lower (down to `-5.6e-3`).
+- **Whether a lock survives depends on the drive's phase as it meets the chain, and the
+  slower the sweep the fewer survive.** Survivors out of 64 lags spaced over `[0, 1/6)`, at
+  `gamma = 0.05`:
+
+  | `f` \ rate | `4e-6` | `2e-6` | `1e-6` | `5e-7` | `2.5e-7` |
+  |---|---|---|---|---|---|
+  | 1.25 | 49 | 46 | 23 | 0 | 0 |
+  | 1.5 | 60 | 52 | 43 | 8 | 0 |
+  | 2.0 | 60 | 43 | 24 | 8 | 1 |
+  | 3.0 | 61 | 31 | 23 | 19 | 2 |
+
+  There is no monotone trend in the drive strength. (A coarser earlier grid suggested a
+  stronger drive survives less; the dense one does not support it.) Within a configuration,
+  which lags survive is a fragmented set at slow rates.
+- **The 1/6 repeat in lag is kinematics, not the chain's order.** Lags `l`, `l + 1/6` and
+  `l + 1/2` give the same outcome at all 64 lags of six configurations, although the
+  trajectories differ. `l + 1/2` is exact (the drive changes sign and the ring is symmetric
+  under `x -> -x`). `l + 1/3` is nearly a one-turn time shift, because the drive tune is near
+  1/3 when it matters, and the damping erases the earlier difference. Together they give 1/6
+  for any chain met near 1/3, so the lag period says nothing about the number of islands.
+- **A reduced model reproduces the survival.** W5/W7's rotating-wave equation with one island
+  harmonic added,
+  `dc/dn = 2 pi i (q_d - nu(n) + D(|c|^2)) c - eps - Gamma c + 3 i (U / J_r^3) c*^5 e^(-i chi(n))`,
+  `chi = 6 Phi_drive - 4 pi n` (static when the particle's tune is 1/3), with `D(J)` the free
+  ring's tracked detuning curve (a quartic fit away from the chains), `J_r` where `q_d + D =
+  1/3`, and `U = omega^2 / (2 pi |D'(J_r)| m^2)` (the exact chain's libration), gives
+  survivors 60, 55, 39, 5, 0 (`f = 1.5`) and 60, 41, 16, 12, 1 (`f = 2`) against the ring's
+  60, 52, 43, 8, 0 and 60, 43, 24, 8, 1. Its per-lag pattern is shifted (the island's phase
+  `chi_0` is not modelled), so only fractions compare. **Control:** with the small-amplitude
+  linear detuning (`a = -574`) in place of `D`, the same model gives 50, 33, 42, 9, 0 and 59,
+  38, 23, 9, 0: off by 19 at `2e-6` and 10 at `4e-6` (`f = 1.5`), and as close as `D`'s model
+  on the other eight. The fraction is noisy (the surviving set is fragmented; a few of 64 is
+  sampling), so the discrimination rests on the two faster rates, where the crossing speed
+  in action matters most. Stated as such.
+
+What changes in the package: nothing but wording. `autoresonance_escape_tune`'s docstring
+calls the 1/3 loss a resonance "of the drive tune" that the average discards; it becomes the
+free ring's own six-island chain (named, modelled in the tests only). A package
+`island_chain()` (the exact period-`q` orbits and the pendulum width for any lattice) has no
+consumer until something in the package predicts survival, and it would need its own seeding
+and refusals: named as a follow-up, not built. The deliverable is
+`tests/analytic/test_lock_island_chain.py`, with a period-`q` fixed-point finder for the free
+ring in `tests/_w4_driven_orbits.py`.
+
+Gates, pre-committed:
+
+1. **The chain is the free ring's, and has six islands.** No drive, no damper. Newton on the
+   3-turn map from a seed grid near `J = 2e-5` finds exactly 12 distinct fixed points,
+   residual under `1e-14`: 6 with trace `1.99389 +- 1e-5`, 6 with `2.00597 +- 1e-5`. One turn
+   maps each fixed point onto another of the same kind (two stable and two unstable period-3
+   orbits), and `x -> -x` maps the set onto itself to `1e-12`. At 3/10, near `J = 9.5e-5`, the
+   10-turn map has 20 (10 with trace `1.02002 +- 1e-4`, 10 with `3.1051 +- 1e-3`): one stable
+   and one unstable period-10 orbit, each its own mirror image.
+2. **Two exact widths agree.** The plateau where the tracked free tune is 1/3 (to `3e-5`),
+   along the ray through a stable fixed point, times the tracked slope just outside it, is
+   within 6% of `omega / (pi m)` (measured 2.4%).
+3. **Locks end in the chain.** In gate 5's batch, on every configuration where at least 8 of
+   64 lose the lock, every loss tune (the peak of W7's 40-turn demodulated swing) lies below
+   `1/3 + omega / (pi m)` (measured at most `+0.52e-3`), and the median lies within
+   `omega / (pi m)` of 1/3 (measured within `0.83e-3`).
+4. **Symmetry control.** On `gamma = 0.05, f = 1.5, 1e-6`: lags `l` and `l + 1/2` give the same
+   outcome at all 64 lags, and their trajectories are negatives of each other to `1e-12` of the
+   swing up to the turn where the drive reaches 0.34 (before the chain amplifies round-off).
+   Lag `l + 1/6` gives the same outcome at all 64 (stated as kinematics, gated as measured).
+5. **Survival falls as the sweep slows.** `gamma = 0.05`, `f = 1.5` and `2`, rates `4e-6, 2e-6,
+   1e-6, 5e-7, 2.5e-7`, 64 lags over `[0, 1/6)`: survivors never rise as the rate halves; at
+   least 56 survive at `4e-6` and at most 2 at `2.5e-7`. The two reads agree on every column;
+   locked columns read `|Psi|^2 / tau > 0.6`, lost ones `< 0.05` (measured `>= 0.91` and
+   `0.000`).
+6. **The reduced model reproduces it.** On gate 5's ten configurations the model's survivors
+   lie within 10 of 64 of the ring's at every one (measured at most 8). **Controls:** with the
+   small-amplitude linear detuning in place of `D`, it misses by more than 14 of 64 on at
+   least one configuration (measured 19, at `2e-6`, `f = 1.5`); with `U = 0`, all 64 survive
+   at every configuration.
+
+Scope: W7's (W4's ring, one swept `ACDipole`, a `Damper` right after it, on momentum), the
+1/3 chain as the first one met. Named, not built: the theory of the survival fraction (no
+derived scaling; the capture-width-over-island-width ratio is refuted by the table); the 3/10
+chain as a second crossing (the outcome there carries the first crossing's history); the
+island's phase `chi_0`; a package `island_chain()`; the mirror ring's chains.
+
+Cost: gate 5's sweep is about 70 s and the model's about as long; target under 6 minutes for
+the file.
+
+**Correction to W7 (2026-10-18).** "Deeper locks survive 1/3 and are lost at 3/10" below
+describes W7's single lag (0.13). Over 64 lags at `gamma = 0.05`, `1.5 mu_th`, 43 survive 1/3
+at `1e-6` per turn and none at `2.5e-7`; see W8. W7's gate 11 (lost at 1/3, `gamma = 0.1`) is
+unaffected: no lag survives at its settings. The 1/3 resonance is the free ring's own
+six-island chain, not a resonance of the driven ring.
 
 **Axis W shipped W7 on 2026-10-18**: **damped autoresonance**. `autoresonance_threshold`
 accepts a damper: the threshold is W5's formula with `mu_c` replaced by `mu_th(gamma)`, a table
@@ -135,7 +252,10 @@ drive ramped on over `tau in [-80, -40]` as for W5's `mu_c`):
   0.3124, next to 5/16. Deeper locks (`gamma = 0.05`, `1.04` and `1.5 mu_th`) survive 1/3 and
   are lost at 3/10 (drive tunes 0.299-0.301 at three rates). The averaged equation cannot see
   either: they are resonances of the driven ring that the turn average discards. Their mechanism
-  is **named, not derived**. Every ring gate reads before the drive reaches 1/3. W5's read at
+  is **named, not derived**. *(Corrected by W8: that survival held for the one lag tested; over
+  64 lags it depends on the drive's phase and falls to none as the sweep slows. Both are the
+  free ring's own island chains, six islands at 1/3 and ten at 3/10, not resonances of the
+  driven ring.)* Every ring gate reads before the drive reaches 1/3. W5's read at
   `tau = +60` lies past it: the first probe's "threshold rising as the sweep slows" at
   `gamma = 0.05` was this, not damping.
 - **On the ring, the escape converges on the integrated one, more slowly on this ring.** At

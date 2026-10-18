@@ -11090,6 +11090,10 @@ swing^2 / (2 beta lam^2)`, `lam^2 = kappa / (2 pi |a|)`.
   whose model escape lay below 1/3 ended 0.3329-0.3346. Deeper locks (`gamma = 0.05`) survive
   1/3 and end at 3/10. These are resonances of the driven ring that the turn average
   discards. **Named, not modelled**, and stated in `autoresonance_escape_tune`'s docstring.
+  *(Corrected by W8, 2026-10-18: the survival held for W7's one lag, 0.13; over 64 lags it
+  depends on the drive's phase, 43 of 64 at `1e-6` and none at `2.5e-7`. Both chains belong
+  to the free ring (six islands at 1/3, ten at 3/10), with no drive at all. See W8 in
+  `docs/ROADMAP.md`.)*
   This also means a lock read past 1/3 is not a capture test: W5's read at `tau = +60`
   would have shown a "threshold" rising as the sweep slows.
 - **The mirror** (`gamma = 0.05`, `1e-6`, swept up): `|Psi|^2` at `tau = 20` is 0.48 at
