@@ -43,7 +43,7 @@
     if (a.opticsError) throw new Error(a.opticsError.message);
     if (a.coupled) throw new Error("the ring is x-y coupled; injection uses uncoupled Twiss");
     const tw = a.twiss0;
-    return {
+    const out = {
       ref: a.ref,
       length: a.length,
       tunes: a.tunes,
@@ -57,7 +57,28 @@
         disp_x: tw.disp_x || 0.0, disp_px: tw.disp_px || 0.0,
         disp_y: tw.disp_y || 0.0, disp_py: tw.disp_py || 0.0,
       },
+      normal: null,
+      normalError: null,
     };
+    // With a working RF cavity the ring has a 6D normal form, and the beam the one-turn map
+    // leaves unchanged is drawn and measured in ITS coordinates: the transverse modes' own
+    // Twiss (not the uncoupled one) and the dynamic dispersion (not the static one) replace
+    // `twiss`, so every reading below is a normal-mode reading (docs/CONVENTIONS.md ->
+    // "The 6D-matched beam"). The uncoupled Twiss is kept as `twiss4` for display.
+    if (out.hasRF && out.Qs > 0) {
+      try {
+        const nf = O.normalForm6(a.oneTurn);
+        out.normal = nf;
+        out.twiss4 = out.twiss;
+        out.twiss = {
+          beta_x: nf.modeBeta[0], alpha_x: nf.modeAlpha[0], beta_y: nf.modeBeta[1], alpha_y: nf.modeAlpha[1],
+          disp_x: nf.dispersion[0], disp_px: nf.dispersion[1], disp_y: nf.dispersion[2], disp_py: nf.dispersion[3],
+        };
+      } catch (e) {
+        out.normalError = e.message;
+      }
+    }
+    return out;
   }
 
   // ------------------------------------------------------------ moment matching
@@ -131,6 +152,7 @@
    * the matched bunch length when the ring has RF (else 0 — without RF zeta only grows).
    */
   function sampleInjection(inj, optics) {
+    if (optics.normal) return sampleInjection6(inj, optics);
     const rng = A.mulberry32(inj.seed || 1);
     const sigZ = matchedBunchLength(optics, inj.sigma_delta);
     const k = sigZ > 0.0 ? 6 : 5;
@@ -157,11 +179,78 @@
     });
   }
 
+  /** Courant-Snyder normalising block N(beta, alpha) = [[sqrt b, 0], [-a/sqrt b, 1/sqrt b]]. */
+  function csBlock(beta, alpha) {
+    const sb = Math.sqrt(beta);
+    return [[sb, 0.0], [-alpha / sb, 1.0 / sb]];
+  }
+  /** Mode `k`'s longitudinal-mode-free share of the energy spread, W[5,2k]^2 + W[5,2k+1]^2. */
+  function deltaShare(W, k) {
+    return W[DELTA][2 * k] ** 2 + W[DELTA][2 * k + 1] ** 2;
+  }
+  /**
+   * The injected bunch on a ring with RF: drawn in the 6D normal-mode coordinates u, then
+   * x = x_co + W u. Per transverse mode k (Twiss beta_k, alpha_k = optics.twiss)
+   *     (u_2k, u_2k+1) = sqrt(eps) N(beta_k, alpha_k)^-1 N(beta_i, alpha_i) (a, b) + N(beta_k, alpha_k)^-1 (du, dpu)
+   * — the shape mismatch against the MODE Twiss, and the aiming error as a pure betatron
+   * (mode-k) excursion. The longitudinal mode carries eps_3 = sigma_delta^2 / (W[5,4]^2 +
+   * W[5,5]^2), its own energy spread (the transverse modes add theirs, ~1e-5 relative), and
+   * the energy offset as the mode-3 point with zeta = 0, delta = delta0 — which puts the
+   * transverse centroid on the dynamic dispersion. With every setting at its default the
+   * beam's covariance is W diag(eps) W^T: the one the one-turn map leaves unchanged.
+   */
+  function sampleInjection6(inj, optics) {
+    const rng = A.mulberry32(inj.seed || 1);
+    const rows = [];
+    for (let p = 0; p < inj.n; p++) {
+      const r = [];
+      for (let j = 0; j < 6; j++) r.push(A.gaussian(rng));
+      rows.push(r);
+    }
+    whiten(rows);
+    const { W } = optics.normal, t = optics.twiss, o = optics.orbit0;
+    const planes = [
+      { eps: inj.emit_x, m: csBlock(t.beta_x, t.alpha_x), i: csBlock(inj.beta_x, inj.alpha_x), d: [inj.dx, inj.dpx] },
+      { eps: inj.emit_y, m: csBlock(t.beta_y, t.alpha_y), i: csBlock(inj.beta_y, inj.alpha_y), d: [inj.dy, inj.dpy] },
+    ].map((q) => {
+      const mInv = [[q.m[1][1], -q.m[0][1]], [-q.m[1][0], q.m[0][0]]]; // det N = 1
+      const shape = O._linalg.matmul(mInv, q.i).map((row) => row.map((v) => v * Math.sqrt(q.eps)));
+      return { shape, offset: O._linalg.matvec(mInv, q.d) };
+    });
+    const sz = Math.sqrt(inj.sigma_delta * inj.sigma_delta / deltaShare(W, 2));
+    // The mode-3 point with zeta = 0, delta = delta0: solve the 2x2 [[W44, W45], [W54, W55]].
+    const det = W[ZETA][4] * W[DELTA][5] - W[ZETA][5] * W[DELTA][4];
+    const z0 = [-W[ZETA][5] * inj.delta0 / det, W[ZETA][4] * inj.delta0 / det];
+    return rows.map((r) => {
+      const u = new Array(6);
+      planes.forEach((q, k) => {
+        u[2 * k] = q.shape[0][0] * r[2 * k] + q.shape[0][1] * r[2 * k + 1] + q.offset[0];
+        u[2 * k + 1] = q.shape[1][0] * r[2 * k] + q.shape[1][1] * r[2 * k + 1] + q.offset[1];
+      });
+      u[4] = sz * r[4] + z0[0];
+      u[5] = sz * r[5] + z0[1];
+      const x = O._linalg.matvec(W, u);
+      return [o[0] + x[0], o[1] + x[1], o[2] + x[2], o[3] + x[3], x[4], x[5]];
+    });
+  }
+
   // ------------------------------------------------------------------ statistics
   /** The betatron part of one particle in plane `pl` ("x" or "y"): the closed orbit and
-   *  D delta removed, with the ring's dispersion at the injection point (never a fit). */
+   *  D delta removed, with the ring's dispersion at the injection point (never a fit).
+   *  On a ring with a 6D normal form it is the mode-k pair of W^-1 (x - x_co), mapped back
+   *  through N(beta_k, alpha_k): a betatron coordinate in metres whose Courant-Snyder action
+   *  with the mode Twiss is the mode's own action, (u_2k^2 + u_2k+1^2) / 2, exactly. */
   function betatronPart(s, optics, pl) {
     const t = optics.twiss, o = optics.orbit0;
+    if (optics.normal) {
+      const Wi = optics.normal.Winv, k = pl === "x" ? 0 : 1;
+      const d = [s[X] - o[0], s[PX] - o[1], s[Y] - o[2], s[PY] - o[3], s[ZETA], s[DELTA]];
+      let u1 = 0.0, u2 = 0.0;
+      for (let j = 0; j < 6; j++) { u1 += Wi[2 * k][j] * d[j]; u2 += Wi[2 * k + 1][j] * d[j]; }
+      const beta = pl === "x" ? t.beta_x : t.beta_y, alpha = pl === "x" ? t.alpha_x : t.alpha_y;
+      const sb = Math.sqrt(beta);
+      return [sb * u1, -alpha / sb * u1 + u2 / sb];
+    }
     if (pl === "x") return [s[X] - o[0] - t.disp_x * s[DELTA], s[PX] - o[1] - t.disp_px * s[DELTA]];
     return [s[Y] - o[2] - t.disp_y * s[DELTA], s[PY] - o[3] - t.disp_py * s[DELTA]];
   }
@@ -239,8 +328,30 @@
     return Math.hypot(re, im) / deltas.length;
   }
 
+  /**
+   * The nearest synchrotron sideband of an integer, Q_k + m Q_s (k = transverse mode, m =
+   * +-1..+-3), within `tol` of an integer — or null. On a sideband the energy oscillation
+   * drives the betatron motion resonantly and even a 6D-matched beam grows (measured on
+   * `electron-ring`, 0.0009 from Q_1 + 3 Q_s = 6: <J> 1.48x after 600 turns). Mode tunes from
+   * the normal form, so the distance is the one the growth follows.
+   */
+  function sidebandNear(optics, tol) {
+    if (!optics.normal) return null;
+    const lim = tol == null ? 5e-3 : tol, [q1, q2, q3] = optics.normal.tunes;
+    const qs = Math.min(q3, 1.0 - q3); // the longitudinal mode turns backwards (q3 = 1 - Q_s)
+    let best = null;
+    [q1, q2].forEach((q, k) => {
+      for (let m = -3; m <= 3; m++) {
+        if (m === 0) continue;
+        const v = q + m * qs, dist = v - Math.round(v);
+        if (Math.abs(dist) < lim && (!best || Math.abs(dist) < Math.abs(best.distance))) best = { plane: k === 0 ? "x" : "y", m, distance: dist };
+      }
+    });
+    return best;
+  }
+
   return {
     ringOptics, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
-    betatronPart, action, bmag, expectedAction, beamStats, chromaticEnvelope,
+    betatronPart, action, bmag, expectedAction, beamStats, chromaticEnvelope, sidebandNear,
   };
 });

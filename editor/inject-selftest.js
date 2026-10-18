@@ -10,6 +10,10 @@
  *   mode "stats":  { inj, turns }     -> the injected beam tracked, beamStats after each turn
  *                                         (index 0 = before the first turn), and the deltas;
  *   mode "tbt":    { states, turns }  -> turn-by-turn (x, px, y, py) of the given particles.
+ *
+ * On a ring with RF, `sampler: "4d"` draws the beam the way the tab did before the 6D match
+ * (uncoupled Twiss + static dispersion) and still measures it in the 6D normal modes — the
+ * control for tests/analytic/test_injection_6d.py.
  */
 "use strict";
 const path = require("path");
@@ -30,7 +34,13 @@ function run(c) {
     }
     const optics = I.ringOptics(c.scenario);
     const inj = Object.assign(I.defaults(c.scenario, optics), c.inj || {});
-    const states = I.sampleInjection(inj, optics);
+    let states;
+    if (c.sampler === "4d") {
+      if (!optics.normal) throw new Error("sampler '4d' is the control for a ring with a 6D normal form");
+      const o4 = Object.assign({}, optics, { normal: null, twiss: optics.twiss4 });
+      const inj4 = Object.assign(I.defaults(c.scenario, o4), c.inj || {});
+      states = I.sampleInjection(inj4, o4);
+    } else states = I.sampleInjection(inj, optics);
     const out = { optics, inj, initial: states.map((s) => s.slice()) };
     if (c.mode === "inject") return out;
     const m = T.build(c.scenario);

@@ -542,6 +542,103 @@
     };
   }
   /**
+   * The 6D linear normal form M = W R W^-1 (accsim.twiss.normal_form(M, method="6d")), by a
+   * different route to the same W. The package diagonalises M with numpy's eigen-solver; the
+   * editor has none, so everything here is real arithmetic:
+   *
+   *   - N = M + M^-1 (M^-1 = -S M^T S, M is symplectic) has the eigenvalues 2 cos(mu_k), each
+   *     twice; their power sums are half the traces of N, N^2, N^3, and Newton's identities
+   *     turn those into the cubic whose three real roots they are;
+   *   - mode k's plane of rotation is the range of the real projector
+   *     P_k = prod_(j != k) (N - 2 cos mu_j) / (2 cos mu_k - 2 cos mu_j);
+   *   - in that plane (M - cos mu_k) = -sin mu_k J_k with J_k^2 = -1, so the eigenvector's real
+   *     and imaginary parts (a, b) satisfy b = -(M - cos mu_k) a / sin mu_k. `a` is the
+   *     combination of a P_k column and its image whose `b` has a zero own-plane position
+   *     component, and the pair is scaled to a . S . b = 1 with a's own-plane position > 0 —
+   *     the package's phase convention (NormalForm), so the two W agree entry for entry.
+   *
+   * Modes are labelled by the plane they live in (the largest share of P_k's rows), as
+   * `_paired_modes` does. Throws (code "degenerate") when two cos(mu) are within 1e-6: the
+   * projectors divide by their difference. Only a ring with an RF cavity has a 6D form.
+   */
+  function normalForm6(M) {
+    const S = eye(6).map((r) => r.fill(0.0));
+    for (let p = 0; p < 3; p++) { S[2 * p][2 * p + 1] = 1.0; S[2 * p + 1][2 * p] = -1.0; }
+    const symInv = (A) => matmul(matmul(S, transpose(A)), S).map((r) => r.map((v) => -v));
+    const lin = (A, a, B, b) => A.map((r, i) => r.map((v, j) => a * v + b * B[i][j]));
+    const N = lin(M, 1.0, symInv(M), 1.0);
+    const N2 = matmul(N, N), N3 = matmul(N2, N);
+    const half = (A) => 0.5 * A.reduce((s, r, i) => s + r[i], 0.0);
+    const p1 = half(N), p2 = half(N2), p3 = half(N3);
+    const e1 = p1, e2 = 0.5 * (e1 * p1 - p2), e3 = (e2 * p1 - e1 * p2 + p3) / 3.0;
+    // t^3 - e1 t^2 + e2 t - e3 = 0 by the trigonometric (three-real-root) formula.
+    const q = (e1 * e1 - 3.0 * e2) / 9.0, r = (-2.0 * e1 ** 3 + 9.0 * e1 * e2 - 27.0 * e3) / 54.0;
+    const ratio = q > 0.0 ? r / Math.sqrt(q * q * q) : NaN;
+    if (!(Math.abs(ratio) <= 1.0 + 1e-12)) {
+      const e = new Error("6D normal form: the one-turn map has a mode off the unit circle");
+      e.code = "unstable";
+      throw e;
+    }
+    const th = Math.acos(Math.max(-1.0, Math.min(1.0, ratio)));
+    const cosMu = [0, 1, 2].map((k) => (-2.0 * Math.sqrt(q) * Math.cos((th + TWO_PI * k) / 3.0) + e1 / 3.0) / 2.0);
+    if (cosMu.some((c) => !(Math.abs(c) < 1.0))) {
+      const e = new Error("6D normal form: a mode is unstable (|cos mu| >= 1)");
+      e.code = "unstable";
+      throw e;
+    }
+    for (let j = 0; j < 3; j++) for (let k = j + 1; k < 3; k++) {
+      if (Math.abs(cosMu[j] - cosMu[k]) < 1e-6) {
+        const e = new Error("6D normal form: two modes have the same |tune| (a resonance), so their planes cannot be separated");
+        e.code = "degenerate";
+        throw e;
+      }
+    }
+    const I6 = eye(6);
+    const P = cosMu.map((ck, k) => {
+      let A = I6;
+      cosMu.forEach((cj, j) => { if (j !== k) A = matmul(A, lin(N, 1.0, I6, -2.0 * cj)).map((row) => row.map((v) => v / (2.0 * ck - 2.0 * cj))); });
+      return A;
+    });
+    const share = (A, pl) => A[2 * pl].concat(A[2 * pl + 1]).reduce((s, v) => s + v * v, 0.0);
+    const perms = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+    let order = null, best = -1.0;
+    for (const pm of perms) {
+      const w = pm.reduce((s, k, pl) => s + share(P[k], pl), 0.0);
+      if (w > best) { best = w; order = pm; }
+    }
+    const W = eye(6).map((row) => row.fill(0.0));
+    order.forEach((k, pl) => {
+      const c = cosMu[k], s = Math.sqrt(1.0 - c * c);
+      const B = matmul(lin(M, 1.0, I6, -c), P[k]); // = -sin(mu) J on mode k's plane
+      const pcol = P[k].map((row) => row[2 * pl]);
+      const qcol = matvec(B, pcol);
+      // a = s^2 p[2pl] p + q[2pl] q makes (B a)[2pl] = 0, since B q = B^2 p = -s^2 p.
+      const c1 = s * s * pcol[2 * pl], c2 = qcol[2 * pl];
+      let a = pcol.map((v, i) => c1 * v + c2 * qcol[i]);
+      let b = matvec(B, a).map((v) => v / s);
+      let norm = 0.0;
+      for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) norm += a[i] * S[i][j] * b[j];
+      if (norm < 0.0) { b = b.map((v) => -v); norm = -norm; }
+      const scale = (a[2 * pl] < 0.0 ? -1.0 : 1.0) / Math.sqrt(norm);
+      a = a.map((v) => v * scale); b = b.map((v) => v * scale);
+      for (let i = 0; i < 6; i++) { W[i][2 * pl] = a[i]; W[i][2 * pl + 1] = b[i]; }
+    });
+    const Winv = symInv(W);
+    const R = matmul(matmul(Winv, M), W);
+    const tunes = [0, 1, 2].map((k) => {
+      const t = Math.atan2(R[2 * k][2 * k + 1], R[2 * k][2 * k]) / TWO_PI;
+      return t - Math.floor(t);
+    });
+    return {
+      W, Winv, R, tunes,
+      modeBeta: [0, 1, 2].map((k) => W[2 * k][2 * k] ** 2 + W[2 * k][2 * k + 1] ** 2),
+      modeAlpha: [0, 1, 2].map((k) => -(W[2 * k][2 * k] * W[2 * k + 1][2 * k] + W[2 * k][2 * k + 1] * W[2 * k + 1][2 * k + 1])),
+      // NormalForm.dispersion (_dispersion_from_w): the transverse response in phase with
+      // delta, zeta projected out of the longitudinal mode — the DYNAMIC dispersion.
+      dispersion: [X, PX, Y, PY].map((i) => (W[i][5] - W[i][4] * W[ZETA][5] / W[ZETA][4]) / (W[DELTA][5] - W[DELTA][4] * W[ZETA][5] / W[ZETA][4])),
+    };
+  }
+  /**
    * Twiss at every element boundary (accsim.twiss.propagate_twiss). With
    * `slicesFor(el)` > 1 the thick elements are sub-sliced for a smooth plot; the
    * boundary values are unchanged by the slicing. Each point carries `elem`, the
@@ -878,7 +975,7 @@
     reference, validateElement, resolve, elementLength, elementAngle,
     elementMatrix, elementKick, transferMap, matchPeriodic, propagateTwiss, tunes,
     naturalChromaticity, sextupoleFeeddown, chromaticity, momentumCompaction, slipFactor,
-    synchrotronTune, closedOrbit, propagateOrbit, survey, sliceElement, analyse,
+    synchrotronTune, closedOrbit, propagateOrbit, survey, sliceElement, analyse, normalForm6,
     _linalg: { eye, matmul, matvec, solve },
   };
 });
