@@ -11626,8 +11626,9 @@ betatron part only, with the editor's own `D, D'` (never fitted from the sample)
 A "nothing else moved" gate — freeze the package's output from *before* a milestone as
 decimal literals, then assert `array_equal` after it — is the only kind of test that can
 catch a silent re-association of shared arithmetic, because every tolerance-based test in
-the suite is blind to a few ulp. `tests/analytic/test_solenoid_spin.py`'s gate 8 is the
-one instance in the suite (`_PRE_S2_*`), and it is worth keeping. But:
+the suite is blind to a few ulp. `tests/analytic/test_solenoid_spin.py`'s gate 8
+(`_PRE_S2_*`) and `tests/analytic/test_damped_response.py`'s W4 freeze (`_W4_FROZEN`) are
+the instances in the suite, and they are worth keeping. But:
 
 - **Bit-exactness does not cross a C library.** `sin`, `cos`, `sqrt`, `atan2` are not
   correctly rounded, so glibc and the Windows CRT disagree in the last place. Literals

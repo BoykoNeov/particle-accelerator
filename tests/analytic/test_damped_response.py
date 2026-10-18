@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import functools
 import math
+import sys
 from fractions import Fraction
 
 import numpy as np
@@ -154,7 +155,9 @@ def test_k_is_rate_over_one_minus_rate_and_the_steady_state_is_the_eigenvector()
 
 # --- 6. undamped is W4 --------------------------------------------------------------------
 # Returned by the pre-W6 code (commit 3bc145a) on these rings; the refactor must not move
-# a bit.
+# a bit. Captured on Windows/x86-64: glibc rounds the same source differently in the last
+# place, so the bit-for-bit gate is scoped to the capture platform (docs/CONVENTIONS.md →
+# Capture-platform goldens). The rate-zero test below holds them at rel=1e-12 everywhere.
 _W4_FROZEN = {
     (1e-5, 0.325): (
         [
@@ -177,6 +180,11 @@ _W4_FROZEN = {
 }
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="the _W4_FROZEN literals are bit-exact captures from Windows/x86-64; another "
+    "C library rounds the same arithmetic differently in the last place",
+)
 @pytest.mark.parametrize("kick,nu", list(_W4_FROZEN))
 def test_without_a_damper_the_three_functions_are_w4_bit_for_bit(kick: float, nu: float) -> None:
     states, fold_kick, fold_tune = _W4_FROZEN[(kick, nu)]
@@ -186,12 +194,19 @@ def test_without_a_damper_the_three_functions_are_w4_bit_for_bit(kick: float, nu
     assert all(s.quadrature == 0.0 for s in got)
     assert driven_fold_kick(lat)["x"] == fold_kick
     assert driven_fold_tune(lat)["x"] == fold_tune
-    # A damper on the other plane cannot reach this one: accepted, and changes nothing.
+
+
+@pytest.mark.parametrize("kick,nu", list(_W4_FROZEN))
+def test_a_damper_on_the_other_plane_changes_nothing(kick: float, nu: float) -> None:
+    # It cannot reach this plane: accepted, and not one bit moves. Live against live, so
+    # this half holds on any platform.
+    lat = _ring(_acd(kick, nu), K3L)
     els = list(lat.elements)
     els.insert(IDX + 1, Damper(_rate(GAMMA), plane="y"))
     other = Lattice(els, REF)
-    assert [(s.amplitude, s.stable) for s in driven_states(other)["x"]] == states
-    assert driven_fold_kick(other)["x"] == fold_kick
+    want = [(s.amplitude, s.stable, s.quadrature) for s in driven_states(lat)["x"]]
+    assert [(s.amplitude, s.stable, s.quadrature) for s in driven_states(other)["x"]] == want
+    assert driven_fold_kick(other)["x"] == driven_fold_kick(lat)["x"]
 
 
 @pytest.mark.parametrize("kick,nu", list(_W4_FROZEN))
