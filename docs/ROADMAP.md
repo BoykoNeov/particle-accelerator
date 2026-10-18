@@ -39,8 +39,32 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | T | the wiggler — the magnet built to radiate | **T1** the element and its map (2026-09-07); **T2** its radiation integrals (2026-09-07); **T3** it radiates in *tracking* (2026-09-07) | T4 — spin through it (named, not opened) |
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
-| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18) | **W9** `island_chain()`, the free ring's period-`q` orbits as a package function (opened 2026-10-18); named, not opened: editor/scenario support; a skew (coupled) drive; a theory of the survival fraction |
+| W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18); **W9** `island_chain()` — the free ring's island chain as a package function, centred on the closed orbit, filtered by length and rotation, checked against a first-order closed form (2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; a theory of the survival fraction |
 | Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08) | a 6D-matched injected beam on rings with a cavity in dispersion |
+
+**Axis W shipped W9 on 2026-10-18**: **`island_chain()`**, the free ring's island chain as a
+package function (`src/accsim/islands.py`, `tests/analytic/test_island_chain.py`, 15 tests,
+about 80 s under load). W8's tests now call it, and it reproduces the W8 helper's 1/3 chain to
+`7.4e-16`. On a one-octupole ring near `Q = 5/4` it matches the first-order closed form to
+second order in the distance from resonance (misses about `52 Delta^2` in the actions, `20
+Delta^2` in the libration and growth, ratios 3.9 to 4.2 per halving), with the **stable**
+islands outside the unstable ones (`1.5` and `0.75 Delta / a`), and the islands' phase `arg F
+- 4 pi Delta` to `5.6e-5` of the half-step. Tracking agrees with the solver's libration to
+`4.3e-6` and `8.9e-7`, also on a ring steered 1 mm. Full detail in `docs/CONVENTIONS.md` ->
+*The island chain as a function*. What changed between pre-commitment and code:
+
+- **Gate 2's unstable trace was the wrong quantity.** `2 cosh(4 lambda)` is `2 + 16
+  lambda^2 + ...`: the constant 2 makes its relative miss fall as `Delta^4` (measured ratio
+  14), not because the orbit is better. The gate compares the growth `arccosh(trace / 2) / 4`
+  (ratios 3.9).
+- **Gate 3's steered ring was too gently steered.** The first corrector moved the orbit
+  0.17 mm against a pre-committed "about a millimetre"; `1.2e-4` rad moves it 1.02 mm, and
+  the action guess then comes from `tunes_on_orbit` (the octupole's feed-down moves the tune
+  by `1.7e-3`).
+- **The entry's fixture description**: the octupole sits right after the first *defocusing
+  quadrupole*, not after the first drift.
+- **Cost**: about 80 s on a loaded box against a target of a minute; a third of it is the W8
+  helper re-run for the 3/10 parity check.
 
 **W9 — `island_chain()`: the free ring's island chain as a package function (opened
 2026-10-18; the gates below were pre-committed before any test code).** W8 found its chains

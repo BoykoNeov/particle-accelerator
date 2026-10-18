@@ -11205,9 +11205,101 @@ term every column survives.
   at import). Probes lower their own priority instead.
 
 Not built: a theory of the survival fraction; the 3/10 chain as a second crossing (the outcome
-there carries the first crossing's history); the island's phase `chi_0`; a package
-`island_chain()` (no consumer yet; it would need its own seeding and refusals); the mirror
-ring's chains.
+there carries the first crossing's history); the island's phase `chi_0`; the mirror ring's
+chains. (A package `island_chain()` was named here too; W9 built it, below, and these tests
+now use it.)
+
+### The island chain as a function (W9 — implemented 2026-10-18)
+
+`island_chain(lattice, tune, action, *, plane="x", phases=36)` (`src/accsim/islands.py`)
+returns an `IslandChain`: the period-`q` orbits of the **free** ring that turn `tune = p/q`
+per turn, found near Courant-Snyder `action`. Tests: `tests/analytic/test_island_chain.py`;
+W8's two chain gates and its slow gates call it through `_chain`.
+
+**Conventions.**
+- **Coordinates.** Everything is about the nonlinear closed orbit (`closed_orbit_nonlinear`)
+  with the on-orbit optics (`closed_twiss_on_orbit`), in normalised `(u_hat, p_hat) =
+  (du / sqrt(beta), (alpha du + beta dp) / sqrt(beta))`. Action `J = (u_hat^2 + p_hat^2) / 2`
+  and phase `phi = atan2(-p_hat, u_hat)`, so `h = u_hat + i p_hat = sqrt(2 J) e^(-i phi)`,
+  O4's resonance basis, and `phi` grows with the motion. W8's `_cs` is the same convention.
+- **`tune`** is the rotation per turn; only its fractional part counts (`4/3` and `1/3` are one
+  chain). A float is read through `Fraction.limit_denominator(1000)`. An integer is refused.
+- **Stability** is `|trace| < 2` of the `q`-turn Jacobian (central differences, step `1e-8` of
+  the seed radius `sqrt(2 action)`), libration `arccos(trace / 2) / q` per turn. The chain's
+  `islands` is the number of points on stable orbits (`m`), `libration` their mean, and
+  `half_width = omega / (pi m)` the pendulum half-width in tune (W8 gate 2's quantity; it
+  assumes an island narrow against its action).
+- **Orbits** list their `q` points in turn order: `points[k + 1]` is one turn after
+  `points[k]`.
+
+**The search and its filters.** Seeds on rings at `0.9, 1, 1.1 x action`, `phases` each;
+Newton on the `q`-turn map, all seeds at once, with a per-column halving line search;
+accepted at a residual below `1e-12` of the seed radius. Then:
+1. every point is completed into its orbit by the one-turn map, and an orbit that returns
+   before `q` turns is dropped (the closed orbit is period 1; a composite `q` catches its
+   divisors' orbits);
+2. an orbit whose per-turn phase advances (each in `[0, 2 pi)`) do not add up to `p` turns is
+   dropped (`1/4` and `3/4` orbits are both fixed points of the 4-turn map);
+3. points within `1e-7` of the seed radius of a known one are duplicates.
+These replace the W8 helper's `J > J_guess / 4` cut, which only worked because W4's orbit is at
+zero.
+
+**Refusals.** A live `ACDipole` (`amplitude != 0`) or `Damper` (`rate != 0`): `ValueError`.
+Off-plane motion (the other plane's coordinates or `delta`) larger than `1e-9` of the in-plane
+size after `q` turns, at the seeds or at a found orbit: `CoupledLatticeError`. A skew
+quadrupole is caught already by `closed_twiss_on_orbit`; a skew sextupole (uncoupled linear
+map, `Delta py = k2sl x^2 / 2`) only by the leak test. Idle drive and damper elements are
+identities in `track()` and change no bit of the result.
+
+**The closed form it was checked against.** One thin octupole drives `4Q = p` at first order.
+In the frame turning at `p/4`, with `Delta = p/4 - Q > 0`, the per-turn Hamiltonian is
+
+    H = -2 pi Delta J + pi a J^2 - 8 |F| J^2 cos(4 psi - arg F),
+
+`a = amplitude_detuning[0, 0]`, `F = f4000 (e^(-8 pi i Q) - 1)` (`resonance_driving_terms`'
+`f` times its own small denominator). **The resonant term enters with a minus sign: the
+one-turn map is `exp(:F:)` then the rotation, and a Hamiltonian step is `exp(-:H:)`.** The
+fixed points are at `cos(4 psi - arg F) = s = +-1`, `J = pi Delta / (pi a - 8 s |F|)`;
+`s = +1` is elliptic. For one octupole `8 |F| / (pi a) = 1/3` exactly (`F_4000 = -k3l beta^2 /
+384`, `a = k3l beta^2 / (16 pi)`), so the stable orbit is the **outer** one, `1.5 Delta / a`,
+and the unstable the inner, `0.75 Delta / a`; the libration is `4 pi Delta` per turn and the
+unstable growth `2 sqrt(2) pi Delta`. A flipped resonant sign swaps the two orbits, which is
+why this gate sees coefficients that the structural ones (closure, `x -> -x`, `det = 1`)
+cannot. The test derives these in sympy from `H`.
+
+Measured on W4's 6-cell FODO retuned to `Q_x = 5/4 - Delta` (`kd = -0.22`, `kf` solved), one
+`k3l = 2e4` octupole right after the first defocusing quadrupole, `Delta = 0.02, 0.01,
+0.005`: relative misses of `J_s` `2.13e-2, 5.22e-3, 1.26e-3` (about `52 Delta^2`), `J_u` alike,
+libration `8.1e-3, 2.0e-3, 4.6e-4` (about `20 Delta^2`), growth `7.8e-3, 2.0e-3, 5.1e-4`:
+**second order in `Delta`**, ratios 3.9 to 4.2 per halving.
+
+**The islands' phase is `arg F` minus a half-step.** The stable points sit at `4 phi = arg F -
+4 pi Delta`: the map is `R(2 pi (Q - p/4)) exp(:F:)` in the rotating frame, the symmetric
+splitting puts the averaged Hamiltonian's fixed point half a turn's slip later, and the
+entrance point is that one rotated back. Residual after the half-step `1.5e-5, 7.1e-6,
+3.5e-6` rad, `5.6e-5` of `4 pi Delta`: first order with a tiny coefficient.
+
+**The exact drift's kinematic detuning is a floor.** `amplitude_detuning` excludes the drift.
+At `k3l = 2e3` the action misses stop falling at `-6.3e-4` (stable) and `-3.1e-4` (unstable),
+ratio 2: an extra detuning `a_k` moves them by `-1.5 a_k / a` and `-0.75 a_k / a`. At `k3l =
+2e4`, the gate's ring, the floor is ten times lower, below every miss gated.
+
+**Independent of the solver.** From each stable point: the point returns after `q` turns to
+`1e-12` of its amplitude, the tracked rotation over `100 q` turns is `p/q` to `1e-12`, and a
+particle nudged by `1e-4` of `u - u_co` librates (timed from the upward zero crossings of `u -
+u_s`, sampled every `q` turns, 3000 samples) at `libration` to `4.3e-6` (W8's 1/3 chain) and
+`8.9e-7` (the 4-island ring). Also on the 4-island ring steered by a `1.2e-4` rad corrector
+(orbit `1.02 mm` at the start, action guess from `tunes_on_orbit`). Against the W8 helper,
+every point of the 1/3 chain is within `7.4e-16` (gated at `1e-12`).
+
+**Pre-commitment changes.** Gate 2 named the unstable *trace*. It is `2 cosh(4 lambda) = 2 +
+16 lambda^2 + ...`, so its relative miss carries the constant 2 and falls as `Delta^4`
+(measured ratio 14): the wrong quantity, not a wrong orbit. The gate compares the growth
+`arccosh(trace / 2) / 4` instead. Gate 3's steered ring was pre-committed at "about a
+millimetre"; the first corrector chosen gave 0.17 mm and was raised to 1.02 mm.
+
+Not built: chains in a coupled ring (a 4D search), off-momentum chains, a search without an
+action guess, and any survival prediction.
 
 ## Scenario files and the lattice editor (implemented 2026-09-07)
 
