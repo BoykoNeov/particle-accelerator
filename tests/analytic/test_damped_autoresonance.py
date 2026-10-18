@@ -52,6 +52,7 @@ from accsim.twiss import (
     _autoresonance_mu_th,
     _DampedFolds,
     _ResponseCurve,
+    _universal_escape,
 )
 
 K3L = -2000.0
@@ -255,6 +256,14 @@ def test_the_escape_lies_between_the_root_and_the_static_end(gamma: float) -> No
         tau = _escape(mu, gamma)
         assert 1.5 < tau - _root2(mu, gamma) < 3.5
         assert 0.75 < ((mu / gamma) ** 2 - tau) * gamma < 0.95
+
+
+def test_a_run_that_never_locks_has_no_escape() -> None:
+    """Below the threshold the run peaks at the crossing's own response (near ``tau = 5``),
+    not on the backbone: the package's integrator says ``None`` rather than call that an
+    escape (the guard for kicks just above the table that do not lock in the run)."""
+    assert _universal_escape(0.49, 0.1) is None
+    assert _universal_escape(0.6, 0.1) is not None
 
 
 # --- the ring ---------------------------------------------------------------------------
