@@ -10,7 +10,9 @@
  *   mode "stats":  { inj, turns }     -> the injected beam tracked, beamStats after each turn
  *                                         (index 0 = before the first turn), and the deltas;
  *   mode "tbt":    { states, turns }  -> turn-by-turn (x, px, y, py) of the given particles
- *                                         (all six coordinates with `full: true`).
+ *                                         (all six coordinates with `full: true`);
+ *   mode "design": {}                 -> the design one-turn matrix the editor's analysis uses;
+ *   mode "nf6":    { matrix }         -> normalForm6 of the given 6x6 matrix (no scenario).
  *
  * On a ring with RF, `sampler: "4d"` draws the beam the way the tab did before the 6D match
  * (uncoupled Twiss + static dispersion, about the 4D orbit at zeta = delta = 0) and still
@@ -21,9 +23,12 @@
 const path = require("path");
 const T = require(path.join(__dirname, "accsim-track.js"));
 const I = require(path.join(__dirname, "inject.js"));
+const O = require(path.join(__dirname, "accsim-optics.js"));
 
 function run(c) {
   try {
+    if (c.mode === "nf6") return { normal: O.normalForm6(c.matrix) };
+    if (c.mode === "design") return { oneTurn: O.analyse(c.scenario, { slicesFor: () => 1 }).oneTurn };
     if (c.mode === "tbt") {
       const m = T.build(c.scenario);
       return {

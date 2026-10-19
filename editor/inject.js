@@ -18,14 +18,16 @@
  *                    (frozen delta, linear chromaticity — the sample's own, not a Gaussian)
  *
  * On a ring with an RF cavity all of the above happens in the ring's 6D NORMAL MODES (the
- * normal form W of the one-turn 6x6 map, accsim-optics.js normalForm6): the matched beam is
+ * normal form W, accsim-optics.js normalForm6, of the one-turn 6x6 map linearised about the
+ * closed orbit, orbitMap): the matched beam is
  * Sigma = W diag(eps) W^T, the mismatch is against the mode Twiss, the energy offset rides the
  * dynamic dispersion, and every statistic reads the mode coordinates W^-1 (x - x_co). A ring
  * without RF has no 6D form and uses the uncoupled Twiss and the static dispersion, as before.
  * There x_co is the 6D closed orbit (closedOrbit6): with a kick and a cavity the beam closes
  * only at the momentum delta_co that keeps its longer path in step with the RF.
  * Gates: tests/analytic/test_injection.py (4D), tests/analytic/test_injection_6d.py (6D),
- * tests/analytic/test_injection_orbit6.py (the 6D centre).
+ * tests/analytic/test_injection_orbit6.py (the 6D centre), tests/analytic/test_injection_on_orbit.py
+ * (the optics on that centre).
  *
  * It adds no physics of its own: the motion is accsim-track.js (a port of the package's
  * element-by-element tracker), the optics are accsim-optics.js. Radiation is OFF — an
@@ -79,6 +81,32 @@
   }
 
   /**
+   * The one-turn map linearised about the 6D closed orbit `x0`: the Jacobian of the tracked
+   * turn (accsim-track.js, radiation off) by central differences at step 1e-7 — the optics a
+   * beam on that orbit actually sees (I3; the package's linearised_one_turn_map, by a
+   * whole-turn rather than a per-element route; the two agree to ~1e-10, which is the
+   * package's own finite-difference floor). It moves at FIRST order in the orbit: an
+   * off-centre quadrupole bends an off-momentum particle by k1l x_co / (1 + delta), so the
+   * orbit makes dispersion of its own. Taken fresh, not from Newton's last step (that one sits
+   * at the previous iterate). An orbit of exactly zero returns the design matrix itself, so a
+   * kick-free ring is bit-identical to the design optics.
+   */
+  function orbitMap(scenario, a, x0) {
+    if (!x0.some((v) => v !== 0.0)) return a.oneTurn;
+    const machine = T.build(scenario);
+    const turn = (s) => { const t = s.slice(); T.trackTurn(machine, t); return t; };
+    const h = 1e-7;
+    const J = [0, 1, 2, 3, 4, 5].map(() => new Array(6));
+    for (let j = 0; j < 6; j++) {
+      const p = x0.slice(), q = x0.slice();
+      p[j] += h; q[j] -= h;
+      const tp = turn(p), tq = turn(q);
+      for (let i = 0; i < 6; i++) J[i][j] = (tp[i] - tq[i]) / (2.0 * h);
+    }
+    return J;
+  }
+
+  /**
    * The ring's optics at the injection point (the start of the lattice), from the editor's
    * own analysis — the same arrays the page draws. Throws if the ring does not close.
    * `orbit0` is the closed orbit as a 6-array: the 6D one where the beam is 6D-matched, else
@@ -116,11 +144,15 @@
     // "The 6D-matched beam"). The uncoupled Twiss is kept as `twiss4` for display. The centre
     // moves with it, to the 6D closed orbit. A ring where either fails keeps the 4D beam AND
     // the 4D centre: its readings strip the static dispersion, which a 6D centre (already
-    // carrying D delta_co) would count twice.
+    // carrying D delta_co) would count twice. The normal form is of the map ON that orbit
+    // (orbitMap), not of the design matrix: a displaced orbit sees its own dispersion.
     if (out.hasRF && out.Qs > 0) {
       try {
-        const nf = O.normalForm6(a.oneTurn);
-        out.orbit0 = closedOrbit6(scenario, a);
+        const orbit = closedOrbit6(scenario, a);
+        const J = orbitMap(scenario, a, orbit);
+        const nf = O.normalForm6(J);
+        out.orbit0 = orbit;
+        out.orbitMap = J;
         out.normal = nf;
         out.twiss4 = out.twiss;
         out.twiss = {
@@ -405,7 +437,7 @@
   }
 
   return {
-    ringOptics, closedOrbit6, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
+    ringOptics, closedOrbit6, orbitMap, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
     betatronPart, action, bmag, expectedAction, beamStats, chromaticEnvelope, sidebandNear,
   };
 });

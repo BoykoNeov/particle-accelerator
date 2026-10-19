@@ -114,6 +114,27 @@ def _package_form(scenario: dict):
     return lat, M, normal_form(M, method="6d")
 
 
+class _EditorForm:
+    """The normal form the editor's ``ringOptics`` (result ``r``) actually used, with the
+    package's attribute names: ``W`` of the one-turn map on the closed orbit (``orbitMap``).
+
+    The sampler and readings gates read the beam with it, at round-off: they test the sampler
+    and the readings GIVEN ``W``. ``test_injection_on_orbit.py`` ties this ``W`` to the
+    package's on-orbit normal form (cross-route floor ``1e-9``), and the port test below ties
+    ``normalForm6`` to ``normal_form`` on the design matrix (``1e-12``). On a kick-free ring it
+    IS ``normalForm6`` of the design matrix. Not ``normal_form(orbitMap)``: a finite-difference
+    map is symplectic only to ``2e-11``, and ``normalForm6`` inverts by ``-S M^T S``, so the two
+    routes part by ``3e-12`` there."""
+
+    def __init__(self, r: dict) -> None:
+        nf = r["optics"]["normal"]
+        self.w = np.array(nf["W"])
+        self.tunes = nf["tunes"]
+        self.mode_beta = nf["modeBeta"]
+        self.mode_alpha = nf["modeAlpha"]
+        self.dispersion = nf["dispersion"]
+
+
 def _S() -> np.ndarray:
     S = np.zeros((6, 6))
     for p in range(3):
@@ -139,7 +160,9 @@ def _eps(W: np.ndarray, emit_x: float, emit_y: float, sigma_delta: float) -> np.
 # --- 1. the port ------------------------------------------------------------------------------
 @pytest.mark.parametrize("name", list(FIXTURES), ids=str)
 def test_the_editor_normal_form_is_the_packages(name: str) -> None:
-    """``normalForm6`` (cubic + projectors) against ``normal_form(M, "6d")`` (numpy ``eig``).
+    """``normalForm6`` (cubic + projectors) against ``normal_form(M, "6d")`` (numpy ``eig``), both
+    on the design one-turn matrix ``M``: a port test of the matrix it is handed. (``ringOptics``
+    now hands it the map on the closed orbit; ``test_injection_on_orbit.py`` gates that.)
 
     Two routes to one ``W``: measured agreement ``<= 1.5e-15`` of ``max |W|``. Not blind: on
     every fixture the dynamic dispersion differs from the static one by more than 10%, so
@@ -147,9 +170,12 @@ def test_the_editor_normal_form_is_the_packages(name: str) -> None:
     """
     sc = FIXTURES[name]
     (r,) = _node([{"scenario": sc, "mode": "inject", "inj": {"n": 8}}])
-    nf_js = r["optics"]["normal"]
-    assert nf_js is not None, r["optics"].get("normalError")
+    assert r["optics"]["normal"] is not None, r["optics"].get("normalError")
+    (d,) = _node([{"scenario": sc, "mode": "design"}])
+    (n,) = _node([{"mode": "nf6", "matrix": d["oneTurn"]}])
+    nf_js = n["normal"]
     lat, M, nf = _package_form(sc)
+    assert np.max(np.abs(np.array(d["oneTurn"]) - M)) < 1e-12 * np.max(np.abs(M))
     W = np.array(nf_js["W"])
     scale = np.max(np.abs(nf.w))
     assert np.max(np.abs(W - nf.w)) < 1e-12 * scale
@@ -177,7 +203,8 @@ def test_the_editor_normal_form_is_the_packages(name: str) -> None:
 def _sample(name: str, inj: dict) -> tuple[np.ndarray, dict, np.ndarray, object]:
     sc = FIXTURES[name]
     (r,) = _node([{"scenario": sc, "mode": "inject", "inj": inj}])
-    lat, _M, nf = _package_form(sc)
+    lat = load_scenario(sc).lattice
+    nf = _EditorForm(r)
     # Every fixture here has a cavity, so the beam is centred on the 6D closed orbit (zero
     # where nothing kicks the beam; delta_co != 0 on the kicked ring, test_injection_orbit6.py).
     co = closed_orbit_6d(lat)
@@ -315,8 +342,10 @@ def test_the_matched_beam_holds_and_the_old_one_was_mismatched(name: str) -> Non
 
     ctl = _tracked(sc, 7e-4, 1000, sampler="4d")
     # The closed form from the old sampler's construction: uncoupled Twiss, static D, the
-    # matched bunch length, as a covariance; its mode-1 action through the package's W^-1.
-    lat, _M, nf = _package_form(sc)
+    # matched bunch length, as a covariance; its mode-1 action through the W^-1 the readings
+    # use, of the map on the closed orbit (wiggler-ring's 1.5 um orbit moves J_cf by 1.5e-5).
+    lat = load_scenario(sc).lattice
+    nf = _EditorForm(ctl)
     t4 = ctl["optics"]["twiss4"]
     sd = 7e-4
     sz = (

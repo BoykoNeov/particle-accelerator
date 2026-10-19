@@ -31,11 +31,10 @@ import shutil
 
 import numpy as np
 import pytest
-from test_injection_6d import FIXTURES, PRESETS, _node, _rolled
+from test_injection_6d import FIXTURES, PRESETS, _EditorForm, _node, _rolled
 
 from accsim.orbit import closed_orbit, closed_orbit_6d
 from accsim.scenario import load_scenario
-from accsim.twiss import normal_form
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not on the PATH")
 
@@ -153,15 +152,16 @@ def test_a_ring_with_no_kick_is_centred_on_zero(name: str) -> None:
 def test_the_readings_are_about_the_6d_centre(name: str) -> None:
     """The page's numbers (``beamStats`` through ``betatronPart``) read the beam about the same
     centre it was drawn on. A matched, centred beam's measured centroid is zero to round-off
-    in both planes, and its ``<J>`` is the package's mode action of ``W^-1 (x - x_co6)`` to
-    ``1e-12``. Without this gate a reading that forgot ``delta_co`` passed every other test
+    in both planes, and its ``<J>`` is the mode action of ``W^-1 (x - x_co6)`` (the editor's
+    on-orbit ``W``, the package's orbit) to ``1e-12``. Without this gate a reading that forgot ``delta_co`` passed every other test
     here (a planted bug, 2026-10-19): it shows as a centroid of about 1% of the beam size."""
     sc = ORBIT_RINGS[name]
     (r,) = _node([{"scenario": sc, "mode": "stats", "inj": {"n": 400, "seed": 4}, "turns": 0}])
     st = r["stats"][0]
     lat = load_scenario(sc).lattice
-    M, _k = lat.one_turn_map()
-    nf = normal_form(M, method="6d")
+    # The modes the readings use, of the one-turn map on the closed orbit
+    # (test_injection_on_orbit.py ties this W to the package's on-orbit normal form).
+    nf = _EditorForm(r)
     u = (np.array(r["initial"]) - closed_orbit_6d(lat)) @ np.linalg.inv(nf.w).T
     for k, pl in enumerate(("x", "y")):
         eps = r["inj"][f"emit_{pl}"]

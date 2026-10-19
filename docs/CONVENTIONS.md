@@ -11633,6 +11633,54 @@ the 6D normal form. A ring without RF has no 6D form and keeps the 4D path above
   - **The page** shows "ring's own δ" in the readout and a plain-language note when `delta_co
     != 0`, and the energy-spread tip says what the δ offset is measured from.
 
+### Optics on the closed orbit (2026-10-19, `orbitMap`, `tests/analytic/test_injection_on_orbit.py`)
+
+On a cavity ring the 6D-matched beam's `W` is the normal form of the one-turn map **linearised
+about the 6D closed orbit**, not of the design matrix. A ring without RF keeps the 4D path
+(design Twiss, design static dispersion, affine orbit): the same gap, named, not opened.
+
+- **Why it matters at first order.** A thin quadrupole met off-centre bends an off-momentum
+  particle by `k1l x_co / (1 + delta)`, so a displaced orbit makes dispersion of its own (and a
+  thick quadrupole, an exact drift at an orbit angle and an exact bend do the same; I3's
+  `linearised_element_maps` lists them). On `kicked-ring-cavity-rolled` (orbit 0.37 mm) the
+  map's `M[x, delta]` moves by `0.040`, the static dispersion at the injection point by 1.94%
+  (1.465 -> 1.494 m; 7.76% with the kicks x4), the dynamic one 1.684 -> 1.716 m. Tunes move by
+  `2e-5`, beta by `3e-4`: it is mostly the dispersion.
+- **`orbitMap(scenario, a, x0)`** (`editor/inject.js`): central differences of the ported
+  tracked turn about `closedOrbit6`, step `1e-7`, taken fresh (Newton's last Jacobian sits at
+  the previous iterate). **An orbit of exactly zero returns the design matrix itself**, so every
+  kick-free cavity preset is bit-identical (`electron-ring`'s `W` is unchanged to the bit).
+  `ringOptics` exposes it as `optics.orbitMap` and hands it to `normalForm6`; the sampler, the
+  readings, the mode Twiss, the dynamic dispersion and the sideband warning follow.
+- **The cross-route floor.** The package's arbiter, `linearised_one_turn_map(lattice, co6[:4],
+  delta=co6[5])`, multiplies per-element central-difference Jacobians (step `1e-7`); the
+  editor's is one whole-turn difference. They agree to `1.2e-10` / `6.5e-10` (kicks x4) /
+  `5.5e-12` (`wiggler-ring`) in `J` and `3.7e-12` / `1.2e-11` / `3.6e-12` of `max |W|`. Above a
+  step of `1e-6` the miss falls as the step squared (truncation); below it, it is flat at the
+  amount the package's own product moves between its steps `1e-7` and `1e-6` (`8e-11`,
+  `6.8e-10`). So the floor is the arbiter's, and the gates are `5e-9` in `J`, `1e-9` in `W`,
+  pre-committed. A finite-difference `J` is symplectic to `2e-11`, so `W` is symplectic to
+  `2e-12`, not `1e-13`: the `1e-13` symplecticity gate applies where the matrix is exact.
+- **The dispersion has a route that takes no Jacobian.** The static dispersion of `orbitMap`,
+  `(I - J_4)^-1 J[:4, delta]`, equals `d x_co / d delta` from `closed_orbit_nonlinear` at
+  `delta_co +- 3e-6` to `1.6e-10` / `5.7e-10` of `|D_x|`.
+- **The sharp gate is the fixed point.** The editor's moment-matched beam satisfies `J Sigma J^T
+  = Sigma` with the package's `J` to `1.3e-11` / `8.9e-11` per entry (relative to
+  `sqrt(Sigma_ii Sigma_jj)`); the design-`W` beam misses by `3.4e-2` / `0.14`, first order.
+- **The old beam's mismatch is second order, and that names it.** Read in the on-orbit modes the
+  design-`W` beam has `<J_1> / eps - 1 = 5.69e-4` at `sigma_delta = 7e-4`, scaling by 4.05 per
+  halving of `sigma_delta` and by 16.0 for kicks x4: (dispersion error x energy spread)^2.
+- **Beam-level tracking cannot see it on this ring; one particle can.** The matched beam's lab
+  `sigma_x^2` and measured `<x delta> / <delta^2>` themselves move 1% to 5% over 300 turns (the
+  `Q_x + 3 Q_s = 6` sideband at the default voltage; chromatic smearing at 6.5 MV), and mode
+  emittance and `<J>` are conserved by any linear map. A single particle on the mode-3 point for
+  `delta0 = 1e-5` (dynamic dispersion x `delta0`), tracked 1000 turns by the editor, keeps a
+  betatron action below `1e-9` of its synchrotron action, fourth order in `delta0` (the
+  nonlinearity); placed with the design `W` it reaches `8e-6` of it, second order (the
+  dispersion error).
+- **Still the design optics:** `twiss4` (the uncoupled Twiss and static dispersion the page
+  quotes beside the 6D dispersion, and the `sampler: "4d"` control) and the whole 4D path.
+
 ## Toolchain / environment notes
 
 - **Linux (2026-09-02, P1's session):** the reference suite runs unchanged on Ubuntu with
