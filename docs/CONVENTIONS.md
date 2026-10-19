@@ -11601,11 +11601,35 @@ the 6D normal form. A ring without RF has no 6D form and keeps the 4D path above
   which is the obvious suspect, untested). The page warns, via `sidebandNear`, whenever some
   `|Q_k + m Q_s|` (`k = 1, 2`, `|m| <= 3`) is within `5e-3` of an integer. The preset is left as
   it is: the growth is physics, and it is a teaching case.
-- **Not covered (opened 2026-10-19, see ROADMAP).** The closed orbit is still the editor's 4D
-  one (`zeta = delta = 0`). On a ring with correctors *and* a cavity, the 6D fixed point carries
-  a small `delta_co`, which comes from the orbit's path-length change (I4). The injected beam is
-  then centred off it by that amount. The presets with a cavity have no correctors, so it does
-  not arise there.
+- **Centred on the 6D closed orbit (2026-10-19, `closedOrbit6`,
+  `tests/analytic/test_injection_orbit6.py`).** Until then the beam was centred on the editor's
+  4D orbit at `zeta = delta = 0`. On a cavity ring whose closed path is not the design length,
+  the RF (locked to the design revolution) lets the beam close only at `delta_co = -(Delta C /
+  C) / alpha_c` (N5), and a beam started at `delta = 0` makes a synchrotron oscillation of
+  amplitude `|delta_co|`.
+  - **The orbit is the tracked turn's fixed point**, Newton on `accsim-track.js` (radiation off)
+    with central differences, started from the affine solve `(I - M) x = k`. It is
+    `closed_orbit_6d(lattice)` to `1e-14`. The affine start alone misses `delta_co` by 5% (17%
+    with the kicks x4): the orbit's second-order path length. A ring with an all-zero one-turn
+    kick returns exactly zero, uniterated.
+  - **What moves the path length.** A corrector or displaced magnet in dispersion, at **first**
+    order in the kick (`sum theta D`; measured `delta_co / f` from `-5.42e-6` to `-7.61e-6` for
+    `f = 1/4 ... 8`). The docstring's "second order in its angles" is the dispersion-free case.
+    **And a wiggler**: its snaking path is longer than its length (the affine `zeta` kick of
+    T1), so `wiggler-ring`, which has no corrector, sits at `delta_co = -1.00e-6`.
+  - **Centre and readings move together.** The sampler adds all six orbit entries,
+    `betatronPart` subtracts all six, and `delta0` is an offset from `delta_co`. A cavity ring
+    whose 6D modes cannot be separated keeps the 4D centre with its 4D beam: those readings
+    strip the static `D delta`, which a 6D centre (already carrying `D delta_co`) would count
+    twice.
+  - **A reading gate is needed of its own.** The sampler gates read the beam with the
+    package's `W`, so a `betatronPart` that forgot `delta_co` passed them all (planted). The
+    page's `beamStats` is gated against the package's mode action about `closed_orbit_6d`.
+  - **Still about the design orbit:** `W` is the normal form of the one-turn matrix at zero,
+    not of the tracked Jacobian at the closed orbit (the editor has no optics on orbit, I3).
+    The difference is second order in a 9 µm shift on the kicked fixture. Named, not opened.
+  - **The page** shows "ring's own δ" in the readout and a plain-language note when `delta_co
+    != 0`, and the energy-spread tip says what the δ offset is measured from.
 
 ## Toolchain / environment notes
 
