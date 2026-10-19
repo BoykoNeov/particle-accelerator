@@ -40,7 +40,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
 | W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18); **W9** `island_chain()` — the free ring's island chain as a package function, centred on the closed orbit, filtered by length and rotation, checked against a first-order closed form (2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; a theory of the survival fraction |
-| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18) | named, not opened: injection centred on the 6D closed orbit (a ring with correctors and a cavity) |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18) | **open (2026-10-19): injection centred on the 6D closed orbit** (a ring with correctors and a cavity) |
 
 **Axis W shipped W9 on 2026-10-18**: **`island_chain()`**, the free ring's island chain as a
 package function (`src/accsim/islands.py`, `tests/analytic/test_island_chain.py`, 15 tests,
@@ -1250,6 +1250,78 @@ The findings, in the order they changed the milestone:
 
 **What W1 leaves open:** W2, Miyamoto's driven optics (shipped 2026-10-08, above). The
 editor and scenario format (refused, asserted).
+
+**Tools — injection centred on the 6D closed orbit (opened 2026-10-19; the gates below were
+pre-committed before any test code).** The 6D-matched beam (below) is drawn and measured about
+the editor's **4D** closed orbit at `zeta = delta = 0`. On a ring with a kick (a corrector, a
+displaced magnet) *and* a cavity, that is not the fixed point. The kicked orbit is longer than
+the design circumference while the RF is locked to the design revolution, so the beam closes
+only at the momentum `delta_co` that brings its path back into step (N5's
+`closed_orbit_delta`; I4's `closed_orbit_6d`, radiation off, gives the same point with `zeta_co
+= 0`). The injected beam then starts a synchrotron oscillation of amplitude `|delta_co|` that no
+setting asked for.
+
+What it is:
+
+- **The editor's 6D closed orbit**, in `editor/inject.js`: Newton on the ported tracked turn
+  (`accsim-track.js`, radiation off, the tracker's own omission), central differences, started
+  from the affine 6D solve `(I - M) x = k` of the editor's one-turn map. It is a port of
+  `closed_orbit_6d(lattice)` by the same route on the same map, so the gate is round-off.
+  Computed only where the 6D-matched beam is used (`optics.normal`). A ring with no kick returns
+  exactly zero with no iteration, so every kick-free cavity preset stays bit-identical. A cavity
+  ring whose 6D modes cannot be separated keeps the 4D centre and the 4D beam together: its
+  readings strip the **static** dispersion, which a 6D centre would double-count.
+- **The beam is centred on it, and every reading moves with it.** `sampleInjection6` adds the
+  orbit's `zeta_co, delta_co` (it adds only the four transverse entries today), and
+  `betatronPart` subtracts all six. The page's **δ offset** becomes an offset from the ring's
+  own momentum `delta_co`, and its tip says so. The page shows `delta_co` when it is non-zero.
+- **Left as it is, and named:** `W` is still the normal form of the one-turn matrix about the
+  **design** orbit, not of the tracked Jacobian at the closed orbit (the optics-on-orbit
+  correction, I3). The port gates of the 6D-matched beam rely on that, and on this fixture the
+  difference is second order in a 9 µm orbit shift.
+
+Orientation facts (measured 2026-10-19 by throwaway probes, on `kicked-ring` with
+`electron-ring`'s cavity, rolled one element on — `test_injection_6d.py`'s
+`kicked-ring-cavity-rolled`):
+
+- **`delta_co = -5.63e-6`, about 0.8% of the beam's `sigma_delta = 7e-4`.** The 6D orbit's `x`
+  sits `8.4e-6` m from the 4D one (about 0.6% of the beam size). Small: no emittance or `<J>`
+  gate can see it, so none is used.
+- **`delta_co` is first order in the kick, not second.** Scaling the corrector and the
+  quadrupole displacement together by `1/4 ... 8` gives `delta_co / f = -5.42, -5.49, -5.63,
+  -5.91, -6.48, -7.61 e-6`: linear plus a quadratic part. In a ring with bends the path-length
+  change `sum theta D` is first order. The docstring's "second order in its angles" is the
+  dispersion-free case.
+- **The affine solve is not the fixed point.** It misses `delta_co` by `2.8e-7` (5%) and `x_co`
+  by `5.6e-7` m (`1.5e-3` relative): the quadratic part above. One Newton step brings the
+  tracked residual from `1.8e-6` to `1.8e-12`, the second to `3.8e-19`.
+- **The JS Newton is the package's `closed_orbit_6d`** to `4.4e-16` relative in `x` and
+  `1.1e-14` in `delta`.
+- **What centred means, measured.** A particle on the JS orbit stays within `1.8e-17` m and
+  `3.8e-19` in `delta` of its start over 1000 turns. A particle on the old 4D centre swings by
+  up to `1.14e-5` in `delta`, which is `2.03 |delta_co|`, and by `1.9e-5` m in `x`.
+
+Gates, pre-committed:
+
+1. **The port.** On `kicked-ring-cavity-rolled`, and on the same ring with both kicks scaled by
+   4, the editor's 6D orbit against `closed_orbit_6d(lattice)`: every transverse coordinate to
+   `1e-12` of `max |x_co, px_co|`, `zeta` to `1e-15` m, `delta` to `1e-10` of `|delta_co|`. Not
+   blind: on the same ring the affine solve misses `delta_co` by more than 1% and `x_co` by more
+   than `1e-4` of itself (the Newton is what passes), and `|delta_co| > 1e-6`.
+2. **Centred means it stays put.** Tracked 1000 turns, a particle on the editor's orbit stays
+   within `1e-15` (m, rad, m, and plain `delta`) of its start in every coordinate. The control,
+   a particle on the old 4D centre, swings in `delta` by `2 |delta_co|` to within 5%.
+3. **The sampler is centred on it.** The 6D-matched gates' sampler checks
+   (`test_the_matched_beam_is_w_diag_eps_w_transpose`, the aiming-error and energy-offset tests)
+   on `kicked-ring-cavity-rolled` are re-referenced from the package's 4D `closed_orbit` to
+   `closed_orbit_6d`, at unchanged tolerances. Before re-referencing they must **fail by the
+   predicted amounts**: the covariance gate's worst entry by about `(delta_co / sigma_delta)^2
+   = 6.5e-5`, and the energy-offset centroid by about `5e-3` of `D delta0`. An energy offset
+   `delta0` now moves `<delta>` to `delta_co + delta0` to `1e-12`.
+4. **Nothing else moves.** On every kick-free cavity ring (`electron-ring`, `wiggler-ring`, the
+   rolled `electron-ring`) the orbit is exactly zero, and the drawn states are bit-identical to
+   the ones drawn before this change. `test_injection.py`, `test_tracking_port.py` and the rest
+   of `test_injection_6d.py` pass unchanged.
 
 **Tools shipped the 6D-matched injected beam on 2026-10-18**: `normalForm6` in
 `editor/accsim-optics.js`, the 6D sampler and readings in `editor/inject.js`, the page's notes

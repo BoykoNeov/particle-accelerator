@@ -11601,10 +11601,11 @@ the 6D normal form. A ring without RF has no 6D form and keeps the 4D path above
   which is the obvious suspect, untested). The page warns, via `sidebandNear`, whenever some
   `|Q_k + m Q_s|` (`k = 1, 2`, `|m| <= 3`) is within `5e-3` of an integer. The preset is left as
   it is: the growth is physics, and it is a teaching case.
-- **Not covered.** The closed orbit is still the editor's 4D one (`zeta = delta = 0`). On a ring
-  with correctors *and* a cavity, the 6D fixed point carries a small `delta_co`, which comes from
-  the orbit's path-length change (I4). The injected beam is then centred off it by that amount.
-  The presets with a cavity have no correctors, so it does not arise there.
+- **Not covered (opened 2026-10-19, see ROADMAP).** The closed orbit is still the editor's 4D
+  one (`zeta = delta = 0`). On a ring with correctors *and* a cavity, the 6D fixed point carries
+  a small `delta_co`, which comes from the orbit's path-length change (I4). The injected beam is
+  then centred off it by that amount. The presets with a cavity have no correctors, so it does
+  not arise there.
 
 ## Toolchain / environment notes
 
