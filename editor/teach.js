@@ -528,7 +528,7 @@
       t: "Energy spread",
       n: "How different the particles' energies are. This is what makes the beam smear: particles with more energy go round at a slightly different rate.",
       s: "σδ sets the spread of δ = Δp/p₀; with chromaticity Q′ the tune spread is Q′σδ, and with no RF cavity the wobble halves after about 0.187/(|Q′|σδ) turns.",
-      p: "Frozen δ: envelope |⟨exp(i2πQ′δn)⟩|. With RF the phase is bounded, rms ≤ 2|Q′|σδ/Qₛ, and the beam recoheres every synchrotron period.",
+      p: "Frozen δ: envelope |⟨exp(i2πQ′δn)⟩|. With RF the phase is bounded, rms ≤ 2|Q′|σδ/Qₛ, and the beam recoheres every synchrotron period. The δ offset is measured from the ring's own momentum δ_co: on a ring with RF and a kick (or a wiggler) the closed orbit's length ΔC differs from the design one, so it stays in step with the RF only at δ_co = −(ΔC/C)/α_c ≠ 0, and the beam is centred there (the 6D closed orbit).",
     },
     "tab:learn": {
       t: "Learn tab",

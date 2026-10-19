@@ -1651,6 +1651,10 @@
       if (optics && optics.normal) {
         const D6 = optics.twiss.disp_x, D4 = optics.twiss4.disp_x;
         out.push(`<p>The beam is matched with the cavity included: energy and sideways motion are set up together, as the ring's own <b>6D modes</b>, and every number here is measured in those modes. That matters wherever the cavity sits where the beam's path depends on its energy: here at the injection point, while a particle's energy oscillates, the sideways shift that goes with it is D = <b>${fmt(D6, 3)} m</b>, not the ${fmt(D4, 3)} m of a particle whose energy is held fixed. A beam matched as if the energy were fixed arrives the wrong shape for the ring, and its size pulses.</p>`);
+        // The 6D closed orbit (inject.js closedOrbit6): a kicked or wiggling orbit is longer than
+        // the design one, and the RF only lets it close at the momentum that keeps it in step.
+        const dco = optics.orbit0[5];
+        if (dco !== 0) out.push(`<p>The beam's closed path round this ring is not the design length (a steering kick, a displaced magnet or a wiggler bends it), while the cavity keeps time with the design path. A particle only stays in step at the slightly different momentum δ = <b>${fmt(dco, 3)}</b>, where the path length and the speed balance out, so the beam is centred there, and the δ offset setting is measured from it.</p>`);
         const sb = INJ.sidebandNear(optics);
         if (sb) {
           const Q = sb.plane === "x" ? "Qₓ" : "Qᵧ", sign = sb.m > 0 ? "+" : "−";
@@ -1693,7 +1697,8 @@
       const row = (k, v) => `<span>${k}</span><span>${v}</span>`;
       read.innerHTML = (r.stale ? `<span class="stale">Machine or settings changed — press Inject.</span>` : "") +
         row("turn", r.turn) + row("particles left", `${alive} / ${n}`) +
-        row("matched in", r.optics.normal ? "6D modes (with the cavity)" : r.optics.hasRF ? "4D (6D modes not separable)" : "4D (no cavity)") + row(`injected ε${pl}`, `${fmt(eps, 3)} m·rad`) + row("mismatch Bmag", fmt(bm, 4)) +
+        row("matched in", r.optics.normal ? "6D modes (with the cavity)" : r.optics.hasRF ? "4D (6D modes not separable)" : "4D (no cavity)") +
+        (r.optics.normal && r.optics.orbit0[5] !== 0 ? row("ring's own δ (δ offset is from here)", fmt(r.optics.orbit0[5], 3)) : "") + row(`injected ε${pl}`, `${fmt(eps, 3)} m·rad`) + row("mismatch Bmag", fmt(bm, 4)) +
         row("final size ⟨J⟩, formula", `${fmt(pred, 4)} m·rad`) + row("final size ⟨J⟩, this beam", `${fmt(J0, 4)} m·rad`) +
         (last[pl] ? row("rms emittance now", `${fmt(last[pl].emit, 4)} m·rad`) + row("now ÷ final", fmt(J0 > 0 ? last[pl].emit / J0 : NaN, 3)) : "");
       this.drawPhase(ps, r, pl);
