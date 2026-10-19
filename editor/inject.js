@@ -82,7 +82,7 @@
    * The ring's optics at the injection point (the start of the lattice), from the editor's
    * own analysis — the same arrays the page draws. Throws if the ring does not close.
    * `orbit0` is the closed orbit as a 6-array: the 6D one where the beam is 6D-matched, else
-   * the 4D one with zeta = delta = 0.
+   * the 4D one with zeta = delta = 0, which is kept as `orbit4` either way.
    */
   function ringOptics(scenario) {
     if (scenario.periodic === false) throw new Error("injection needs a ring (periodic) scenario");
@@ -100,6 +100,7 @@
       eta: a.eta == null ? null : a.eta,
       hasRF: (scenario.elements || []).some((e) => e.type === "RFCavity" && +e.voltage !== 0.0),
       orbit0: (a.closedOrbit0 || [0.0, 0.0, 0.0, 0.0]).concat([0.0, 0.0]),
+      orbit4: (a.closedOrbit0 || [0.0, 0.0, 0.0, 0.0]).concat([0.0, 0.0]),
       twiss: {
         beta_x: tw.beta_x, alpha_x: tw.alpha_x, beta_y: tw.beta_y, alpha_y: tw.alpha_y,
         disp_x: tw.disp_x || 0.0, disp_px: tw.disp_px || 0.0,

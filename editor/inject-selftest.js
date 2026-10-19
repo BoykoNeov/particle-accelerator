@@ -13,8 +13,9 @@
  *                                         (all six coordinates with `full: true`).
  *
  * On a ring with RF, `sampler: "4d"` draws the beam the way the tab did before the 6D match
- * (uncoupled Twiss + static dispersion) and still measures it in the 6D normal modes — the
- * control for tests/analytic/test_injection_6d.py.
+ * (uncoupled Twiss + static dispersion, about the 4D orbit at zeta = delta = 0) and still
+ * measures it in the 6D normal modes, about the 6D orbit — the control for
+ * tests/analytic/test_injection_6d.py.
  */
 "use strict";
 const path = require("path");
@@ -38,7 +39,7 @@ function run(c) {
     let states;
     if (c.sampler === "4d") {
       if (!optics.normal) throw new Error("sampler '4d' is the control for a ring with a 6D normal form");
-      const o4 = Object.assign({}, optics, { normal: null, twiss: optics.twiss4 });
+      const o4 = Object.assign({}, optics, { normal: null, twiss: optics.twiss4, orbit0: optics.orbit4 });
       const inj4 = Object.assign(I.defaults(c.scenario, o4), c.inj || {});
       states = I.sampleInjection(inj4, o4);
     } else states = I.sampleInjection(inj, optics);

@@ -128,7 +128,7 @@ def test_an_energy_offset_is_about_the_rings_own_momentum() -> None:
     X = np.array(r["initial"])
     co = r["optics"]["orbit0"]
     assert co[5] != 0.0
-    assert X[:, 5].mean() == pytest.approx(co[5] + d0, rel=1e-12)
+    assert X[:, 5].mean() == pytest.approx(co[5] + d0, rel=1e-12, abs=0)
     assert abs(X[:, 4].mean() - co[4]) < 1e-15
 
 
@@ -167,4 +167,4 @@ def test_the_readings_are_about_the_6d_centre(name: str) -> None:
         eps = r["inj"][f"emit_{pl}"]
         assert st[pl]["centroid"] < 1e-9 * np.sqrt(eps)
         J = 0.5 * (u[:, 2 * k] ** 2 + u[:, 2 * k + 1] ** 2)
-        assert st[pl]["meanJ"] == pytest.approx(J.mean(), rel=1e-12)
+        assert st[pl]["meanJ"] == pytest.approx(J.mean(), rel=1e-12, abs=0)

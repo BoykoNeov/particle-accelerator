@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from accsim.orbit import closed_orbit_6d
+from accsim.orbit import closed_orbit, closed_orbit_6d
 from accsim.scenario import load_scenario
 from accsim.twiss import normal_form
 
@@ -240,9 +240,9 @@ def test_mismatch_and_aiming_error_give_eps_bmag_plus_the_offsets_own(name: str)
         p["dy"], p["dpy"], by, ay
     )
     eps = _eps(nf.w, p["emit_x"], p["emit_y"], p["sigma_delta"])
-    assert J[:, 0].mean() == pytest.approx(want_x, rel=1e-12)
-    assert J[:, 1].mean() == pytest.approx(want_y, rel=1e-12)
-    assert J[:, 2].mean() == pytest.approx(eps[4], rel=1e-12)
+    assert J[:, 0].mean() == pytest.approx(want_x, rel=1e-12, abs=0)
+    assert J[:, 1].mean() == pytest.approx(want_y, rel=1e-12, abs=0)
+    assert J[:, 2].mean() == pytest.approx(eps[4], rel=1e-12, abs=0)
     assert _bmag(bx, ax, p["beta_x"], p["alpha_x"]) > 1.2  # the mismatch is real
 
 
@@ -257,10 +257,14 @@ def test_an_energy_offset_rides_the_dynamic_dispersion(name: str) -> None:
     mean = X.mean(axis=0)
     D = np.asarray(nf.dispersion)
     assert np.max(np.abs(mean[:4] - D * d0)) < 1e-12 * abs(D[0] * d0)
-    assert abs(mean[4]) < 1e-15 and mean[5] == pytest.approx(d0, rel=1e-12)
+    assert abs(mean[4]) < 1e-15 and mean[5] == pytest.approx(d0, rel=1e-12, abs=0)
     u = X @ np.linalg.inv(nf.w).T
-    assert (0.5 * (u[:, 0] ** 2 + u[:, 1] ** 2)).mean() == pytest.approx(p["emit_x"], rel=1e-12)
-    assert (0.5 * (u[:, 2] ** 2 + u[:, 3] ** 2)).mean() == pytest.approx(p["emit_y"], rel=1e-12)
+    assert (0.5 * (u[:, 0] ** 2 + u[:, 1] ** 2)).mean() == pytest.approx(
+        p["emit_x"], rel=1e-12, abs=0
+    )
+    assert (0.5 * (u[:, 2] ** 2 + u[:, 3] ** 2)).mean() == pytest.approx(
+        p["emit_y"], rel=1e-12, abs=0
+    )
     assert abs(D[0] / r["optics"]["twiss4"]["disp_x"] - 1.0) > 0.1  # not the static D
 
 
@@ -303,7 +307,7 @@ def test_the_matched_beam_holds_and_the_old_one_was_mismatched(name: str) -> Non
     for sd in (7e-4, 3.5e-4):
         st = _tracked(sc, sd, 1000)["stats"]
         emit = np.array([s["x"]["emit"] for s in st])
-        assert emit[0] == pytest.approx(eps, rel=1e-12)
+        assert emit[0] == pytest.approx(eps, rel=1e-12, abs=0)
         resid.append(float(np.max(np.abs(emit / eps - 1.0))))
     assert resid[0] < 1.5e-2
     assert resid[1] < 1e-3
@@ -326,11 +330,18 @@ def test_the_matched_beam_holds_and_the_old_one_was_mismatched(name: str) -> Non
     d = np.array([t4["disp_x"], t4["disp_px"], t4["disp_y"], t4["disp_py"], 0.0, 1.0])
     Sig += sd * sd * np.outer(d, d)
     Sig[4, 4] = sz * sz
+    # The old beam is centred on the 4D orbit at zeta = delta = 0 and read about the 6D one: on
+    # wiggler-ring (delta_co = -1.0e-6, its wiggler's path length) that adds the offset's own
+    # action, 2.0e-6 of J_cf, which the 1e-10 gate sees.
+    m = np.zeros(6)
+    m[:4] = np.asarray(closed_orbit(lat))[:4]
+    m -= closed_orbit_6d(lat)
+    Sig += np.outer(m, m)
     Wi = np.linalg.inv(nf.w)
     Su = Wi @ Sig @ Wi.T
     J_cf = 0.5 * (Su[0, 0] + Su[1, 1])
     J = np.array([s["x"]["meanJ"] for s in ctl["stats"]])
-    assert J[0] == pytest.approx(J_cf, rel=1e-10)
+    assert J[0] == pytest.approx(J_cf, rel=1e-10, abs=0)
     assert J_cf / eps > 1.15
     assert np.max(np.abs(J / J_cf - 1.0)) < 2e-2
 

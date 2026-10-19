@@ -1278,6 +1278,12 @@ changed between pre-commitment and code:
   times `|delta_co|`.
 - **The browser** (headless Chrome, read through the DOM): `wiggler-ring` shows the row "ring's
   own δ" `-1.00e-6` and the note; `electron-ring` shows neither; no script errors.
+- **Ten `approx(rel=...)` gates were vacuous** (pytest's default `abs=1e-12` wins below a value
+  of 1, the P2 (i) trap): the readings gate's `<J>` ran at `2e-5` relative in `x` and `2e-3` in
+  `y`, not `1e-12`. With `abs=0` everywhere it was missing, one gate failed and it was a real
+  drift: the old-beam control on `wiggler-ring` had silently picked up the 6D centre in `x` but
+  not in `delta`, `2.0e-6` off its closed form. The control is drawn about the 4D centre again
+  (`orbit4`) and the closed form adds the centre offset; it holds at `1e-10`.
 - **Suites:** the package is untouched. The five node-driven editor files
   (`test_injection*.py`, `test_tracking_port.py`, `test_scenario.py`) pass, 69 tests.
 
