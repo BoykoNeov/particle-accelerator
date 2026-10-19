@@ -22,26 +22,67 @@
  * Sigma = W diag(eps) W^T, the mismatch is against the mode Twiss, the energy offset rides the
  * dynamic dispersion, and every statistic reads the mode coordinates W^-1 (x - x_co). A ring
  * without RF has no 6D form and uses the uncoupled Twiss and the static dispersion, as before.
- * Gates: tests/analytic/test_injection.py (4D), tests/analytic/test_injection_6d.py (6D).
+ * There x_co is the 6D closed orbit (closedOrbit6): with a kick and a cavity the beam closes
+ * only at the momentum delta_co that keeps its longer path in step with the RF.
+ * Gates: tests/analytic/test_injection.py (4D), tests/analytic/test_injection_6d.py (6D),
+ * tests/analytic/test_injection_orbit6.py (the 6D centre).
  *
  * It adds no physics of its own: the motion is accsim-track.js (a port of the package's
  * element-by-element tracker), the optics are accsim-optics.js. Radiation is OFF — an
  * electron beam here filaments but never damps — and the page says so.
  *
- * Coordinates: (x, px, y, py, zeta, delta). Dependency-free beyond the two editor cores.
+ * Coordinates: (x, px, y, py, zeta, delta). Dependency-free beyond the editor cores.
  */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) {
-    module.exports = factory(require("./accsim-optics.js"), require("./animate.js"));
-  } else root.AccsimInject = factory(root.AccsimOptics, root.AccsimAnim);
-})(typeof self !== "undefined" ? self : this, function (O, A) {
+    module.exports = factory(require("./accsim-optics.js"), require("./animate.js"), require("./accsim-track.js"));
+  } else root.AccsimInject = factory(root.AccsimOptics, root.AccsimAnim, root.AccsimTrack);
+})(typeof self !== "undefined" ? self : this, function (O, A, T) {
   "use strict";
   const X = 0, PX = 1, Y = 2, PY = 3, ZETA = 4, DELTA = 5;
   const TWO_PI = 2.0 * Math.PI;
 
   /**
+   * The 6D closed orbit (x, px, y, py, zeta, delta) of the TRACKED turn (accsim-track.js,
+   * radiation off): a port of accsim.orbit.closed_orbit_6d by the same route. Newton,
+   *     x <- x - (J - I)^-1 (T(x) - x),   J by central differences,
+   * started from the affine solve (I - M) x = k of the one-turn map, which misses the fixed
+   * point by the orbit's second-order path length (5% of delta_co on a measured ring). With
+   * no kick the fixed point is exactly zero and nothing is iterated. Without radiation the
+   * answer has zeta_co = 0 and delta_co the momentum at which the kicked orbit's longer path
+   * stays in step with the RF (closed_orbit_delta, N5). `a` is O.analyse(scenario).
+   */
+  function closedOrbit6(scenario, a) {
+    const k = a.oneTurnKick;
+    if (!k.some((v) => v !== 0.0)) return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    const L = O._linalg, M = a.oneTurn;
+    let x = L.solve(L.eye(6).map((row, i) => row.map((v, j) => v - M[i][j])), k);
+    const machine = T.build(scenario);
+    const turn = (s) => { const t = s.slice(); T.trackTurn(machine, t); return t; };
+    const h = 1e-8, tol = 1e-14;
+    let r = turn(x).map((v, i) => v - x[i]);
+    for (let it = 0; it < 50; it++) {
+      if (Math.max(...r.map(Math.abs)) < tol) return x;
+      const A = [0, 1, 2, 3, 4, 5].map(() => new Array(6));
+      for (let j = 0; j < 6; j++) {
+        const p = x.slice(), q = x.slice();
+        p[j] += h; q[j] -= h;
+        const tp = turn(p), tq = turn(q);
+        for (let i = 0; i < 6; i++) A[i][j] = (tp[i] - tq[i]) / (2.0 * h) - (i === j ? 1.0 : 0.0);
+      }
+      const dx = L.solve(A, r);
+      x = x.map((v, i) => v - dx[i]);
+      r = turn(x).map((v, i) => v - x[i]);
+    }
+    if (Math.max(...r.map(Math.abs)) < tol) return x;
+    throw new Error(`the 6D closed orbit did not converge: one-turn residual ${Math.max(...r.map(Math.abs)).toPrecision(3)}`);
+  }
+
+  /**
    * The ring's optics at the injection point (the start of the lattice), from the editor's
    * own analysis — the same arrays the page draws. Throws if the ring does not close.
+   * `orbit0` is the closed orbit as a 6-array: the 6D one where the beam is 6D-matched, else
+   * the 4D one with zeta = delta = 0.
    */
   function ringOptics(scenario) {
     if (scenario.periodic === false) throw new Error("injection needs a ring (periodic) scenario");
@@ -58,7 +99,7 @@
       Qs: a.Qs == null ? null : a.Qs,
       eta: a.eta == null ? null : a.eta,
       hasRF: (scenario.elements || []).some((e) => e.type === "RFCavity" && +e.voltage !== 0.0),
-      orbit0: a.closedOrbit0 || [0.0, 0.0, 0.0, 0.0],
+      orbit0: (a.closedOrbit0 || [0.0, 0.0, 0.0, 0.0]).concat([0.0, 0.0]),
       twiss: {
         beta_x: tw.beta_x, alpha_x: tw.alpha_x, beta_y: tw.beta_y, alpha_y: tw.alpha_y,
         disp_x: tw.disp_x || 0.0, disp_px: tw.disp_px || 0.0,
@@ -71,10 +112,14 @@
     // leaves unchanged is drawn and measured in ITS coordinates: the transverse modes' own
     // Twiss (not the uncoupled one) and the dynamic dispersion (not the static one) replace
     // `twiss`, so every reading below is a normal-mode reading (docs/CONVENTIONS.md ->
-    // "The 6D-matched beam"). The uncoupled Twiss is kept as `twiss4` for display.
+    // "The 6D-matched beam"). The uncoupled Twiss is kept as `twiss4` for display. The centre
+    // moves with it, to the 6D closed orbit. A ring where either fails keeps the 4D beam AND
+    // the 4D centre: its readings strip the static dispersion, which a 6D centre (already
+    // carrying D delta_co) would count twice.
     if (out.hasRF && out.Qs > 0) {
       try {
         const nf = O.normalForm6(a.oneTurn);
+        out.orbit0 = closedOrbit6(scenario, a);
         out.normal = nf;
         out.twiss4 = out.twiss;
         out.twiss = {
@@ -200,9 +245,10 @@
    * x = x_co + W u. Per transverse mode k (Twiss beta_k, alpha_k = optics.twiss)
    *     (u_2k, u_2k+1) = sqrt(eps) N(beta_k, alpha_k)^-1 N(beta_i, alpha_i) (a, b) + N(beta_k, alpha_k)^-1 (du, dpu)
    * — the shape mismatch against the MODE Twiss, and the aiming error as a pure betatron
-   * (mode-k) excursion. The longitudinal mode carries eps_3 = sigma_delta^2 / (W[5,4]^2 +
+   * (mode-k) excursion, all about the 6D closed orbit. The longitudinal mode carries eps_3 = sigma_delta^2 / (W[5,4]^2 +
    * W[5,5]^2), its own energy spread (the transverse modes add theirs, ~1e-5 relative), and
-   * the energy offset as the mode-3 point with zeta = 0, delta = delta0 — which puts the
+   * the energy offset as the mode-3 point with zeta = 0, delta = delta0 (an offset from the
+   * ring's own momentum delta_co, not from the design one) — which puts the
    * transverse centroid on the dynamic dispersion. With every setting at its default the
    * beam's covariance is W diag(eps) W^T: the one the one-turn map leaves unchanged.
    */
@@ -237,7 +283,7 @@
       u[4] = sz * r[4] + z0[0];
       u[5] = sz * r[5] + z0[1];
       const x = O._linalg.matvec(W, u);
-      return [o[0] + x[0], o[1] + x[1], o[2] + x[2], o[3] + x[3], x[4], x[5]];
+      return [o[0] + x[0], o[1] + x[1], o[2] + x[2], o[3] + x[3], o[4] + x[4], o[5] + x[5]];
     });
   }
 
@@ -251,7 +297,7 @@
     const t = optics.twiss, o = optics.orbit0;
     if (optics.normal) {
       const Wi = optics.normal.Winv, k = pl === "x" ? 0 : 1;
-      const d = [s[X] - o[0], s[PX] - o[1], s[Y] - o[2], s[PY] - o[3], s[ZETA], s[DELTA]];
+      const d = [s[X] - o[0], s[PX] - o[1], s[Y] - o[2], s[PY] - o[3], s[ZETA] - o[4], s[DELTA] - o[5]];
       let u1 = 0.0, u2 = 0.0;
       for (let j = 0; j < 6; j++) { u1 += Wi[2 * k][j] * d[j]; u2 += Wi[2 * k + 1][j] * d[j]; }
       const beta = pl === "x" ? t.beta_x : t.beta_y, alpha = pl === "x" ? t.alpha_x : t.alpha_y;
@@ -358,7 +404,7 @@
   }
 
   return {
-    ringOptics, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
+    ringOptics, closedOrbit6, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
     betatronPart, action, bmag, expectedAction, beamStats, chromaticEnvelope, sidebandNear,
   };
 });

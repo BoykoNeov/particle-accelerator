@@ -9,7 +9,8 @@
  *   mode "inject": { inj }            -> the ring optics, the settings and the drawn states;
  *   mode "stats":  { inj, turns }     -> the injected beam tracked, beamStats after each turn
  *                                         (index 0 = before the first turn), and the deltas;
- *   mode "tbt":    { states, turns }  -> turn-by-turn (x, px, y, py) of the given particles.
+ *   mode "tbt":    { states, turns }  -> turn-by-turn (x, px, y, py) of the given particles
+ *                                         (all six coordinates with `full: true`).
  *
  * On a ring with RF, `sampler: "4d"` draws the beam the way the tab did before the 6D match
  * (uncoupled Twiss + static dispersion) and still measures it in the 6D normal modes — the
@@ -27,7 +28,7 @@ function run(c) {
       return {
         tbt: c.states.map((s0) => {
           const s = s0.slice(), rows = [];
-          for (let t = 0; t < c.turns; t++) { T.trackTurn(m, s); rows.push([s[0], s[1], s[2], s[3]]); }
+          for (let t = 0; t < c.turns; t++) { T.trackTurn(m, s); rows.push(c.full ? s.slice() : [s[0], s[1], s[2], s[3]]); }
           return rows;
         }),
       };

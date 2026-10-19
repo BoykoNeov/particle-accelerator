@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from accsim.orbit import closed_orbit
+from accsim.orbit import closed_orbit_6d
 from accsim.scenario import load_scenario
 from accsim.twiss import normal_form
 
@@ -178,14 +178,15 @@ def _sample(name: str, inj: dict) -> tuple[np.ndarray, dict, np.ndarray, object]
     sc = FIXTURES[name]
     (r,) = _node([{"scenario": sc, "mode": "inject", "inj": inj}])
     lat, _M, nf = _package_form(sc)
-    co = np.zeros(6)
-    co[:4] = np.asarray(closed_orbit(lat))[:4]
+    # Every fixture here has a cavity, so the beam is centred on the 6D closed orbit (zero
+    # where nothing kicks the beam; delta_co != 0 on the kicked ring, test_injection_orbit6.py).
+    co = closed_orbit_6d(lat)
     return np.array(r["initial"], dtype=float) - co, r, co, nf
 
 
 @pytest.mark.parametrize("name", ROLLED, ids=str)
 def test_the_matched_beam_is_w_diag_eps_w_transpose(name: str) -> None:
-    """The drawn beam's covariance about the package's closed orbit is ``W diag(eps) W^T``
+    """The drawn beam's covariance about the package's 6D closed orbit is ``W diag(eps) W^T``
     with the package's ``W``, entry by entry, each relative to ``sqrt(Sigma_ii Sigma_jj)``.
     Moment-matched sampling makes this a round-off gate. The control: the 4D sampler's
     beam on the same ring misses the same comparison, by 23% in its worst entry (measured)."""
