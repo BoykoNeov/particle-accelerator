@@ -1251,6 +1251,115 @@ The findings, in the order they changed the milestone:
 **What W1 leaves open:** W2, Miyamoto's driven optics (shipped 2026-10-08, above). The
 editor and scenario format (refused, asserted).
 
+**Tools — the injected beam's optics taken on the closed orbit (opened 2026-10-19; the gates
+below were pre-committed before any test code).** On a cavity ring the 6D-matched beam is
+centred on the tracked 6D closed orbit, but its shape still comes from `W`, the normal form of
+the one-turn matrix about the **design** orbit (zero). A beam that sits on a displaced orbit
+sees a different linear map: the Jacobian of the tracked turn **at** that orbit (I3's optics on
+orbit). This milestone takes `W` from that Jacobian. It is the item the 6D-centred entry below
+named and left.
+
+**The entry below undersold it, and that is corrected here.** It said the difference is
+"second order in a 9 µm orbit shift". The 9 µm is the gap between the 4D and the 6D closed
+orbits, which is not the quantity that matters. What matters is the closed orbit itself
+(0.37 mm in `x` on `kicked-ring-cavity-rolled`) against the design orbit, and the map changes
+at **first** order in it: a thin quadrupole met off-centre bends an off-momentum particle by a
+different amount (`k1l x_co / (1 + delta)`), so the orbit makes dispersion of its own.
+
+What it is:
+
+- **The editor's on-orbit map**, in `editor/inject.js`: central differences of the ported
+  tracked turn (`accsim-track.js`, radiation off) about the converged `closedOrbit6`, step
+  `1e-7`, taken fresh (Newton's last Jacobian sits at the previous iterate, and when the affine
+  start is already converged there is none). `ringOptics` hands it to `normalForm6`, so the
+  sampler, the readings, the mode Twiss, the dynamic dispersion and the sideband warning all
+  move with it, and it is exposed as `optics.orbitMap`.
+- **A ring whose 6D closed orbit is exactly zero keeps the one-turn matrix `M` exactly.** A
+  finite-difference Jacobian at zero is not bit-equal to `M`, and every kick-free cavity preset
+  must stay bit-identical.
+- **Left as it is, and named:** the 4D path (no cavity) has the same gap. It draws the beam with
+  the design Twiss and the design static dispersion, about the **affine** 4D orbit, and the
+  shipped `kicked-ring` preset is such a ring (its static dispersion at the injection point
+  moves 1.9% on orbit). Also `twiss4`, the uncoupled design optics the page quotes beside the
+  6D dispersion, stays the design one.
+
+Orientation facts (measured 2026-10-19 by throwaway probes, the package's on-orbit map
+`linearised_one_turn_map(lattice, co6[:4], delta=co6[5])` against the design `M`):
+
+- **The map moves at first order in the orbit.** Its largest change is `M[x, delta]`, by
+  `0.040` (`0.160` with the kicks x4, ratio 4.0). The static dispersion at the injection point
+  goes from `1.465` m to `1.494` m (1.94%, and 7.76% with the kicks x4), the dynamic dispersion
+  from `1.684` to `1.716` m. `W` moves by `2.4e-3` of `max |W|` (`9.6e-3` with the kicks x4,
+  `6.6e-6` on `wiggler-ring`, whose orbit is 1.5 µm). Tunes move by `2e-5` to `4e-5`, beta by
+  `3e-4`: the change is mostly the dispersion, not the betatron optics.
+- **The old beam is mismatched at second order, and that names the cause.** The design-matched
+  beam read in the on-orbit modes has `<J_1> / eps - 1 = 5.69e-4` at `sigma_delta = 7e-4` and
+  `1.41e-4` at `3.5e-4` (ratio 4.05), and `9.13e-3` with the kicks x4 (ratio 16.0): the square
+  of (dispersion error x energy spread).
+- **The sharp test is a fixed point, not tracking.** With the package's `J`, the on-orbit beam's
+  covariance satisfies `J Sigma J^T = Sigma` to `9e-12` (`6.5e-11` with the kicks x4), each entry
+  relative to `sqrt(Sigma_ii Sigma_jj)`. The design beam misses by `3.4e-2` (`1.4e-1`): first
+  order. Beam-level tracking cannot separate the two on this ring. Even the matched beam's lab
+  `sigma_x^2` and measured `<x delta> / <delta^2>` move by 1% to 5% over 300 turns (the
+  default ring also sits on the `Q_x + 3 Q_s = 6` sideband; at 6.5 MV, off it, the chromatic
+  smearing remains), and the mode emittance and `<J>` are conserved by any linear map, matched
+  or not.
+- **One particle does separate them.** Started on the mode-3 point for an energy offset
+  `delta0` (the dynamic dispersion times `delta0`, `zeta` on the orbit) and tracked 1000 turns,
+  its betatron action read in the package's on-orbit modes stays below `6.6e-19` (`delta0 =
+  1e-5`) where the design `W`'s particle reaches `5.7e-15`. The on-orbit residual is fourth
+  order in `delta0` (ratio 18.6 for twice the offset: the nonlinearity), the design one second
+  (ratio 4.0, and 16.0 with the kicks x4: the dispersion error).
+- **Two routes to the same Jacobian agree to a floor, and the floor is the arbiter's.** The
+  package multiplies per-element central-difference Jacobians (step `1e-7`); a whole-turn
+  central difference is a different route. They agree to `1e-10` (`6.4e-10` with the kicks x4)
+  in `J` and `9e-13` to `3e-11` of `max |W|` in `W`. Above a step of `1e-6` the miss falls as
+  the step squared (truncation: `2.7e-8, 2.4e-9, 2.7e-10` at `1e-5, 3e-6, 1e-6`); below it, it
+  is flat at the level by which the package's own product moves when **its** step changes from
+  `1e-7` to `1e-6` (`8e-11`, `6.8e-10`). The package's `J` is symplectic to `4e-11`, not
+  round-off.
+- **The dispersion has a route that takes no Jacobian at all.** The on-orbit static dispersion
+  of `J`, `(I - J_4)^-1 J[:4, delta]`, equals `d x_co / d delta` from `closed_orbit_nonlinear`
+  at `delta_co +- h` to `1.6e-10` (`h = 3e-6`; `5.7e-10` with the kicks x4), falling as `h^2`
+  above that.
+
+Gates, pre-committed:
+
+1. **The port.** On `kicked-ring-cavity-rolled`, the same ring with the kicks x4, and
+   `wiggler-ring`: the editor's `orbitMap` against the package's on-orbit map, every entry to
+   `5e-9`; the editor's `W` against `normal_form(that map, "6d").w` to `1e-9` of `max |W|`, the
+   mode tunes to `1e-9`, `mode_beta` and the dynamic dispersion to `1e-9` relative; `W`
+   symplectic to `1e-9`. These are the measured cross-route floor with a margin of 8 and 30,
+   pre-committed, not loosened after a failure. Not blind: the design `W` differs by `2.4e-3`,
+   `9.6e-3` and `6.6e-6`, at least 6000 times the tolerance.
+2. **The dispersion by a route that takes no Jacobian.** On the two steered rings, the static
+   dispersion of the editor's `orbitMap` equals the package's `d x_co / d delta` (central
+   difference of `closed_orbit_nonlinear`, `h = 3e-6`, about `delta_co`) to `1e-8` of `|D_x|`.
+   Not blind: the design static dispersion differs by 1.9% and 7.8%.
+3. **The matched beam is the map's fixed point.** The editor's drawn beam (moment-matched,
+   default settings), covariance about `closed_orbit_6d`, satisfies `J Sigma J^T = Sigma` with
+   the **package's** `J`, every entry to `1e-9` of `sqrt(Sigma_ii Sigma_jj)`. The control, the
+   design-`W` beam built the same way, misses by more than `1e-2`.
+4. **One particle on the dynamic dispersion makes no betatron oscillation.** Placed with the
+   editor's `W` at `delta0 = 1e-5` and `2e-5` and tracked 1000 turns by the editor's tracker, its
+   betatron action (package on-orbit modes) stays below `1e-8` of its synchrotron action, and
+   doubling `delta0` raises it by at least 12 (fourth order). The design-`W` particle's action
+   rises by `4.0` to 5% (second order) and is above `1e-6` of the synchrotron action.
+5. **The old beam's mismatch is the dispersion's.** Package-side, the design beam's `<J_1> /
+   eps - 1` read in the on-orbit modes scales by `4.0` when `sigma_delta` halves and by `16.0`
+   when the kicks are scaled by 4, each to 2%.
+6. **Nothing else moves.** On `electron-ring` and its rolled copy the editor's `orbitMap` **is**
+   the design one-turn matrix (exact equality) and `W` is unchanged. `normalForm6`'s port gate
+   stays a port test of the matrix it is handed: it calls `normalForm6` on the design `M` on all
+   four fixtures, at its unchanged `1e-12`.
+7. **The re-referenced gates fail first, by the predicted amounts.** Before they are pointed at
+   the new `W`, these miss: the `normalForm6`-through-`ringOptics` port gate by `2.4e-3`
+   (`kicked-ring-cavity-rolled`) and `6.6e-6` (`wiggler-ring`); the covariance gate by `2.6e-2`;
+   the energy-offset centroid by `1.9e-2` of `D delta0`; the readings gate's `<J_x>` by `5.7e-4`
+   and `5.4e-10`; the 4D control's `J_cf` on `wiggler-ring` by `1.5e-5`. The sampler and
+   readings gates are then read with the editor's **own** `W` at their unchanged `1e-12` (they
+   test the sampler and the readings, given `W`), and gate 1 ties that `W` to the package.
+
 **Tools shipped injection centred on the 6D closed orbit on 2026-10-19**: `closedOrbit6` in
 `editor/inject.js`, the centre and readings moved to it, the page's readout row and note,
 `tests/analytic/test_injection_orbit6.py` (10 tests, about 15 s). Full detail in
@@ -1314,7 +1423,9 @@ What it is:
 - **Left as it is, and named:** `W` is still the normal form of the one-turn matrix about the
   **design** orbit, not of the tracked Jacobian at the closed orbit (the optics-on-orbit
   correction, I3). The port gates of the 6D-matched beam rely on that, and on this fixture the
-  difference is second order in a 9 µm orbit shift.
+  difference is second order in a 9 µm orbit shift. **(Wrong, corrected 2026-10-19 in the
+  on-orbit optics entry above: the 9 µm is the 4D-to-6D gap; the map moves at first order in
+  the 0.37 mm closed orbit itself, 2% in the dispersion.)**
 
 Orientation facts (measured 2026-10-19 by throwaway probes, on `kicked-ring` with
 `electron-ring`'s cavity, rolled one element on — `test_injection_6d.py`'s

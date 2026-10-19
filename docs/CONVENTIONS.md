@@ -11628,6 +11628,8 @@ the 6D normal form. A ring without RF has no 6D form and keeps the 4D path above
   - **Still about the design orbit:** `W` is the normal form of the one-turn matrix at zero,
     not of the tracked Jacobian at the closed orbit (the editor has no optics on orbit, I3).
     The difference is second order in a 9 µm shift on the kicked fixture. Named, not opened.
+    **Wrong (corrected 2026-10-19):** the 9 µm is the 4D-to-6D gap. The map moves at first order
+    in the 0.37 mm closed orbit itself, 2% in the dispersion; see *Optics on the closed orbit*.
   - **The page** shows "ring's own δ" in the readout and a plain-language note when `delta_co
     != 0`, and the energy-spread tip says what the δ offset is measured from.
 
