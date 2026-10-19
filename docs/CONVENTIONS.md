@@ -11639,10 +11639,12 @@ On a cavity ring the 6D-matched beam's `W` is the normal form of the one-turn ma
 about the 6D closed orbit**, not of the design matrix. A ring without RF keeps the 4D path
 (design Twiss, design static dispersion, affine orbit): the same gap, named, not opened.
 
-- **Why it matters at first order.** A thin quadrupole met off-centre bends an off-momentum
-  particle by `k1l x_co / (1 + delta)`, so a displaced orbit makes dispersion of its own (and a
-  thick quadrupole, an exact drift at an orbit angle and an exact bend do the same; I3's
-  `linearised_element_maps` lists them). On `kicked-ring-cavity-rolled` (orbit 0.37 mm) the
+- **Why it matters at first order.** The closed orbit's position shifts with momentum, and that
+  slope adds to the dispersion. On the kicked fixture it is the **exact drifts** at the orbit's
+  angle (`M[x, delta] = -L px_co`, 54% of the change) and the **exact bends** (46%) that make
+  it; the thin quadrupoles contribute `9e-13`, because in these canonical coordinates their kick
+  has no `delta` in it (a thick quadrupole's `k1/(1+delta)` would; I3's `linearised_element_maps`
+  lists every such term). On `kicked-ring-cavity-rolled` (orbit 0.37 mm) the
   map's `M[x, delta]` moves by `0.040`, the static dispersion at the injection point by 1.94%
   (1.465 -> 1.494 m; 7.76% with the kicks x4), the dynamic one 1.684 -> 1.716 m. Tunes move by
   `2e-5`, beta by `3e-4`: it is mostly the dispersion.
@@ -11675,9 +11677,12 @@ about the 6D closed orbit**, not of the design matrix. A ring without RF keeps t
   `Q_x + 3 Q_s = 6` sideband at the default voltage; chromatic smearing at 6.5 MV), and mode
   emittance and `<J>` are conserved by any linear map. A single particle on the mode-3 point for
   `delta0 = 1e-5` (dynamic dispersion x `delta0`), tracked 1000 turns by the editor, keeps a
-  betatron action below `1e-9` of its synchrotron action, fourth order in `delta0` (the
-  nonlinearity); placed with the design `W` it reaches `8e-6` of it, second order (the
-  dispersion error).
+  betatron action of `9.2e-10` of its synchrotron action (`1.35e-9` with the kicks x4), fourth
+  order in `delta0` (ratio 18.6 for twice the offset: the nonlinearity); placed with the design
+  `W` it reaches `7.9e-6` (`1.3e-4`), second order (ratio 4.0: the dispersion error).
+- **The 4D path's gap, measured on `kicked-ring` itself** (no cavity; tracked 4D orbit at `delta
+  = 0`, `x = -0.360` mm): the static dispersion at the injection point moves from `1.465` to
+  `1.494` m, 1.94%.
 - **Still the design optics:** `twiss4` (the uncoupled Twiss and static dispersion the page
   quotes beside the 6D dispersion, and the `sampler: "4d"` control) and the whole 4D path.
 

@@ -9,11 +9,13 @@ with no aiming error at all. The matched beam is ``Sigma = W diag(eps) W^T`` wit
 These gates hold it against the package and against tracking:
 
   * **the port** — ``normalForm6``'s ``W``, tunes, mode Twiss and dynamic dispersion against
-    ``accsim.twiss.normal_form(M, method="6d")``, on rings where the injection point has
-    ``alpha != 0``, ``D' != 0`` and a displaced orbit; ``W`` symplectic, ``W^-1 M W`` a rotation;
-  * **the sampler** — the drawn beam's covariance is ``W diag(eps) W^T`` with the PACKAGE's
-    ``W``; a mismatch and an aiming error give ``eps Bmag + J(offset)`` with the package's
-    mode Twiss; an energy offset rides the dynamic dispersion;
+    ``accsim.twiss.normal_form(M, method="6d")`` on the design matrix ``M``, on rings where the
+    injection point has ``alpha != 0``, ``D' != 0`` and a displaced orbit; ``W`` symplectic,
+    ``W^-1 M W`` a rotation;
+  * **the sampler** — the drawn beam's covariance is ``W diag(eps) W^T`` with the ``W`` the
+    editor used (``_EditorForm``: the map on the closed orbit, tied to the package's on-orbit
+    normal form by ``test_injection_on_orbit.py``); a mismatch and an aiming error give ``eps
+    Bmag + J(offset)`` with its mode Twiss; an energy offset rides its dynamic dispersion;
   * **tracking** — the matched beam keeps its mode emittance over 1000 turns off resonance,
     and the old beam sits at the mismatch its own covariance predicts (~1.2x);
   * **the owner of the default ring's growth** — ``electron-ring`` sits 0.0009 from the
@@ -214,7 +216,8 @@ def _sample(name: str, inj: dict) -> tuple[np.ndarray, dict, np.ndarray, object]
 @pytest.mark.parametrize("name", ROLLED, ids=str)
 def test_the_matched_beam_is_w_diag_eps_w_transpose(name: str) -> None:
     """The drawn beam's covariance about the package's 6D closed orbit is ``W diag(eps) W^T``
-    with the package's ``W``, entry by entry, each relative to ``sqrt(Sigma_ii Sigma_jj)``.
+    with the editor's own ``W`` (``_EditorForm``; ``test_injection_on_orbit.py`` ties it to the
+    package's), entry by entry, each relative to ``sqrt(Sigma_ii Sigma_jj)``.
     Moment-matched sampling makes this a round-off gate. The control: the 4D sampler's
     beam on the same ring misses the same comparison, by 23% in its worst entry (measured)."""
     inj = {"n": 600, "seed": 7}
@@ -237,7 +240,8 @@ def test_the_matched_beam_is_w_diag_eps_w_transpose(name: str) -> None:
 @pytest.mark.parametrize("name", ROLLED, ids=str)
 def test_mismatch_and_aiming_error_give_eps_bmag_plus_the_offsets_own(name: str) -> None:
     """``<J_k> = eps Bmag(beta_k, alpha_k; beta_i, alpha_i) + J(offset)`` per transverse mode,
-    with the package's ``mode_beta`` / ``mode_alpha`` and actions from the package's ``W^-1``.
+    with the editor's ``mode_beta`` / ``mode_alpha`` and actions from its ``W^-1``
+    (``_EditorForm``, tied to the package's by ``test_injection_on_orbit.py``).
     The aiming error is a pure betatron excursion, so the longitudinal mode keeps exactly
     the matched ``eps_3``."""
     base = {"n": 500, "seed": 8}
@@ -275,8 +279,9 @@ def test_mismatch_and_aiming_error_give_eps_bmag_plus_the_offsets_own(name: str)
 
 @pytest.mark.parametrize("name", ROLLED, ids=str)
 def test_an_energy_offset_rides_the_dynamic_dispersion(name: str) -> None:
-    """``delta0`` alone moves the centroid by ``NormalForm.dispersion * delta0`` (the
-    response in phase with ``delta``, not the static ``D``), keeps ``<zeta> = 0`` and leaves
+    """``delta0`` alone moves the centroid by the dynamic dispersion times ``delta0`` (the
+    response in phase with ``delta``, not the static ``D``; ``_EditorForm``'s, tied to the
+    package's by ``test_injection_on_orbit.py``), keeps ``<zeta> = 0`` and leaves
     the transverse modes' ``<J>`` at ``eps`` — it puts no betatron oscillation in."""
     d0 = 1e-3
     X, r, _co, nf = _sample(name, {"n": 500, "seed": 9, "delta0": d0})

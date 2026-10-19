@@ -3,9 +3,10 @@
 On a cavity ring the 6D-matched beam is centred on the tracked 6D closed orbit. Its shape
 used to come from ``W``, the normal form of the one-turn matrix about the **design** orbit.
 A beam on a displaced orbit sees a different linear map, the Jacobian of the tracked turn at
-that orbit (I3's optics on orbit), and the change is first order in the orbit: a thin
-quadrupole met off-centre bends an off-momentum particle by ``k1l x_co / (1 + delta)``, so
-the orbit makes dispersion of its own (1.9% at the injection point of the kicked fixture).
+that orbit (I3's optics on orbit), and the change is first order in the orbit: the exact
+drifts at the orbit's angle (54%) and the exact bends (46%) make dispersion of their own, 1.9%
+at the injection point of the kicked fixture. (Not the thin quadrupoles: their kick has no
+``delta`` in it.)
 
 The editor now takes ``W`` from that Jacobian (central differences of its ported tracked
 turn). These gates hold it:

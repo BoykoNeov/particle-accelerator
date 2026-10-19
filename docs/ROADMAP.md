@@ -1254,12 +1254,24 @@ editor and scenario format (refused, asserted).
 **Tools shipped the injected beam's optics on the closed orbit on 2026-10-19**: `orbitMap` in
 `editor/inject.js` (the tracked turn's Jacobian at `closedOrbit6`, handed to `normalForm6`),
 `optics.orbitMap`, two harness modes (`design`, `nf6`) in `editor/inject-selftest.js`, and
-`tests/analytic/test_injection_on_orbit.py` (12 tests, about 2 min under load). Full detail in
+`tests/analytic/test_injection_on_orbit.py` (12 tests, about 7 s). Full detail in
 `docs/CONVENTIONS.md` -> *Optics on the closed orbit*. Gates 1 to 6 passed as pre-committed on
 the first run; nothing in them was changed. Measured: `J` against the package `1.2e-10` /
 `6.5e-10` / `5.5e-12`, `W` `3.7e-12` / `1.2e-11` / `3.6e-12` of `max |W|`; the dispersion against
-the momentum scan `1.6e-10` / `5.7e-10`; the fixed point `1.3e-11` / `8.9e-11`. What changed
-between pre-commitment and code:
+the momentum scan `1.6e-10` / `5.7e-10`; the fixed point `1.3e-11` / `8.9e-11`; the single
+particle (editor-tracked) `9.2e-10` / `1.35e-9` of its synchrotron action, rising 18.6 / 18.5
+for twice `delta0`, against the design `W`'s `7.9e-6` / `1.3e-4` rising 4.01 / 4.00; the old
+beam's mismatch `5.69e-4`, scaling 4.05 and 16.03. What changed between pre-commitment and code:
+
+- **The mechanism the entry named was wrong.** It blamed the off-centre thin quadrupoles. Put
+  on their on-orbit Jacobians one element class at a time, the thin quadrupoles move `M[x,
+  delta]` by `9e-13`, the correctors and the cavity by `2e-14`; the exact **drifts** (at the
+  orbit's angle, `M[x, delta] = -L px_co`) give `0.0215` and the exact **bends** `0.0185`, which
+  add up to the whole `0.0400`. In canonical coordinates a thin quadrupole's kick has no
+  `delta` in it; the chromatic part of the motion lives in the drifts. The gates never
+  depended on the mechanism (gate 2 is the orbit's own momentum slope).
+- **The 4D gap was re-measured on `kicked-ring` itself** (tracked 4D orbit at `delta = 0`,
+  `-0.360` mm): its static dispersion moves 1.94% on orbit, as quoted.
 
 - **Gate 7's predictions held, and missed one.** Before re-referencing the gates failed by
   `2.39e-3` and `6.56e-6` (port), `2.62e-2` (covariance), `1.94e-2` (energy offset), `5.69e-4`
@@ -1291,8 +1303,11 @@ named and left.
 "second order in a 9 µm orbit shift". The 9 µm is the gap between the 4D and the 6D closed
 orbits, which is not the quantity that matters. What matters is the closed orbit itself
 (0.37 mm in `x` on `kicked-ring-cavity-rolled`) against the design orbit, and the map changes
-at **first** order in it: a thin quadrupole met off-centre bends an off-momentum particle by a
-different amount (`k1l x_co / (1 + delta)`), so the orbit makes dispersion of its own.
+at **first** order in it: the closed orbit's own position shifts with momentum, which adds to
+the dispersion (gate 2 measures exactly that slope). *(Localised at ship: the exact drifts at
+the orbit's angle own 54% of the change and the exact bends 46%; the thin quadrupoles none,
+because in these canonical coordinates their kick does not depend on `delta`. The first wording
+here blamed the quadrupoles and was wrong.)*
 
 What it is:
 

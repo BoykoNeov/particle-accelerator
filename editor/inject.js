@@ -85,9 +85,10 @@
    * turn (accsim-track.js, radiation off) by central differences at step 1e-7 — the optics a
    * beam on that orbit actually sees (I3; the package's linearised_one_turn_map, by a
    * whole-turn rather than a per-element route; the two agree to ~1e-10, which is the
-   * package's own finite-difference floor). It moves at FIRST order in the orbit: an
-   * off-centre quadrupole bends an off-momentum particle by k1l x_co / (1 + delta), so the
-   * orbit makes dispersion of its own. Taken fresh, not from Newton's last step (that one sits
+   * package's own finite-difference floor). It moves at FIRST order in the orbit: the exact
+   * drifts at the orbit's angle (x picks up -L px_co delta) and the exact bends make
+   * dispersion of their own (a thin quadrupole's kick has no delta in it, so it adds none).
+   * Taken fresh, not from Newton's last step (that one sits
    * at the previous iterate). An orbit of exactly zero returns the design matrix itself, so a
    * kick-free ring is bit-identical to the design optics.
    */
