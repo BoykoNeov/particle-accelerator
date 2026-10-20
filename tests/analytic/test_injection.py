@@ -39,11 +39,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 import sympy as sp
+from test_injection_orbit6 import _scaled_kicks
 
 import accsim as ac
-from accsim.orbit import closed_orbit_nonlinear
+from accsim.orbit import closed_orbit_nonlinear, linearised_one_turn_map
 from accsim.scenario import load_scenario
 from accsim.tune import _plane_tune
+from accsim.twiss import normal_form
 
 ROOT = Path(__file__).resolve().parents[2]
 EDITOR = ROOT / "editor"
@@ -133,12 +135,16 @@ def test_the_injected_mean_action_is_eps_bmag_plus_the_offsets_own() -> None:
 
 @needs_node
 def test_the_injected_beam_has_exactly_the_requested_moments() -> None:
-    """The editor's sampler against the closed form, with the package's own Twiss and orbit.
+    """The editor's sampler against the closed form, read with the editor's own optics.
 
-    Moment-matched (whitened) sampling makes this a round-off gate, not a ``1/sqrt(N)`` one —
-    measured ``<= 7e-16`` relative. The Twiss, closed orbit and dispersion used to strip and
-    weigh the particles here are the **package's** (``closed_twiss``, ``closed_orbit``), not
-    the editor's, so a wrong optics port would fail it too.
+    Moment-matched (whitened) sampling makes this a round-off gate, not a ``1/sqrt(N)`` one.
+    This ring has no RF and a displaced orbit, so the beam is drawn in the 4D normal modes
+    ``W4`` of the map on the tracked orbit, with that map's static dispersion ``D``: each mode's
+    ``<J>`` (``W4^-1 (x - x_co - D delta)``) is ``eps Bmag + J(offset)`` against the MODE Twiss.
+    The port of those optics to the package is gated separately
+    (``test_injection_4d_orbit.py``). Before the beam moved onto the orbit this gate read with
+    the package's design ``closed_twiss`` / ``closed_orbit``; drawn on the orbit it then missed
+    by ``4.41e-3`` in ``x`` (``2e-16`` in ``y``), as predicted.
     """
     inj = {
         "n": 500,
@@ -158,28 +164,24 @@ def test_the_injected_beam_has_exactly_the_requested_moments() -> None:
     }
     (r,) = _node([{"scenario": RING, "mode": "inject", "inj": inj}])
     S = np.array(r["initial"], dtype=float)
-    lat = load_scenario(RING).lattice
-    tw = ac.closed_twiss(lat)
-    co = np.asarray(ac.closed_orbit(lat))
-    assert abs(tw.alpha_x) > 1.0 and abs(tw.disp_px) > 0.1 and abs(co[0]) > 1e-4  # not blind
+    o = r["optics"]
+    tw, co, n4 = o["twiss"], np.array(o["orbit0"]), o["normal4"]
+    assert abs(tw["alpha_x"]) > 1.0 and abs(tw["disp_px"]) > 0.1 and abs(co[0]) > 1e-4  # not blind
 
     d = S[:, 5]
     assert d.mean() == pytest.approx(inj["delta0"], rel=1e-12)
     assert d.std() == pytest.approx(inj["sigma_delta"], rel=1e-12)
-    for pl, (iu, ip), D, Dp in (
-        ("x", (0, 1), tw.disp_x, tw.disp_px),
-        ("y", (2, 3), tw.disp_y, tw.disp_py),
-    ):
-        u = S[:, iu] - co[iu] - D * d
-        up = S[:, ip] - co[ip] - Dp * d
-        beta, alpha = (tw.beta_x, tw.alpha_x) if pl == "x" else (tw.beta_y, tw.alpha_y)
+    U = (S[:, :4] - co[:4] - np.outer(d, n4["dispersion"])) @ np.array(n4["Winv"]).T
+    for k, pl in enumerate(("x", "y")):
+        beta, alpha = tw[f"beta_{pl}"], tw[f"alpha_{pl}"]
         want = inj[f"emit_{pl}"] * _bmag(beta, alpha, inj[f"beta_{pl}"], inj[f"alpha_{pl}"])
         want += float(_action(np.array(inj[f"d{pl}"]), np.array(inj[f"dp{pl}"]), beta, alpha))
-        assert _action(u, up, beta, alpha).mean() == pytest.approx(want, rel=1e-13), pl
+        mode_j = 0.5 * (U[:, 2 * k] ** 2 + U[:, 2 * k + 1] ** 2)
+        assert mode_j.mean() == pytest.approx(want, rel=1e-13), pl
 
 
 # --- 2. the decoherence rate ---------------------------------------------------------------
-def _decoherence_residual(sigma_delta: float) -> tuple[float, float]:
+def _decoherence_residual(sigma_delta: float, sampler: str | None = None) -> tuple[float, float]:
     """Max |centroid_n / centroid_0 - envelope_n| over the run, both planes, for a zero-
     emittance beam offset in x and y. The run is long enough for the same total phase
     spread at every ``sigma_delta`` (``n sigma_delta`` fixed), so the envelope reaches the
@@ -194,7 +196,10 @@ def _decoherence_residual(sigma_delta: float) -> tuple[float, float]:
         "dx": 1e-3,
         "dy": 3e-4,
     }
-    (r,) = _node([{"scenario": RING, "mode": "stats", "inj": inj, "turns": turns}])
+    case = {"scenario": RING, "mode": "stats", "inj": inj, "turns": turns}
+    if sampler:
+        case["sampler"] = sampler
+    (r,) = _node([case])
     deltas = np.array(r["deltas"])
     out = []
     for i, pl in enumerate(("x", "y")):
@@ -209,18 +214,25 @@ def _decoherence_residual(sigma_delta: float) -> tuple[float, float]:
 
 @needs_node
 def test_the_centroid_decoheres_at_the_displayed_chromaticity() -> None:
-    """The tracked centroid follows ``|(1/N) sum exp(i 2pi Q' delta_p n)|`` to ``3.4e-3``
-    while it falls from 1 to below ``0.05`` — and that residual is **owned**: it halves
-    when ``sigma_delta`` halves (at fixed total phase spread), the first-order signature of
-    what the linear model leaves out — the chromatic beta-beat (each particle's invariant
-    belongs to its own off-momentum optics) and ``Q''``. A wrong ``Q'``, or a tracker with
-    no chromaticity, misses by order one.
+    """The tracked centroid follows ``|(1/N) sum exp(i 2pi Q' delta_p n)|`` to ``1e-3`` in both
+    planes (measured ``6.0e-4`` in ``x``, ``4.7e-4`` in ``y``) while it falls from 1 to below
+    ``0.05``, and the residual halves when ``sigma_delta`` halves (at fixed total phase
+    spread): the first-order signature of what the linear model leaves out, the chromatic
+    beta-beat (each particle's invariant belongs to its own off-momentum optics) and ``Q''``.
+    A wrong ``Q'``, or a tracker with no chromaticity, misses by order one.
+
+    **The ``x`` residual used to be ``3.4e-3``, and most of it was the dispersion error.** Drawn
+    with the design ``D`` (``sampler: "design"``, the control, still above ``3e-3``), each particle
+    carries an extra betatron excursion ``(D_design - D_true) delta`` that is correlated with its
+    tune, so the centroid does not cancel once the phases spread. On the orbit's own ``D`` the
+    ``x`` residual falls to the ``y`` one's size.
     """
     r1 = _decoherence_residual(7e-4)
     r2 = _decoherence_residual(3.5e-4)
     for a, b in zip(r1, r2, strict=True):
-        assert a < 5e-3
+        assert a < 1e-3
         assert a / b == pytest.approx(2.0, rel=0.1)
+    assert _decoherence_residual(7e-4, sampler="design")[0] > 3e-3
 
 
 # --- 3. the sign ------------------------------------------------------------------------------
@@ -273,7 +285,9 @@ def _centred_ring() -> dict:
     return q
 
 
-def _filament(sigma_delta: float, turns: int, scenario: dict | None = None) -> dict:
+def _filament(
+    sigma_delta: float, turns: int, scenario: dict | None = None, sampler: str | None = None
+) -> dict:
     inj = {
         "n": 400,
         "seed": 6,
@@ -286,7 +300,10 @@ def _filament(sigma_delta: float, turns: int, scenario: dict | None = None) -> d
         "dy": 5e-5,
     }
     sc = RING if scenario is None else scenario
-    (r,) = _node([{"scenario": sc, "mode": "stats", "inj": inj, "turns": turns}])
+    case = {"scenario": sc, "mode": "stats", "inj": inj, "turns": turns}
+    if sampler:
+        case["sampler"] = sampler
+    (r,) = _node([case])
     return r
 
 
@@ -296,6 +313,28 @@ def _averaged_residual(st: list[dict], start: int) -> float:
     return float(np.sqrt(m2[0] * m2[2] - m2[1] ** 2) / J0 - 1.0)
 
 
+def _linear_map_residual(r: dict, turns: int, start: int) -> float:
+    """``_averaged_residual`` for the same drawn beam moved by the PACKAGE's linear map on the
+    tracked orbit instead of the editor's tracker, read in that map's own 4D modes: what the
+    turn-averaging alone leaves, with every nonlinearity removed."""
+    lat = load_scenario(RING).lattice
+    co = closed_orbit_nonlinear(lat)
+    J = linearised_one_turn_map(lat, co, delta=0.0)
+    D = np.linalg.solve(np.eye(4) - J[:4, :4], J[:4, 5])
+    Wi = normal_form(J, method="4d").w_inv
+    c6 = np.concatenate([co, [0.0, 0.0]])
+    Z = np.array(r["initial"]) - c6
+    m2 = []
+    for _n in range(turns + 1):
+        U = (Z[:, :4] - np.outer(Z[:, 5], D)) @ Wi.T
+        m2.append([np.mean(U[:, 0] ** 2), np.mean(U[:, 0] * U[:, 1]), np.mean(U[:, 1] ** 2)])
+        Z = Z @ J.T
+    m2 = np.array(m2)
+    J0 = 0.5 * (m2[0, 0] + m2[0, 2])
+    avg = m2[start:].mean(axis=0)
+    return float(np.sqrt(avg[0] * avg[2] - avg[1] ** 2) / J0 - 1.0)
+
+
 @needs_node
 def test_a_mismatched_offset_beam_filaments_to_its_mean_action() -> None:
     """Injected at 47% of its eventual emittance, the beam ends at ``<J>``.
@@ -303,38 +342,45 @@ def test_a_mismatched_offset_beam_filaments_to_its_mean_action() -> None:
     Two readings of "ends at": the per-turn rms emittance late in the run sits within
     ``3/sqrt(N)`` of ``<J>`` (it fluctuates turn to turn by ``~1/sqrt(N)`` — a finite bunch),
     and the second moments **averaged over turns, about the closed orbit**, land on ``<J>``
-    to ``5.6e-4``. About the orbit and not about the centroid: a finite bunch's centroid never
-    settles (``|<z>|^2 ~ <2J>/N``), so central moments sit low by ``1/N`` on average however
-    long you average — the first version of this gate measured exactly that, ``-2e-3`` at
-    ``N = 400``, and it did not move with ``sigma_delta``.
+    to ``3e-4`` (measured ``1.94e-4``). About the orbit and not about the centroid: a finite
+    bunch's centroid never settles (``|<z>|^2 ~ <2J>/N``), so central moments sit low by ``1/N``
+    on average however long you average — the first version of this gate measured exactly
+    that, ``-2e-3`` at ``N = 400``, and it did not move with ``sigma_delta``.
 
-    **The remaining ``5.6e-4`` has an owner, and it is not the filamentation.** On this ring the
-    displaced quadrupole makes the closed orbit depend on energy beyond the linear dispersion:
-    the package's tracked off-momentum orbit gives ``D = 1.494 m`` where the editor's linear
-    optics (which strip ``D delta`` here) give ``1.465 m``. That error is an *absolute* emittance,
-    ``~(dD sigma_delta)^2/beta`` — so, measured, the relative residual GROWS (to ``1.8e-3``) when the
-    beam's amplitudes are halved. The control is the same arcs on a centred orbit
-    (``electron-ring`` without its cavity), where the two dispersions agree to ``1e-11``: there
-    the residual is ``3e-5``, an order smaller, and that is asserted.
+    **The remaining ``1.94e-4`` has an owner only in part, and it is not the filamentation.**
+    It used to be ``5.6e-4``, blamed on the dispersion: the beam was drawn and read with the
+    design ``D`` (``1.465 m``) where the orbit's own is ``1.494 m``. The control
+    (``sampler: "design"``) still gives above ``4.5e-4``. What is left is real (it does not move
+    with ``N``, the seed or a 3000-turn average) and:
+
+      * **first order in the orbit** — with the kicks scaled by 4 it grows by 3.5 to 5.5
+        (measured 4.5);
+      * **beyond the linear map** — the same beam moved by the package's linear map on the
+        orbit lands below ``2e-6`` (measured ``-3.5e-7``), so it is the tracker's nonlinearity
+        about the displaced orbit; not the chromatic beta-beat nor the second-order
+        dispersion (each ~``4e-7``). Which term owns it is not localised.
+
+    The centred-orbit control (``electron-ring`` without its cavity) stays below ``1e-4``.
     """
     turns = 1500
-    st = _filament(7e-4, turns)["stats"]
+    r = _filament(7e-4, turns)
+    st = r["stats"]
     J0 = st[0]["x"]["meanJ"]
     assert st[0]["x"]["emit"] / J0 == pytest.approx(0.4747, abs=1e-3)  # injected well inside
 
     late = st[turns // 3 :]
     emit_late = np.array([s["x"]["emit"] for s in late])
     assert np.all(np.abs(emit_late / J0 - 1.0) < 3.0 / np.sqrt(400))
-    assert abs(_averaged_residual(st, turns // 3)) < 1e-3
+    res = _averaged_residual(st, turns // 3)
+    assert abs(res) < 3e-4
 
-    lat = load_scenario(RING).lattice
-    h = 1e-5
-    d_tracked = (
-        closed_orbit_nonlinear(lat, delta=h)[0] - closed_orbit_nonlinear(lat, delta=-h)[0]
-    ) / (2 * h)
-    assert d_tracked - ac.closed_twiss(lat).disp_x == pytest.approx(0.0284, abs=5e-4)  # the owner
+    design = _filament(7e-4, turns, sampler="design")["stats"]
+    assert abs(_averaged_residual(design, turns // 3)) > 4.5e-4  # the old owner
+    x4 = _filament(7e-4, turns, _scaled_kicks(RING, 4.0))["stats"]
+    assert 3.5 <= _averaged_residual(x4, turns // 3) / res <= 5.5  # first order in the orbit
+    assert abs(_linear_map_residual(r, turns, turns // 3)) < 2e-6  # beyond the linear map
     centred = _filament(7e-4, turns, _centred_ring())["stats"]
-    assert abs(_averaged_residual(centred, turns // 3)) < 1e-4  # without it, an order smaller
+    assert abs(_averaged_residual(centred, turns // 3)) < 1e-4
 
 
 @needs_node
@@ -347,12 +393,13 @@ def test_with_no_energy_spread_the_beam_never_filaments() -> None:
     is no filamentation. The turn-averaged moments still reach ``<J>`` (that average is blind
     to filamentation, which is why the per-turn reading above is the one that tests it).
 
-    **Two small residuals here are measured and NOT localised; the tolerances record them, no
-    mechanism is claimed.** (1) The per-turn emittance wobbles by ``4.9e-5`` without growing;
-    it is the same on the centred-orbit ring (so not the displaced quadrupole) and shrinks when
-    the amplitudes are halved (``3.0e-5``) — the exact maps' own nonlinearity is the suspect,
-    untested. (2) The turn average sits ``2e-5`` off ``<J>``; it is not the averaging window
-    (the vertical value is the same over 1000 and 3000 turns).
+    **Two small residuals here are the ring's own.** (1) The per-turn emittance wobbles by
+    ``4.9e-5`` without growing; it is the same on the centred-orbit ring (so not the displaced
+    quadrupole) and shrinks when the amplitudes are halved (``3.0e-5``) — the exact maps' own
+    nonlinearity is the suspect, untested. (2) The turn average sits ``6.3e-5`` off ``<J>``,
+    within ``5e-6`` of the centred ring's (``6.2e-5``, measured): the same arcs give it with no
+    orbit at all. It used to read ``2e-5``: that was this ``6.2e-5`` plus an error of the design
+    optics (``-4e-5``), which taking the optics on the orbit removed.
     """
     turns = 1500
     st = _filament(0.0, turns)["stats"]
@@ -365,24 +412,30 @@ def test_with_no_energy_spread_the_beam_never_filaments() -> None:
     third = turns // 3
     assert np.max(emit[-third:]) <= np.max(emit[:third]) + 1e-5
     assert emit_0 / J0 == pytest.approx(0.4747, abs=1e-3)
-    assert abs(_averaged_residual(st, turns // 3)) < 1e-4
+    res = _averaged_residual(st, turns // 3)
+    assert abs(res) < 1e-4
+    centred = _filament(0.0, turns, _centred_ring())["stats"]
+    assert abs(res - _averaged_residual(centred, turns // 3)) < 5e-6
 
 
 # --- 5. the statistics themselves ---------------------------------------------------------------
 @needs_node
 def test_beam_stats_match_numpy_on_the_same_states() -> None:
-    """``beamStats`` on the final states, recomputed in numpy with the same optics record:
-    centroid amplitude, rms emittance, ``<J>`` and both moment sets, to round-off."""
+    """``beamStats`` on the final states, recomputed in numpy with the same optics record (its
+    4D modes: ``W4^-1 (x - x_co - D delta)``, mapped back through the mode Twiss): centroid
+    amplitude, rms emittance, ``<J>`` and both moment sets, to round-off."""
     r = _filament(7e-4, 40)
     S = np.array(r["final"], dtype=float)
     o = r["optics"]
     t, co = o["twiss"], o["orbit0"]
     last = r["stats"][-1]
-    for pl, (iu, ip) in (("x", (0, 1)), ("y", (2, 3))):
-        D, Dp = t[f"disp_{pl}"], t[f"disp_p{pl}"]
+    n4 = o["normal4"]
+    assert n4 is not None  # the reading under test is the 4D-mode one
+    U = (S[:, :4] - np.array(co[:4]) - np.outer(S[:, 5], n4["dispersion"])) @ np.array(n4["Winv"]).T
+    for k, pl in enumerate(("x", "y")):
         beta, alpha = t[f"beta_{pl}"], t[f"alpha_{pl}"]
-        u = S[:, iu] - co[iu] - D * S[:, 5]
-        up = S[:, ip] - co[ip] - Dp * S[:, 5]
+        u = np.sqrt(beta) * U[:, 2 * k]
+        up = -alpha / np.sqrt(beta) * U[:, 2 * k] + U[:, 2 * k + 1] / np.sqrt(beta)
         mu, mup = u.mean(), up.mean()
         cov = np.cov(np.vstack([u, up]), bias=True)
         want = {

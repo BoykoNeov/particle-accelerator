@@ -11,13 +11,20 @@
  *                                         (index 0 = before the first turn), and the deltas;
  *   mode "tbt":    { states, turns }  -> turn-by-turn (x, px, y, py) of the given particles
  *                                         (all six coordinates with `full: true`);
- *   mode "design": {}                 -> the design one-turn matrix the editor's analysis uses;
- *   mode "nf6":    { matrix }         -> normalForm6 of the given 6x6 matrix (no scenario).
+ *   mode "design": {}                 -> the design one-turn matrix, matched Twiss and affine 4D
+ *                                         orbit the editor's analysis uses;
+ *   mode "nf6":    { matrix }         -> normalForm6 of the given 6x6 matrix (no scenario);
+ *   mode "nf4":    { matrix }         -> normalForm4 of the given 4x4 matrix (no scenario).
  *
  * On a ring with RF, `sampler: "4d"` draws the beam the way the tab did before the 6D match
  * (uncoupled Twiss + static dispersion, about the 4D orbit at zeta = delta = 0) and still
  * measures it in the 6D normal modes, about the 6D orbit — the control for
  * tests/analytic/test_injection_6d.py.
+ *
+ * On a ring without RF whose orbit is displaced, `sampler: "design"` draws AND reads the beam
+ * with the design optics (uncoupled Twiss, static dispersion of the design matrix) about the
+ * affine 4D orbit — the tab before it took its optics on the tracked orbit; the control for
+ * tests/analytic/test_injection_4d_orbit.py.
  */
 "use strict";
 const path = require("path");
@@ -28,7 +35,11 @@ const O = require(path.join(__dirname, "accsim-optics.js"));
 function run(c) {
   try {
     if (c.mode === "nf6") return { normal: O.normalForm6(c.matrix) };
-    if (c.mode === "design") return { oneTurn: O.analyse(c.scenario, { slicesFor: () => 1 }).oneTurn };
+    if (c.mode === "nf4") return { normal: O.normalForm4(c.matrix) };
+    if (c.mode === "design") {
+      const a = O.analyse(c.scenario, { slicesFor: () => 1 });
+      return { oneTurn: a.oneTurn, twiss0: a.twiss0 || null, closedOrbit0: a.closedOrbit0 || null };
+    }
     if (c.mode === "tbt") {
       const m = T.build(c.scenario);
       return {
@@ -39,7 +50,11 @@ function run(c) {
         }),
       };
     }
-    const optics = I.ringOptics(c.scenario);
+    let optics = I.ringOptics(c.scenario);
+    if (c.sampler === "design") {
+      if (!optics.normal4) throw new Error("sampler 'design' is the control for a ring without RF on a displaced orbit");
+      optics = Object.assign({}, optics, { normal4: null, twiss: optics.twiss4, orbit0: optics.orbit4 });
+    }
     const inj = Object.assign(I.defaults(c.scenario, optics), c.inj || {});
     let states;
     if (c.sampler === "4d") {

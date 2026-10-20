@@ -1697,7 +1697,7 @@
       const row = (k, v) => `<span>${k}</span><span>${v}</span>`;
       read.innerHTML = (r.stale ? `<span class="stale">Machine or settings changed — press Inject.</span>` : "") +
         row("turn", r.turn) + row("particles left", `${alive} / ${n}`) +
-        row("matched in", r.optics.normal ? "6D modes (with the cavity)" : r.optics.hasRF ? "4D (6D modes not separable)" : "4D (no cavity)") +
+        row("matched in", r.optics.normal ? "6D modes (with the cavity)" : r.optics.normal4 ? "4D modes on the closed orbit (no cavity)" : r.optics.hasRF ? "4D (6D modes not separable)" : "4D (no cavity)") +
         (r.optics.normal && r.optics.orbit0[5] !== 0 ? row("ring's own δ (δ offset is from here)", fmt(r.optics.orbit0[5], 3)) : "") + row(`injected ε${pl}`, `${fmt(eps, 3)} m·rad`) + row("mismatch Bmag", fmt(bm, 4)) +
         row("final size ⟨J⟩, formula", `${fmt(pred, 4)} m·rad`) + row("final size ⟨J⟩, this beam", `${fmt(J0, 4)} m·rad`) +
         (last[pl] ? row("rms emittance now", `${fmt(last[pl].emit, 4)} m·rad`) + row("now ÷ final", fmt(J0 > 0 ? last[pl].emit / J0 : NaN, 3)) : "");
@@ -1708,7 +1708,7 @@
       const W = svg.clientWidth || 400, H = svg.clientHeight || 240, pad = 22;
       const size = Math.max(40, Math.min(W - 2 * pad, H - 2 * pad - 14)), cx = W / 2, cy = pad + 14 + size / 2, R = r.R[pl], k = size / 2 / R;
       const J = r.stats[0][pl] ? r.stats[0][pl].meanJ : 0;
-      let h = `<text x="${pad}" y="15" class="ttl">Phase space at the injection point — ${r.optics.normal ? `${pl}-like 6D mode` : pl} (normalised: a matched beam is round)</text>`;
+      let h = `<text x="${pad}" y="15" class="ttl">Phase space at the injection point — ${r.optics.normal ? `${pl}-like 6D mode` : r.optics.normal4 ? `${pl}-like 4D mode` : pl} (normalised: a matched beam is round)</text>`;
       h += `<path class="ax" d="M${cx - size / 2} ${cy}H${cx + size / 2}M${cx} ${cy - size / 2}V${cy + size / 2}"/>`;
       let dots = "";
       for (let p = 0; p < r.states.length; p++) {

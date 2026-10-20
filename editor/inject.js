@@ -21,13 +21,16 @@
  * normal form W, accsim-optics.js normalForm6, of the one-turn 6x6 map linearised about the
  * closed orbit, orbitMap): the matched beam is
  * Sigma = W diag(eps) W^T, the mismatch is against the mode Twiss, the energy offset rides the
- * dynamic dispersion, and every statistic reads the mode coordinates W^-1 (x - x_co). A ring
- * without RF has no 6D form and uses the uncoupled Twiss and the static dispersion, as before.
+ * dynamic dispersion, and every statistic reads the mode coordinates W^-1 (x - x_co).
  * There x_co is the 6D closed orbit (closedOrbit6): with a kick and a cavity the beam closes
- * only at the momentum delta_co that keeps its longer path in step with the RF.
+ * only at the momentum delta_co that keeps its longer path in step with the RF. A ring
+ * without RF has no 6D form: on its tracked 4D orbit (closedOrbit4) it uses the 4D normal
+ * modes W4 (normalForm4) of the map on that orbit and its static dispersion D, and reads
+ * W4^-1 (x - x_co - D delta); a kick-free one keeps the uncoupled Twiss, which is the same
+ * thing with W4 = blockdiag(N_x, N_y).
  * Gates: tests/analytic/test_injection.py (4D), tests/analytic/test_injection_6d.py (6D),
  * tests/analytic/test_injection_orbit6.py (the 6D centre), tests/analytic/test_injection_on_orbit.py
- * (the optics on that centre).
+ * (the optics on that centre), tests/analytic/test_injection_4d_orbit.py (the 4D path on its orbit).
  *
  * It adds no physics of its own: the motion is accsim-track.js (a port of the package's
  * element-by-element tracker), the optics are accsim-optics.js. Radiation is OFF — an
@@ -78,6 +81,39 @@
     }
     if (Math.max(...r.map(Math.abs)) < tol) return x;
     throw new Error(`the 6D closed orbit did not converge: one-turn residual ${Math.max(...r.map(Math.abs)).toPrecision(3)}`);
+  }
+
+  /**
+   * The 4D closed orbit (x, px, y, py) of the TRACKED turn at delta = 0, zeta = 0: a port of
+   * accsim.orbit.closed_orbit_nonlinear by the same route (Newton on the transverse part,
+   * central differences at step 1e-8, tol 1e-14), started from the affine solve
+   * (a.closedOrbit0), which misses it at second order in the orbit (1.6e-8 m on kicked-ring).
+   * The orbit a ring WITHOUT RF closes on: there is no longitudinal fixed point to iterate on.
+   * With no transverse kick it is exactly zero and nothing is iterated.
+   */
+  function closedOrbit4(scenario, a) {
+    if (!a.oneTurnKick.slice(0, 4).some((v) => v !== 0.0)) return [0.0, 0.0, 0.0, 0.0];
+    if (!a.closedOrbit0) throw new Error("the ring has no closed orbit (integer tune)");
+    let x = a.closedOrbit0.slice();
+    const machine = T.build(scenario);
+    const turn = (s) => { const t = s.concat([0.0, 0.0]); T.trackTurn(machine, t); return t.slice(0, 4); };
+    const h = 1e-8, tol = 1e-14;
+    let r = turn(x).map((v, i) => v - x[i]);
+    for (let it = 0; it < 50; it++) {
+      if (Math.max(...r.map(Math.abs)) < tol) return x;
+      const A = [0, 1, 2, 3].map(() => new Array(4));
+      for (let j = 0; j < 4; j++) {
+        const p = x.slice(), q = x.slice();
+        p[j] += h; q[j] -= h;
+        const tp = turn(p), tq = turn(q);
+        for (let i = 0; i < 4; i++) A[i][j] = (tp[i] - tq[i]) / (2.0 * h) - (i === j ? 1.0 : 0.0);
+      }
+      const dx = O._linalg.solve(A, r);
+      x = x.map((v, i) => v - dx[i]);
+      r = turn(x).map((v, i) => v - x[i]);
+    }
+    if (Math.max(...r.map(Math.abs)) < tol) return x;
+    throw new Error(`the 4D closed orbit did not converge: one-turn residual ${Math.max(...r.map(Math.abs)).toPrecision(3)}`);
   }
 
   /**
@@ -137,7 +173,34 @@
       },
       normal: null,
       normalError: null,
+      normal4: null,
     };
+    // Without RF the beam is centred on the tracked 4D orbit (closedOrbit4) and drawn and
+    // measured in the 4D normal modes of the map ON it (orbitMap's transverse block,
+    // normalForm4), with the static dispersion of that map, D = (I - J_4)^-1 J[:4, delta]. A
+    // displaced orbit sees dispersion of its own (1.9% at kicked-ring's injection point) and a
+    // vertical one couples the planes, which the per-plane Twiss cannot describe. `twiss`
+    // becomes the mode Twiss and that D; the design values stay as `twiss4` / `orbit4`. A
+    // kick-free ring has a zero orbit and keeps the design optics untouched.
+    if (!out.hasRF) {
+      const x4 = closedOrbit4(scenario, a);
+      if (x4.some((v) => v !== 0.0)) {
+        const L = O._linalg;
+        const J = orbitMap(scenario, a, x4.concat([0.0, 0.0]));
+        const J4 = [X, PX, Y, PY].map((i) => [X, PX, Y, PY].map((j) => J[i][j]));
+        const D = L.solve(L.eye(4).map((row, i) => row.map((v, j) => v - J4[i][j])), [X, PX, Y, PY].map((i) => J[i][DELTA]));
+        if (D === null) throw new Error("integer tune on the closed orbit: dispersion does not close");
+        const nf = O.normalForm4(J4);
+        out.orbit0 = x4.concat([0.0, 0.0]);
+        out.orbitMap = J;
+        out.normal4 = { W: nf.W, Winv: nf.Winv, tunes: nf.tunes, dispersion: D };
+        out.twiss4 = out.twiss;
+        out.twiss = {
+          beta_x: nf.modeBeta[0], alpha_x: nf.modeAlpha[0], beta_y: nf.modeBeta[1], alpha_y: nf.modeAlpha[1],
+          disp_x: D[0], disp_px: D[1], disp_y: D[2], disp_py: D[3],
+        };
+      }
+    }
     // With a working RF cavity the ring has a 6D normal form, and the beam the one-turn map
     // leaves unchanged is drawn and measured in ITS coordinates: the transverse modes' own
     // Twiss (not the uncoupled one) and the dynamic dispersion (not the static one) replace
@@ -239,6 +302,7 @@
    */
   function sampleInjection(inj, optics) {
     if (optics.normal) return sampleInjection6(inj, optics);
+    if (optics.normal4) return sampleInjection4(inj, optics);
     const rng = A.mulberry32(inj.seed || 1);
     const sigZ = matchedBunchLength(optics, inj.sigma_delta);
     const k = sigZ > 0.0 ? 6 : 5;
@@ -270,6 +334,50 @@
     const sb = Math.sqrt(beta);
     return [[sb, 0.0], [-alpha / sb, 1.0 / sb]];
   }
+  /** Per transverse plane, the sampler's mode-pair map: (u, u') = shape (a, b) + offset, with
+   *  shape = sqrt(eps) N(beta_k, alpha_k)^-1 N(beta_i, alpha_i) and offset = N(beta_k, alpha_k)^-1 (d, d'). */
+  function modePlanes(inj, t) {
+    return [
+      { eps: inj.emit_x, m: csBlock(t.beta_x, t.alpha_x), i: csBlock(inj.beta_x, inj.alpha_x), d: [inj.dx, inj.dpx] },
+      { eps: inj.emit_y, m: csBlock(t.beta_y, t.alpha_y), i: csBlock(inj.beta_y, inj.alpha_y), d: [inj.dy, inj.dpy] },
+    ].map((q) => {
+      const mInv = [[q.m[1][1], -q.m[0][1]], [-q.m[1][0], q.m[0][0]]]; // det N = 1
+      const shape = O._linalg.matmul(mInv, q.i).map((row) => row.map((v) => v * Math.sqrt(q.eps)));
+      return { shape, offset: O._linalg.matvec(mInv, q.d) };
+    });
+  }
+  /**
+   * The injected bunch on a ring without RF whose orbit is displaced: drawn in the 4D normal
+   * modes of the map on that orbit (optics.normal4), then
+   *     x = x_co + D delta + W4 u,   delta = delta0 + sigma_delta g,   zeta = 0,
+   * each mode pair u drawn as on the 6D path (modePlanes): the shape mismatch against the MODE
+   * Twiss, the aiming error as a pure mode-k excursion. The random columns are the 4D
+   * sampler's, in the same order, so on an uncoupled map (W4 = blockdiag(N_x, N_y)) this IS
+   * the per-plane draw to round-off. With every setting at its default the beam's covariance
+   * is W4 diag(eps) W4^T + D D^T sigma_delta^2: the one the on-orbit map leaves unchanged.
+   */
+  function sampleInjection4(inj, optics) {
+    const rng = A.mulberry32(inj.seed || 1);
+    const rows = [];
+    for (let p = 0; p < inj.n; p++) {
+      const r = [];
+      for (let j = 0; j < 5; j++) r.push(A.gaussian(rng));
+      rows.push(r);
+    }
+    whiten(rows);
+    const { W, dispersion: D } = optics.normal4, o = optics.orbit0;
+    const planes = modePlanes(inj, optics.twiss);
+    return rows.map((r) => {
+      const u = new Array(4);
+      planes.forEach((q, k) => {
+        u[2 * k] = q.shape[0][0] * r[2 * k] + q.shape[0][1] * r[2 * k + 1] + q.offset[0];
+        u[2 * k + 1] = q.shape[1][0] * r[2 * k] + q.shape[1][1] * r[2 * k + 1] + q.offset[1];
+      });
+      const delta = inj.delta0 + inj.sigma_delta * r[4];
+      const x = O._linalg.matvec(W, u);
+      return [o[0] + D[0] * delta + x[0], o[1] + D[1] * delta + x[1], o[2] + D[2] * delta + x[2], o[3] + D[3] * delta + x[3], 0.0, delta];
+    });
+  }
   /** Mode `k`'s longitudinal-mode-free share of the energy spread, W[5,2k]^2 + W[5,2k+1]^2. */
   function deltaShare(W, k) {
     return W[DELTA][2 * k] ** 2 + W[DELTA][2 * k + 1] ** 2;
@@ -295,15 +403,8 @@
       rows.push(r);
     }
     whiten(rows);
-    const { W } = optics.normal, t = optics.twiss, o = optics.orbit0;
-    const planes = [
-      { eps: inj.emit_x, m: csBlock(t.beta_x, t.alpha_x), i: csBlock(inj.beta_x, inj.alpha_x), d: [inj.dx, inj.dpx] },
-      { eps: inj.emit_y, m: csBlock(t.beta_y, t.alpha_y), i: csBlock(inj.beta_y, inj.alpha_y), d: [inj.dy, inj.dpy] },
-    ].map((q) => {
-      const mInv = [[q.m[1][1], -q.m[0][1]], [-q.m[1][0], q.m[0][0]]]; // det N = 1
-      const shape = O._linalg.matmul(mInv, q.i).map((row) => row.map((v) => v * Math.sqrt(q.eps)));
-      return { shape, offset: O._linalg.matvec(mInv, q.d) };
-    });
+    const { W } = optics.normal, o = optics.orbit0;
+    const planes = modePlanes(inj, optics.twiss);
     const sz = Math.sqrt(inj.sigma_delta * inj.sigma_delta / deltaShare(W, 2));
     // The mode-3 point with zeta = 0, delta = delta0: solve the 2x2 [[W44, W45], [W54, W55]].
     const det = W[ZETA][4] * W[DELTA][5] - W[ZETA][5] * W[DELTA][4];
@@ -326,7 +427,8 @@
    *  D delta removed, with the ring's dispersion at the injection point (never a fit).
    *  On a ring with a 6D normal form it is the mode-k pair of W^-1 (x - x_co), mapped back
    *  through N(beta_k, alpha_k): a betatron coordinate in metres whose Courant-Snyder action
-   *  with the mode Twiss is the mode's own action, (u_2k^2 + u_2k+1^2) / 2, exactly. */
+   *  with the mode Twiss is the mode's own action, (u_2k^2 + u_2k+1^2) / 2, exactly. Without RF
+   *  on a displaced orbit the same, in the 4D modes, after the static D delta is removed. */
   function betatronPart(s, optics, pl) {
     const t = optics.twiss, o = optics.orbit0;
     if (optics.normal) {
@@ -334,6 +436,16 @@
       const d = [s[X] - o[0], s[PX] - o[1], s[Y] - o[2], s[PY] - o[3], s[ZETA] - o[4], s[DELTA] - o[5]];
       let u1 = 0.0, u2 = 0.0;
       for (let j = 0; j < 6; j++) { u1 += Wi[2 * k][j] * d[j]; u2 += Wi[2 * k + 1][j] * d[j]; }
+      const beta = pl === "x" ? t.beta_x : t.beta_y, alpha = pl === "x" ? t.alpha_x : t.alpha_y;
+      const sb = Math.sqrt(beta);
+      return [sb * u1, -alpha / sb * u1 + u2 / sb];
+    }
+    if (optics.normal4) {
+      // The 4D normal modes of the on-orbit map: mode-k pair of W4^-1 (x - x_co - D delta).
+      const { Winv: Wi, dispersion: D } = optics.normal4, k = pl === "x" ? 0 : 1;
+      const d = [0, 1, 2, 3].map((i) => s[i] - o[i] - D[i] * s[DELTA]);
+      let u1 = 0.0, u2 = 0.0;
+      for (let j = 0; j < 4; j++) { u1 += Wi[2 * k][j] * d[j]; u2 += Wi[2 * k + 1][j] * d[j]; }
       const beta = pl === "x" ? t.beta_x : t.beta_y, alpha = pl === "x" ? t.alpha_x : t.alpha_y;
       const sb = Math.sqrt(beta);
       return [sb * u1, -alpha / sb * u1 + u2 / sb];
@@ -438,7 +550,7 @@
   }
 
   return {
-    ringOptics, closedOrbit6, orbitMap, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
+    ringOptics, closedOrbit6, closedOrbit4, orbitMap, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
     betatronPart, action, bmag, expectedAction, beamStats, chromaticEnvelope, sidebandNear,
   };
 });

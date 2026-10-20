@@ -639,6 +639,78 @@
     };
   }
   /**
+   * The 4D linear normal form of the transverse block M (4x4) = W R W^-1
+   * (accsim.twiss.normal_form(M, method="4d")): normalForm6's route with two modes. The
+   * eigenvalues 2 cos(mu_k) of N = M + M^-1 are the roots of a QUADRATIC, from the power sums
+   * Tr N / 2 and Tr N^2 / 2 (the larger-magnitude root first, the other from the product, so
+   * neither cancels); the projectors are (N - 2 cos mu_j) / (2 cos mu_k - 2 cos mu_j); the
+   * eigenvector construction and the phase convention are normalForm6's, so on an uncoupled
+   * map W = blockdiag(csBlock(beta_x, alpha_x), csBlock(beta_y, alpha_y)) to round-off. Written
+   * beside normalForm6, not merged with it, so the 6D path cannot move. M^-1 is taken as
+   * -S M^T S (M symplectic): a finite-difference M is so only to ~1e-11, and W inherits that.
+   * Throws (code "unstable" / "degenerate") like normalForm6.
+   */
+  function normalForm4(M) {
+    const S = eye(4).map((r) => r.fill(0.0));
+    for (let p = 0; p < 2; p++) { S[2 * p][2 * p + 1] = 1.0; S[2 * p + 1][2 * p] = -1.0; }
+    const symInv = (A) => matmul(matmul(S, transpose(A)), S).map((r) => r.map((v) => -v));
+    const lin = (A, a, B, b) => A.map((r, i) => r.map((v, j) => a * v + b * B[i][j]));
+    const N = lin(M, 1.0, symInv(M), 1.0);
+    const half = (A) => 0.5 * A.reduce((s, r, i) => s + r[i], 0.0);
+    const p1 = half(N), p2 = half(matmul(N, N));
+    const e1 = p1, e2 = 0.5 * (e1 * p1 - p2);
+    // t^2 - e1 t + e2 = 0: both roots real for a stable map.
+    const disc = e1 * e1 - 4.0 * e2;
+    if (!(disc >= 0.0)) {
+      const e = new Error("4D normal form: the one-turn map has a mode off the unit circle");
+      e.code = "unstable";
+      throw e;
+    }
+    const ta = 0.5 * (e1 + (e1 >= 0.0 ? 1.0 : -1.0) * Math.sqrt(disc));
+    const cosMu = [ta / 2.0, (ta !== 0.0 ? e2 / ta : 0.0) / 2.0];
+    if (cosMu.some((c) => !(Math.abs(c) < 1.0))) {
+      const e = new Error("4D normal form: a mode is unstable (|cos mu| >= 1)");
+      e.code = "unstable";
+      throw e;
+    }
+    if (Math.abs(cosMu[0] - cosMu[1]) < 1e-6) {
+      const e = new Error("4D normal form: the two modes have the same |tune| (a coupling resonance), so their planes cannot be separated");
+      e.code = "degenerate";
+      throw e;
+    }
+    const I4 = eye(4);
+    const P = cosMu.map((ck, k) => lin(N, 1.0, I4, -2.0 * cosMu[1 - k]).map((row) => row.map((v) => v / (2.0 * ck - 2.0 * cosMu[1 - k]))));
+    const share = (A, pl) => A[2 * pl].concat(A[2 * pl + 1]).reduce((s, v) => s + v * v, 0.0);
+    const order = share(P[0], 0) + share(P[1], 1) >= share(P[1], 0) + share(P[0], 1) ? [0, 1] : [1, 0];
+    const W = eye(4).map((row) => row.fill(0.0));
+    order.forEach((k, pl) => {
+      const c = cosMu[k], s = Math.sqrt(1.0 - c * c);
+      const B = matmul(lin(M, 1.0, I4, -c), P[k]); // = -sin(mu) J on mode k's plane
+      const pcol = P[k].map((row) => row[2 * pl]);
+      const qcol = matvec(B, pcol);
+      const c1 = s * s * pcol[2 * pl], c2 = qcol[2 * pl];
+      let a = pcol.map((v, i) => c1 * v + c2 * qcol[i]);
+      let b = matvec(B, a).map((v) => v / s);
+      let norm = 0.0;
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) norm += a[i] * S[i][j] * b[j];
+      if (norm < 0.0) { b = b.map((v) => -v); norm = -norm; }
+      const scale = (a[2 * pl] < 0.0 ? -1.0 : 1.0) / Math.sqrt(norm);
+      a = a.map((v) => v * scale); b = b.map((v) => v * scale);
+      for (let i = 0; i < 4; i++) { W[i][2 * pl] = a[i]; W[i][2 * pl + 1] = b[i]; }
+    });
+    const Winv = symInv(W);
+    const R = matmul(matmul(Winv, M), W);
+    const tunes = [0, 1].map((k) => {
+      const t = Math.atan2(R[2 * k][2 * k + 1], R[2 * k][2 * k]) / TWO_PI;
+      return t - Math.floor(t);
+    });
+    return {
+      W, Winv, R, tunes,
+      modeBeta: [0, 1].map((k) => W[2 * k][2 * k] ** 2 + W[2 * k][2 * k + 1] ** 2),
+      modeAlpha: [0, 1].map((k) => -(W[2 * k][2 * k] * W[2 * k + 1][2 * k] + W[2 * k][2 * k + 1] * W[2 * k + 1][2 * k + 1])),
+    };
+  }
+  /**
    * Twiss at every element boundary (accsim.twiss.propagate_twiss). With
    * `slicesFor(el)` > 1 the thick elements are sub-sliced for a smooth plot; the
    * boundary values are unchanged by the slicing. Each point carries `elem`, the
@@ -975,7 +1047,7 @@
     reference, validateElement, resolve, elementLength, elementAngle,
     elementMatrix, elementKick, transferMap, matchPeriodic, propagateTwiss, tunes,
     naturalChromaticity, sextupoleFeeddown, chromaticity, momentumCompaction, slipFactor,
-    synchrotronTune, closedOrbit, propagateOrbit, survey, sliceElement, analyse, normalForm6,
+    synchrotronTune, closedOrbit, propagateOrbit, survey, sliceElement, analyse, normalForm6, normalForm4,
     _linalg: { eye, matmul, matvec, solve },
   };
 });
