@@ -1489,7 +1489,8 @@
     defaultsFor(sc) {
       const r = state.result, b = sc.beam || {};
       let dx = 1.0;
-      if (r && r.twiss0 && +b.emit_x > 0) dx = +(3e3 * Math.sqrt(+b.emit_x * r.twiss0.beta_x)).toPrecision(2);
+      const tw = r && r.twiss0 ? r.twiss0 : (r && r.opticsError && r.opticsError.code === "coupled" && this.opticsFor(sc) ? this.opticsFor(sc).twiss : null);
+      if (tw && +b.emit_x > 0) dx = +(3e3 * Math.sqrt(+b.emit_x * tw.beta_x)).toPrecision(2);
       return { forName: sc.name, dx_mm: dx, dpx_mrad: 0, dy_mm: 0, dpy_mrad: 0, bx_ratio: 1, dalpha_x: 0, by_ratio: 1, dalpha_y: 0,
         emit_scale: 1, sigd_e3: +(1e3 * (+b.sigma_delta || 0)).toPrecision(3), d0_e3: 0, n: 500, turns: 1000 };
     },
@@ -1631,12 +1632,19 @@
     noteHTML() {
       const sc = state.scenario, r = state.result;
       if (!sc.periodic) return `<p>Injection needs a <b>ring</b>: switch the machine to Ring in the inspector.</p>`;
-      if (!r || r.errors.length || r.opticsError || !r.twiss0) return `<p>The ring's optics do not close, so there is no matched beam to inject into.</p>`;
+      // A coupled ring has no per-plane optics in the analysis, but the injection optics are
+      // its normal modes (inject.js ringOptics), so it is not refused here.
+      const coupled = !!(r && r.opticsError && r.opticsError.code === "coupled");
+      if (!r || r.errors.length || (r.opticsError && !coupled) || (!r.twiss0 && !coupled)) return `<p>The ring's optics do not close, so there is no matched beam to inject into.</p>`;
       const out = [`<p><b class="off">Radiation damping is off</b>, so nothing here ever shrinks the beam: what is injected stays, and only spreads.</p>`];
+      if (coupled) {
+        if (!this.opticsFor(sc)) return `<p>The ring's planes are coupled and its normal modes cannot be separated (a coupling resonance, or an unstable ring), so there is no matched beam to inject into.</p>`;
+        out.push(`<p>This ring's <b>planes are coupled</b> (a skew quadrupole, a solenoid or a rolled magnet mixes x and y), so there is no separate x and y motion to match. The beam is matched and measured in the ring's own <b>normal modes</b>, the x-like and y-like motions that each keep their own size; the x and y settings set those modes. The editor has no chromaticity for coupled modes yet, so no smearing prediction is shown.</p>`);
+      }
       const i = this.plane === "x" ? 0 : 1, xi = r.chromaticity ? r.chromaticity[i] : null;
       const sd = Math.max(0, +this.settings.sigd_e3 || 0) * 1e-3;
       const hasRF = sc.elements.some((e) => e.type === "RFCavity" && +e.voltage !== 0);
-      if (xi == null) out.push(`<p>No chromaticity is available for this ring, so no prediction is shown.</p>`);
+      if (xi == null) { if (!coupled) out.push(`<p>No chromaticity is available for this ring, so no prediction is shown.</p>`); }
       else if (!(Math.abs(xi) * sd > 0)) out.push(`<p>With ${sd > 0 ? "zero chromaticity" : "no energy spread"} every particle turns at the same rate, so the beam keeps its injected shape for good. Add an energy spread (or octupoles) to see it smear.</p>`);
       else if (hasRF && r.Qs > 0) out.push(`<p>This ring has an <b>RF cavity</b>: each particle's energy swings up and down every ≈${fmt(1 / r.Qs, 3)} turns, so the energy-driven smearing undoes itself. The spread in phase never exceeds 2|Q′|σδ/Qₛ = <b>${fmt(2 * Math.abs(xi) * sd / r.Qs, 2)} rad</b> — the wobble fades only slightly and keeps coming back. Remove the cavity to watch the beam smear out.</p>`);
       else if (hasRF) out.push(`<p>This ring has an RF cavity but no stable synchrotron motion (check the RF phase), so expect the energies to run away.</p>`);
@@ -1697,7 +1705,7 @@
       const row = (k, v) => `<span>${k}</span><span>${v}</span>`;
       read.innerHTML = (r.stale ? `<span class="stale">Machine or settings changed — press Inject.</span>` : "") +
         row("turn", r.turn) + row("particles left", `${alive} / ${n}`) +
-        row("matched in", r.optics.normal ? "6D modes (with the cavity)" : r.optics.normal4 ? "4D modes on the closed orbit (no cavity)" : r.optics.hasRF ? "4D (6D modes not separable)" : "4D (no cavity)") +
+        row("matched in", r.optics.normal ? "6D modes (with the cavity)" : r.optics.normal4 ? (r.optics.hasRF ? "4D modes (6D modes not separable)" : "4D modes on the closed orbit (no cavity)") : r.optics.hasRF ? "4D (6D modes not separable)" : "4D (no cavity)") +
         (r.optics.normal && r.optics.orbit0[5] !== 0 ? row("ring's own δ (δ offset is from here)", fmt(r.optics.orbit0[5], 3)) : "") + row(`injected ε${pl}`, `${fmt(eps, 3)} m·rad`) + row("mismatch Bmag", fmt(bm, 4)) +
         row("final size ⟨J⟩, formula", `${fmt(pred, 4)} m·rad`) + row("final size ⟨J⟩, this beam", `${fmt(J0, 4)} m·rad`) +
         (last[pl] ? row("rms emittance now", `${fmt(last[pl].emit, 4)} m·rad`) + row("now ÷ final", fmt(J0 > 0 ? last[pl].emit / J0 : NaN, 3)) : "");

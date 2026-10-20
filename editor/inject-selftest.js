@@ -52,13 +52,13 @@ function run(c) {
     }
     let optics = I.ringOptics(c.scenario);
     if (c.sampler === "design") {
-      if (!optics.normal4) throw new Error("sampler 'design' is the control for a ring without RF on a displaced orbit");
+      if (!optics.normal4 || optics.coupled) throw new Error("sampler 'design' is the control for an uncoupled ring without RF on a displaced orbit");
       optics = Object.assign({}, optics, { normal4: null, twiss: optics.twiss4, orbit0: optics.orbit4 });
     }
     const inj = Object.assign(I.defaults(c.scenario, optics), c.inj || {});
     let states;
     if (c.sampler === "4d") {
-      if (!optics.normal) throw new Error("sampler '4d' is the control for a ring with a 6D normal form");
+      if (!optics.normal || optics.coupled) throw new Error("sampler '4d' is the control for an uncoupled ring with a 6D normal form");
       const o4 = Object.assign({}, optics, { normal: null, twiss: optics.twiss4, orbit0: optics.orbit4 });
       const inj4 = Object.assign(I.defaults(c.scenario, o4), c.inj || {});
       states = I.sampleInjection(inj4, o4);

@@ -37,7 +37,7 @@ import pytest
 from test_injection import PRESETS, RING, _centred_ring, _node
 from test_injection_orbit6 import _scaled_kicks
 
-from accsim.orbit import closed_orbit_nonlinear, linearised_one_turn_map
+from accsim.orbit import closed_orbit_6d, closed_orbit_nonlinear, linearised_one_turn_map
 from accsim.scenario import load_scenario
 from accsim.twiss import normal_form
 
@@ -54,7 +54,23 @@ def _kick_y(sc: dict, kick: float) -> dict:
     return q
 
 
-RINGS = {"kicked-ring": RING, "kicks-x4": _scaled_kicks(RING, 4.0), "kick-y": _kick_y(RING, 3e-5)}
+def _skew(sc: dict, k1sl: float = 0.01, at: int = 5) -> dict:
+    """The same ring with a thin skew quadrupole after its ``at``-th element: DESIGN coupling
+    (off-block ``M`` ``0.17``, off-block ``W4`` ``3.5e-2`` of ``max |W|``, ``D_y = 1.2`` cm on the
+    rolled kicked ring), far from the coupling resonance (fractional tunes 0.78 and 0.57)."""
+    q = copy.deepcopy(sc)
+    sq = {"type": "ThinSkewQuadrupole", "name": "SQ", "k1sl": k1sl}
+    q["elements"] = q["elements"][:at] + [sq] + q["elements"][at:]
+    return q
+
+
+RINGS = {
+    "kicked-ring": RING,
+    "kicks-x4": _scaled_kicks(RING, 4.0),
+    "kick-y": _kick_y(RING, 3e-5),
+    "skew-quad": _skew(RING),
+}
+COUPLED = {"skew-quad": RINGS["skew-quad"], "centred-skew-quad": _skew(_centred_ring())}
 # Horizontal kicks only: the on-orbit J is exactly uncoupled.
 UNCOUPLED = ("kicked-ring", "kicks-x4")
 _IDX5 = [0, 1, 2, 3, 5]
@@ -204,14 +220,15 @@ def test_the_4d_matched_beam_is_the_on_orbit_maps_fixed_point(name: str) -> None
 
 
 # --- 5. one particle on the static dispersion ----------------------------------------------------
-@pytest.mark.parametrize("name", ["kicked-ring"], ids=str)
+@pytest.mark.parametrize("name", ["kicked-ring", "skew-quad"], ids=str)
 def test_a_particle_on_the_4d_dispersion_makes_no_betatron_oscillation(name: str) -> None:
     """Put at ``x_co + D delta0`` with the editor's orbit and ``D``, ``delta0 = 1e-5`` and ``2e-5``,
     and tracked 1000 turns by the editor, a particle's largest betatron action (the package's
     on-orbit modes, its own ``D`` removed) stays below ``1e-8`` of ``(D_x delta0)^2 / beta_1``
     (measured ``2.7e-11``) and rises at least 14 when ``delta0`` doubles (16.0: fourth order, the
     second-order dispersion). Placed with the design orbit and ``D`` it is above ``1e-5`` of that
-    scale (``2.5e-4``) and rises by 3.5 to 4.1 (4.0: second order, the dispersion error)."""
+    scale (``2.5e-4``) and rises by 3.5 to 4.1 (4.0: second order, the dispersion error). On the
+    skew-quadrupole ring the same, coupled (measured ``1.3e-10``)."""
     sc = RINGS[name]
     o = _editor(sc)["optics"]
     _lat, co, _J, nf, D = _package(sc)
@@ -276,3 +293,112 @@ def test_a_cavity_ring_keeps_its_design_4d_record(preset_id: str) -> None:
     assert o["normal4"] is None and o["normal"] is not None
     assert [o["twiss4"][k] for k in _TWISS_KEYS] == [d["twiss0"][k] for k in _TWISS_KEYS]
     assert o["orbit4"] == (d["closedOrbit0"] or [0.0] * 4) + [0.0, 0.0]
+
+
+# --- 9. the coupled matched beam is the map's fixed point -----------------------------------------
+@pytest.mark.parametrize("name", list(COUPLED), ids=str)
+def test_the_coupled_matched_beam_is_the_maps_fixed_point(name: str) -> None:
+    """On a design-coupled ring (refused by the tab before) the drawn beam is the fixed point of
+    the package's on-orbit map, as in gate 4, to ``1e-9`` (measured ``1.7e-11``, ``7e-14``). The
+    control is the same beam built with ``W4``'s off-diagonal blocks dropped, the coupling
+    ignored: it misses by more than ``0.1`` (measured ``0.27``). This is the arbiter-free proof
+    that the coupling is handled, not just ported."""
+    sc = COUPLED[name]
+    r = _editor(sc, {"n": 600, "seed": 7})
+    o, p = r["optics"], r["inj"]
+    _lat, co, J, _nf, _D = _package(sc)
+    assert _fixed_point_miss(J, _covariance5(r["initial"], co)) < 1e-9
+
+    W = np.array(o["normal4"]["W"])
+    D = np.array(o["normal4"]["dispersion"])
+    Wd = W.copy()
+    Wd[0:2, 2:4] = 0.0
+    Wd[2:4, 0:2] = 0.0
+    eps = np.diag([p["emit_x"], p["emit_x"], p["emit_y"], p["emit_y"]])
+    sd2 = p["sigma_delta"] ** 2
+    Sig = np.zeros((5, 5))
+    Sig[:4, :4] = Wd @ eps @ Wd.T + np.outer(D, D) * sd2
+    Sig[:4, 4] = Sig[4, :4] = D * sd2
+    Sig[4, 4] = sd2
+    assert _fixed_point_miss(J, Sig) > 0.1
+
+
+# --- 10. a particle in one mode stays in it --------------------------------------------------------
+@pytest.mark.parametrize("name", list(COUPLED), ids=str)
+def test_a_particle_in_one_coupled_mode_stays_in_it(name: str) -> None:
+    """Put at ``x_co + W4 (sqrt(2 J1), 0, 0, 0)``, ``J1 = 1e-8``, tracked 1000 turns by the editor
+    and read with the editor's ``W4^-1``, the particle's mode-2 action stays below ``1e-9`` of
+    ``J1`` (measured ``3.7e-11``). The control, the same amplitude put in lab ``x`` with the mode-1
+    Twiss (what a per-plane sampler would do), carries above ``1e-5`` of it (``1.3e-4``) into
+    mode 2."""
+    sc = COUPLED[name]
+    o = _editor(sc)["optics"]
+    n4, t = o["normal4"], o["twiss"]
+    W, Wi = np.array(n4["W"]), np.array(n4["Winv"])
+    x4 = np.array(o["orbit0"][:4])
+    j1 = 1e-8
+    a = np.sqrt(2.0 * j1)
+    s_mode = list(x4 + W @ np.array([a, 0.0, 0.0, 0.0])) + [0.0, 0.0]
+    b1, a1 = t["beta_x"], t["alpha_x"]
+    s_lab = list(x4 + np.array([a * np.sqrt(b1), -a1 * a / np.sqrt(b1), 0.0, 0.0])) + [0.0, 0.0]
+    (tr,) = _node([{"scenario": sc, "mode": "tbt", "states": [s_mode, s_lab], "turns": 1000}])
+
+    def mode2(s0: list, traj: list) -> float:
+        u = (np.vstack([s0[:4], traj]) - x4) @ Wi.T
+        return float(0.5 * (u[:, 2] ** 2 + u[:, 3] ** 2).max() / j1)
+
+    assert mode2(s_mode, tr["tbt"][0]) < 1e-9
+    assert mode2(s_lab, tr["tbt"][1]) > 1e-5
+
+
+# --- 11. the kick-free coupled ring --------------------------------------------------------------
+def test_a_kick_free_coupled_ring_uses_the_design_modes_bit_for_bit() -> None:
+    """The centre is exactly zero, so ``orbitMap`` is the design matrix itself and ``W4`` is
+    ``normalForm4`` of its transverse block, bit for bit."""
+    sc = COUPLED["centred-skew-quad"]
+    o = _editor(sc)["optics"]
+    assert o["orbit0"] == [0.0] * 6 and o["coupled"] is True
+    (d,) = _node([{"scenario": sc, "mode": "design"}])
+    assert o["orbitMap"] == d["oneTurn"]
+    M4 = [row[:4] for row in d["oneTurn"][:4]]
+    (n,) = _node([{"mode": "nf4", "matrix": M4}])
+    assert o["normal4"]["W"] == n["normal"]["W"]
+
+
+# --- 12. the coupled cavity ring ------------------------------------------------------------------
+def test_a_coupled_cavity_ring_is_matched_in_its_6d_modes() -> None:
+    """``electron-ring`` with the skew quadrupole: the analysis has no ``Q_s`` for it, and the 6D
+    path now runs on the cavity alone. ``W`` against ``normal_form(J, "6d")`` at the package's 6D
+    orbit to ``1e-9`` of ``max |W|`` (measured ``6.7e-14``); the drawn beam is the 6D map's fixed
+    point to ``1e-9`` (``1.3e-13``; with ``W``'s x-y blocks dropped ``0.41``); ``Q_s`` is the third
+    mode's; ``twiss4``, shown beside the dynamic dispersion, is the design matrix's 4D mode
+    Twiss and static ``D``, against the package to ``1e-9``."""
+    sc = _skew(PRESETS["electron-ring"])
+    r = _editor(sc, {"n": 600, "seed": 7})
+    o = r["optics"]
+    assert o["coupled"] is True and o["normal"] is not None and o["normal4"] is None
+    lat = load_scenario(sc).lattice
+    co6 = closed_orbit_6d(lat)
+    J = linearised_one_turn_map(lat, co6[:4], delta=co6[5])
+    nf = normal_form(J, method="6d")
+    W = np.array(o["normal"]["W"])
+    assert np.max(np.abs(W - nf.w)) < 1e-9 * np.max(np.abs(nf.w))
+    assert max(abs(W[i, j]) for i in (0, 1) for j in (2, 3)) > 1e-2 * np.max(np.abs(W))  # coupled
+
+    X = np.array(r["initial"]) - co6
+    Sig = X.T @ X / len(X)
+    norm = np.sqrt(np.outer(np.diag(Sig), np.diag(Sig)))
+    assert np.max(np.abs(J @ Sig @ J.T - Sig) / norm) < 1e-9
+
+    q3 = o["normal"]["tunes"][2]
+    assert o["Qs"] == min(q3, 1.0 - q3)
+
+    M, _k = lat.one_turn_map()
+    nf4 = normal_form(M, method="4d")
+    D4 = np.linalg.solve(np.eye(4) - M[:4, :4], M[:4, 5])
+    t4 = o["twiss4"]
+    got = np.array([t4["beta_x"], t4["alpha_x"], t4["beta_y"], t4["alpha_y"]])
+    want = np.array([nf4.mode_beta[0], nf4.mode_alpha[0], nf4.mode_beta[1], nf4.mode_alpha[1]])
+    assert np.max(np.abs(got - want) / np.abs(want)) < 1e-9
+    Dt = np.array([t4["disp_x"], t4["disp_px"], t4["disp_y"], t4["disp_py"]])
+    assert np.max(np.abs(Dt - D4)) < 1e-9 * abs(D4[0])

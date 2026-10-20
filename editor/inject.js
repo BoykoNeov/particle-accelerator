@@ -144,22 +144,51 @@
   }
 
   /**
+   * The 4D normal modes of a one-turn map J (6x6; its transverse block, normalForm4) and the
+   * static dispersion of that map, D = (I - J_4)^-1 J[:4, delta]: the record a ring without a
+   * 6D form is drawn and read with, and the Twiss the page shows for it (the mode Twiss and D).
+   * Both are valid whether or not the planes are coupled.
+   */
+  function modes4(J) {
+    const L = O._linalg;
+    const J4 = [X, PX, Y, PY].map((i) => [X, PX, Y, PY].map((j) => J[i][j]));
+    const D = L.solve(L.eye(4).map((row, i) => row.map((v, j) => v - J4[i][j])), [X, PX, Y, PY].map((i) => J[i][DELTA]));
+    if (D === null) throw new Error("integer tune: the dispersion does not close");
+    const nf = O.normalForm4(J4);
+    return {
+      normal4: { W: nf.W, Winv: nf.Winv, tunes: nf.tunes, dispersion: D },
+      twiss: {
+        beta_x: nf.modeBeta[0], alpha_x: nf.modeAlpha[0], beta_y: nf.modeBeta[1], alpha_y: nf.modeAlpha[1],
+        disp_x: D[0], disp_px: D[1], disp_y: D[2], disp_py: D[3],
+      },
+    };
+  }
+
+  /**
    * The ring's optics at the injection point (the start of the lattice), from the editor's
    * own analysis — the same arrays the page draws. Throws if the ring does not close.
    * `orbit0` is the closed orbit as a 6-array: the 6D one where the beam is 6D-matched, else
-   * the 4D one with zeta = delta = 0, which is kept as `orbit4` either way.
+   * the 4D one with zeta = delta = 0; the affine 4D orbit is kept as `orbit4` either way.
+   *
+   * A ring whose DESIGN planes are coupled (a skew quadrupole, a solenoid, a rolled magnet)
+   * has no per-plane Twiss, no tunes, chromaticity or Q_s from the analysis. Its design record
+   * is the 4D normal modes of the design matrix (modes4), its tunes are those modes' fractional
+   * tunes, its chromaticity is null (the editor has none for coupled modes: no decoherence
+   * prediction is shown), and Q_s comes from the 6D form's third tune when there is a cavity.
    */
   function ringOptics(scenario) {
     if (scenario.periodic === false) throw new Error("injection needs a ring (periodic) scenario");
     const a = O.analyse(scenario, { slicesFor: () => 1 });
     if (a.errors.length) throw new Error(a.errors[0]);
-    if (a.opticsError) throw new Error(a.opticsError.message);
-    if (a.coupled) throw new Error("the ring is x-y coupled; injection uses uncoupled Twiss");
-    const tw = a.twiss0;
+    if (a.opticsError && a.opticsError.code !== "coupled") throw new Error(a.opticsError.message);
+    const coupled = !!a.coupled;
+    const design = coupled ? modes4(a.oneTurn) : null;
+    const tw = coupled ? design.twiss : a.twiss0;
     const out = {
       ref: a.ref,
       length: a.length,
-      tunes: a.tunes,
+      coupled,
+      tunes: coupled ? design.normal4.tunes : a.tunes,
       chromaticity: a.chromaticity || null,
       Qs: a.Qs == null ? null : a.Qs,
       eta: a.eta == null ? null : a.eta,
@@ -173,44 +202,42 @@
       },
       normal: null,
       normalError: null,
-      normal4: null,
+      // A coupled ring is never read per plane: its fallback is the design modes about the
+      // affine orbit (a cavity ring whose 6D form fails), replaced below where possible.
+      normal4: coupled ? design.normal4 : null,
     };
+    if (coupled) out.twiss4 = out.twiss;
     // Without RF the beam is centred on the tracked 4D orbit (closedOrbit4) and drawn and
     // measured in the 4D normal modes of the map ON it (orbitMap's transverse block,
     // normalForm4), with the static dispersion of that map, D = (I - J_4)^-1 J[:4, delta]. A
     // displaced orbit sees dispersion of its own (1.9% at kicked-ring's injection point) and a
     // vertical one couples the planes, which the per-plane Twiss cannot describe. `twiss`
-    // becomes the mode Twiss and that D; the design values stay as `twiss4` / `orbit4`. A
-    // kick-free ring has a zero orbit and keeps the design optics untouched.
+    // becomes the mode Twiss and that D; the design values stay as `twiss4` / `orbit4`. An
+    // uncoupled kick-free ring has a zero orbit and keeps the design optics untouched.
     if (!out.hasRF) {
       const x4 = closedOrbit4(scenario, a);
-      if (x4.some((v) => v !== 0.0)) {
-        const L = O._linalg;
+      if (coupled || x4.some((v) => v !== 0.0)) {
         const J = orbitMap(scenario, a, x4.concat([0.0, 0.0]));
-        const J4 = [X, PX, Y, PY].map((i) => [X, PX, Y, PY].map((j) => J[i][j]));
-        const D = L.solve(L.eye(4).map((row, i) => row.map((v, j) => v - J4[i][j])), [X, PX, Y, PY].map((i) => J[i][DELTA]));
-        if (D === null) throw new Error("integer tune on the closed orbit: dispersion does not close");
-        const nf = O.normalForm4(J4);
+        const m = modes4(J);
         out.orbit0 = x4.concat([0.0, 0.0]);
         out.orbitMap = J;
-        out.normal4 = { W: nf.W, Winv: nf.Winv, tunes: nf.tunes, dispersion: D };
+        out.normal4 = m.normal4;
         out.twiss4 = out.twiss;
-        out.twiss = {
-          beta_x: nf.modeBeta[0], alpha_x: nf.modeAlpha[0], beta_y: nf.modeBeta[1], alpha_y: nf.modeAlpha[1],
-          disp_x: D[0], disp_px: D[1], disp_y: D[2], disp_py: D[3],
-        };
+        out.twiss = m.twiss;
       }
     }
     // With a working RF cavity the ring has a 6D normal form, and the beam the one-turn map
     // leaves unchanged is drawn and measured in ITS coordinates: the transverse modes' own
     // Twiss (not the uncoupled one) and the dynamic dispersion (not the static one) replace
     // `twiss`, so every reading below is a normal-mode reading (docs/CONVENTIONS.md ->
-    // "The 6D-matched beam"). The uncoupled Twiss is kept as `twiss4` for display. The centre
+    // "The 6D-matched beam"). The design 4D record is kept as `twiss4` for display. The centre
     // moves with it, to the 6D closed orbit. A ring where either fails keeps the 4D beam AND
     // the 4D centre: its readings strip the static dispersion, which a 6D centre (already
     // carrying D delta_co) would count twice. The normal form is of the map ON that orbit
-    // (orbitMap), not of the design matrix: a displaced orbit sees its own dispersion.
-    if (out.hasRF && out.Qs > 0) {
+    // (orbitMap), not of the design matrix: a displaced orbit sees its own dispersion. A
+    // coupled ring has no Q_s from the analysis, so it tries the 6D form on the cavity alone
+    // (normalForm6 throws if the longitudinal mode is unstable).
+    if (out.hasRF && (out.Qs > 0 || coupled)) {
       try {
         const orbit = closedOrbit6(scenario, a);
         const J = orbitMap(scenario, a, orbit);
@@ -218,11 +245,13 @@
         out.orbit0 = orbit;
         out.orbitMap = J;
         out.normal = nf;
+        out.normal4 = null;
         out.twiss4 = out.twiss;
         out.twiss = {
           beta_x: nf.modeBeta[0], alpha_x: nf.modeAlpha[0], beta_y: nf.modeBeta[1], alpha_y: nf.modeAlpha[1],
           disp_x: nf.dispersion[0], disp_px: nf.dispersion[1], disp_y: nf.dispersion[2], disp_py: nf.dispersion[3],
         };
+        if (out.Qs == null) out.Qs = Math.min(nf.tunes[2], 1.0 - nf.tunes[2]);
       } catch (e) {
         out.normalError = e.message;
       }
