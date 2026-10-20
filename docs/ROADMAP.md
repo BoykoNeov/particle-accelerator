@@ -1280,9 +1280,10 @@ the last. The shape that fits the code:
 - The editor has no 4D normal form. `normalForm6`'s route (power sums of `N = M + M^-1`, a
   cubic, real projectors) needs a quadratic analogue, `normalForm4`. The package's
   `normal_form(M, method="4d")` is its arbiter.
-- Scope questions for the next session: a **design**-coupled kick-free ring (a skew
-  quadrupole) is refused today by the `a.coupled` check in `ringOptics`, on cavity rings too
-  (though `normalForm6` handles coupling). Is that inside this milestone or the next?
+- Scope question, **answered by the user on 2026-10-20: inside this milestone.** A
+  **design**-coupled ring (a skew quadrupole) is refused today, on cavity rings too: `analyse`
+  sets `opticsError` (code `coupled`) and `ringOptics` throws on it, then again on `a.coupled`.
+  It ships as a second change, (b), after the 4D path, (a).
 
 Plan (the advisor's review, 2026-10-19, adopted):
 
@@ -1361,26 +1362,79 @@ editor modules and builds the on-orbit optics outside the repo):
   sampler at round-off against the editor's own optics, and a port gate at the cross-route
   floor.
 
-Gates as drafted (numbers above; **not yet pre-committed**: re-measure with the coupled
-design, then commit them before test code). These must be re-derived for the 4D normal-mode
-route and extended to a vertically steered fixture, against `normal_form(J, method="4d")`.
+**Gates, pre-committed 2026-10-20 before any test or package code.** Every number below was
+measured on a throwaway prototype of `normalForm4` / `closedOrbit4` (Node, outside the repo)
+against the package. Fixtures: `RING` and `x4` as above; `RING_ky` = `RING` with `kick_y =
+3e-5` on its corrector (orbit-made coupling, off-block `J` `3.2e-5`, off-block `W` only
+`1.8e-6` of `max |W|`, so it is a port fixture, never the not-blind one); `RING_sq` = `RING`
+with a `ThinSkewQuadrupole` `k1sl = 0.01` after its fifth element (design coupling, off-block
+`M` `0.17`, off-block `W` `3.5e-2` of `max |W|`, `D_y = 1.2 cm`); `centred_sq` = the centred ring
+with the same skew quadrupole (kick-free, design-coupled); `ER_sq` = `electron-ring` (with its
+cavity) with the same skew quadrupole. The coupled rings are **test fixtures, not presets**: a
+preset would enter the per-preset chromaticity-sign gate, which needs a displayed `Q'` they do
+not have.
 
-1. **Port**: orbit to `1e-12` of `max |x_co|`; `orbitMap` to `5e-9` per entry; mode Twiss and
-   `D` to `1e-9` relative (and `W4` to `1e-9` of `max |W4|`); `zeta`, `delta` of the centre
-   exactly 0. Not blind: design `D_x` is 1.9% / 7.8% off.
-2. **Dispersion without a Jacobian**: `D` against the momentum slope of the closed orbit, `1e-8`
-   of `|D_x|`.
-3. **Fixed point**: 5D, `< 1e-9`; design control `> 1e-2`.
-4. **One particle**: `< 1e-8` of `(D_x delta0)^2 / beta_x`, ratio `>= 14`; design `> 1e-5`,
-   ratio in `[3.5, 4.1]`.
-5. **The documented residuals move as measured**: filament on orbit `< 3e-4` (control `>
-   4.5e-4`), the linear-map control `< 2e-6`, x4/`RING` ratio in `[3.5, 5.5]`; decoherence `x`
-   `< 1e-3` (control `3.4e-3`); no-spread on orbit within `5e-6` of the centred ring's. The
-   docstrings of those three tests rewritten to these owners.
-6. **Nothing else moves**: kick-free no-cavity rings bit-identical (centre zero, `orbitMap ===
-   oneTurn`, `twiss` equal to `a.twiss0`); on cavity rings `twiss4` / `orbit4` bit-identical to
-   design and affine.
-7. **Re-pointed gates fail first by the predicted amounts** (the moments gate by `4.4e-3`).
+The new function `normalForm4` is written **beside** `normalForm6`, not as a shared refactor,
+so nothing on the 6D path can move. Its route: `N = M + M^-1`, the power sums `Tr N / 2`,
+`Tr N^2 / 2`, a quadratic (stable form, the second root from the product), the projectors
+`(N - 2 cos mu_j) / (2 cos mu_k - 2 cos mu_j)`, then `normalForm6`'s eigenvector construction.
+
+Change (a): the steered no-cavity ring on its tracked orbit.
+
+1. **Port** (`RING`, `x4`, `RING_ky`, `RING_sq`): `closedOrbit4` against
+   `closed_orbit_nonlinear` to `1e-12` of `max |x_co|` (measured `<= 2.5e-14`); `orbitMap` against
+   `linearised_one_turn_map` to `5e-9` per entry (`<= 4.1e-10`); `W4` against `normal_form(J,
+   method="4d")` to `1e-9` of `max |W|` (`<= 3.2e-11`); mode tunes `1e-9` (`<= 5.7e-12`); `D`
+   against the package's static `(I - J_4)^-1 J[:4, delta]` to `1e-9` of `|D_x|` (`<= 6.4e-11`);
+   `W4^T S W4 = S` to `1e-9` (`<= 4.8e-12`). Not blind: the design `D_x` is 1.90% / 7.2% off.
+2. **Dispersion without a Jacobian** (same four): `D` against `d x_co / d delta` from
+   `closed_orbit_nonlinear` at `+-3e-6`, `1e-8` of `|D_x|` (measured `<= 3.3e-10`).
+3. **The coupled formulas reduce to today's** (`RING`, `x4`, whose `J` is exactly uncoupled):
+   `W4` against `blockdiag(csBlock(beta, alpha))` from the per-plane match of the same `J`, `1e-10`
+   of `max |W|` (measured `4.9e-12`, `1.5e-11`: the finite-difference `J`'s own non-symplecticity,
+   which `M^-1 = -S M^T S` assumes away, not the projector arithmetic). And `normalForm4` of each
+   uncoupled preset's **design** matrix against `normal_form(M, "4d")` to `1e-12` of `max |W|`.
+4. **Fixed point** (`RING`, `x4`): the drawn beam's 5D covariance `(x, px, y, py, delta)` about the
+   tracked orbit satisfies `J5 Sigma J5^T = Sigma` with the package's `J`, `< 1e-9` of `sqrt(Sigma_ii
+   Sigma_jj)` (measured `2.3e-11`, `9.7e-11`); the design control (design `W`, design `D`) `> 1e-2`
+   (`3.7e-2`, `0.15`).
+5. **One particle on `D delta0`** (`RING`, `RING_sq`; editor-tracked 1000 turns, read in the
+   package's on-orbit modes): its betatron action `< 1e-8` of `(D_x delta0)^2 / beta_1` (measured
+   `2.7e-11`, `1.3e-10`) and doubling `delta0` raises it `>= 14` (16.0: fourth order); the design `D`
+   `> 1e-5` (`2.5e-4`) rising in `[3.5, 4.1]` (4.0: second order).
+6. **The documented residuals move as measured** (numbers in the orientation list above):
+   filament on orbit `< 3e-4` (control `> 4.5e-4`), the linear-map control `< 2e-6`, `x4` / `RING`
+   ratio in `[3.5, 5.5]`; decoherence `x` `< 1e-3` (control `3.4e-3`), its halving ratio still
+   `2.0 +- 10%`; no-spread on orbit within `5e-6` of the centred ring's. The three docstrings are
+   rewritten to these owners.
+7. **Nothing else moves**: kick-free uncoupled no-cavity rings bit-identical to today (centre
+   zero, `twiss` equal to `a.twiss0`, no 4D form attached); on uncoupled cavity rings `twiss4`,
+   `orbit4` and the 6D `normal` bit-identical.
+8. **Re-pointed gates fail first by the predicted amounts**: the moments gate by `4.4e-3` in `x`
+   (`2e-16` in `y`), `beamStats`-vs-numpy only where the reading changed.
+
+Change (b): the design-coupled ring.
+
+9. **Coupled fixed point** (`RING_sq`, `centred_sq`): as gate 4, `< 1e-9` (measured `1.7e-11`,
+   `7e-14`); the control, the same beam with `W4`'s off-diagonal blocks dropped, `> 0.1` (`0.27`).
+10. **A particle in one mode stays in it** (`RING_sq`, `centred_sq`): put at `x_co + W4 (sqrt(2 J1),
+    0, 0, 0)`, `J1 = 1e-8`, tracked 1000 turns by the editor and read by the editor's `W4^-1`, its
+    mode-2 action stays `< 1e-9` of `J1` (measured `3.7e-11`); the control, the same amplitude put
+    in lab `x` with the mode-1 Twiss, `> 1e-5` (`1.3e-4`).
+11. **Kick-free coupled ring** (`centred_sq`): centre exactly zero, and `W4` is `normalForm4` of the
+    design matrix bit for bit (a new `nf4` harness mode).
+12. **Coupled cavity ring** (`ER_sq`): the 6D path now runs (gated on the cavity alone; `Q_s`
+    from `normalForm6`'s third tune, since `analyse` has none): `W` against `normal_form(J, "6d")`
+    to `1e-9` of `max |W|` (measured `6.7e-14`), the 6D fixed point `< 1e-9` (`1.3e-13`; off-block
+    dropped `0.41`); `twiss4` is the design matrix's 4D mode Twiss and static `D`, against the
+    package at `1e-9`.
+13. **The page** is driven once on a skew-quadrupole ring in a visible browser tab: it injects,
+    labels the readings as 4D (or 6D) modes, and throws nothing.
+
+Not in this milestone, named: per-mode **chromaticity** on a coupled ring. `analyse` has none, so
+the Injection tab shows no decoherence prediction there and says so. On a coupled ring the
+aiming-error settings (`dx`, `dpx`, ...) are an excursion of the `x`-like (`y`-like) **mode**,
+as on the 6D path, not a lab offset of that size; recorded in `docs/CONVENTIONS.md`.
 
 **Tools shipped the injected beam's optics on the closed orbit on 2026-10-19**: `orbitMap` in
 `editor/inject.js` (the tracked turn's Jacobian at `closedOrbit6`, handed to `normalForm6`),
