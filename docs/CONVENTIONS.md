@@ -11831,8 +11831,9 @@ over a warning or a refusal.
   `tunes`, `naturalChromaticity`, `sextupoleFeeddown`; `rfWarning` is gone.
 - **Where it did not (named).** `momentum_compaction` / `synchrotron_tune`, `normal_mode_tunes`
   and the 4D normal form (all closed by the next section); `closed_twiss_on_orbit` /
-  `coupled_twiss_on_orbit` (**still open**: `0.23%` in beta with the cavity at element 100, even
-  unsteered); and `match_periodic(M)` / `normal_form(M)` on a matrix the caller passes (by design).
+  `coupled_twiss_on_orbit` (`0.23%` in beta with the cavity at element 100, even unsteered;
+  closed by *The on-orbit Twiss holds the cavity fixed* below); and `match_periodic(M)` /
+  `normal_form(M)` on a matrix the caller passes (by design).
 
 ### More of the 4D model holds the cavity fixed (2026-10-20, `tests/analytic/test_rf_frozen_consumers.py`)
 
@@ -11868,6 +11869,30 @@ gone), `propagateNormalForm4`, and the Injection tab's design record (`modes4(a.
   maps alone left the skew ring's `mode_chromaticity` at `-6.09` against `-6.42`, so it (and the
   editor's `modeChromaticity`) **refuses** a coupled ring whose frozen rows 0-4 differ from the
   full map's. Named in `docs/ROADMAP.md` as change B.
+
+### The on-orbit Twiss holds the cavity fixed (2026-10-20, `tests/analytic/test_rf_frozen_on_orbit.py`)
+
+**Convention: `closed_twiss_on_orbit` and `coupled_twiss_on_orbit` match on the frozen product
+of the per-element on-orbit maps** (`_frozen_one_turn(linearised_element_maps(...))`), the same
+floats `propagate_twiss_on_orbit` / `propagate_coupled_twiss_on_orbit` start from (gated `==`).
+`linearised_one_turn_map` stays the tracked turn's full Jacobian, cavity live: it is what the
+Taylor map is gated against, and on a mid-ring-cavity ring the packaged optics are no longer
+`match_periodic` of it.
+
+- **How wrong the full Jacobian was.** Unsteered `electron-ring`, cavity at element 100 / 50:
+  `0.23%` / `1.6%` in `beta_x` from `closed_twiss` (frozen: `1e-14`); the skew ring's `beta_1`
+  the same. `islands`' plane optics read `closed_twiss_on_orbit`, so they follow.
+- **What moved on a cavity-last ring: round-off only, and only off momentum.** At `delta = 0` every
+  non-cavity map's `delta` row is exactly the unit row, so the result is the same float (gated on
+  every periodic preset and a steered ring). At `delta != 0` the central difference of `delta`
+  itself is not exactly `1`, and freezing replaces that noise with the exact row: `D_x` moves by
+  `4e-12` (`delta = 1e-4`) to `9e-11` (`-1e-3`), `beta` not at all. That is why the closed form
+  and the propagated start disagreed there before.
+- **What it does not fix (change B).** On a **steered** ring with the cavity mid-ring the 4D
+  closed orbit itself moves with the cavity's position, at `delta = 0` too (`0.6%` / `3.0%` of
+  its size with a `-6e-5` corrector, cavity at 100 / 50), so the frozen on-orbit `beta_x` still
+  differs from the cavity-last ring's by `-2.5e-6` / `-7.8e-6`, first order in the kick. Not
+  gated against the cavity-last ring; only for self-consistency.
 
 ### Per-mode chromaticity in the editor (2026-10-20, `modeChromaticity`, `tests/analytic/test_editor_mode_chromaticity.py`)
 

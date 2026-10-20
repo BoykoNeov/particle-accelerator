@@ -725,7 +725,12 @@ def linearised_one_turn_map(
     :func:`~accsim.twiss.match_periodic` for the beta functions an off-axis
     sextupole produces, or to :func:`~accsim.twiss.match_periodic_coupled` for the
     x-y coupling a *vertically* off-axis one produces.
-    :func:`~accsim.twiss.closed_twiss_on_orbit` is the packaged form of the first.
+
+    This is the **whole** turn's Jacobian, the RF cavity live. The packaged optics
+    (:func:`~accsim.twiss.closed_twiss_on_orbit`, :func:`~accsim.twiss.coupled_twiss_on_orbit`)
+    multiply the same element maps with the cavity held fixed instead, so on a ring whose
+    cavity sits between the bends they are not ``match_periodic`` of this; with the cavity
+    last or absent the rows they read are the same floats.
     """
     M = np.eye(DIM)
     for m in linearised_element_maps(lattice, orbit0, delta=delta, step=step):

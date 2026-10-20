@@ -3820,10 +3820,14 @@ def _on_orbit_maps(lattice: Lattice, delta: float, step: float) -> list[np.ndarr
 def closed_twiss_on_orbit(lattice: Lattice, *, delta: float = 0.0, step: float = 1e-7) -> Twiss:
     """Matched Twiss at the entrance, on the machine's **real** closed orbit.
 
-    :func:`closed_twiss` with the one-turn map replaced by
-    :func:`~accsim.orbit.linearised_one_turn_map`. Identical to it whenever the
-    orbit is **on axis**; different by the feed-down beta-beat wherever an off-axis
-    sextupole is live.
+    :func:`closed_twiss` matched on the per-element maps about that orbit
+    (:func:`~accsim.orbit.linearised_element_maps`), multiplied with the cavity held fixed
+    as :func:`closed_twiss` and :func:`propagate_twiss_on_orbit` are (:func:`_frozen_one_turn`),
+    so this is that function's start, float for float. Identical to :func:`closed_twiss`
+    whenever the orbit is **on axis**; different by the feed-down beta-beat wherever an
+    off-axis sextupole is live. Not :func:`~accsim.orbit.linearised_one_turn_map`, the
+    tracked turn's full Jacobian: with the cavity between the bends that missed the design
+    optics by 0.23% to 1.6% in beta on an unsteered ``electron-ring``.
 
     "Nothing in the lattice is nonlinear" is no longer the other way for the two to
     coincide, and a :class:`~accsim.elements.drift.Drift` is why: its exact map is
@@ -3838,9 +3842,7 @@ def closed_twiss_on_orbit(lattice: Lattice, *, delta: float = 0.0, step: float =
     vertically steered machine whose design optics is perfectly uncoupled. Use
     :func:`coupled_twiss_on_orbit` there.
     """
-    from .orbit import linearised_one_turn_map
-
-    return match_periodic(linearised_one_turn_map(lattice, delta=delta, step=step))
+    return match_periodic(_frozen_one_turn(_on_orbit_maps(lattice, delta, step)))
 
 
 def propagate_twiss_on_orbit(
@@ -3892,11 +3894,11 @@ def coupled_twiss_on_orbit(
     The vertically steered counterpart of :func:`closed_twiss_on_orbit`: a normal
     sextupole at ``y_co != 0`` feeds down a **skew** gradient ``k2l y_co``, so the
     machine the beam sees is x-y coupled even though its design map is exactly
-    block-diagonal. G2's machinery, reached from the orbit.
+    block-diagonal. G2's machinery, reached from the orbit. Matched on the same frozen
+    product as :func:`closed_twiss_on_orbit`, so it is
+    :func:`propagate_coupled_twiss_on_orbit`'s start.
     """
-    from .orbit import linearised_one_turn_map
-
-    return match_periodic_coupled(linearised_one_turn_map(lattice, delta=delta, step=step))
+    return match_periodic_coupled(_frozen_one_turn(_on_orbit_maps(lattice, delta, step)))
 
 
 def propagate_coupled_twiss_on_orbit(
