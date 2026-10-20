@@ -246,9 +246,48 @@ def match_periodic(one_turn: np.ndarray) -> Twiss:
     return Twiss(0.0, beta_x, alpha_x, 0.0, beta_y, alpha_y, 0.0, d[0], d[1], d[2], d[3])
 
 
+def _rf_frozen(M: np.ndarray) -> np.ndarray:
+    """Copy of a 6x6 map with ``delta``'s row the unit row: the cavity held fixed.
+
+    The matched 4D optics treat ``delta`` as a constant of the motion (xtrack's
+    ``twiss(method="4d")`` does the same). An :class:`~accsim.elements.rfcavity.RFCavity`
+    is the one element whose linear map changes ``delta`` (``M[delta, zeta]``); left in,
+    a cavity between bends feeds that change back into ``x`` through the dispersion
+    downstream, the one-turn 2x2 blocks stop being symplectic, and optics matched on them
+    do not close on themselves (0.6% to 2.8% in beta on ``electron-ring``). Every other
+    element's ``delta`` row already is the unit row, so this changes nothing for them.
+    """
+    M = M.copy()
+    M[DELTA, :] = 0.0
+    M[DELTA, DELTA] = 1.0
+    return M
+
+
+def _frozen_one_turn(maps: Sequence[np.ndarray]) -> np.ndarray:
+    """One-turn product of ``maps`` (beam order) with each one's ``delta`` row frozen.
+
+    On a ring whose cavity is last, or that has none, every row the optics read is the
+    same floating-point number as in :meth:`~accsim.lattice.Lattice.one_turn_matrix`.
+    """
+    one_turn = np.eye(DIM)
+    for M in maps:
+        one_turn = _rf_frozen(M) @ one_turn
+    return one_turn
+
+
+def _element_maps(lattice: Lattice) -> list[np.ndarray]:
+    return [elem.matrix(lattice.ref) for elem in lattice.elements]
+
+
 def closed_twiss(lattice: Lattice) -> Twiss:
-    """Matched Twiss at the entrance of a periodic ``lattice``."""
-    return match_periodic(lattice.one_turn_matrix())
+    """Matched Twiss at the entrance of a periodic ``lattice``.
+
+    Matched on the one-turn map with the RF cavity held fixed (:func:`_rf_frozen`), the
+    model :func:`propagate_twiss` transports in, so the optics close on themselves wherever
+    the cavity sits. The synchro-betatron optics a cavity really makes (about 1% from these
+    on a strong one) are the 6D normal form's (:func:`normal_form`).
+    """
+    return match_periodic(_frozen_one_turn(_element_maps(lattice)))
 
 
 def propagate_twiss(
@@ -454,10 +493,7 @@ def driven_twiss(lattice: Lattice) -> list[Twiss]:
         u, pu = (X, PX) if plane == "x" else (Y, PY)
         maps[idx] = maps[idx].copy()
         maps[idx][pu, u] += grads[plane]
-    one_turn = np.eye(DIM)
-    for M in maps:
-        one_turn = M @ one_turn
-    driven = propagate_twiss(lattice, match_periodic(one_turn), maps=maps)
+    driven = propagate_twiss(lattice, match_periodic(_frozen_one_turn(maps)), maps=maps)
     natural = propagate_twiss(lattice, closed_twiss(lattice))
     out = []
     for d, n in zip(driven, natural, strict=True):
@@ -1903,9 +1939,10 @@ def coupled_twiss(lattice: Lattice) -> CoupledTwiss:
 
     Use this instead of :func:`closed_twiss` when the lattice contains a
     :class:`~accsim.elements.skew_quadrupole.SkewQuadrupole` — the uncoupled path
-    raises :class:`CoupledLatticeError` there by design.
+    raises :class:`CoupledLatticeError` there by design. The RF cavity is held fixed, as
+    in :func:`closed_twiss`.
     """
-    return match_periodic_coupled(lattice.one_turn_matrix())
+    return match_periodic_coupled(_frozen_one_turn(_element_maps(lattice)))
 
 
 def propagate_coupled_twiss(
@@ -1932,23 +1969,25 @@ def propagate_coupled_twiss(
     the path a *vertically* steered machine needs: a normal sextupole at
     ``y_co != 0`` is a skew quadrupole, so its on-orbit optics is coupled even
     though its design optics is exactly not.
+
+    Every map has its ``delta`` row frozen (:func:`_rf_frozen`), the cavity held fixed as
+    in :func:`closed_twiss`. Without it the local 6x6 map's transverse block carries the
+    cavity's slope through the dispersion (``T[x, delta] M[delta, zeta] T^-1[zeta, x]``),
+    and the betas part from :func:`propagate_twiss`'s by 1.8% on ``electron-ring`` even
+    with its cavity last.
     """
     if maps is not None and len(maps) != len(lattice.elements):
         raise ValueError(
             f"maps must have one matrix per element: got {len(maps)} for "
             f"{len(lattice.elements)} elements"
         )
-    if maps is None:
-        one_turn = lattice.one_turn_matrix()
-    else:
-        one_turn = np.eye(6)
-        for m in maps:
-            one_turn = m @ one_turn
+    frozen = [_rf_frozen(m) for m in (_element_maps(lattice) if maps is None else maps)]
+    one_turn = _frozen_one_turn(frozen)
     points = [match_periodic_coupled(one_turn, s=0.0)]
     transfer = np.eye(6)
     s = 0.0
     for i, elem in enumerate(lattice.elements):
-        transfer = (elem.matrix(lattice.ref) if maps is None else maps[i]) @ transfer
+        transfer = frozen[i] @ transfer
         s += elem.length
         local = transfer @ one_turn @ np.linalg.inv(transfer)
         points.append(match_periodic_coupled(local, s=s))
@@ -2074,10 +2113,7 @@ def closest_tune_approach(lattice: Lattice) -> float:
             )
     # Unperturbed (coupling-off) one-turn and matched Twiss.
     decoupled = [_decoupled(elem.matrix(ref)) for elem in lattice.elements]
-    one_turn = np.eye(6)
-    for M in decoupled:
-        one_turn = M @ one_turn
-    tw0 = match_periodic(one_turn)  # coupling zeroed, so the guard passes
+    tw0 = match_periodic(_frozen_one_turn(decoupled))  # coupling zeroed, so the guard passes
     bx, ax, mux = tw0.beta_x, tw0.alpha_x, 0.0
     by, ay, muy = tw0.beta_y, tw0.alpha_y, 0.0
 
@@ -3210,10 +3246,7 @@ def _rdt_sites(lattice: Lattice, slices: int) -> tuple[_RdtSites, float, float]:
                 "closest_tune_approach"
             )
     decoupled = [_decoupled(elem.matrix(ref)) for elem in lattice.elements]
-    one_turn = np.eye(6)
-    for M in decoupled:
-        one_turn = M @ one_turn
-    tw0 = match_periodic(one_turn)
+    tw0 = match_periodic(_frozen_one_turn(decoupled))
     bx, ax, mux = tw0.beta_x, tw0.alpha_x, 0.0
     by, ay, muy = tw0.beta_y, tw0.alpha_y, 0.0
     found: dict[str, list[tuple[float, float, float, float, float]]] = {
@@ -3819,10 +3852,7 @@ def propagate_twiss_on_orbit(
     below, have to refuse them.
     """
     maps = _on_orbit_maps(lattice, delta, step)
-    one_turn = np.eye(6)
-    for m in maps:
-        one_turn = m @ one_turn
-    return propagate_twiss(lattice, match_periodic(one_turn), maps=maps)
+    return propagate_twiss(lattice, match_periodic(_frozen_one_turn(maps)), maps=maps)
 
 
 def tunes_on_orbit(

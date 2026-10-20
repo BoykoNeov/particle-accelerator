@@ -2386,7 +2386,8 @@ Riccati), so the shipped constant is gated, not trusted.
 
 **Propagation is by local re-match, not transport.** `propagate_coupled_twiss` rebuilds
 the **local** one-turn map `M(s) = T(s) M(0) T(s)^-1` at each element boundary and
-re-decomposes. That is exact and needs no transport rule for `C`. **Scope:** no mode
+re-decomposes. That is exact and needs no transport rule for `C`. (Since 2026-10-20 every map
+has its `delta` row frozen first: see *The 4D optics hold the cavity fixed*.) **Scope:** no mode
 *phase* is accumulated, so it yields no tune (use `normal_mode_tunes`); and mode labels
 are per-point, so a ring sitting exactly on the difference resonance can swap them
 between points. Off resonance the labelling is stable (gated: mode 1 stays within 0.5%
@@ -11783,9 +11784,9 @@ nothing that reads them changes meaning by accident), and gets `analyse(...).mod
   `propagate_twiss` and the editor all leave out: on the **uncoupled** `electron-ring` its
   `beta_1` misses `propagate_twiss`'s `beta_x` by 1.8% downstream of the first bend (exactly at
   the entrance, where the local map is the one-turn map), and by `6e-15` with the cavity
-  removed. So gate 4 compares on cavity-free copies, and the package's `propagate_coupled_twiss`
-  is a different model from `propagate_twiss` on a ring with RF; that is a package finding,
-  pinned by a test, not changed here.
+  removed. So gate 4 compared on cavity-free copies. **Superseded the same day** by *The 4D
+  optics hold the cavity fixed* below: `propagate_coupled_twiss` now freezes `delta`'s row, meets
+  `propagate_twiss` to `7e-15` with the cavity in, and gate 4 runs on the rings as they are.
 - **A cavity between the bends breaks the 4D picture in the package too.** With
   `electron-ring`'s cavity moved to mid-ring, the transverse block of the 6x6 one-turn map has
   eigenvalue moduli `1.0024`: `normal_form(M, "4d")` and `momentum_compaction` call the ring
@@ -11797,9 +11798,42 @@ nothing that reads them changes meaning by accident), and gets `analyse(...).mod
   (agreement `7e-15`). The proper treatment of such a ring is the 6D form. An **uncoupled**
   ring with its cavity between bends has the same defect in its 2x2 blocks, and its per-plane
   optics do not close (beta misses itself after one turn by 0.6% to 2.8% on `electron-ring`).
-  The package's `closed_twiss` computes them regardless; the editor keeps those numbers and adds
-  `rfWarning` (the measured miss), shown as `approx.` in the Stability tile and in the plot
-  title (the user's choice: warn, not refuse; the package is a named follow-up).
+  The editor first flagged them (`rfWarning`, `approx.`); **superseded the same day** by *The 4D
+  optics hold the cavity fixed* below, which makes them close and removes the flag. The `rf-4d`
+  refusal of a *coupled* ring with its cavity mid-ring stays (its compaction would still come from
+  the full map).
+
+### The 4D optics hold the cavity fixed (2026-10-20, `_rf_frozen`, `tests/analytic/test_rf_frozen_optics.py`)
+
+**Convention: the matched 4D optics treat `delta` as a constant of the motion.** `closed_twiss`,
+`coupled_twiss` and `propagate_coupled_twiss` match on the one-turn product of the element
+matrices with each one's `delta` row set to the unit row (`_rf_frozen`, `_frozen_one_turn`;
+editor: `frozenOneTurn`). This is xtrack's `twiss(method="4d")`, and the model `propagate_twiss`
+always transported in (an element's transverse rows never read `delta`'s row). The user chose it
+over a warning or a refusal.
+
+- **Why.** `RFCavity` is the only element with a linear `delta` row (`M[delta, zeta]`). In the
+  full 6x6 product, a cavity between bends changes `delta` and the dispersion downstream turns
+  that into `x`: the one-turn 2x2 blocks are not symplectic (`det` off by `4.9e-3` to `1.2e-2` on
+  `electron-ring`) and optics matched on them do not close (beta 0.6% to 2.8% off after one
+  turn). `propagate_coupled_twiss`, re-matching the local 6x6 map, picked up the same path even
+  with the cavity last (1.8% from `propagate_twiss`).
+- **What it costs.** Nothing on a ring whose cavity is last or absent: every row the optics read
+  is the same float (gated `==` on all five periodic presets). With the cavity mid-ring the optics
+  no longer depend on where it sits (gated against the cavity-last ring at `1e-12`), and agree
+  with xtrack 4D to `5.6e-9` in beta (xtrack's floor, the same with the cavity last). What they
+  are **not** is the synchro-betatron optics a strong cavity really makes: xtrack's 6D twiss
+  differs from its 4D one by `0.7-1.8%` on the 2 MV test ring. That is the 6D normal form's.
+- **Where it applies.** `closed_twiss` (so `tunes`, both chromaticities, the radiation integrals,
+  matching and the driven optics), `coupled_twiss`, `propagate_coupled_twiss` (and its
+  `_on_orbit` form), `propagate_twiss_on_orbit`, and the unperturbed optics in
+  `closest_tune_approach` and the coupling RDTs. Editor: `analyse`'s matched start and half-traces,
+  `tunes`, `naturalChromaticity`, `sextupoleFeeddown`; `rfWarning` is gone.
+- **Where it does not (named).** `momentum_compaction` / `synchrotron_tune` (on a mid-ring-cavity
+  ring the editor's compaction tile reads `0.03208` with the cavity at element 50 and `0.03158`
+  at 100: the same full-map path), `normal_mode_tunes`, `normal_form(M, "4d")`,
+  `closed_twiss_on_orbit` / `coupled_twiss_on_orbit` (the whole turn's Jacobian), and
+  `match_periodic(M)` on a matrix the caller passes.
 
 ### Per-mode chromaticity in the editor (2026-10-20, `modeChromaticity`, `tests/analytic/test_editor_mode_chromaticity.py`)
 

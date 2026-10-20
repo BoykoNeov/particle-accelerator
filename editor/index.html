@@ -974,10 +974,9 @@
     let stab;
     if (r.opticsError && !r.modes) stab = `<span class="chip bad">${(r.modesError || r.opticsError).code}</span>`;
     else if (r.coupled) stab = `<span class="chip warn">coupled</span>`;
-    else if (r.rfWarning) stab = `<span class="chip warn" title="${esc(r.rfWarning.message)}">approx.</span>`;
     else stab = `<span class="chip good">${ring ? "stable" : "line"}</span>`;
     const ht = r.halfTrace;
-    const stabSub = r.rfWarning ? `RF cavity between bends: β off by ${fmt(100 * r.rfWarning.betaMiss, 2)}% per turn — put it last` : `½Tr: ${fmt(ht.x, 3)} · ${fmt(ht.y, 3)}`;
+    const stabSub = `½Tr: ${fmt(ht.x, 3)} · ${fmt(ht.y, 3)}`;
     tiles += `<div class="tile"${tipAttr("tile:stability")}><span class="label">${ring ? "Stability" : "Mode"}</span>${stab}<span class="sub">${stabSub}</span></div>`;
     if (r.tunes) {
       tiles += tile(ring ? "Tunes Qₓ · Qᵧ" : "Phase advance /2π", `${fmt(r.tunes[0], 5)} · ${fmt(r.tunes[1], 5)}`, "", ring ? `fractional ${fmt(r.tunes[0] % 1, 3)} · ${fmt(r.tunes[1] % 1, 3)}` : "", "", "tile:tunes");
@@ -1121,9 +1120,6 @@
     const fixed = LAY.top + LAY.synH + LAY.gap + LAY.axisH + (state.tab === "optics" ? LAY.gap + LAY.subH : 0);
     LAY.mainH = Math.max(160, Math.min(520, avail - fixed - 8 - (state.tab === "optics" ? 0 : LAY.gap + LAY.subH)));
     const panels = tabPanels();
-    // Per-plane optics of a ring whose cavity sits between bends are approximate (analyse's
-    // rfWarning): say so on the plot, not only in the Stability tile.
-    if (r && r.rfWarning && state.tab !== "orbit" && panels.length) panels[0] = Object.assign({}, panels[0], { title: panels[0].title + " (approximate: cavity between bends)" });
     let H = LAY.top + LAY.synH;
     for (const p of panels) H += LAY.gap + p.h;
     H += LAY.axisH;

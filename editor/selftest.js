@@ -37,7 +37,6 @@ function run(scenario) {
   out.closedOrbit0 = a.closedOrbit0 || null;
   out.orbit = a.orbit ? a.orbit.map((p) => p.o) : null;
   out.modesError = a.modesError || null;
-  out.rfWarning = a.rfWarning || null;
   out.modes = null;
   if (a.modes) {
     const m = a.modes;

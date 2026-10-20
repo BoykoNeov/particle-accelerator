@@ -487,6 +487,22 @@
     }
     return { M, k };
   }
+  /**
+   * The one-turn matrix with delta's row frozen in every element (accsim.twiss._frozen_one_turn):
+   * the RF cavity held fixed, the model the matched 4D optics are built on. Left in, a cavity
+   * between bends feeds its energy kick back into x through the dispersion and the optics do not
+   * close on themselves. Only a cavity has a linear delta row, so on a ring whose cavity is last
+   * (every preset) the rows the optics read are transferMap's.
+   */
+  function frozenOneTurn(elements, ref) {
+    let M = eye(6);
+    for (const el of elements) {
+      const Me = elementMatrix(el, ref).map((row) => row.slice());
+      Me[DELTA] = [0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+      M = matmul(Me, M);
+    }
+    return M;
+  }
 
   function blocks(M) {
     return [sub(M, [X, PX], [X, PX]), sub(M, [Y, PY], [Y, PY])];
@@ -868,8 +884,7 @@
     return out;
   }
   function tunes(elements, ref) {
-    const { M } = transferMap(elements, ref);
-    const tw0 = matchPeriodic(M);
+    const tw0 = matchPeriodic(frozenOneTurn(elements, ref));
     const pts = propagateTwiss(elements, ref, tw0);
     const end = pts[pts.length - 1];
     return [end.mu_x / TWO_PI, end.mu_y / TWO_PI];
@@ -886,8 +901,7 @@
   /** accsim.twiss.natural_chromaticity, entry for entry. */
   function naturalChromaticity(elements, ref, slices) {
     slices = slices || 64;
-    const { M } = transferMap(elements, ref);
-    const tw0 = matchPeriodic(M);
+    const tw0 = matchPeriodic(frozenOneTurn(elements, ref));
     let bx = tw0.beta_x, ax = tw0.alpha_x, by = tw0.beta_y, ay = tw0.alpha_y;
     let disp = [tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py];
     let xix = 0.0, xiy = 0.0;
@@ -962,8 +976,7 @@
   /** accsim.twiss._sextupole_feeddown. */
   function sextupoleFeeddown(elements, ref, slices) {
     slices = slices || 64;
-    const { M } = transferMap(elements, ref);
-    const tw0 = matchPeriodic(M);
+    const tw0 = matchPeriodic(frozenOneTurn(elements, ref));
     let bx = tw0.beta_x, ax = tw0.alpha_x, by = tw0.beta_y, ay = tw0.alpha_y;
     let disp = [tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py];
     let xix = 0.0, xiy = 0.0;
@@ -1133,12 +1146,15 @@
     out.survey = survey(els, slicesFor);
     out.surveyBoundaries = survey(els);
     out.coupled = couplingNorm(M) > 1e-9;
-    out.halfTrace = { x: 0.5 * (M[X][X] + M[PX][PX]), y: 0.5 * (M[Y][Y] + M[PY][PY]) };
+    // The matched optics and their stability read the one-turn map with the cavity held fixed
+    // (frozenOneTurn); it differs from M only when a cavity sits between bends.
+    const Mf = frozenOneTurn(els, ref);
+    out.halfTrace = { x: 0.5 * (Mf[X][X] + Mf[PX][PX]), y: 0.5 * (Mf[Y][Y] + Mf[PY][PY]) };
     const periodic = scenario.periodic !== false;
     out.periodic = periodic;
     let tw0 = null;
     if (periodic) {
-      try { tw0 = matchPeriodic(M); }
+      try { tw0 = matchPeriodic(Mf); }
       catch (e) { out.opticsError = { code: e.code || "error", message: e.message }; }
     } else {
       const t = scenario.initial_twiss || {};
@@ -1154,22 +1170,6 @@
       const end = out.twissBoundaries[out.twissBoundaries.length - 1];
       out.tunes = [end.mu_x / TWO_PI, end.mu_y / TWO_PI];
       out.twissEnd = end;
-      // An RF cavity between bends feeds its energy kick (through zeta) back into x downstream,
-      // so the one-turn map's 2x2 blocks are not symplectic and these per-plane optics do not
-      // close on themselves: beta after one turn misses its start (2.8% on electron-ring with
-      // the cavity at element 50). The package's closed_twiss computes them all the same, so
-      // the numbers stay (and stay the package's); the page says they are approximate.
-      if (periodic) {
-        const det2 = (C) => C[0][0] * C[1][1] - C[0][1] * C[1][0];
-        const [bx, by] = blocks(M);
-        const defect = Math.max(Math.abs(det2(bx) - 1.0), Math.abs(det2(by) - 1.0));
-        if (defect > 1e-9) {
-          const betaMiss = Math.max(Math.abs(end.beta_x / tw0.beta_x - 1.0), Math.abs(end.beta_y / tw0.beta_y - 1.0));
-          out.rfWarning = { defect, betaMiss,
-            message: `an RF cavity sits between bends, so its energy kicks feed back into the sideways motion and these per-plane optics are approximate: after one turn beta comes back off by ${(100 * betaMiss).toPrecision(2)}%. Make the cavity the last element for exact optics.` };
-          out.warnings.push(out.rfWarning.message);
-        }
-      }
       if (periodic) {
         try { out.chromaticity = chromaticity(els, ref); out.naturalChromaticity = naturalChromaticity(els, ref); }
         catch (e) { out.warnings.push("chromaticity: " + e.message); }
@@ -1207,7 +1207,7 @@
   return {
     CLIGHT, ELECTRON_MASS_EV, PROTON_MASS_EV, SPECIES, CATALOGUE,
     reference, validateElement, resolve, elementLength, elementAngle,
-    elementMatrix, elementKick, transferMap, matchPeriodic, propagateTwiss, tunes,
+    elementMatrix, elementKick, transferMap, frozenOneTurn, matchPeriodic, propagateTwiss, tunes,
     naturalChromaticity, sextupoleFeeddown, chromaticity, momentumCompaction, slipFactor,
     synchrotronTune, closedOrbit, propagateOrbit, survey, sliceElement, analyse, normalForm6, normalForm4,
     propagateNormalForm4, coupledOptics, modeSigma, compactionFromDispersion,

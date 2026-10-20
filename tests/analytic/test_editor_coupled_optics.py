@@ -161,22 +161,16 @@ def test_the_vertical_pair_is_load_bearing_in_the_editor(js: dict) -> None:
 
 
 # ---------------------------------------------------------------------- gate 4
-def _without_cavity(sc: dict) -> dict:
-    q = copy.deepcopy(sc)
-    q["elements"] = [e for e in q["elements"] if e["type"] != "RFCavity"]
-    return q
-
-
 @pytest.mark.parametrize("name", list(FIXTURES))
 def test_the_beam_size_matches_the_edwards_teng_route(name: str) -> None:
     """Gate 4: sigma_x, sigma_y from W against coupled_beam_sigma from gamma_c, C, beta_i.
 
-    On the cavity-free copy of each ring: propagate_coupled_twiss re-matches the transverse
-    block of the local 6x6 one-turn map, which on a ring with a cavity carries an RF-times-
-    dispersion term the 4D optics does not (see the next test), so there it is a different
-    model rather than a second route to the same one.
+    On the rings as they are, cavities included. Until propagate_coupled_twiss held the cavity
+    fixed (test_rf_frozen_optics.py) it re-matched the full local 6x6 map, whose transverse
+    block carried the cavity's slope through the dispersion, and this gate had to run on
+    cavity-free copies.
     """
-    sc = _without_cavity(FIXTURES[name])
+    sc = FIXTURES[name]
     lat = load_scenario(sc).lattice
     beam = sc["beam"]
     sx, sy, _tilt = ac.coupled_beam_sigma(
@@ -185,26 +179,6 @@ def test_the_beam_size_matches_the_edwards_teng_route(name: str) -> None:
     sig = _js(sc)["modes"]["sigma"]
     np.testing.assert_allclose(sig["x"], sx, rtol=1e-9)
     np.testing.assert_allclose(sig["y"], sy, rtol=1e-9)
-
-
-def test_the_edwards_teng_route_sees_the_cavity_where_the_4d_optics_does_not() -> None:
-    """Why gate 4 drops the cavity: a package finding, pinned so it is not rediscovered.
-
-    On the UNCOUPLED electron-ring, propagate_coupled_twiss's beta_1 misses propagate_twiss's
-    beta_x by 1.8% with the cavity and by round-off without it. At the entrance the local map
-    is the one-turn map itself, so the two agree there; downstream the local 6x6 map's
-    transverse block picks up the cavity's slope through the dispersion.
-    """
-    for sc, lo, hi in (
-        (PRESETS["electron-ring"], 1e-2, 3e-2),
-        (_without_cavity(PRESETS["electron-ring"]), 0.0, 1e-13),
-    ):
-        lat = load_scenario(sc).lattice
-        tw = ac.propagate_twiss(lat, ac.closed_twiss(lat))
-        et = ac.propagate_coupled_twiss(lat)
-        miss = max(abs(t.beta_1 / w.beta_x - 1.0) for t, w in zip(et, tw, strict=True))
-        assert lo <= miss < hi
-        assert et[0].beta_1 == pytest.approx(tw[0].beta_x, rel=1e-12)
 
 
 @pytest.mark.parametrize("pid", ["fodo-cell", "electron-ring", "dba-cell"])
@@ -313,25 +287,27 @@ def _uncoupled_with_cavity_at(pos: int | None) -> dict:
     return sc
 
 
-def test_an_uncoupled_ring_with_a_cavity_between_the_bends_is_flagged_approximate() -> None:
-    """Found after the entry closed (a side agent's note): the per-plane optics of an UNCOUPLED
-    ring whose cavity sits between bends do not close on themselves (beta after one turn misses
-    its start by 0.59% with electron-ring's cavity at element 100, 2.8% at element 50), and
-    neither the editor nor the package's closed_twiss said so. The user chose a warning: the
-    numbers stay the package's (test_scenario holds them to 1e-9) and analyse adds rfWarning
-    with the measured miss; the cavity-last preset carries none."""
-    assert _js(_uncoupled_with_cavity_at(None))["rfWarning"] is None
-    for pos, miss in ((100, 5.93e-3), (50, 2.82e-2)):
-        sc = _uncoupled_with_cavity_at(pos)
-        r = _js(sc)
-        assert r["opticsError"] is None and r["twiss0"] is not None
-        assert r["rfWarning"]["betaMiss"] == pytest.approx(miss, rel=1e-2)
-        lat = load_scenario(sc).lattice
-        pts = ac.propagate_twiss(lat, ac.closed_twiss(lat))
-        assert r["rfWarning"]["betaMiss"] == pytest.approx(
-            max(abs(pts[-1].beta_x / pts[0].beta_x - 1), abs(pts[-1].beta_y / pts[0].beta_y - 1)),
-            rel=1e-9,
-        )
+@pytest.mark.parametrize("pos", [100, 50])
+def test_an_uncoupled_ring_with_a_cavity_between_the_bends_has_exact_optics(pos: int) -> None:
+    """Gate 7 of *the 4D optics hold the cavity fixed*. Before, these optics did not close on
+    themselves (beta missed its start by 0.59% with electron-ring's cavity at element 100, 2.8%
+    at 50) and analyse flagged them approximate (rfWarning, the user's first choice). Now the
+    editor matches on frozenOneTurn, as the package does: the optics close, they equal the
+    package's, and the warning is gone."""
+    sc = _uncoupled_with_cavity_at(pos)
+    r = _js(sc)
+    assert r["opticsError"] is None and "rfWarning" not in r
+    lat = load_scenario(sc).lattice
+    pts = ac.propagate_twiss(lat, ac.closed_twiss(lat))
+    for got, want in zip(r["twissBoundaries"], pts, strict=True):
+        for f in ("beta_x", "beta_y", "alpha_x", "alpha_y", "disp_x", "disp_px", "mu_x", "mu_y"):
+            assert got[f] == pytest.approx(getattr(want, f), rel=1e-9, abs=1e-12), f
+    end, start = r["twissBoundaries"][-1], r["twissBoundaries"][0]
+    assert end["beta_x"] == pytest.approx(start["beta_x"], rel=1e-12)
+    assert end["beta_y"] == pytest.approx(start["beta_y"], rel=1e-12)
+    np.testing.assert_allclose(r["tunes"], ac.tunes(lat), rtol=1e-9)
+    np.testing.assert_allclose(r["chromaticity"], ac.chromaticity(lat), rtol=1e-9)
+    np.testing.assert_allclose(r["naturalChromaticity"], ac.natural_chromaticity(lat), rtol=1e-9)
 
 
 def test_equal_tunes_just_above_the_threshold_are_refused_as_degenerate() -> None:

@@ -40,7 +40,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
 | W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18); **W9** `island_chain()` — the free ring's island chain as a package function, centred on the closed orbit, filtered by length and rotation, checked against a first-order closed form (2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; a theory of the survival fraction |
-| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18); **6D-centred injection** — on a cavity ring the beam is centred on the tracked 6D closed orbit (`closedOrbit6`), whose `delta_co` keeps a kicked or wiggling orbit in step with the RF (2026-10-19); **optics on the closed orbit** — the 6D-matched beam's `W` from the tracked turn's Jacobian at that orbit (`orbitMap`), first order in the orbit through the dispersion it makes (2026-10-19); **the 4D path on its orbit, and coupled rings** — a ring without RF is drawn and read in the 4D normal modes (`normalForm4`) of the map on its tracked orbit (`closedOrbit4`) with that map's static dispersion, and a design-coupled ring (skew quadrupole), refused before, injects on both paths (2026-10-20); **coupled rings in the whole editor** — the package's compaction, `eta` and `Q_s` on a coupled ring and its `mode_chromaticity`; the main view's mode optics along the ring (beam size per plane first, mode beta behind a toggle), mode tunes and compaction; the per-mode chromaticity in the tile and the Injection tab's decoherence prediction (2026-10-20, four commits) | named, not built: `propagate_coupled_twiss` with RF, a cavity between the bends, the metric group on a coupled ring, a coupled beamline |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18); **6D-centred injection** — on a cavity ring the beam is centred on the tracked 6D closed orbit (`closedOrbit6`), whose `delta_co` keeps a kicked or wiggling orbit in step with the RF (2026-10-19); **optics on the closed orbit** — the 6D-matched beam's `W` from the tracked turn's Jacobian at that orbit (`orbitMap`), first order in the orbit through the dispersion it makes (2026-10-19); **the 4D path on its orbit, and coupled rings** — a ring without RF is drawn and read in the 4D normal modes (`normalForm4`) of the map on its tracked orbit (`closedOrbit4`) with that map's static dispersion, and a design-coupled ring (skew quadrupole), refused before, injects on both paths (2026-10-20); **coupled rings in the whole editor** — the package's compaction, `eta` and `Q_s` on a coupled ring and its `mode_chromaticity`; the main view's mode optics along the ring (beam size per plane first, mode beta behind a toggle), mode tunes and compaction; the per-mode chromaticity in the tile and the Injection tab's decoherence prediction (2026-10-20, four commits); **the 4D optics hold the cavity fixed** — the matched 4D optics (`closed_twiss`, `coupled_twiss`, `propagate_coupled_twiss`, the editor's `frozenOneTurn`) are built from the one-turn product with `delta`'s row frozen (xtrack's `twiss(method="4d")`), so a cavity between the bends no longer stops them closing; the editor's `approx.` warning is gone (2026-10-20) | named, not built: the metric group on a coupled ring, a coupled beamline; compaction, `Q_s` and the 4D normal form still read the full map on a mid-ring-cavity ring |
 
 **Axis W shipped W9 on 2026-10-18**: **`island_chain()`**, the free ring's island chain as a
 package function (`src/accsim/islands.py`, `tests/analytic/test_island_chain.py`, 15 tests,
@@ -1517,6 +1517,87 @@ halving prediction with `Q' = -0.1673` on change 1's skew ring, and the RF branc
 - **The metric group for a bending gradient magnet on a coupled ring** (`mode_chromaticity`
   refuses it).
 - **A coupled beamline** (needs coupled initial conditions in the scenario format).
+
+**Tools — the 4D optics hold the cavity fixed (opened 2026-10-20; the gates below were
+pre-committed before any test code).** The first two items above, taken together because they
+have one cause: the 6x6 one-turn map carries the cavity's energy kick (`M[delta, zeta]`) back
+into `x` through the dispersion downstream of it. `propagate_twiss` already ignores that path
+(it multiplies element blocks, and an element's transverse rows never read `delta`'s row); its
+*starting point* (`closed_twiss`, the 2x2 blocks of the full product) and `propagate_coupled_twiss`
+(the local 6x6 map, re-matched at every point) do not. **The user chose the cavity-frozen model
+over a warning or a refusal, and to drop the editor's `rfWarning`.** What it is: the matched
+4D optics are built from the one-turn product of the element matrices with `delta`'s row set
+to the unit row (`delta` a constant of the motion, the standard 4D convention: xtrack's
+`twiss(method="4d")`). Only `RFCavity` has a linear `delta` row, so on a ring whose cavity is
+last, or that has none, every product row the optics read is the same floating-point number as
+before. Changed: `closed_twiss` (and so `tunes`, `natural_chromaticity`, `chromaticity`, the
+radiation integrals, matching, the driven optics, which all start from it), `coupled_twiss`,
+`propagate_coupled_twiss` (and with it `propagate_coupled_twiss_on_orbit`), `propagate_twiss_on_orbit`,
+and the unperturbed optics inside `closest_tune_approach` and the coupling RDTs. In the
+editor: `analyse`'s matched start and stability half-traces, `tunes`, `naturalChromaticity`,
+`sextupoleFeeddown`; `rfWarning` goes.
+
+Orientation facts (measured 2026-10-20 by throwaway probes):
+
+- On all five periodic presets `match_periodic` of the frozen product `==` today's, field for
+  field. No non-cavity element on any preset has a `delta` row other than the unit row.
+- On `electron-ring` with its cavity at element 100 / 50, the frozen optics close on
+  themselves to `2.7e-15` (today `5.9e-3`, `2.8e-2` in beta); they move today's `closed_twiss`
+  optics by `4.6e-3`, `1.65e-2`; `propagate_coupled_twiss` on frozen maps meets `propagate_twiss`
+  to `6.9e-15` at every boundary (today `1.8%` even with the cavity last). With a skew quadrupole
+  added, the frozen 4D block is symplectic to `3.2e-15` (today `4.9e-3`, `1.2e-2`).
+- Against xtrack `twiss(method="4d")` on a thin-lens ring (sector bends, edges off; a 2 MV
+  cavity at element 8, 17 or last; `k1sl = 0` and `0.05`): frozen beta to `5.6e-9` (the same
+  number with the cavity last: xtrack's floor), `D_x` to `6.9e-10`, the coupled beam size to
+  `3.2e-10`, all independent of where the cavity sits. Today's `closed_twiss` misses xtrack 4d by
+  `6.6%`, `9.3%` with the cavity mid-ring. xtrack's 6D twiss differs from its 4D one by `0.7-1.8%`:
+  that is the synchro-betatron optics, a different quantity, which neither model is.
+
+- **Gate 1 — closure.** Uncoupled `electron-ring`, cavity at element 100 and 50:
+  `propagate_twiss(lat, closed_twiss(lat))` returns to its start in `beta_x, beta_y` (relative),
+  `alpha_x, alpha_y, D_x, D_px` (absolute) to `1e-12`.
+- **Gate 2 — the cavity's position does not matter** (coefficient-free). The same two rings'
+  optics at every element boundary equal the cavity-last ring's at the same boundary (the
+  cavity is thin), `rel 1e-12`; tunes and natural chromaticity likewise.
+- **Gate 3 — nothing else moves.** On every periodic preset `closed_twiss` and `coupled_twiss`
+  (where defined) are `==` today's; `propagate_coupled_twiss` is `==` today's on every
+  cavity-free ring; the existing analytic and reference suites pass unchanged, except the one
+  test that pins today's `1.8%`, which flips on purpose (gate 4).
+- **Gate 4 — `propagate_coupled_twiss` is `propagate_twiss`'s model.** Uncoupled `electron-ring`
+  with the cavity last, at 100 and at 50: `beta_1/beta_x`, `beta_2/beta_y` within `1e-12`
+  relative and `D_x` within `1e-12` absolute at every boundary. The editor's gate 4 (beam size
+  from `W` against `coupled_beam_sigma(propagate_coupled_twiss)`) runs on the RF fixtures
+  directly instead of cavity-free copies, at its existing `rtol 1e-9`.
+- **Gate 5 — a coupled ring with its cavity mid-ring.** `electron-ring` + skew (`k1sl = 0.01`),
+  cavity at 100 and 50: `coupled_twiss` returns (today it is matched on a non-symplectic block),
+  and `propagate_coupled_twiss` closes: `beta_1, beta_2` at the end equal the start to `1e-12`.
+- **Gate 6 — xtrack** (reference, one module-scoped line per configuration). The thin-lens
+  ring above, cavity at 8 and 17, `k1sl = 0` and `0.05`: `beta_x, beta_y` (or the coupled
+  beam size) `rel 2e-8`, `D_x` `abs 1e-8`. Control, so the gate can see the change: the old
+  model (2x2 blocks of the full product) misses xtrack's beta by more than `5e-2`.
+- **Gate 7 — the editor.** Uncoupled `electron-ring` with the cavity at 100 and 50: `analyse`'s
+  `twiss0`, boundaries, tunes and chromaticity equal the package's at `rel 1e-9`, the betas close,
+  and there is no `rfWarning`; the page (headless Chrome, own profile and port) shows no
+  `approx.` chip and no "(approximate ...)" plot title, and the console is clean.
+
+Named, not changed here (they read the full 6x6 one-turn map and keep doing so):
+`momentum_compaction` and `synchrotron_tune` (their dispersion on a mid-ring-cavity ring),
+`normal_mode_tunes`, `normal_form(M, "4d")` / `closed_normal_form`, `closed_twiss_on_orbit` and
+`coupled_twiss_on_orbit` (the whole turn's Jacobian, which cannot be frozen after the fact),
+`match_periodic(M)` on a matrix the caller supplies, and the editor's `rf-4d` refusal of a coupled
+ring with its cavity mid-ring (its compaction would come from the full map).
+
+**Shipped 2026-10-20; the entry is complete.** All seven gates passed as pre-committed; no
+tolerance moved. `tests/analytic/test_rf_frozen_optics.py` (gates 1-5) and
+`tests/analytic/test_editor_coupled_optics.py` (gate 4 on the RF fixtures; gate 7 replaces
+`test_an_uncoupled_ring_with_a_cavity_between_the_bends_is_flagged_approximate`): 54 passed in
+about 10 s. `tests/reference/test_rf_frozen_optics_xtrack.py` (gate 6): 4 passed. The full
+suites: analytic 2350 passed, reference 521 passed. The page (headless Chrome, own profile and
+port), `electron-ring` with its cavity at element 100 and at 50: chips `STABLE` only, no
+"(approximate" plot title, console clean, and the same tunes (`5.7814, 5.5747`), chromaticity
+(`-6.419, -6.605`), start betas (`13.07, 2.683 m`) and `D_x` (`1.47 m`) at both positions. The
+compaction tile (`0.03158` vs `0.03208`) and `Q_s` (`0.07149` vs `0.07207`) still differ between
+the two, as named above: they read the full map.
 
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
