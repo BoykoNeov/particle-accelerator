@@ -4121,6 +4121,85 @@ def second_order_chromaticity(
     )
 
 
+def _mode_tune_scan(lattice: Lattice, delta: float, step: float) -> tuple[float, float]:
+    """Central difference of the **full** 4D mode tunes at ``+-delta``.
+
+    At each momentum the maps are the tracked ones on that momentum's closed orbit
+    (:func:`~accsim.orbit.linearised_element_maps`), the 4D normal form is taken of their
+    product, and the tune is :func:`propagate_normal_form`'s accumulated phase over ``2 pi``,
+    so a sample pair straddling a half integer cannot be wrong by an integer. No coupling
+    test is made here: :func:`mode_chromaticity` decides when to call it.
+    """
+    d = _chromatic_step(delta)
+    full = []
+    for s in (+d, -d):
+        maps = _on_orbit_maps(lattice, s, step)
+        one_turn = np.eye(DIM)
+        for m in maps:
+            one_turn = m @ one_turn
+        end = propagate_normal_form(lattice, normal_form(one_turn, method="4d"), maps=maps)[-1]
+        full.append(np.array(end.mu) / (2.0 * math.pi))
+    qp, qm = full
+    # Modes are labelled by the plane each lives in. Near the difference resonance that label
+    # can flip between the two samples, and the difference would then be the tune split, not
+    # a slope: refuse rather than return it.
+    split = abs((qp[0] - qp[1] + 0.5) % 1.0 - 0.5)
+    if float(np.max(np.abs(qp - qm))) > 0.5 * split:
+        raise ValueError(
+            f"mode labels swap between delta = +-{d:g} (tune change {np.abs(qp - qm).max():.3g} "
+            f"against a mode split of {split:.3g}): the ring is too close to the coupling "
+            "resonance for a per-mode slope"
+        )
+    slope = (qp - qm) / (2.0 * d)
+    return float(slope[0]), float(slope[1])
+
+
+def mode_chromaticity(
+    lattice: Lattice, *, delta: float = 1e-4, step: float = 1e-7
+) -> tuple[float, float]:
+    r"""Per-mode chromaticity ``(dQ_1/ddelta, dQ_2/ddelta)`` of a periodic ``lattice``.
+
+    On an x-y coupled ring (a skew quadrupole, a solenoid, a rolled magnet) the betatron
+    motion is two normal modes, not two planes, and each mode's tune moves with momentum at
+    its own rate. That rate is **not** the per-plane chromaticity: on the skew ring of
+    ``tests/analytic/test_mode_chromaticity.py`` mode 1's is 23% away from the uncoupled
+    ``xi_x``, because the coupling mixes in the other plane's chromaticity and the momentum
+    dependence of the betas at the coupling source.
+
+    **On a coupled ring** the full mode tunes (:func:`propagate_normal_form`, 4D) are
+    central-differenced over the tracked maps on the closed orbit at ``+-delta``, the method
+    :func:`chromatic_functions` uses, so every source of momentum dependence the element maps
+    carry is included (the exact drift, the exact bend, a quadrupole's ``k1/(1+delta)``, a
+    solenoid's ``ks/(1+delta)``, a sextupole's feed-down at the dispersion orbit, and the
+    skew feed-down of a sextupole where coupling has made ``D_y``). The step error is
+    ``O(delta^2)``; at the default ``1e-4`` it is below ``1e-8`` on the test rings. Three
+    independent checks hold it: a sympy closed form for one thin skew quadrupole, the limit
+    of the scan onto :func:`chromaticity` on an uncoupled ring, and xtrack's ``dqx``/``dqy``,
+    which on a coupled ring are this quantity.
+
+    **On an uncoupled ring** it returns :func:`chromaticity` unchanged: there the modes are
+    the planes, and the normal form would have to refuse a ring whose two tunes are equal.
+
+    Raises :class:`NotImplementedError` on a coupled ring with a **bending gradient magnet**
+    (a :class:`~accsim.elements.dipole.Dipole` with both ``angle`` and ``k1``): its tracked
+    map lacks the ``(1 + h x)`` metric group (L4, :func:`chromaticity_on_orbit`), so a scan
+    would be wrong by exactly that group. Raises :class:`ValueError` where the mode labels
+    swap between the two momentum samples (too close to the coupling resonance).
+    """
+    from .elements.dipole import Dipole
+
+    if _coupling_norm(lattice.one_turn_matrix()) <= 1e-9:
+        return chromaticity(lattice)
+    for elem in lattice.elements:
+        if isinstance(elem, Dipole) and elem.angle != 0.0 and elem.k1 != 0.0:
+            raise NotImplementedError(
+                f"mode_chromaticity on a coupled ring does not handle the bending gradient "
+                f"magnet {elem.name!r}: its tracked map lacks the (1 + h x) metric group "
+                "(L4), so the momentum scan would be wrong by it"
+            )
+    return _mode_tune_scan(lattice, delta, step)
+
+
 # ---------------------------------------------------------------------------
 # M3: second-order dispersion — where the off-momentum orbit is, past the line
 # ---------------------------------------------------------------------------

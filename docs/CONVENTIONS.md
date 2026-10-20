@@ -6099,6 +6099,38 @@ slices. This is convergence at the trapezoid's own order, **not** a physics gap
 between the analytic and tracked routes; raise `slices` when comparing against a
 reference at better than `1e-4`.
 
+### Per-mode chromaticity on a coupled ring (2026-10-20, `mode_chromaticity`)
+
+`mode_chromaticity(lattice, *, delta=1e-4, step=1e-7)` is `(dQ_1/ddelta, dQ_2/ddelta)`, the
+slope of the two **4D mode** tunes. The choices:
+
+- **On a coupled ring, a momentum scan, not an integral.** The full mode tunes (the
+  accumulated `mu` of `propagate_normal_form`, 4D) are central-differenced over the tracked
+  maps on the closed orbit at `+-delta` (`linearised_element_maps`), the same method
+  `chromatic_functions` uses. A first-order integral would need the momentum dependence of
+  every element written out with the Mais-Ripken functions (cross terms for the skew
+  quadrupole, the solenoid, a sextupole at `D_y`); the scan gets them from the maps. The step
+  error is `O(delta^2)`, below `1e-8` at the default.
+- **On an uncoupled ring it IS `chromaticity()`**, returned unchanged: the modes are the
+  planes there, and a normal form must refuse equal tunes. The scan forced through the
+  coupled machinery on an uncoupled ring meets `chromaticity(slices=n)` at `1/n^2` (the
+  trapezoid above), so the two routes are one number in the limit.
+- **The mode is not the plane.** On the skew test ring mode 1's slope is 23% off the
+  uncoupled `xi_x`. For one thin skew quadrupole the mode tunes have the closed form
+  `cos mu_1,2 = (cos mu_x + cos mu_y)/2 +- (1/2) sqrt((cos mu_x - cos mu_y)^2 + k^2 beta_x
+  beta_y sin mu_x sin mu_y)` (sympy; no `alpha`), and its momentum derivative needs
+  `dbeta/ddelta` at the skew quadrupole as well as the per-plane `xi`: dropping the beta
+  term moves it by `5e-4`. The departure from the plane is second order in the coupling.
+- **xtrack's `dqx`/`dqy` on a coupled ring are this quantity** (its `qx`/`qy` are the mode
+  tunes), agreeing to `1e-6` relative with `rot-kick-rot` bends and exact drifts. Its
+  deprecation warning for `XTRACK_USE_EXACT_DRIFTS` names `config_drift_model`; the method is
+  `configure_drift_model`.
+- **Refused:** a coupled ring with a bending gradient magnet (the tracked map lacks L4's
+  `(1 + h x)` metric group, so the scan would be wrong by it), and a ring so near the
+  coupling resonance that the mode labels swap between the two momentum samples.
+
+Gates: `tests/analytic/test_mode_chromaticity.py`, `tests/reference/test_mode_chromaticity_xtrack.py`.
+
 ## Second-order dispersion (M3 — implemented)
 
 `second_order_dispersion()` reports the off-momentum closed orbit's Taylor expansion

@@ -1311,6 +1311,60 @@ stability test. `tests/analytic/test_coupled_compaction.py` (13 tests),
 functions (308 tests) pass unchanged. A side effect worth knowing: the RF-bucket functions in
 `longitudinal.py` accept a coupled ring now too, since they only need `eta`.
 
+**Change 2's gates (pre-committed 2026-10-20, before any test code).** What it is:
+`mode_chromaticity(lattice, *, delta=1e-4, step=1e-7)` returns `(dQ_1/ddelta, dQ_2/ddelta)`, the
+slope of the two 4D mode tunes with momentum. On a coupled ring it central-differences the
+**full** mode tunes (`propagate_normal_form`'s accumulated `mu` over `linearised_element_maps`
+at `+-delta`, so the maps are the tracked ones on the closed orbit at each momentum: the exact
+drift's and bend's chromaticity are in, as in `chromatic_functions`). On an uncoupled ring it
+returns `chromaticity(lattice)` unchanged: there the two modes are the planes, and the normal
+form must refuse equal tunes (the 2026-10-20 regression). Refused: a coupled ring with a
+**bending gradient magnet** (`Dipole` with `angle` and `k1`), whose tracked map lacks the
+`(1 + h x)` metric group L4 named, so a scan would be wrong by it (no preset has one); a mode
+label that swaps between `+delta` and `-delta`. Fixtures: change 1's skew ring ("bendy"), and the
+same ring with every bend a drift and the thin skew quadrupole `k1sl = 0.05` at the entrance
+("bend-free"; per-plane tunes `0.3706, 0.3947`, modes `0.3607, 0.4074`).
+
+- **Gate 1 — closed form (bend-free ring).** sympy gives, for an uncoupled one-turn map with one
+  thin skew quadrupole at the observation point, `cos mu_1,2 = (cos mu_x + cos mu_y)/2 +- (1/2)
+  sqrt((cos mu_x - cos mu_y)^2 + k^2 beta_x beta_y sin mu_x sin mu_y)` (no `alpha`). Its
+  momentum derivative uses the per-plane `xi` (`chromaticity`, exact on a thin-lens bend-free
+  ring) and `dbeta/ddelta` at the skew quadrupole (`chromatic_functions`); the thin kick has no
+  `delta` and the bend-free closed orbit stays at zero. Measured: closed form `-0.39600114,
+  -0.39806748`, the scan extrapolated to zero step misses it by `1.3e-10, 1.8e-10`. Gate:
+  `mode_chromaticity` at its default step within `1e-8`. **The `dbeta` term is load-bearing**:
+  without it the closed form moves by `4.7e-4, 6.5e-4`.
+- **Gate 2 — the mode is not the plane (bendy ring).** `-0.167256, -0.238061` against the
+  per-plane `-0.135594, -0.242940` of the uncoupled ring: 23% in mode 1. The step error falls as
+  `delta^2`: changes `2.62e-6, 6.54e-7, 1.65e-7` halving from `1e-3` (ratio `4.0`). Gate: ratio
+  in `[3.9, 4.1]` both steps.
+- **Gate 3 — the scan is the integral (uncoupled control).** The scan, forced through the coupled
+  machinery on the uncoupled bendy ring and extrapolated in the step, minus `chromaticity(slices=
+  n)` is `3.41e-7, 8.56e-8, 2.16e-8, 5.66e-9` at `n = 64 ... 512` (ratio `4.0`): the remainder is
+  the integral's trapezoid, so the two routes agree in the limit. Gate: ratio in `[3.9, 4.1]`.
+- **Gate 4 — continuity.** On the bendy ring `(xi_mode - xi_plane) / k1sl^2 = (-8.658, 2.076),
+  (-8.306, 2.096), (-8.223, 2.101), (-8.203, 2.102)` at `k1sl = 0.02 ... 0.0025`: second order.
+  Gate: the last two coefficients agree to `1%`.
+- **Gate 5 — xtrack (reference).** On the bendy ring (thin multipoles, `rot-kick-rot` bends,
+  exact drifts) xtrack's `dqx, dqy` are `-0.167255910, -0.238061261` and its `qx, qy` are the
+  mode tunes; accsim's scan agrees to `1.8e-7, 5.9e-8`, and on the uncoupled ring to `2.6e-8,
+  7.3e-9`. So xtrack's `dqx` IS the mode chromaticity. Gate: `rel 1e-5`.
+- **Gate 6 — refusals and delegation.** The bend-free uncoupled FODO with exactly equal tunes
+  returns `chromaticity()` (no normal form is taken); a coupled ring with a bending gradient
+  magnet raises `NotImplementedError` naming the metric group.
+
+**Change 2 shipped 2026-10-20.** All gates passed as pre-committed on the first run; no
+tolerance moved. `mode_chromaticity` and `_mode_tune_scan` (`src/accsim/twiss.py`),
+`tests/analytic/test_mode_chromaticity.py` (10 tests, about a minute),
+`tests/reference/test_mode_chromaticity_xtrack.py` (2). Two corrections, both in test code: the
+xtrack file's "the mode is not the plane" guard divided the wrong way round (it read `0.189`,
+per-plane over per-mode, against the pre-committed `23%`, per-mode over per-plane, which is
+`0.234`); and xtrack's own deprecation warning names `config_drift_model`, but the method is
+`configure_drift_model`. Calling the wrong name inside the skip-on-JIT-failure block made the
+test **skip**, not fail, so the call now sits outside it. Named, not built: the metric group
+for a bending gradient magnet on a coupled ring (Mais-Ripken `G_xk, A_xk, G_yk` in place of
+the per-plane `gamma, alpha`, the integrand `test_curved_quadrupole.py` gates).
+
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
 not only the Injection tab. Today a ring with a skew quadrupole, a solenoid or a rolled magnet
