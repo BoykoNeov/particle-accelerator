@@ -11829,11 +11829,12 @@ over a warning or a refusal.
   `_on_orbit` form), `propagate_twiss_on_orbit`, and the unperturbed optics in
   `closest_tune_approach` and the coupling RDTs. Editor: `analyse`'s matched start and half-traces,
   `tunes`, `naturalChromaticity`, `sextupoleFeeddown`; `rfWarning` is gone.
-- **Where it did not (named; most of it closed by the next section).** `momentum_compaction` /
-  `synchrotron_tune`, `normal_mode_tunes`, `normal_form(M, "4d")`, `closed_twiss_on_orbit` /
-  `coupled_twiss_on_orbit`, and `match_periodic(M)` on a matrix the caller passes.
+- **Where it did not (named).** `momentum_compaction` / `synchrotron_tune`, `normal_mode_tunes`
+  and the 4D normal form (all closed by the next section); `closed_twiss_on_orbit` /
+  `coupled_twiss_on_orbit` (**still open**: `0.23%` in beta with the cavity at element 100, even
+  unsteered); and `match_periodic(M)` / `normal_form(M)` on a matrix the caller passes (by design).
 
-### The rest of the 4D model holds the cavity fixed (2026-10-20, `tests/analytic/test_rf_frozen_consumers.py`)
+### More of the 4D model holds the cavity fixed (2026-10-20, `tests/analytic/test_rf_frozen_consumers.py`)
 
 **Convention: every fixed-momentum (4D) quantity reads the one-turn product with the cavity held
 fixed; only the 6D normal form reads the full map.** Added to the list above:

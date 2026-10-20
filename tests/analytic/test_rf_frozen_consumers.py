@@ -183,6 +183,12 @@ def _scenarios() -> dict[str, dict]:
             *sc["elements"],
         ]
         out[f"{pid}+skew"] = sc
+    sc = copy.deepcopy(PRESETS["dba-cell"])
+    sc["elements"].insert(1, {"type": "Solenoid", "name": "SOL", "length": 0.5, "ks": 0.2})
+    out["dba-cell+solenoid"] = sc
+    sc = copy.deepcopy(PRESETS["fodo-cell"])
+    sc["elements"][4]["roll"] = 0.05
+    out["fodo-cell+rolled-QD"] = sc
     return out
 
 

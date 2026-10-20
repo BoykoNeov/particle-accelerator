@@ -1678,8 +1678,13 @@ return the skewed number.
   1e-8`. Control: the old identity route (full map) misses by more than `1e-3` where it does not
   raise.
 
-**Change A shipped 2026-10-20.** All six gates passed as pre-committed; no tolerance moved.
-`tests/analytic/test_rf_frozen_consumers.py` (gates 1-4, 39 tests, about 3 s),
+**Change A shipped 2026-10-20.** All six gates passed as pre-committed; no tolerance moved. Gate
+5's console check needed a second pass: the first capture (`--dump-dom` plus Chrome's stderr log)
+could not see a page that deliberately logs an error, so it proved nothing. Re-done through the
+DevTools protocol (own profile and port), where that control page's error and exception are
+both caught: the two mid-ring pages log nothing.
+`tests/analytic/test_rf_frozen_consumers.py` (gates 1-4, 40 tests, about 3 s; gate 4's
+`dba-cell+solenoid` and `fodo-cell+rolled-QD` added after the commit, both `==` as predicted),
 `tests/analytic/test_editor_coupled_optics.py` (gate 5; the `rf-4d` refusal test flipped into
 `test_a_coupled_ring_with_its_cavity_between_the_bends_has_modes`),
 `tests/reference/test_rf_frozen_optics_xtrack.py` (gate 6, 4 more). Full suites: analytic 2393
@@ -1707,6 +1712,13 @@ search: `closed_orbit_path_length` (U1), `second_order_dispersion`, `chromatic_f
 spin's `_closed_state` (N), the Taylor map's expansion point (P1), `propagate_orbit_nonlinear`,
 and the editor's `closedOrbit4` / `modeChromaticity`. That is five shipped axes, so it waits for
 the user's go-ahead.
+
+**Also still on the full map, found after the commit: `closed_twiss_on_orbit` and
+`coupled_twiss_on_orbit`.** They match on `linearised_one_turn_map`, the unfrozen product of the
+on-orbit maps, so even unsteered at `delta = 0` they miss `closed_twiss` by `0.23%` in `beta_x`
+with `electron-ring`'s cavity at 100 (`9e-15` with it last), and disagree with
+`propagate_twiss_on_orbit`'s own start, which freezes. Their maps are per element, so the fix is
+the frozen product; it needs its own gate first.
 
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
