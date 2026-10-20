@@ -1601,6 +1601,83 @@ port), `electron-ring` with its cavity at element 100 and at 50: chips `STABLE` 
 compaction tile (`0.03158` vs `0.03208`) and `Q_s` (`0.07149` vs `0.07207`) still differ between
 the two, as named above: they read the full map.
 
+**Tools — the rest of the 4D model holds the cavity fixed (opened 2026-10-20; the gates below
+were pre-committed before any test code).** The entry above named what it left reading the full
+6x6 one-turn map. Measured on `electron-ring` with its cavity moved to element 100 / 50
+(throwaway probes, 2026-10-20), that is worse than "the two positions differ":
+
+- `momentum_compaction` is `0.031576` / `0.032084` against `0.033294` with the cavity last or
+  absent: **5.2% and 3.6% wrong**, not a small spread. The quadrature route, which starts from the
+  full map's dispersion, moves too (`0.033235`, `0.033282`).
+- `synchrotron_tune` (the lumped formula, built on `eta`) misses the 6D eigen-tune by `-2.5%` /
+  `-1.6%`; with the cavity last it misses by `+0.19%`, its documented `Q_s^2`-order gap.
+- `normal_mode_tunes` and `closed_normal_form(method="4d")` **refuse the ring as unstable**
+  (moduli `1.0024`, `1.0061`), uncoupled or not.
+- With a skew quadrupole (`k1sl = 0.01`) added, `momentum_compaction`, `slip_factor`,
+  `synchrotron_tune` and `mode_chromaticity` all raise `UnstableLatticeError`.
+- The frozen product (`_frozen_one_turn`) gives the cavity-free ring's compaction exactly at
+  every position, and on the thin-lens xtrack ring of `test_rf_frozen_optics_xtrack.py` (cavity at
+  8 and 17, `k1sl = 0` and `0.05`) meets xtrack's 4D `momentum_compaction_factor` to `6.1e-9` and
+  its 4D tunes to `5e-10`, the same as with the cavity last; today's misses by `1.5e-3`, `2.1e-3`,
+  or raises.
+- On every periodic preset and every coupled fixture of `test_editor_coupled_optics.py`, rows 0-4
+  of the frozen product are bit-equal to `one_turn_matrix()`'s, so no shipped number can move.
+
+**This entry is change A: the consumers that read only matrices.** Changed: `momentum_compaction`
+(both routes; `slip_factor`, `transition_gamma`, `synchrotron_tune` follow), `normal_mode_tunes`,
+`closed_normal_form(method="4d")`, `mode_chromaticity`'s coupling test. **Not changed**:
+`Lattice.one_turn_matrix()` / `one_turn_map()` themselves (`orbit.py` reads
+`one_turn_matrix()[DELTA, ZETA] == 0` to decide whether a ring has a cavity, and a frozen map would
+always say no), `closed_normal_form(method="6d")` (the 6D form needs the live cavity), and
+`normal_form(M)` on a matrix the caller supplies. In the editor: `momentumCompaction`,
+`coupledOptics` (all four of its reads: the symplecticity test, `normalForm4`, `disp0`, the
+`zeta` row of `compactionFromDispersion`), so its `rf-4d` refusal and that fallback text in
+`index.html` go; the Injection tab's `modes4` design record.
+
+**Change B, named and not part of this entry: the off-momentum 4D closed orbit.** With the cavity
+mid-ring the 4D closed orbit at fixed `delta` (`closed_orbit(delta=)`, `closed_orbit_nonlinear`,
+the state carried through `linearised_element_maps`) is skewed too: the cavity converts the
+`zeta` slip into `delta` part-way round (`x_co` at `delta = 1e-4` moves 2.7% / 4.1%). Freezing the
+maps alone leaves `mode_chromaticity` on the skew ring at `-6.09` / `-6.19` against `-6.42` with
+the cavity last. It reaches every function built on that orbit, so it is scoped separately
+(caller table, then xtrack's 4D `dqx` with the cavity mid-ring) before any gate is written. Until
+then `mode_chromaticity` on a coupled ring with its cavity mid-ring **refuses** rather than
+return the skewed number.
+
+- **Gate 1 — compaction does not depend on where the cavity sits.** `electron-ring` and
+  `electron-ring` + skew (`k1sl = 0.01`), cavity at 100 and 50: `momentum_compaction` equals the
+  same ring's with the cavity removed at `rel 1e-12`, by both routes; the quadrature-vs-identity
+  miss still falls as `1/n^2` (ratio `3.9` to `4.1` for `n = 32, 64, 128`). Control: today's
+  identity route on the uncoupled ring misses by more than `3e-2`.
+- **Gate 2 — the synchrotron tune.** Same four rings: `synchrotron_tune` equals the cavity-last
+  ring's at `rel 1e-12`, and it meets the 6D eigen-tune (`closed_normal_form(..., "6d")`'s third
+  tune) within `3e-3` (measured `1.9e-3` at 100, `2.4e-3` at 50: the eigen-tune itself moves
+  slightly with position, the lumped formula by design does not). Control: today's uncoupled value
+  misses the eigen-tune by more than `1e-2`.
+- **Gate 3 — the 4D tunes and normal form.** Same four rings: `normal_mode_tunes` and
+  `closed_normal_form(method="4d")`'s tunes and `w` equal the cavity-last ring's (`abs 1e-12`,
+  `w` at `rel 1e-12` of its largest entry); on the uncoupled ring the tunes equal `tunes(lat) mod
+  1` to `1e-12`. `closed_normal_form(method="6d")` is unchanged (`==` today's). `mode_chromaticity`
+  on the skew ring with its cavity mid-ring raises `NotImplementedError` naming change B.
+- **Gate 4 — nothing else moves.** On every periodic preset and coupled fixture:
+  `momentum_compaction` (both routes), `synchrotron_tune` where there is a cavity,
+  `normal_mode_tunes` and `closed_normal_form(method="4d")` where defined are `==` today's; the
+  existing analytic and reference suites pass unchanged except the editor test that pins the
+  `rf-4d` refusal, which flips on purpose (gate 5).
+- **Gate 5 — the editor.** `electron-ring` + skew with the cavity at 100 (the flipped test) and
+  50: `analyse` returns `modes` (no `modesError`), whose boundaries, tunes, dispersion,
+  `alpha_c`, `eta` and `Q_s` equal the package's at the existing `rel 1e-9`, and equal the
+  cavity-last ring's. Uncoupled `electron-ring` with the cavity at 100 and 50: `alpha_c`, `eta`,
+  `gamma_t` and `Q_s` equal the package's at `rel 1e-9`. The Injection tab's design record
+  (`modes4`) on the mid-ring skew ring has the cavity-last ring's tunes at `1e-12`. The page
+  (headless Chrome, own profile and port), uncoupled and skew `electron-ring` with the cavity at
+  50: the compaction tile and `Q_s` show the cavity-last values, no refusal text, console clean.
+- **Gate 6 — xtrack** (reference). The thin-lens ring of `test_rf_frozen_optics_xtrack.py`, cavity
+  at 8 and 17, `k1sl = 0` and `0.05`: `momentum_compaction` against xtrack 4D
+  `momentum_compaction_factor` at `rel 2e-8`; `normal_mode_tunes` against `qx, qy mod 1` at `abs
+  1e-8`. Control: the old identity route (full map) misses by more than `1e-3` where it does not
+  raise.
+
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
 not only the Injection tab. Today a ring with a skew quadrupole, a solenoid or a rolled magnet
