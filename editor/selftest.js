@@ -36,6 +36,23 @@ function run(scenario) {
   out.Qs = a.Qs == null ? null : a.Qs;
   out.closedOrbit0 = a.closedOrbit0 || null;
   out.orbit = a.orbit ? a.orbit.map((p) => p.o) : null;
+  out.modesError = a.modesError || null;
+  out.modes = null;
+  if (a.modes) {
+    const m = a.modes;
+    out.modes = {
+      tunes: m.tunes, fractional: m.fractional, W0: m.W0, disp0: m.disp0,
+      alpha_c: m.alpha_c, eta: m.eta, gamma_t: m.gamma_t, Qs: m.Qs, QsError: m.QsError,
+      boundaries: m.boundaries.map((p) => ({ s: p.s, elem: p.elem, W: p.W, mu: p.mu, B: p.B, A: p.A, disp: p.disp })),
+      sigma: O.modeSigma(m.boundaries, scenario.beam || {}),
+    };
+  }
+  // modeSigma on the per-plane Twiss of an UNCOUPLED ring (B diagonal): today's envelope.
+  if (process.argv.includes("--uncoupled-sigma") && a.twissBoundaries) {
+    out.uncoupledSigma = O.modeSigma(a.twissBoundaries.map((p) => ({
+      B: [[p.beta_x, 0.0], [0.0, p.beta_y]], disp: [p.disp_x, p.disp_px, p.disp_y, p.disp_py],
+    })), scenario.beam || {});
+  }
   return out;
 }
 

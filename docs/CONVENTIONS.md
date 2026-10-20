@@ -11748,6 +11748,45 @@ about the 6D closed orbit**, not of the design matrix. A ring without RF keeps t
   quotes beside the 6D dispersion, and the `sampler: "4d"` control). The 4D path moved onto
   its orbit on 2026-10-20 (next section).
 
+### Coupled rings in the main view (2026-10-20, `modes`, `tests/analytic/test_editor_coupled_optics.py`)
+
+A periodic ring whose **design** map couples `x` and `y` keeps `opticsError.code = "coupled"`
+and an empty per-plane record (`twiss0`, `tunes`, `chromaticity`, `alpha_c`, `Qs` stay null, so
+nothing that reads them changes meaning by accident), and gets `analyse(...).modes`:
+
+- **`propagateNormalForm4`** (`editor/accsim-optics.js`) is a port of `propagate_normal_form` for
+  a 4D form: the transverse block of the **running 6x6 product** times `W(0)`, put back into the
+  phase convention by `rephase4` (`_rephase`), the removed angle unwrapped by the package's rule
+  (`mu += ((phi - prev + pi) mod 2 pi) - pi`, Python's non-negative `mod`), so the end point's
+  `mu / 2 pi` is the **full** mode tune. Each point carries the Mais-Ripken `B[plane][mode]`,
+  `A[plane][mode]` and the 4D dispersion carried through the element. Held to the package at
+  `1e-11` of `max |W|` (gate 1).
+- **`coupledOptics`** adds the matched 4D dispersion, the full and fractional mode tunes, and
+  `alpha_c`, `eta`, `gamma_t`, `Q_s` through `compactionFromDispersion`, which now carries the
+  vertical pair `R53 D_y + R54 D_py` for every ring (added last: a flat uncoupled ring's number
+  does not move by a bit). A failed form gives `modesError` (`degenerate` at equal tunes,
+  `unstable`); a coupled **line** stays refused (no coupled initial conditions in the format).
+- **`modeSigma(points, beam)`** is each lab plane's size, `sigma_x^2 = eps_1 B_x1 + eps_2 B_x2 +
+  (D_x sigma_delta)^2`, with the scenario's `emit_x, emit_y` read as the two **mode**
+  emittances (the inspector relabels them `ε₁`, `ε₂` on a coupled ring). On an uncoupled ring it
+  is today's envelope.
+- **The page (the user's choice):** on a coupled ring the Optics tab opens on each plane's
+  **beam size** with both modes in it; a `beam size | mode β` toggle beside the tabs switches it
+  to each mode's own beta (`B_x1`, `B_y2`) with the cross-plane parts (`B_x2`, `B_y1`) dashed.
+  The Beam size tab is always the per-plane size. The tiles read the mode tunes, compaction and
+  `Q_s`; the chromaticity tile, the animation (still off: it is per-plane kinematics) and the
+  Injection tab are change 4's.
+- **The second route to the beam size holds only without a cavity.** `coupled_beam_sigma(
+  propagate_coupled_twiss(...))` re-matches the transverse block of the **local 6x6** one-turn
+  map at every point. With a cavity that block carries the RF slope through the dispersion (the
+  `T_x,delta M_delta,zeta (T^-1)_zeta,x` term), which the 4D optics, the per-plane
+  `propagate_twiss` and the editor all leave out: on the **uncoupled** `electron-ring` its
+  `beta_1` misses `propagate_twiss`'s `beta_x` by 1.8% downstream of the first bend (exactly at
+  the entrance, where the local map is the one-turn map), and by `6e-15` with the cavity
+  removed. So gate 4 compares on cavity-free copies, and the package's `propagate_coupled_twiss`
+  is a different model from `propagate_twiss` on a ring with RF; that is a package finding,
+  pinned by a test, not changed here.
+
 ### The 4D path on its orbit, and coupled rings (2026-10-20, `normalForm4`, `tests/analytic/test_injection_4d_orbit.py`)
 
 A ring **without RF** is now drawn and read the way the cavity path is, one dimension down:

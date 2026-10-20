@@ -1365,6 +1365,76 @@ test **skip**, not fail, so the call now sits outside it. Named, not built: the 
 for a bending gradient magnet on a coupled ring (Mais-Ripken `G_xk, A_xk, G_yk` in place of
 the per-plane `gamma, alpha`, the integrand `test_curved_quadrupole.py` gates).
 
+**Change 3's gates (pre-committed 2026-10-20, before any test code).** What it is: on a
+periodic ring whose design map is coupled, `analyse` (`editor/accsim-optics.js`) keeps
+`opticsError.code = "coupled"` and every per-plane field empty (so the Injection tab, the
+animation and the teaching layer, which read those, cannot change meaning before change 4), and
+adds `modes`: the 4D normal form propagated element by element (`propagateNormalForm4`, a port of
+`propagate_normal_form`: running 6x6 product, `_rephase`, `mu` unwrapped by the same rule), the
+Mais-Ripken `B, A` at every point, the full mode tunes, the 4D dispersion carried through each
+element, and `alpha_c`, `eta`, `gamma_t`, `Q_s` from change 1's identity (the JS
+`momentumCompaction` gains the vertical pair; on every flat uncoupled ring `D_y = 0` exactly, so
+it does not move by a bit). A failed normal form leaves `modesError` (`degenerate`, `unstable`)
+instead. A coupled **line** stays refused. The page: the Envelope tab draws each lab plane's rms
+size with both modes, `sigma_x^2 = eps_1 B_x1 + eps_2 B_x2 + (D_x sigma_delta)^2` (the scenario's
+`emit_x, emit_y` read as the two mode emittances), from a core helper `modeSigma`; the Optics tab
+draws each mode's own beta (`B_x1`, `B_y2`) with the cross-plane parts (`B_x2`, `B_y1`) dashed;
+the tiles show mode tunes, compaction and `Q_s`; the chromaticity tile waits for change 4.
+Fixtures (probed in Python): `electron-ring` and `kicked-ring` with a thin skew quadrupole
+`k1sl = 0.01` after element 5 (full tunes `5.7815, 5.5746`, `D_y = 1.07` cm), `wiggler-ring` the
+same (`5.8066, 5.6752`), `dba-cell` with a solenoid `0.5` m, `ks = 0.2` after element 1
+(`0.5820, 0.2757`), and `fodo-cell` with its `QD` rolled `0.05` rad (`0.2246, 0.1901`; the
+strongest, `B_x2` up to `5.26` m, `D_y = 0.19` m).
+
+- **Gate 1 — the port, along the ring.** At every element boundary `W(s)` against
+  `propagate_normal_form(lat, normal_form(M, "4d"))` to `1e-11` of `max |W|`, `mu` to `1e-9` rad,
+  the full tunes to `1e-10`, `B` and `A` to `rtol 1e-9` (`atol 1e-12` of the largest).
+- **Gate 2 — the dispersion along the ring**, against `_matched_dispersion` carried through the
+  package's element matrices: `rtol 1e-9`, `atol 1e-12` of `max |D|`.
+- **Gate 3 — compaction, `eta`, `gamma_t`, `Q_s`** against the package's (change 1) to `rel
+  1e-9`; on the rolled-`QD` cell the vertical pair is more than `1e3` times that floor.
+- **Gate 4 — the beam size by a second parameterisation.** `modeSigma` at every boundary
+  against `coupled_beam_sigma(propagate_coupled_twiss(lat), eps_1, eps_2, sigma_delta)`, which
+  builds `sigma` from the Edwards-Teng `gamma_c, C, beta_1, beta_2` rather than from `W`:
+  `rtol 1e-9`. On an uncoupled preset `modeSigma` of the per-plane Twiss is today's envelope.
+- **Gate 5 — nothing else moves.** Uncoupled presets carry no `modes`, and every field
+  `test_editor_core_matches_accsim` checks still matches (it runs unchanged); on each coupled
+  fixture `opticsError.code` is still `coupled` and `twiss0`, `tunes`, `chromaticity`, `alpha_c`,
+  `Qs` are still null.
+- **Gate 6 — the threshold, both sides.** Continuity: on `electron-ring` with `k1sl = 1e-4, 5e-5,
+  2.5e-5` the mode betas miss the uncoupled betas by `2.03e-7, 5.07e-8, 1.27e-8` relative and the
+  tunes by `1.23e-8, 3.07e-9, 7.68e-10` (second order, ratio `4.00`); gate the ratio in `[3.9,
+  4.1]`. Degenerate: a bend-free thin FODO with exactly equal tunes and a skew `k1sl = 1e-8`
+  (off-block above `1e-9`, the two `cos mu` closer than `1e-6`) gives `modesError.code =
+  "degenerate"` and no `modes`; the page says why.
+- **Gate 7 — the page** (headless Chrome on its own profile and port, as for the 4D-orbit
+  entry): on the rolled-`QD` cell the Optics and Envelope tabs draw curves with no error message,
+  the tune tile reads the mode tunes, and the browser console is clean.
+
+**Change 3 shipped 2026-10-20.** Gates 1, 2, 3, 5, 6 and 7 passed as pre-committed on the first
+run; no tolerance moved. `tests/analytic/test_editor_coupled_optics.py` (33 tests, about 4 s);
+the eight editor-facing analytic files (146 tests) pass unchanged. What changed between
+pre-commitment and code:
+
+- **Gate 4's second route is a different model on a ring with a cavity.** On the two RF
+  fixtures `modeSigma` and `coupled_beam_sigma(propagate_coupled_twiss)` parted by up to 21%
+  from the first bend on; on the three without RF they agreed to round-off. Localised: the
+  package's Edwards-Teng propagation re-matches the transverse block of the local 6x6 one-turn
+  map, which with RF carries the cavity's slope through the dispersion. It misses the package's
+  own `propagate_twiss` by 1.8% on the **uncoupled** `electron-ring` and by `6e-15` without its
+  cavity. Gate 4 now compares on cavity-free copies of all five fixtures, and a test pins the
+  finding. The package function is left as it is (not this change's subject); whether
+  `propagate_coupled_twiss` should take the 4D block of the transport instead is a named follow-up.
+- **The page's first view changed, by the user's decision.** As built, the Optics tab showed the
+  mode betas and the Beam size tab the per-plane size. A side agent pointed out that the user
+  had asked for beam size per plane **first, with a toggle**; asked, the user confirmed it. On a
+  coupled ring the Optics tab now opens on each plane's size (both modes), with a `beam size |
+  mode β` toggle beside the tabs. The inspector labels the emittances `ε₁`, `ε₂` there.
+- **The teaching text moved into this change from change 4.** The element notes, the
+  `err:coupled` entry and the guide strip said the editor "stops drawing" coupled optics, which
+  this change makes false; they were rewritten here and an `err:degenerate` entry added.
+  Change 4 keeps the Injection tab, the chromaticity and the animation.
+
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
 not only the Injection tab. Today a ring with a skew quadrupole, a solenoid or a rolled magnet

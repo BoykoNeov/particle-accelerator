@@ -87,8 +87,8 @@
       t: "Skew quadrupole — the coupler",
       b: { n: "tilts sideways motion into up-and-down", s: "couples the planes", p: "half-sum/half-difference of focusingBlock(±k₁ₛ)" },
       n: "A quadrupole rotated by 45°. Instead of squeezing left–right or up–down, it tips the two directions into each other: kick the beam sideways and it starts moving up and down too. Usually unwanted, sometimes deliberate.",
-      s: "Strength k₁ₛ [1/m²]. It couples x and y, and once the planes are coupled the ordinary uncoupled Twiss functions are no longer the right description — so the editor stops drawing β and dispersion and leaves you the geometry, the matrices and the orbit. accsim's coupled_twiss (Edwards–Teng) handles it in Python.",
-      p: "Half-sum and half-difference of focusingBlock(±k₁ₛ, L) on the diagonal and off-diagonal 2×2 blocks. The editor flags coupling when the off-diagonal norm of the one-turn map exceeds 1e-9; normal-mode tunes, ΔQ_min and the ε_y sharing are the G1/G2 milestones in Python.",
+      s: "Strength k₁ₛ [1/m²]. It couples x and y, and once the planes are coupled the ordinary uncoupled Twiss functions are no longer the right description — so on a ring the editor draws the two normal modes instead: each mode's β (the cross-plane part dashed), the beam's width and height with both modes in it, and the mode tunes.",
+      p: "Half-sum and half-difference of focusingBlock(±k₁ₛ, L) on the diagonal and off-diagonal 2×2 blocks. The editor flags coupling when the off-diagonal norm of the one-turn map exceeds 1e-9 and then carries the 4D normal form round the ring (Mais–Ripken B, mode tunes, propagate_normal_form); ΔQ_min and the ε_y sharing are the G1/G2 milestones in Python.",
     },
     ThinSkewQuadrupole: {
       t: "Thin skew quadrupole",
@@ -101,7 +101,7 @@
       t: "Solenoid",
       b: { n: "a coil that makes the beam corkscrew", s: "field along the beam", p: "rotating-frame map with K = kₛ/2" },
       n: "A coil wrapped around the beam pipe with its field pointing along the beam. Everything going through it rotates — the beam corkscrews. The big detectors at colliders sit inside one, which is why their optics is such a nuisance.",
-      s: "Strength kₛ [rad/m]; the beam is rotated by kₛL/2 on the way through, and it focuses in both planes at once. Because it rotates, it couples x and y, so as with a skew quadrupole the editor stops drawing the uncoupled optics.",
+      s: "Strength kₛ [rad/m]; the beam is rotated by kₛL/2 on the way through, and it focuses in both planes at once. Because it rotates, it couples x and y, so as with a skew quadrupole the editor draws the ring's two normal modes instead of the uncoupled optics.",
       p: "Standard rotating-frame map with K = kₛ/2. kₛ is charge-free in both accsim and xtrack (the sign lives in the strength, not the species); its vector potential is what the spin map needs.",
     },
     Wiggler: {
@@ -319,7 +319,7 @@
     "p:k1s": {
       t: "Skew strength k₁ₛ",
       n: "How hard this tilted lens mixes side-to-side motion into up-and-down motion.",
-      s: "k₁ₛ [1/m²]. Any non-zero value couples the planes, and the editor then refuses to draw uncoupled β and dispersion because they would be wrong.",
+      s: "k₁ₛ [1/m²]. Any non-zero value couples the planes; the uncoupled β would be wrong, so on a ring the editor draws the normal-mode optics instead.",
       p: "Sets the off-diagonal blocks. The coupling strength that matters physically is the driving term |C⁻|, whose ΔQ_min and ε_y sharing accsim computes in Python (milestone G1).",
     },
     "p:k1sl": {
@@ -546,9 +546,15 @@
     },
     "err:coupled": {
       t: "The planes are coupled",
-      n: "Something in the machine tips side-to-side motion into up-and-down motion — a tilted lens, a solenoid, or a rotated magnet. Once that happens, 'how wide sideways' and 'how wide vertically' are no longer separate questions, and this editor does not draw them. The geometry, the matrices and the orbit are still right, and the Injection tab still works: it follows the ring's own mixed motions.",
-      s: "A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant–Snyder optics would be wrong. accsim's coupled_twiss handles it in Python; the editor shows the geometry, the matrices and the orbit, and the Injection tab matches and measures the beam in the ring's normal modes.",
-      p: "The off-diagonal norm of the one-turn map exceeds 1e-9. Edwards–Teng (milestone G2) is the Python route; normal-mode tunes, ΔQ_min and the ε_y sharing come with it. The Injection tab uses the one-turn map's 4D normal form (6D with a cavity) at the injection point; per-mode chromaticity and the optics along the ring are not in the editor yet.",
+      n: "Something in the machine tips side-to-side motion into up-and-down motion — a tilted lens, a solenoid, or a rotated magnet. Once that happens, 'how wide sideways' and 'how wide vertically' are no longer separate questions. On a ring the editor draws the two mixed motions instead; on a beamline (which has no repeating shape to find) it does not, and the geometry, the matrices and the trajectory are what is left.",
+      s: "A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant–Snyder optics would be wrong. On a ring the editor draws the normal modes; a coupled beamline would need coupled initial conditions, which the scenario format does not carry, so it shows the geometry, the matrices and the trajectory.",
+      p: "The off-diagonal norm of the one-turn map exceeds 1e-9. Edwards–Teng (milestone G2) is the Python route; normal-mode tunes, ΔQ_min and the ε_y sharing come with it. On a ring the main view propagates the one-turn map's 4D normal form element by element (propagateNormalForm4); a line has no periodic form to start from.",
+    },
+    "err:degenerate": {
+      t: "Coupled at equal tunes",
+      n: "The machine mixes the two directions, and its two natural motions repeat at the same rate, so they cannot be told apart. Change one lens strength a little and the two motions separate again.",
+      s: "The ring is coupled and its two tunes are (nearly) equal: on the coupling resonance the two normal modes cannot be separated, so there are no mode β functions to draw. Move a tune slightly.",
+      p: "normalForm4 refuses two cos μ closer than 1e-6: its projectors divide by their difference. The uncoupled route needs an off-block norm below 1e-9, so a weakly coupled ring at equal tunes has neither.",
     },
     "err:resonant": {
       t: "Integer tune",
@@ -660,7 +666,11 @@
         ? `This is a <b>ring</b> ${fmt(r.length, 4)} m around: the beam comes back to the start and goes again.`
         : `This is a <b>beamline</b> ${fmt(r.length, 4)} m long: the beam goes through once and leaves.`);
       if (bends) bits.push(`${bends} bending magnet${bends > 1 ? "s" : ""} steer${bends > 1 ? "" : "s"} it and ${quads} lens${quads === 1 ? "" : "es"} keep${quads === 1 ? "s" : ""} it from spreading out.`);
-      if (r.opticsError) {
+      if (r.modes) {
+        let bmax = 0, bs = 0;
+        for (const p of r.modes.points) { const b = Math.max(p.B[0][0], p.B[1][1]); if (b > bmax) { bmax = b; bs = p.s; } }
+        bits.push(`Something in it mixes sideways and vertical motion, so the curves show the ring's two mixed motions and the beam's real width and height. It swings widest about ${fmt(bs, 3)} m along.`);
+      } else if (r.opticsError) {
         bits.push(r.opticsError.code === "coupled"
           ? "Something in it mixes sideways and vertical motion, so the beam-shape curves are switched off — the floor plan, the orbit and the Injection tab still work."
           : "Right now the focusing does not settle into a repeating shape, so there are no curves to draw. Try weakening a lens.");
@@ -671,7 +681,12 @@
       }
     } else if (level === "student") {
       bits.push(ring ? `Ring, C = ${fmt(r.length, 5)} m, ${n} elements.` : `Line, L = ${fmt(r.length, 5)} m, ${n} elements.`);
-      if (r.opticsError) bits.push(`No matched optics: <b>${r.opticsError.code}</b> — ${r.opticsError.message}.`);
+      if (r.modes) {
+        let b1 = 0, b2 = 0;
+        for (const p of r.modes.points) { if (p.B[0][0] > b1) b1 = p.B[0][0]; if (p.B[1][1] > b2) b2 = p.B[1][1]; }
+        bits.push(`Coupled ring: the mode tunes are Q₁ = ${fmt(r.modes.tunes[0], 5)} and Q₂ = ${fmt(r.modes.tunes[1], 5)}, and each mode's own β peaks at ${fmt(b1, 4)} m (mode 1, x) and ${fmt(b2, 4)} m (mode 2, y).`);
+        if (ring && r.modes.eta != null) bits.push(`η = ${fmt(r.modes.eta, 3)}, so a higher-momentum particle arrives ${r.modes.eta > 0 ? "later" : "earlier"} each lap.`);
+      } else if (r.opticsError) bits.push(`No matched optics: <b>${r.opticsError.code}</b> — ${r.opticsError.message}.`);
       else if (r.twiss) {
         let bx = 0, by = 0, dmin = Infinity, dmax = -Infinity;
         for (const p of r.twiss) { if (p.beta_x > bx) bx = p.beta_x; if (p.beta_y > by) by = p.beta_y; if (p.disp_x < dmin) dmin = p.disp_x; if (p.disp_x > dmax) dmax = p.disp_x; }
@@ -691,7 +706,10 @@
         const res = r.totalAngle - 2 * Math.PI;
         bits.push(`Σθ − 2π = ${fmt(Math.abs(r.totalAngle) < 1e-12 ? 0 : res, 3)} rad`);
       }
-      if (r.opticsError) bits.push(`opticsError: ${r.opticsError.code} — ${r.opticsError.message}`);
+      if (r.modes) {
+        bits.push(`modes Q = (${fmt(r.modes.tunes[0], 6)}, ${fmt(r.modes.tunes[1], 6)})`, `α_c = ${fmt(r.modes.alpha_c, 5)}, η = ${fmt(r.modes.eta, 5)}`);
+        if (r.modes.Qs != null) bits.push(`Q_s = ${fmt(r.modes.Qs, 5)}`);
+      } else if (r.opticsError) bits.push(`opticsError: ${(r.modesError || r.opticsError).code} — ${(r.modesError || r.opticsError).message}`);
       else if (r.tunes) {
         bits.push(`Q = (${fmt(r.tunes[0], 6)}, ${fmt(r.tunes[1], 6)})`);
         if (r.chromaticity) bits.push(`ξ = (${fmt(r.chromaticity[0], 5)}, ${fmt(r.chromaticity[1], 5)}), natural (${fmt(r.naturalChromaticity[0], 5)}, ${fmt(r.naturalChromaticity[1], 5)})`);

@@ -741,6 +741,116 @@
     });
     return points;
   }
+  /** ((a mod m) + m) mod m: Python's % for the phase unwrap below. */
+  function pmod(a, m) { return ((a % m) + m) % m; }
+  /**
+   * accsim.twiss._rephase for a 4x4 A: rotate each mode's column pair so the mode's own-plane
+   * position entry is real and positive (NormalForm's phase convention). Returns the rotated W
+   * and the angle removed per mode, phi = atan2(A[2p][2p+1], A[2p][2p]).
+   */
+  function rephase4(A) {
+    const W = A.map((row) => row.slice());
+    const phi = [0.0, 0.0];
+    for (let p = 0; p < 2; p++) {
+      const c = A[2 * p][2 * p], s = A[2 * p][2 * p + 1];
+      const r = Math.hypot(c, s);
+      let big = 0.0;
+      for (let i = 0; i < 4; i++) big = Math.max(big, Math.abs(A[i][2 * p]), Math.abs(A[i][2 * p + 1]));
+      if (r <= 1e-10 * (big + 1e-300)) { // the package's _DEGENERATE_NORM
+        const e = new Error(`mode ${p + 1} carries no position in its own plane here: the phase convention has nothing to rotate onto the real axis`);
+        e.code = "degenerate";
+        throw e;
+      }
+      phi[p] = Math.atan2(s, c);
+      const cosT = c / r, sinT = -s / r;
+      for (let i = 0; i < 4; i++) {
+        const b0 = A[i][2 * p], b1 = A[i][2 * p + 1];
+        W[i][2 * p] = b0 * cosT - b1 * sinT;
+        W[i][2 * p + 1] = b0 * sinT + b1 * cosT;
+      }
+    }
+    return { W, phi };
+  }
+  /** Mais-Ripken B[plane][mode], A[plane][mode] of a 4D W (accsim.twiss._ripken_betas/_alphas). */
+  function ripken(W) {
+    const B = [[0, 0], [0, 0]], Al = [[0, 0], [0, 0]];
+    for (let p = 0; p < 2; p++) for (let m = 0; m < 2; m++) {
+      B[p][m] = W[2 * p][2 * m] ** 2 + W[2 * p][2 * m + 1] ** 2;
+      Al[p][m] = -(W[2 * p][2 * m] * W[2 * p + 1][2 * m] + W[2 * p][2 * m + 1] * W[2 * p + 1][2 * m + 1]);
+    }
+    return { B, A: Al };
+  }
+  /**
+   * The 4D normal form at every element boundary (accsim.twiss.propagate_normal_form with a
+   * method="4d" form): W(s) = M(0 -> s) W(0) D(s), the transport the transverse block of the
+   * RUNNING 6x6 product (as the package takes it), D(s) the per-mode rotation back into the
+   * phase convention, and the angle D removes accumulated into mu (unwrapped exactly as the
+   * package does, so the end point's mu / 2 pi is the FULL mode tune). Each point also carries
+   * the Mais-Ripken B and A and the 4D dispersion carried through the element (as
+   * propagateTwiss carries it). `slicesFor` sub-slices thick elements for a smooth plot; the
+   * boundary values do not depend on it.
+   */
+  function propagateNormalForm4(elements, ref, nf0, disp0, slicesFor) {
+    const point = (s, elem, W, mu, disp) => Object.assign({ s, elem, W, mu: mu.slice(), disp: disp.slice(),
+      disp_x: disp[0], disp_px: disp[1], disp_y: disp[2], disp_py: disp[3] }, ripken(W));
+    const points = [point(0.0, -1, nf0.W, [0.0, 0.0], disp0)];
+    let transfer = eye(6), s = 0.0, disp = disp0.slice();
+    const mu = [0.0, 0.0];
+    let previous = [0.0, 0.0];
+    elements.forEach((el, i) => {
+      const pieces = slicesFor ? sliceElement(el, slicesFor(el)) : [el];
+      for (const piece of pieces) {
+        const M = elementMatrix(piece, ref);
+        transfer = matmul(M, transfer);
+        s += elementLength(piece);
+        const { W, phi } = rephase4(matmul(transverse4(transfer), nf0.W));
+        for (let p = 0; p < 2; p++) mu[p] += pmod(phi[p] - previous[p] + Math.PI, TWO_PI) - Math.PI;
+        previous = phi;
+        disp = vadd(matvec(transverse4(M), disp), dispersiveKick(M));
+        points.push(point(s, i, W, mu, disp));
+      }
+    });
+    return points;
+  }
+  /**
+   * Each lab plane's rms beam size where the planes are coupled (accsim.twiss.coupled_beam_sigma
+   * by the Mais-Ripken route): sigma_x^2 = eps_1 B_x1 + eps_2 B_x2 + (D_x sigma_delta)^2, and
+   * the same in y, with the scenario's emit_x, emit_y read as the two MODE emittances. On an
+   * uncoupled ring B_x2 = B_y1 = 0 and this is the per-plane envelope.
+   */
+  function modeSigma(points, beam) {
+    const e1 = +beam.emit_x || 0.0, e2 = +beam.emit_y || 0.0, sd = +beam.sigma_delta || 0.0;
+    const one = (p, pl) => Math.sqrt(Math.max(0.0, e1 * p.B[pl][0] + e2 * p.B[pl][1] + (sd * p.disp[2 * pl]) ** 2));
+    return { x: points.map((p) => one(p, 0)), y: points.map((p) => one(p, 1)) };
+  }
+  /**
+   * The main view's record for a periodic ring whose design map is x-y coupled: the 4D normal
+   * form of the one-turn transverse block (normalForm4), carried along the ring; the full mode
+   * tunes; the matched 4D dispersion (I - M4)^-1 d; and the compaction, eta, gamma_t and Q_s on
+   * it (accsim.twiss.momentum_compaction / synchrotron_tune on a coupled ring). Throws (codes
+   * "degenerate", "unstable", "resonant") where the ring has no such record.
+   */
+  function coupledOptics(elements, ref, M, slicesFor) {
+    const m4 = transverse4(M);
+    const nf = normalForm4(m4);
+    const disp0 = solve(eye(4).map((row, i) => row.map((v, j) => v - m4[i][j])), dispersiveKick(M));
+    if (disp0 === null) { const e = new Error("integer tune: dispersion does not close"); e.code = "resonant"; throw e; }
+    const boundaries = propagateNormalForm4(elements, ref, nf, disp0);
+    const end = boundaries[boundaries.length - 1];
+    const C = elements.reduce((s, el) => s + elementLength(el), 0.0);
+    const alpha_c = compactionFromDispersion(M, disp0, C, ref);
+    const eta = alpha_c - 1.0 / (ref.gamma0 * ref.gamma0);
+    const out = {
+      W0: nf.W, fractional: nf.tunes, tunes: end.mu.map((m) => m / TWO_PI), disp0,
+      points: slicesFor ? propagateNormalForm4(elements, ref, nf, disp0, slicesFor) : boundaries,
+      boundaries, alpha_c, eta, gamma_t: alpha_c > 0 ? 1.0 / Math.sqrt(alpha_c) : null, Qs: null, QsError: null,
+    };
+    if (elements.some((el) => el.type === "RFCavity")) {
+      try { out.Qs = synchrotronTune(elements, ref, eta); }
+      catch (e) { out.QsError = e.message; }
+    }
+    return out;
+  }
   function tunes(elements, ref) {
     const { M } = transferMap(elements, ref);
     const tw0 = matchPeriodic(M);
@@ -876,22 +986,33 @@
   }
 
   // ------------------------------------------------------------ longitudinal
+  /**
+   * The identity alpha_c = 1/gamma0^2 - (R51 D_x + R52 D_px + R56 + R53 D_y + R54 D_py) / C on
+   * the matched dispersion D, in the package's order of operations (the vertical pair added
+   * last, so a flat uncoupled ring, where D_y = D_py = 0 exactly, does not move by a bit). On a
+   * coupled ring D_x leaks into D_y and the pair is not optional.
+   */
+  function compactionFromDispersion(M, D, C, ref) {
+    let slip = M[ZETA][X] * D[0] + M[ZETA][PX] * D[1] + M[ZETA][DELTA];
+    slip += M[ZETA][Y] * D[2] + M[ZETA][PY] * D[3];
+    return 1.0 / (ref.gamma0 * ref.gamma0) - slip / C;
+  }
   /** accsim.twiss.momentum_compaction, the exact "identity" route. */
   function momentumCompaction(elements, ref) {
     const { M } = transferMap(elements, ref);
     const tw0 = matchPeriodic(M);
     const C = elements.reduce((s, el) => s + elementLength(el), 0.0);
-    const slip = M[ZETA][X] * tw0.disp_x + M[ZETA][PX] * tw0.disp_px + M[ZETA][DELTA];
-    return 1.0 / (ref.gamma0 * ref.gamma0) - slip / C;
+    return compactionFromDispersion(M, [tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py], C, ref);
   }
   function slipFactor(elements, ref) {
     return momentumCompaction(elements, ref) - 1.0 / (ref.gamma0 * ref.gamma0);
   }
-  /** accsim.twiss.synchrotron_tune (lumped-cavity small-amplitude formula). */
-  function synchrotronTune(elements, ref) {
+  /** accsim.twiss.synchrotron_tune (lumped-cavity small-amplitude formula). `eta` defaults to
+   *  slipFactor's, which a coupled ring cannot give (coupledOptics passes its own). */
+  function synchrotronTune(elements, ref, eta) {
     const cavities = elements.filter((el) => el.type === "RFCavity");
     if (cavities.length === 0) return null;
-    const eta = slipFactor(elements, ref);
+    if (eta == null) eta = slipFactor(elements, ref);
     const C = elements.reduce((s, el) => s + elementLength(el), 0.0);
     const r65 = cavities.reduce((s, c) => s + rfSlope(c, ref), 0.0);
     const half = 1.0 - 0.5 * r65 * eta * C;
@@ -1029,6 +1150,12 @@
         catch (e) { out.Qs = null; out.warnings.push(e.message); }
       }
     }
+    // A coupled RING keeps opticsError "coupled" and every per-plane field empty (what reads
+    // them must not change meaning by accident), and gets its main-view record in `modes`.
+    if (periodic && out.opticsError && out.opticsError.code === "coupled") {
+      try { out.modes = coupledOptics(els, ref, M, slicesFor); }
+      catch (e) { out.modesError = { code: e.code || "error", message: e.message }; }
+    }
     // Closed orbit from correctors / misalignments (ring) or trajectory (line).
     const anyKick = k.slice(0, 4).some((v) => v !== 0.0);
     out.hasKicks = anyKick;
@@ -1051,6 +1178,7 @@
     elementMatrix, elementKick, transferMap, matchPeriodic, propagateTwiss, tunes,
     naturalChromaticity, sextupoleFeeddown, chromaticity, momentumCompaction, slipFactor,
     synchrotronTune, closedOrbit, propagateOrbit, survey, sliceElement, analyse, normalForm6, normalForm4,
+    propagateNormalForm4, coupledOptics, modeSigma, compactionFromDispersion,
     _linalg: { eye, matmul, matvec, solve },
   };
 });

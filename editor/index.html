@@ -254,6 +254,8 @@
   #animbar { display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 11.5px; padding-bottom: 6px; margin-right: 4px; }
   #animbar input[type="range"] { width: 84px; }
   #animbar label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  #coupledview { align-self: center; margin: 0 0 6px 10px; font-size: 11.5px; flex: none; }
+  #coupledview[hidden] { display: none; }
   #animbar .amsg { font-family: var(--font-mono); color: var(--ink-2); min-width: 300px; }
   #btn-play { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 24px; font-size: 12px; }
   #btn-play.on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
@@ -503,6 +505,7 @@
       <button class="tab" role="tab" data-tab="inject" data-tip="tab:inject">Injection</button>
       <button class="tab" role="tab" data-tab="matrix" data-tip="tab:matrix">Matrices</button>
       <button class="tab" role="tab" data-tab="learn" data-tip="tab:learn">Learn</button>
+      <span class="seg" id="coupledview" role="group" aria-label="What the Optics tab shows on a coupled ring" hidden title="The planes are coupled: show each plane's beam size (both modes in it) or each mode's own β"><button data-cv="size" aria-pressed="true">beam size</button><button data-cv="modes" aria-pressed="false">mode β</button></span>
       <div class="spacer"></div>
       <div id="animbar">
         <button class="btn" id="btn-play" title="Play / pause the beam (Space)" aria-label="Play or pause the beam">▶</button>
@@ -645,7 +648,7 @@
   };
 
   // ------------------------------------------------------------- state
-  const state = { scenario: null, sel: [], anchor: null, tab: "optics", zoom: 1, result: null, hoverS: null,
+  const state = { scenario: null, sel: [], anchor: null, tab: "optics", zoom: 1, result: null, hoverS: null, coupledView: "size",
     level: "novice", guideHidden: false,
     // The beam animation. The clock (s, turn) lives here so switching tabs never resets it.
     // `beam` is a seeded, machine-free set of particles; `mag` magnifies the (sub-pixel)
@@ -961,7 +964,7 @@
       tiles += tile("Bend closure", fmt(turns, 5), "turns", closed ? (r.totalAngle === 0 ? "no bends" : "Σθ = 2π: closes") : `Σθ − 2π = ${fmt(r.totalAngle - TWO_PI, 3)} rad`, "", "tile:closure");
     }
     let stab;
-    if (r.opticsError) stab = `<span class="chip bad">${r.opticsError.code}</span>`;
+    if (r.opticsError && !r.modes) stab = `<span class="chip bad">${(r.modesError || r.opticsError).code}</span>`;
     else if (r.coupled) stab = `<span class="chip warn">coupled</span>`;
     else stab = `<span class="chip good">${ring ? "stable" : "line"}</span>`;
     const ht = r.halfTrace;
@@ -970,15 +973,25 @@
       tiles += tile(ring ? "Tunes Qₓ · Qᵧ" : "Phase advance /2π", `${fmt(r.tunes[0], 5)} · ${fmt(r.tunes[1], 5)}`, "", ring ? `fractional ${fmt(r.tunes[0] % 1, 3)} · ${fmt(r.tunes[1] % 1, 3)}` : "", "", "tile:tunes");
       if (ring) tiles += `<div class="tile tune"${tipAttr("tile:workingpoint")}><span class="label">Working point</span>${tuneDiagram(r.tunes[0], r.tunes[1])}</div>`;
     }
+    // A coupled ring's numbers live in r.modes (the per-plane fields stay empty on purpose).
+    const m = r.modes;
+    if (m) {
+      tiles += tile("Mode tunes Q₁ · Q₂", `${fmt(m.tunes[0], 5)} · ${fmt(m.tunes[1], 5)}`, "", `coupled modes · fractional ${fmt(m.fractional[0], 3)} · ${fmt(m.fractional[1], 3)}`, "", "tile:tunes");
+      tiles += `<div class="tile tune"${tipAttr("tile:workingpoint")}><span class="label">Working point (modes)</span>${tuneDiagram(m.tunes[0], m.tunes[1])}</div>`;
+    }
     if (r.chromaticity) tiles += tile("Chromaticity ξₓ · ξᵧ", `${fmt(r.chromaticity[0], 4)} · ${fmt(r.chromaticity[1], 4)}`, "", `natural ${fmt(r.naturalChromaticity[0], 3)} · ${fmt(r.naturalChromaticity[1], 3)}`, "", "tile:chroma");
-    if (r.alpha_c != null) tiles += tile("Momentum compaction αc", fmt(r.alpha_c, 4), "", r.gamma_t ? `γₜ = ${fmt(r.gamma_t, 4)} · η = ${fmt(r.eta, 3)}` : `η = ${fmt(r.eta, 3)}`, "", "tile:alphac");
+    const lng = m ? m : r; // where the longitudinal numbers are
+    if (lng.alpha_c != null) tiles += tile("Momentum compaction αc", fmt(lng.alpha_c, 4), "", lng.gamma_t ? `γₜ = ${fmt(lng.gamma_t, 4)} · η = ${fmt(lng.eta, 3)}` : `η = ${fmt(lng.eta, 3)}`, "", "tile:alphac");
     if (ring) {
       const rf = sc.elements.some((e) => e.type === "RFCavity");
-      tiles += tile("Synchrotron tune Qₛ", rf ? (r.Qs == null ? '<span class="chip bad">no bucket</span>' : fmt(r.Qs, 4)) : '<span class="empty">no RF</span>', "", rf && r.Qs != null && r.eta != null ? (r.eta > 0 ? "above transition" : "below transition") : "", "", "tile:qs");
+      tiles += tile("Synchrotron tune Qₛ", rf ? (lng.Qs == null ? '<span class="chip bad">no bucket</span>' : fmt(lng.Qs, 4)) : '<span class="empty">no RF</span>', "", rf && lng.Qs != null && lng.eta != null ? (lng.eta > 0 ? "above transition" : "below transition") : "", "", "tile:qs");
     }
     if (r.twiss0) {
       const t = ring ? r.twiss0 : r.twissEnd;
       tiles += tile(ring ? "β at start" : "β at exit", `${fmt(t.beta_x, 4)} · ${fmt(t.beta_y, 4)}`, "m", `Dₓ = ${fmt(t.disp_x, 3)} m`, "", "tile:beta");
+    } else if (m) {
+      const p = m.boundaries[0];
+      tiles += tile("Mode β at start", `${fmt(p.B[0][0], 4)} · ${fmt(p.B[1][1], 4)}`, "m", `Dₓ = ${fmt(p.disp_x, 3)} · Dᵧ = ${fmt(p.disp_y, 3)} m`, "", "tile:beta");
     }
     tiles += tile("Beam", `${fmt(r.ref.total_energy_eV / 1e9, 4)}`, "GeV", `${r.ref.species} · γ = ${fmt(r.ref.gamma0, 4)} · Bρ = ${fmt(r.ref.brho, 4)} T·m`, "", "tile:beam");
     host.innerHTML = tiles;
@@ -1010,6 +1023,32 @@
   function tabPanels() {
     const r = state.result;
     const t = state.tab;
+    // A coupled ring. The Optics tab's top plot is each LAB plane's rms size with both modes in
+    // it (modeSigma) unless the toggle asks for each mode's own beta (mode 1 in x, mode 2 in y,
+    // the cross-plane parts dashed); the Beam size tab is always the per-plane size.
+    if (r && r.modes && (t === "optics" || t === "envelope")) {
+      const pts = r.modes.points;
+      const sig = O.modeSigma(pts, state.scenario.beam);
+      const at = new Map(pts.map((p, i) => [p, i]));
+      const sizeSeries = [
+        { name: "σₓ", color: "var(--bx)", pick: (p) => 1e3 * sig.x[at.get(p)] },
+        { name: "σᵧ", color: "var(--by)", pick: (p) => 1e3 * sig.y[at.get(p)] }];
+      if (t === "optics" && state.coupledView === "size") return [
+        { key: "sigma", tip: "panel:sigma", title: "rms beam size (both modes)", h: LAY.mainH, unit: "mm", zero: true, series: sizeSeries },
+        { key: "disp", tip: "panel:disp", title: "Dispersion", h: LAY.subH, unit: "m", zero: true, series: [
+          { name: "Dₓ", color: "var(--dx)", pick: (p) => p.disp_x }, { name: "Dᵧ", color: "var(--c-skew)", pick: (p) => p.disp_y, onlyIf: pts.some((p) => Math.abs(p.disp_y) > 1e-12) }] },
+      ];
+      if (t === "optics") return [
+        { key: "beta", tip: "panel:beta", title: "mode β functions", h: LAY.mainH, unit: "m", series: [
+          { name: "β₁ (mode 1, x)", color: "var(--bx)", pick: (p) => p.B[0][0] },
+          { name: "β₂ (mode 2, y)", color: "var(--by)", pick: (p) => p.B[1][1] },
+          { name: "mode 2 in x", color: "var(--bx)", dash: true, pick: (p) => p.B[0][1] },
+          { name: "mode 1 in y", color: "var(--by)", dash: true, pick: (p) => p.B[1][0] }] },
+        { key: "disp", tip: "panel:disp", title: "Dispersion", h: LAY.subH, unit: "m", zero: true, series: [
+          { name: "Dₓ", color: "var(--dx)", pick: (p) => p.disp_x }, { name: "Dᵧ", color: "var(--c-skew)", pick: (p) => p.disp_y, onlyIf: pts.some((p) => Math.abs(p.disp_y) > 1e-12) }] },
+      ];
+      return [{ key: "sigma", tip: "panel:sigma", title: "rms beam size (both modes)", h: LAY.mainH + LAY.gap + LAY.subH, unit: "mm", zero: true, series: sizeSeries }];
+    }
     if (t === "optics") return [
       { key: "beta", tip: "panel:beta", title: "β functions", h: LAY.mainH, unit: "m", series: [
         { name: "βₓ", color: "var(--bx)", pick: (p) => p.beta_x }, { name: "βᵧ", color: "var(--by)", pick: (p) => p.beta_y }] },
@@ -1055,6 +1094,9 @@
     $("learn").hidden = state.tab !== "learn";
     $("inject").hidden = state.tab !== "inject";
     if (state.tab !== "inject") inj.pause();
+    const cv = $("coupledview");
+    cv.hidden = !(r && r.modes && state.tab === "optics");
+    cv.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.cv === state.coupledView)));
     $("yaxis").style.display = optTab ? "" : "none";
     $("plotscroll").style.display = optTab ? "" : "none";
     if (state.tab === "floor") { plotMessage(""); renderFloorInset(); renderFloor(); return; }
@@ -1095,10 +1137,10 @@
     yout += `<text x="54" y="${yMid + 4}" text-anchor="end" class="paneltitle"${tipAttr("view:synoptic")}>lattice</text>`;
     // --- panels
     let y = LAY.top + LAY.synH;
-    const pts = r && (state.tab === "orbit" ? r.orbit : r.twiss);
+    const pts = r && (state.tab === "orbit" ? r.orbit : r.modes ? r.modes.points : r.twiss);
     plotMessage("");
     if (!r || r.errors.length) plotMessage(`<b>Nothing to plot yet.</b><br>${esc(r && r.errors.length ? r.errors[0] : "Add elements from the palette.")}`);
-    else if (r.opticsError && state.tab !== "orbit") plotMessage(opticsErrorText(r.opticsError));
+    else if (r.opticsError && !r.modes && state.tab !== "orbit") plotMessage(opticsErrorText(r.modesError || r.opticsError));
     else if (state.tab === "orbit" && !pts) plotMessage(r.periodic
       ? TEACH.message("empty:orbit-ring", state.level, "<b>The closed orbit is the design axis.</b><br>Nothing steers it: add a corrector, or displace a magnet (dx, dy) to see the orbit move.")
       : TEACH.message("empty:orbit-line", state.level, "<b>The trajectory is the design axis.</b><br>Add a corrector kick to see it move."));
@@ -1123,7 +1165,13 @@
       // legend
       let lx = LAY.padL + 8 + p.title.length * 7.2 + 16;
       out += `<g class="legend">`;
-      series.filter((sr) => !sr.mirror).forEach((sr) => { out += `<rect x="${lx}" y="${y + 7}" width="10" height="3" fill="${sr.color}"/><text x="${lx + 14}" y="${y + 14}">${sr.name}</text>`; lx += 14 + sr.name.length * 7 + 16; });
+      series.filter((sr) => !sr.mirror).forEach((sr) => {
+        out += sr.dash
+          ? `<line x1="${lx}" x2="${lx + 10}" y1="${y + 8.5}" y2="${y + 8.5}" stroke="${sr.color}" stroke-width="2" stroke-dasharray="3 2"/>`
+          : `<rect x="${lx}" y="${y + 7}" width="10" height="3" fill="${sr.color}"/>`;
+        out += `<text x="${lx + 14}" y="${y + 14}">${sr.name}</text>`;
+        lx += 14 + sr.name.length * 7 + 16;
+      });
       out += `</g>`;
       // A plain-language caption beside the legend, for the levels that want one.
       const sub = TEACH.panelSub(p.tip, state.level);
@@ -1133,7 +1181,7 @@
           const d = data[k];
           const path = pts.map((q, i) => `${i ? "L" : "M"}${sx(q.s).toFixed(2)},${sy(d[i]).toFixed(2)}`).join("");
           if (p.zero) out += `<path class="area" d="${path}L${sx(pts[pts.length - 1].s).toFixed(2)},${sy(0)}L${sx(pts[0].s).toFixed(2)},${sy(0)}Z" fill="${sr.color}"/>`;
-          out += `<path class="curve" d="${path}" stroke="${sr.color}"/>`;
+          out += `<path class="curve" d="${path}" stroke="${sr.color}"${sr.dash ? ' stroke-dasharray="5 4"' : ""}/>`;
           // end label (the mirror lines repeat the same number, so they get none)
           if (sr.mirror) return;
           const last = d[d.length - 1];
@@ -1163,7 +1211,8 @@
   function opticsErrorText(e) {
     let fallback;
     if (e.code === "unstable") fallback = `<b>No periodic solution.</b><br>${esc(e.message)}. The one-turn map has |½ trace| ≥ 1 in a plane, so no matched β exists. Weaken the focusing or change the cell length; the ½Tr readouts above tell you which plane.`;
-    else if (e.code === "coupled") fallback = `<b>The planes are coupled.</b><br>A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant-Snyder optics would be wrong. accsim's <span class="mono">coupled_twiss</span> handles it in Python; the editor shows the geometry, the matrices and the orbit, and the <b>Injection</b> tab works in the ring's normal modes.`;
+    else if (e.code === "coupled") fallback = `<b>The planes are coupled.</b><br>A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant-Snyder optics would be wrong. On a ring the editor draws the normal modes; a coupled <b>beamline</b> would need coupled initial conditions, which the scenario does not carry, so it shows the geometry, the matrices and the trajectory.`;
+    else if (e.code === "degenerate") fallback = `<b>Coupled at equal tunes.</b><br>${esc(e.message)}. On the coupling resonance the two normal modes cannot be separated, so there are no mode β functions to draw. Move one tune slightly.`;
     else if (e.code === "resonant") fallback = `<b>Integer tune.</b><br>The dispersion cannot close on an integer tune.`;
     else return `<b>${esc(e.code)}</b><br>${esc(e.message)}`;
     return TEACH.message("err:" + e.code, state.level, fallback);
@@ -1222,7 +1271,8 @@
     let rows = `<div class="row"><span>s</span><b class="num">${fmt(p.s, 4)} m</b></div>`;
     if (el) rows += `<div class="row"><span>${esc(TYPES[el.type].label)}</span><b>${esc(el.name || "")}</b></div>`;
     for (const pn of plot._panels) pn._series.forEach((sr, j) => { if (sr.mirror) return; rows += `<div class="row"><span><i class="sw" style="background:${sr.color}"></i>${sr.name}</span><b class="num">${fmt(pn._data[j][k], 4)} ${pn.unit}</b></div>`; });
-    if (state.tab === "optics") rows += `<div class="row"><span>αₓ · αᵧ</span><b class="num">${fmt(p.alpha_x, 3)} · ${fmt(p.alpha_y, 3)}</b></div><div class="row"><span>μₓ · μᵧ /2π</span><b class="num">${fmt(p.mu_x / TWO_PI, 4)} · ${fmt(p.mu_y / TWO_PI, 4)}</b></div>`;
+    if (state.tab === "optics" && p.B) rows += `<div class="row"><span>α₁ · α₂</span><b class="num">${fmt(p.A[0][0], 3)} · ${fmt(p.A[1][1], 3)}</b></div><div class="row"><span>μ₁ · μ₂ /2π</span><b class="num">${fmt(p.mu[0] / TWO_PI, 4)} · ${fmt(p.mu[1] / TWO_PI, 4)}</b></div>`;
+    else if (state.tab === "optics") rows += `<div class="row"><span>αₓ · αᵧ</span><b class="num">${fmt(p.alpha_x, 3)} · ${fmt(p.alpha_y, 3)}</b></div><div class="row"><span>μₓ · μᵧ /2π</span><b class="num">${fmt(p.mu_x / TWO_PI, 4)} · ${fmt(p.mu_y / TWO_PI, 4)}</b></div>`;
     tip.innerHTML = rows;
     tip.style.display = "block";
     const scroll = $("plotscroll");
@@ -1868,7 +1918,9 @@
     }
     const b = sc.beam;
     h += `<h2 style="margin-top:12px"><span class="label"${tipAttr("m:emit")}>Beam (for sizes)</span></h2>`;
-    h += field("emit_x_nm", "εₓ", +(b.emit_x * 1e9).toPrecision(8), "nm·rad", { scope: "beam" }) + field("emit_y_nm", "εᵧ", +(b.emit_y * 1e9).toPrecision(8), "nm·rad", { scope: "beam" }) + field("sigma_delta_pm", "σδ", +(b.sigma_delta * 1e3).toPrecision(8), "×10⁻³", { scope: "beam" });
+    // On a coupled ring these are the two MODES' emittances (modeSigma reads them so).
+    const modal = !!(state.result && state.result.modes);
+    h += field("emit_x_nm", modal ? "ε₁ (mode 1)" : "εₓ", +(b.emit_x * 1e9).toPrecision(8), "nm·rad", { scope: "beam" }) + field("emit_y_nm", modal ? "ε₂ (mode 2)" : "εᵧ", +(b.emit_y * 1e9).toPrecision(8), "nm·rad", { scope: "beam" }) + field("sigma_delta_pm", "σδ", +(b.sigma_delta * 1e3).toPrecision(8), "×10⁻³", { scope: "beam" });
     $("machine").innerHTML = h;
     $("machine").querySelectorAll("[data-periodic]").forEach((btn) => btn.addEventListener("click", () => {
       const v = btn.dataset.periodic === "1";
@@ -2154,6 +2206,7 @@
       const rd = new FileReader(); rd.onload = () => { $("dlg-import-body").value = rd.result; }; rd.readAsText(f);
     });
     document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => { state.tab = t.dataset.tab; renderAll(); save(); }));
+    document.querySelectorAll("#coupledview button").forEach((b) => b.addEventListener("click", () => { state.coupledView = b.dataset.cv; renderPlot(); }));
     $("zoom").addEventListener("input", () => { state.zoom = +$("zoom").value; renderPlot(); });
     $("btn-play").addEventListener("click", () => anim.toggle());
     $("anim-speed").addEventListener("input", () => { state.anim.turnsPerSec = +$("anim-speed").value; anim.reflect(); });
