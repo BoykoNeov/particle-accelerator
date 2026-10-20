@@ -219,6 +219,11 @@
     step = step || 1e-4;
     const bend = (a.elements || []).find((el) => el.type === "Dipole" && +el.angle && +el.k1);
     if (bend) return { chromaticity: null, error: `a bending gradient magnet (${bend.name || "Dipole"}) on a coupled ring: its tracked map lacks the (1 + h x) metric group, so the momentum scan would be wrong by it` };
+    // As the package refuses: with the cavity between bends the 4D orbit at +-step does not yet
+    // hold the cavity fixed, so the scan would be skewed by it (docs/ROADMAP.md, change B).
+    if ([X, PX, Y, PY, ZETA].some((i) => a.oneTurn[i].some((v, j) => v !== a.oneTurnFrozen[i][j]))) {
+      return { chromaticity: null, error: "an RF cavity between bends on a coupled ring: the off-momentum orbit the scan needs does not yet hold the cavity fixed, so it would be skewed by it" };
+    }
     try {
       const tunes = [+step, -step].map((d) => {
         const x4 = closedOrbit4(scenario, a, d);
@@ -255,7 +260,9 @@
     if (a.errors.length) throw new Error(a.errors[0]);
     if (a.opticsError && a.opticsError.code !== "coupled") throw new Error(a.opticsError.message);
     const coupled = !!a.coupled;
-    const design = coupled ? modes4(a.oneTurn) : null;
+    // The design record holds the cavity fixed (a.oneTurnFrozen), as the main view does: with a
+    // cavity between bends the full map's transverse block is not symplectic.
+    const design = coupled ? modes4(a.oneTurnFrozen) : null;
     const tw = coupled ? design.twiss : a.twiss0;
     // A coupled ring's chromaticity is each MODE's (modeChromaticity); null with a reason where
     // it is refused. An uncoupled ring keeps the analysis's per-plane one.

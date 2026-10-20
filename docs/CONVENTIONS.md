@@ -11800,8 +11800,8 @@ nothing that reads them changes meaning by accident), and gets `analyse(...).mod
   optics do not close (beta misses itself after one turn by 0.6% to 2.8% on `electron-ring`).
   The editor first flagged them (`rfWarning`, `approx.`); **superseded the same day** by *The 4D
   optics hold the cavity fixed* below, which makes them close and removes the flag. The `rf-4d`
-  refusal of a *coupled* ring with its cavity mid-ring stays (its compaction would still come from
-  the full map).
+  refusal of a *coupled* ring with its cavity mid-ring stayed (its compaction still came from
+  the full map) until *The rest of the 4D model holds the cavity fixed* below removed it.
 
 ### The 4D optics hold the cavity fixed (2026-10-20, `_rf_frozen`, `tests/analytic/test_rf_frozen_optics.py`)
 
@@ -11829,11 +11829,44 @@ over a warning or a refusal.
   `_on_orbit` form), `propagate_twiss_on_orbit`, and the unperturbed optics in
   `closest_tune_approach` and the coupling RDTs. Editor: `analyse`'s matched start and half-traces,
   `tunes`, `naturalChromaticity`, `sextupoleFeeddown`; `rfWarning` is gone.
-- **Where it does not (named).** `momentum_compaction` / `synchrotron_tune` (on a mid-ring-cavity
-  ring the editor's compaction tile reads `0.03208` with the cavity at element 50 and `0.03158`
-  at 100: the same full-map path), `normal_mode_tunes`, `normal_form(M, "4d")`,
-  `closed_twiss_on_orbit` / `coupled_twiss_on_orbit` (the whole turn's Jacobian), and
-  `match_periodic(M)` on a matrix the caller passes.
+- **Where it did not (named; most of it closed by the next section).** `momentum_compaction` /
+  `synchrotron_tune`, `normal_mode_tunes`, `normal_form(M, "4d")`, `closed_twiss_on_orbit` /
+  `coupled_twiss_on_orbit`, and `match_periodic(M)` on a matrix the caller passes.
+
+### The rest of the 4D model holds the cavity fixed (2026-10-20, `tests/analytic/test_rf_frozen_consumers.py`)
+
+**Convention: every fixed-momentum (4D) quantity reads the one-turn product with the cavity held
+fixed; only the 6D normal form reads the full map.** Added to the list above:
+`momentum_compaction` (both routes, so `slip_factor`, `transition_gamma` and the lumped
+`synchrotron_tune`), `normal_mode_tunes`, `closed_normal_form(method="4d")`, and the transport
+inside `propagate_normal_form` for a `4d` form (each map's `delta` row frozen). Editor:
+`momentumCompaction`, `coupledOptics` (fed `frozenOneTurn`; its `rf-4d` refusal and help text are
+gone), `propagateNormalForm4`, and the Injection tab's design record (`modes4(a.oneTurnFrozen)`;
+`analyse` now exports `oneTurnFrozen`).
+
+- **How wrong the full map was** (`electron-ring`, cavity at element 100 / 50): compaction
+  `0.031576` / `0.032084` against `0.033294` (5.2%, 3.6%); the lumped `Q_s` `-2.5%` / `-1.6%` from
+  the 6D eigen-tune (frozen: `+0.19%` / `+0.24%`, the documented `Q_s^2`-order gap, which keeps
+  scaling as `Q_s^2` with the voltage); `normal_mode_tunes` and the 4D normal form refused the ring
+  as unstable (moduli `1.0024`, `1.0061`); with a skew quadrupole the compaction, `Q_s` and
+  `mode_chromaticity` refused too. xtrack's 4D `momentum_compaction_factor` and tunes agree with
+  the frozen numbers to `6.1e-9` and `5e-10` with the cavity at either of two mid-ring positions.
+- **`propagate_normal_form` was a second, unnamed full-map reader.** Its 4D transport is the
+  transverse block of the running 6x6 transfer, which past a mid-ring cavity carries the
+  `x -> zeta -> delta -> x` path: the form matched at the start did not close (mode 1's full
+  tune `5.7792` against `5.7815`). Found by the editor gate, which held the port to the package
+  and so agreed with it on the wrong number; the cavity-last comparison caught it.
+- **Not changed, on purpose.** `Lattice.one_turn_matrix()` / `one_turn_map()` (`orbit.py` reads
+  `one_turn_matrix()[DELTA, ZETA] == 0` to detect a cavity; a frozen map would always say no and
+  zero `closed_orbit_delta`), `closed_normal_form(method="6d")`, and `normal_form(M)` on a matrix
+  the caller supplies.
+- **Still the full map, and refused rather than skewed:** the **off-momentum 4D closed orbit**
+  (`closed_orbit(delta=)`, `closed_orbit_nonlinear`, the state carried by
+  `linearised_element_maps`) re-imposes `delta` only at the entrance, so a cavity part-way round
+  turns the `zeta` slip into `delta` (`x_co` at `delta = 1e-4` off by 2.7% / 4.1%). Freezing the
+  maps alone left the skew ring's `mode_chromaticity` at `-6.09` against `-6.42`, so it (and the
+  editor's `modeChromaticity`) **refuses** a coupled ring whose frozen rows 0-4 differ from the
+  full map's. Named in `docs/ROADMAP.md` as change B.
 
 ### Per-mode chromaticity in the editor (2026-10-20, `modeChromaticity`, `tests/analytic/test_editor_mode_chromaticity.py`)
 

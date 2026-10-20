@@ -1723,8 +1723,12 @@ def normal_mode_tunes(lattice: Lattice, atol: float = 1e-6) -> tuple[float, floa
     :class:`UnstableLatticeError` if any eigenvalue leaves the unit circle by more
     than ``atol`` (a coupled instability — e.g. a sum-resonance stop-band — which
     the per-plane :func:`is_stable` cannot see).
+
+    The one-turn map has the RF cavity held fixed (:func:`_rf_frozen`), as for
+    :func:`closed_twiss`: left in, a cavity between bends makes the transverse block
+    non-symplectic and this refused ``electron-ring`` as unstable (moduli ``1.0024``).
     """
-    m4 = _transverse_4d(lattice.one_turn_matrix())
+    m4 = _transverse_4d(_frozen_one_turn(_element_maps(lattice)))
     eigvals, eigvecs = np.linalg.eig(m4)
     if not np.allclose(np.abs(eigvals), 1.0, atol=atol, rtol=0.0):
         raise UnstableLatticeError(
@@ -2451,6 +2455,12 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
     keeps the default honest. ``tests/analytic/test_momentum_compaction.py`` holds
     them against each other and against a sympy re-derivation; the reference suite
     adds xtrack's ``momentum_compaction_factor`` and MAD-X's ``alfa``.
+
+    **The RF cavity is held fixed** (:func:`_rf_frozen`): ``alpha_c`` is a fixed-momentum
+    quantity, so both routes start from the one-turn product with ``delta``'s row frozen,
+    the model :func:`closed_twiss` matches on. With the cavity last, or none, that is the
+    same float as before; with it between bends it is the cavity-free ring's number, which
+    xtrack's 4D ``momentum_compaction_factor`` confirms (``tests/reference``).
     """
     if method not in ("identity", "quadrature"):
         raise ValueError(f"method must be 'identity' or 'quadrature', got {method!r}")
@@ -2471,7 +2481,10 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
                     f"momentum_compaction(method='quadrature') does not follow the roll of the "
                     f"bending Dipole {elem.name!r} (roll={elem.roll}); use method='identity'"
                 )
-    M = lattice.one_turn_matrix()
+    # The cavity held fixed (_rf_frozen): compaction is the path length at a FIXED momentum.
+    # Left in, a cavity between bends turns the zeta slip into delta part-way round, and this
+    # was 5.2% wrong on electron-ring with its cavity at element 100 (test_rf_frozen_consumers).
+    M = _frozen_one_turn(_element_maps(lattice))
     disp = _periodic_dispersion(M)
     if method == "identity":
         slip = M[ZETA, X] * disp[0] + M[ZETA, PX] * disp[1] + M[ZETA, DELTA]
@@ -4213,13 +4226,24 @@ def mode_chromaticity(
     Raises :class:`NotImplementedError` on a coupled ring with a **bending gradient magnet**
     (a :class:`~accsim.elements.dipole.Dipole` with both ``angle`` and ``k1``): its tracked
     map lacks the ``(1 + h x)`` metric group (L4, :func:`chromaticity_on_orbit`), so a scan
-    would be wrong by exactly that group. Raises :class:`ValueError` where the mode labels
-    swap between the two momentum samples (too close to the coupling resonance).
+    would be wrong by exactly that group. Raises it too on a coupled ring whose **RF cavity
+    sits between bends**: its 4D closed orbit at ``+-delta`` is skewed by the cavity turning
+    the ``zeta`` slip into ``delta`` part-way round (``-6.09`` against ``-6.42`` on the skew
+    ``electron-ring``), named in ``docs/ROADMAP.md`` as change B. Raises :class:`ValueError`
+    where the mode labels swap between the two momentum samples (too close to the coupling
+    resonance).
     """
     from .elements.dipole import Dipole
 
-    if _coupling_norm(lattice.one_turn_matrix()) <= 1e-9:
+    frozen = _frozen_one_turn(_element_maps(lattice))
+    if _coupling_norm(frozen) <= 1e-9:
         return chromaticity(lattice)
+    if not np.array_equal(frozen[:DELTA], lattice.one_turn_matrix()[:DELTA]):
+        raise NotImplementedError(
+            "mode_chromaticity on a coupled ring whose RF cavity sits between bends: the 4D "
+            "closed orbit at +-delta does not yet hold the cavity fixed (docs/ROADMAP.md, "
+            "change B), so the scan would be skewed by it"
+        )
     for elem in lattice.elements:
         if isinstance(elem, Dipole) and elem.angle != 0.0 and elem.k1 != 0.0:
             raise NotImplementedError(
@@ -4789,8 +4813,12 @@ def closed_normal_form(lattice: Lattice, *, method: str = "6d") -> NormalForm:
     """The matched normal form at the entrance of a periodic ``lattice``.
 
     :func:`normal_form` of the one-turn matrix -- the normal-form counterpart of
-    :func:`closed_twiss` and :func:`coupled_twiss`.
+    :func:`closed_twiss` and :func:`coupled_twiss`. The ``4d`` form is taken of the
+    one-turn product with the RF cavity held fixed (:func:`_rf_frozen`), as they are; the
+    ``6d`` form of the full map, because its third mode *is* the cavity's.
     """
+    if method == "4d":
+        return normal_form(_frozen_one_turn(_element_maps(lattice)), method=method)
     return normal_form(lattice.one_turn_matrix(), method=method)
 
 
@@ -4842,9 +4870,12 @@ def propagate_normal_form(
     ``form0`` decides the dimension: pass ``closed_normal_form(lattice, method="4d")`` for
     the transverse-only form (the right one for a ring with no cavity) or ``"6d"`` for the
     full one. The 4D transport is the transverse block of the running 6x6 transfer
-    matrix, which for accsim's element set is also the product of the per-element blocks
-    -- a property of the element set rather than of the algebra, and asserted as such in
-    the analytic tests.
+    matrix with every map's ``delta`` row frozen (:func:`_rf_frozen`, the RF cavity held
+    fixed, as :func:`closed_normal_form` takes the ``4d`` form). That is also the product of
+    the per-element blocks -- a property of the element set rather than of the algebra, and
+    asserted as such in the analytic tests. Left unfrozen, a cavity between bends feeds its
+    energy kick back into ``x`` downstream and the mode phase stops closing (mode 1's full
+    tune was ``0.0023`` off on the skew ``electron-ring`` with its cavity at element 100).
 
     ``maps`` substitutes the transport exactly as in :func:`propagate_twiss`: one 6x6 per
     element, in beam order, used in place of ``elem.matrix()``. ``form0`` must then have
@@ -4873,7 +4904,8 @@ def propagate_normal_form(
     points = [NormalFormPoint(0.0, form0.w.copy(), form0.w_inv.copy(), tuple(mu), form0.method)]
     s = 0.0
     for i, elem in enumerate(lattice.elements):
-        transfer = (elem.matrix(lattice.ref) if maps is None else maps[i]) @ transfer
+        m = elem.matrix(lattice.ref) if maps is None else maps[i]
+        transfer = (_rf_frozen(m) if form0.dim == 4 else m) @ transfer
         s += elem.length
         t = _transverse_4d(transfer) if form0.dim == 4 else transfer
         w, phi = _rephase(t @ form0.w)

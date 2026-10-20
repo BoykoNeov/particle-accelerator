@@ -24,7 +24,7 @@ import pytest
 
 import accsim as ac
 from accsim.scenario import load_scenario
-from accsim.twiss import _matched_dispersion, _transverse_4d
+from accsim.twiss import _element_maps, _frozen_one_turn, _matched_dispersion, _transverse_4d
 
 EDITOR = Path(__file__).resolve().parents[2] / "editor"
 NODE = shutil.which("node")
@@ -88,13 +88,13 @@ def js() -> dict[str, dict]:
 
 def _package(sc: dict):
     lat = load_scenario(sc).lattice
-    form = ac.normal_form(lat.one_turn_matrix(), method="4d")
+    form = ac.closed_normal_form(lat, method="4d")
     return lat, ac.propagate_normal_form(lat, form)
 
 
 def _package_dispersion(lat: ac.Lattice) -> np.ndarray:
     """The matched 4D dispersion carried through the package's element matrices."""
-    M = lat.one_turn_matrix()
+    M = _frozen_one_turn(_element_maps(lat))
     d = _matched_dispersion(M)
     out = [d]
     for e in lat.elements:
@@ -262,21 +262,94 @@ def _equal_tune_ring(k1sl: float) -> dict:
     }
 
 
-def test_a_cavity_between_the_bends_is_refused_where_the_package_refuses() -> None:
-    """Found by the final review: with electron-ring's cavity moved to mid-ring, the one-turn
-    map's transverse block misses symplecticity by 4.9e-3 and the package refuses the ring
-    (momentum_compaction: UnstableLatticeError). Unchecked, the editor drew modes anyway (full
-    tunes 5.7809, 5.5746, with nothing to hold them against); it now refuses with its own code,
-    not as an instability."""
+def _skew_with_cavity_at(pos: int | None) -> dict:
     sc = copy.deepcopy(FIXTURES["electron-ring+skew"])
     cav = next(e for e in sc["elements"] if e["type"] == "RFCavity")
     els = [e for e in sc["elements"] if e["type"] != "RFCavity"]
-    sc["elements"] = [*els[:100], cav, *els[100:]]
-    with pytest.raises(ac.UnstableLatticeError):
-        ac.momentum_compaction(load_scenario(sc).lattice)
+    sc["elements"] = [*els, cav] if pos is None else [*els[:pos], cav, *els[pos:]]
+    return sc
+
+
+@pytest.mark.parametrize("pos", [100, 50])
+def test_a_coupled_ring_with_its_cavity_between_the_bends_has_modes(pos: int) -> None:
+    """Gate 5 of *the rest of the 4D model holds the cavity fixed*. This ring was refused
+    ("rf-4d", found by the final review of change 3: the full map's transverse block missed
+    symplecticity by 4.9e-3, and the package raised UnstableLatticeError). The editor and the
+    package now both take the one-turn map with the cavity held fixed: the modes exist, equal
+    the package's, and equal the cavity-last ring's."""
+    sc = _skew_with_cavity_at(pos)
+    lat, pts = _package(sc)
     r = _js(sc)
-    assert r["modes"] is None
-    assert r["modesError"]["code"] == "rf-4d"
+    assert r["modesError"] is None
+    m = r["modes"]
+    got = m["boundaries"]
+    assert len(got) == len(pts)
+    wmax = max(np.abs(p.w).max() for p in pts)
+    for g, p in zip(got, pts, strict=True):
+        assert np.abs(np.array(g["W"]) - p.w).max() < 1e-11 * wmax
+        bmax = np.abs(p.betas).max()
+        np.testing.assert_allclose(g["B"], p.betas, rtol=1e-9, atol=1e-12 * bmax)
+    want_d = _package_dispersion(lat)
+    np.testing.assert_allclose(
+        [g["disp"] for g in got], want_d, rtol=1e-9, atol=1e-12 * np.abs(want_d).max()
+    )
+    assert m["alpha_c"] == pytest.approx(ac.momentum_compaction(lat), rel=1e-9)
+    assert m["eta"] == pytest.approx(ac.slip_factor(lat), rel=1e-9)
+    assert m["Qs"] == pytest.approx(ac.synchrotron_tune(lat), rel=1e-9)
+    last = _js(_skew_with_cavity_at(None))["modes"]
+    np.testing.assert_allclose(m["tunes"], last["tunes"], rtol=0, atol=1e-12)
+    for f in ("alpha_c", "eta", "Qs"):
+        assert m[f] == pytest.approx(last[f], rel=1e-12), f
+
+
+@pytest.mark.parametrize("pos", [100, 50])
+def test_the_compaction_and_qs_of_an_uncoupled_ring_hold_the_cavity_fixed(pos: int) -> None:
+    """Gate 5: the compaction tile read 0.03158 / 0.03208 with electron-ring's cavity at 100 /
+    50 against 0.03329 with it last (the full map); Q_s read 0.07149 / 0.07207."""
+    sc = _uncoupled_with_cavity_at(pos)
+    lat = load_scenario(sc).lattice
+    r, last = _js(sc), _js(_uncoupled_with_cavity_at(None))
+    assert r["alpha_c"] == pytest.approx(ac.momentum_compaction(lat), rel=1e-9)
+    assert r["eta"] == pytest.approx(ac.slip_factor(lat), rel=1e-9)
+    assert r["gamma_t"] == pytest.approx(ac.transition_gamma(lat), rel=1e-9)
+    assert r["Qs"] == pytest.approx(ac.synchrotron_tune(lat), rel=1e-9)
+    assert r["alpha_c"] == pytest.approx(last["alpha_c"], rel=1e-12)
+    assert r["Qs"] == pytest.approx(last["Qs"], rel=1e-12)
+
+
+def _inject(cases: list[dict]) -> list[dict]:
+    proc = subprocess.run(
+        [NODE, str(EDITOR / "inject-selftest.js")],
+        input=json.dumps(cases),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    out = json.loads(proc.stdout)
+    for r in out:
+        assert "error" not in r, r.get("error")
+    return out
+
+
+@pytest.mark.parametrize("pos", [100, 50])
+def test_the_injection_tabs_design_record_holds_the_cavity_fixed(pos: int) -> None:
+    """Gate 5: the Injection tab's design modes (modes4) of the coupled ring with its cavity
+    mid-ring are the cavity-last ring's; its per-mode chromaticity refuses, as the package's
+    mode_chromaticity does, until the off-momentum orbit holds the cavity fixed (change B)."""
+    mid, last = _inject(
+        [
+            {"scenario": _skew_with_cavity_at(pos), "mode": "inject", "inj": {"n": 8}},
+            {"scenario": _skew_with_cavity_at(None), "mode": "inject", "inj": {"n": 8}},
+        ]
+    )
+    np.testing.assert_allclose(mid["optics"]["tunes"], last["optics"]["tunes"], rtol=0, atol=1e-12)
+    for f in ("beta_x", "beta_y", "disp_x"):
+        assert mid["optics"]["twiss4"][f] == pytest.approx(last["optics"]["twiss4"][f], rel=1e-12)
+    assert mid["optics"]["chromaticity"] is None
+    assert "cavity" in mid["optics"]["chromaticityError"]
+    assert last["optics"]["chromaticity"] is not None
+    with pytest.raises(NotImplementedError, match="cavity"):
+        ac.mode_chromaticity(load_scenario(_skew_with_cavity_at(pos)).lattice)
 
 
 def _uncoupled_with_cavity_at(pos: int | None) -> dict:

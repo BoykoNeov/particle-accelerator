@@ -86,3 +86,27 @@ def test_coupled_beam_size_with_the_cavity_mid_ring_matches_xtrack_4d(pos: int) 
     np.testing.assert_allclose(sx, want_x, rtol=2e-8)
     np.testing.assert_allclose(sy, want_y, rtol=2e-8)
     np.testing.assert_allclose([p.disp_x for p in pts], tw.dx, rtol=0.0, atol=1e-8)
+
+
+# The rest of the 4D model (tests/analytic/test_rf_frozen_consumers.py, gate 6): the momentum
+# compaction and the 4D tunes with the cavity mid-ring, against xtrack's 4D twiss, which holds
+# delta fixed. Measured 6.1e-9 and 5e-10, the same as with the cavity last.
+@pytest.mark.parametrize("k1sl", [0.0, 0.05])
+@pytest.mark.parametrize("pos", [8, 17])
+def test_compaction_and_4d_tunes_with_the_cavity_mid_ring_match_xtrack_4d(
+    pos: int, k1sl: float
+) -> None:
+    lat, tw = _pair(k1sl, pos)
+    assert ac.momentum_compaction(lat) == pytest.approx(tw.momentum_compaction_factor, rel=2e-8)
+    np.testing.assert_allclose(
+        ac.normal_mode_tunes(lat), [tw.qx % 1.0, tw.qy % 1.0], rtol=0.0, atol=1e-8
+    )
+    # Control: the old identity route (the full 6x6 map) misses by more than 1e-3, or raises.
+    M = lat.one_turn_matrix()
+    try:
+        d = np.linalg.solve(np.eye(4) - M[:4, :4], M[:4, 5])
+    except np.linalg.LinAlgError:  # pragma: no cover - not reached on these rings
+        return
+    slip = M[4, :4] @ d + M[4, 5]
+    old = 1.0 / lat.ref.gamma0**2 - slip / lat.length
+    assert abs(old / tw.momentum_compaction_factor - 1.0) > 1e-3

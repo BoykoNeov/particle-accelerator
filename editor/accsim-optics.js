@@ -817,7 +817,10 @@
       const pieces = slicesFor ? sliceElement(el, slicesFor(el)) : [el];
       for (const piece of pieces) {
         const M = elementMatrix(piece, ref);
-        transfer = matmul(M, transfer);
+        // delta's row frozen (the cavity held fixed), as frozenOneTurn and the package's
+        // propagate_normal_form: left in, a cavity between bends breaks the mode phase's closure.
+        const Mf = M.map((row, r) => (r === DELTA ? [0.0, 0.0, 0.0, 0.0, 0.0, 1.0] : row));
+        transfer = matmul(Mf, transfer);
         s += elementLength(piece);
         const { W, phi } = rephase4(matmul(transverse4(transfer), nf0.W));
         for (let p = 0; p < 2; p++) mu[p] += pmod(phi[p] - previous[p] + Math.PI, TWO_PI) - Math.PI;
@@ -843,27 +846,14 @@
    * The main view's record for a periodic ring whose design map is x-y coupled: the 4D normal
    * form of the one-turn transverse block (normalForm4), carried along the ring; the full mode
    * tunes; the matched 4D dispersion (I - M4)^-1 d; and the compaction, eta, gamma_t and Q_s on
-   * it (accsim.twiss.momentum_compaction / synchrotron_tune on a coupled ring). Throws (codes
-   * "degenerate", "unstable", "resonant") where the ring has no such record.
+   * it (accsim.twiss.momentum_compaction / synchrotron_tune on a coupled ring). `M` is the
+   * one-turn map with the cavity held fixed (frozenOneTurn), as the package's closed_normal_form
+   * (method="4d") and momentum_compaction take it: the full map's transverse block is not
+   * symplectic when a cavity sits between bends, and this used to refuse such a ring ("rf-4d").
+   * Throws (codes "degenerate", "unstable", "resonant") where the ring has no such record.
    */
   function coupledOptics(elements, ref, M, slicesFor) {
     const m4 = transverse4(M);
-    // A cavity between bends feeds the energy kick it gives (through zeta) back into x
-    // downstream, so the 6x6 one-turn map's transverse block is no longer symplectic: there is
-    // no 4D optics to draw (the package's normal_form(M, "4d") and momentum_compaction refuse
-    // such a ring as unstable). normalForm4 assumes M^-1 = -S M^T S, so test it first.
-    const S4 = [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1], [0, 0, -1, 0]];
-    const defect = matmul(transpose(m4), matmul(S4, m4));
-    let worst = 0.0, scale = 1.0;
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
-      worst = Math.max(worst, Math.abs(defect[i][j] - S4[i][j]));
-      scale = Math.max(scale, Math.abs(m4[i][j]) ** 2);
-    }
-    if (worst > 1e-9 * scale) {
-      const e = new Error(`the one-turn map's transverse block is not symplectic (defect ${worst.toPrecision(2)}): an RF cavity sits between bends, where its energy kick feeds back into the sideways motion, so the ring has no separate 4D optics`);
-      e.code = "rf-4d";
-      throw e;
-    }
     const nf = normalForm4(m4);
     const disp0 = solve(eye(4).map((row, i) => row.map((v, j) => v - m4[i][j])), dispersiveKick(M));
     if (disp0 === null) { const e = new Error("integer tune: dispersion does not close"); e.code = "resonant"; throw e; }
@@ -1026,9 +1016,11 @@
     slip += M[ZETA][Y] * D[2] + M[ZETA][PY] * D[3];
     return 1.0 / (ref.gamma0 * ref.gamma0) - slip / C;
   }
-  /** accsim.twiss.momentum_compaction, the exact "identity" route. */
+  /** accsim.twiss.momentum_compaction, the exact "identity" route, on the one-turn map with the
+   *  cavity held fixed: compaction is the path length at a fixed momentum (the full map was 5.2%
+   *  wrong with electron-ring's cavity at element 100). */
   function momentumCompaction(elements, ref) {
-    const { M } = transferMap(elements, ref);
+    const M = frozenOneTurn(elements, ref);
     const tw0 = matchPeriodic(M);
     const C = elements.reduce((s, el) => s + elementLength(el), 0.0);
     return compactionFromDispersion(M, [tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py], C, ref);
@@ -1149,6 +1141,7 @@
     // The matched optics and their stability read the one-turn map with the cavity held fixed
     // (frozenOneTurn); it differs from M only when a cavity sits between bends.
     const Mf = frozenOneTurn(els, ref);
+    out.oneTurnFrozen = Mf;
     out.halfTrace = { x: 0.5 * (Mf[X][X] + Mf[PX][PX]), y: 0.5 * (Mf[Y][Y] + Mf[PY][PY]) };
     const periodic = scenario.periodic !== false;
     out.periodic = periodic;
@@ -1185,7 +1178,7 @@
     // A coupled RING keeps opticsError "coupled" and every per-plane field empty (what reads
     // them must not change meaning by accident), and gets its main-view record in `modes`.
     if (periodic && out.opticsError && out.opticsError.code === "coupled") {
-      try { out.modes = coupledOptics(els, ref, M, slicesFor); }
+      try { out.modes = coupledOptics(els, ref, Mf, slicesFor); }
       catch (e) { out.modesError = { code: e.code || "error", message: e.message }; }
     }
     // Closed orbit from correctors / misalignments (ring) or trajectory (line).

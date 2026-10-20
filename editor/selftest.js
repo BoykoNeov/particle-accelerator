@@ -33,6 +33,8 @@ function run(scenario) {
   out.chromaticity = a.chromaticity || null;
   out.naturalChromaticity = a.naturalChromaticity || null;
   out.alpha_c = a.alpha_c == null ? null : a.alpha_c;
+  out.eta = a.eta == null ? null : a.eta;
+  out.gamma_t = a.gamma_t == null ? null : a.gamma_t;
   out.Qs = a.Qs == null ? null : a.Qs;
   out.closedOrbit0 = a.closedOrbit0 || null;
   out.orbit = a.orbit ? a.orbit.map((p) => p.o) : null;
