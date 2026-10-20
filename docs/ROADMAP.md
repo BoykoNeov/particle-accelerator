@@ -1766,6 +1766,12 @@ central difference of `delta` itself is not exactly `1`, so the unfrozen product
 noise into the dispersion (`D_x` `4e-12` at `delta = 1e-4`, `9e-11` at `-1e-3`; `beta`
 untouched), and freezing replaces it with the exact unit row. Gate 3's `delta = 0` claim is
 unaffected. Detail in `docs/CONVENTIONS.md` -> *The on-orbit Twiss holds the cavity fixed*.
+Full suites: analytic 2425 passed; reference 524 passed and 1 failed,
+`test_radiation_quantum_xtrack.py::test_the_gaussian_and_the_photon_sum_have_the_same_spread`
+(a width comparison of two random samples, `0.48%` against its `0.47%` gate, on a bare bend that
+reads none of the changed functions); the file re-run passed 7 of 7. That gate's floor,
+`1/sqrt(2N)`, counts one sample's error where the comparison has two, so its "three sigma" is
+about two, and it will trip now and then; recorded, not changed here.
 
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
