@@ -11794,7 +11794,12 @@ nothing that reads them changes meaning by accident), and gets `analyse(...).mod
   first (defect above `1e-9` of its scale) and refuses with its own code, `rf-4d`, whose message
   says this is not an instability and that the Injection tab's 6D modes still work. Every bundled
   ring puts its cavity last, where the block of the product is the product of the blocks
-  (agreement `7e-15`). The proper treatment of such a ring is the 6D form.
+  (agreement `7e-15`). The proper treatment of such a ring is the 6D form. An **uncoupled**
+  ring with its cavity between bends has the same defect in its 2x2 blocks, and its per-plane
+  optics do not close (beta misses itself after one turn by 0.6% to 2.8% on `electron-ring`).
+  The package's `closed_twiss` computes them regardless; the editor keeps those numbers and adds
+  `rfWarning` (the measured miss), shown as `approx.` in the Stability tile and in the plot
+  title (the user's choice: warn, not refuse; the package is a named follow-up).
 
 ### Per-mode chromaticity in the editor (2026-10-20, `modeChromaticity`, `tests/analytic/test_editor_mode_chromaticity.py`)
 

@@ -1154,6 +1154,22 @@
       const end = out.twissBoundaries[out.twissBoundaries.length - 1];
       out.tunes = [end.mu_x / TWO_PI, end.mu_y / TWO_PI];
       out.twissEnd = end;
+      // An RF cavity between bends feeds its energy kick (through zeta) back into x downstream,
+      // so the one-turn map's 2x2 blocks are not symplectic and these per-plane optics do not
+      // close on themselves: beta after one turn misses its start (2.8% on electron-ring with
+      // the cavity at element 50). The package's closed_twiss computes them all the same, so
+      // the numbers stay (and stay the package's); the page says they are approximate.
+      if (periodic) {
+        const det2 = (C) => C[0][0] * C[1][1] - C[0][1] * C[1][0];
+        const [bx, by] = blocks(M);
+        const defect = Math.max(Math.abs(det2(bx) - 1.0), Math.abs(det2(by) - 1.0));
+        if (defect > 1e-9) {
+          const betaMiss = Math.max(Math.abs(end.beta_x / tw0.beta_x - 1.0), Math.abs(end.beta_y / tw0.beta_y - 1.0));
+          out.rfWarning = { defect, betaMiss,
+            message: `an RF cavity sits between bends, so its energy kicks feed back into the sideways motion and these per-plane optics are approximate: after one turn beta comes back off by ${(100 * betaMiss).toPrecision(2)}%. Make the cavity the last element for exact optics.` };
+          out.warnings.push(out.rfWarning.message);
+        }
+      }
       if (periodic) {
         try { out.chromaticity = chromaticity(els, ref); out.naturalChromaticity = naturalChromaticity(els, ref); }
         catch (e) { out.warnings.push("chromaticity: " + e.message); }

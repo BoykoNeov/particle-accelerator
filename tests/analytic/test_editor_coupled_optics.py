@@ -305,6 +305,35 @@ def test_a_cavity_between_the_bends_is_refused_where_the_package_refuses() -> No
     assert r["modesError"]["code"] == "rf-4d"
 
 
+def _uncoupled_with_cavity_at(pos: int | None) -> dict:
+    sc = copy.deepcopy(PRESETS["electron-ring"])
+    cav = next(e for e in sc["elements"] if e["type"] == "RFCavity")
+    els = [e for e in sc["elements"] if e["type"] != "RFCavity"]
+    sc["elements"] = [*els, cav] if pos is None else [*els[:pos], cav, *els[pos:]]
+    return sc
+
+
+def test_an_uncoupled_ring_with_a_cavity_between_the_bends_is_flagged_approximate() -> None:
+    """Found after the entry closed (a side agent's note): the per-plane optics of an UNCOUPLED
+    ring whose cavity sits between bends do not close on themselves (beta after one turn misses
+    its start by 0.59% with electron-ring's cavity at element 100, 2.8% at element 50), and
+    neither the editor nor the package's closed_twiss said so. The user chose a warning: the
+    numbers stay the package's (test_scenario holds them to 1e-9) and analyse adds rfWarning
+    with the measured miss; the cavity-last preset carries none."""
+    assert _js(_uncoupled_with_cavity_at(None))["rfWarning"] is None
+    for pos, miss in ((100, 5.93e-3), (50, 2.82e-2)):
+        sc = _uncoupled_with_cavity_at(pos)
+        r = _js(sc)
+        assert r["opticsError"] is None and r["twiss0"] is not None
+        assert r["rfWarning"]["betaMiss"] == pytest.approx(miss, rel=1e-2)
+        lat = load_scenario(sc).lattice
+        pts = ac.propagate_twiss(lat, ac.closed_twiss(lat))
+        assert r["rfWarning"]["betaMiss"] == pytest.approx(
+            max(abs(pts[-1].beta_x / pts[0].beta_x - 1), abs(pts[-1].beta_y / pts[0].beta_y - 1)),
+            rel=1e-9,
+        )
+
+
 def test_equal_tunes_just_above_the_threshold_are_refused_as_degenerate() -> None:
     """Gate 6: coupled by the 1e-9 test, but the modes cannot be separated."""
     q = ac.tunes(load_scenario(_equal_tune_ring(0.0)).lattice)

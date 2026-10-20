@@ -1494,6 +1494,15 @@ halving prediction with `Q' = -0.1673` on change 1's skew ring, and the RF branc
   tunes, `mode_chromaticity`, `momentum_compaction` and `synchrotron_tune`; exported from the
   page for the rolled-`QD` cell and the coupled `electron-ring` and run, both reproduce the tiles.
 
+- **The same blind spot on an UNCOUPLED ring** (a side agent's note, measured): with
+  `electron-ring`'s cavity at element 100 or 50 the per-plane optics do not close on themselves
+  (beta after one turn misses its start by `0.59%`, `2.8%`; the 2x2 blocks' determinants by
+  `4.9e-3`, `1.2e-2`), and neither the editor nor the package's `closed_twiss` said so. **The
+  user chose a warning:** the editor keeps the package's numbers and adds `rfWarning` with the
+  measured miss, shown in the Stability tile (`approx.`) and the plot title; no preset carries it
+  (`test_an_uncoupled_ring_with_a_cavity_between_the_bends_is_flagged_approximate`). The
+  package's own behaviour is a named follow-up below.
+
 **Named, not built (found by this entry):**
 
 - **`propagate_coupled_twiss` on a ring with a cavity** re-matches the transverse block of the
@@ -1502,7 +1511,9 @@ halving prediction with `Q' = -0.1673` on change 1's skew ring, and the RF branc
   the transport's 4D block instead?
 - **A cavity between the bends** makes the 6x6 one-turn map's transverse block non-symplectic
   (moduli `1.0024`), so the 4D normal form calls the ring unstable, in the package and in the
-  editor. The 6D form is the right tool there.
+  editor. The 6D form is the right tool there. On an uncoupled ring the package's `closed_twiss`
+  still returns per-plane optics that do not close (0.6% to 2.8% in beta): should it warn or
+  refuse, as the editor now warns?
 - **The metric group for a bending gradient magnet on a coupled ring** (`mode_chromaticity`
   refuses it).
 - **A coupled beamline** (needs coupled initial conditions in the scenario format).
