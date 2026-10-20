@@ -11786,6 +11786,30 @@ nothing that reads them changes meaning by accident), and gets `analyse(...).mod
   removed. So gate 4 compares on cavity-free copies, and the package's `propagate_coupled_twiss`
   is a different model from `propagate_twiss` on a ring with RF; that is a package finding,
   pinned by a test, not changed here.
+- **A cavity between the bends breaks the 4D picture in the package too.** With
+  `electron-ring`'s cavity moved to mid-ring, the transverse block of the 6x6 one-turn map has
+  eigenvalue moduli `1.0024`: `normal_form(M, "4d")` calls the ring unstable, and the editor's
+  coupled branch would say the same. Every bundled ring puts its cavity last, where the block of
+  the product is the product of the blocks (agreement `7e-15`). Recorded, not changed: the
+  proper treatment of such a ring is the 6D form.
+
+### Per-mode chromaticity in the editor (2026-10-20, `modeChromaticity`, `tests/analytic/test_editor_mode_chromaticity.py`)
+
+`modeChromaticity(scenario, a)` (`editor/inject.js`, which has the tracker) is the package's
+`mode_chromaticity` by another route: the tracked turn's 4D closed orbit at `delta = +-1e-4`
+(`closedOrbit4` with a `delta` argument; unchanged at `0`), the turn's Jacobian there
+(`orbitMap`), `normalForm4`'s fractional tunes, and their difference wrapped into `(-1/2, 1/2]`
+over `2 delta`, equal to the full-tune difference while a tune moves less than half a unit.
+Agreement with the package's element-by-element scan: `rel 8e-9` or better on six coupled
+rings. An uncoupled ring returns `a.chromaticity` unchanged (so equal tunes are safe); a coupled
+ring with a bending gradient magnet, or one whose mode labels swap, gets `null` and a reason.
+The consumers: `ringOptics.chromaticity` on a coupled ring is this, so the Injection tab's
+decoherence envelope and halving prediction come on, and the tracked centroid follows the
+**mode** envelope with first-order misses (`1.5e-3` to `8e-4`) where the uncoupled `xi` misses
+mode 1 by `0.16` at every energy spread. The Injection note reads `Q'` and `Q_s` from the
+injection optics (on an uncoupled ring the analysis's own numbers); `Q_s` on a coupled cavity
+ring stays the 6D form's third tune, not the lumped tile value. The summary tile and the teaching
+readouts show `Q'_1, Q'_2`. The animation stays off on a coupled ring.
 
 ### The 4D path on its orbit, and coupled rings (2026-10-20, `normalForm4`, `tests/analytic/test_injection_4d_orbit.py`)
 

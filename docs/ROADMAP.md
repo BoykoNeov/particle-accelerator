@@ -40,7 +40,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
 | W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18); **W9** `island_chain()` — the free ring's island chain as a package function, centred on the closed orbit, filtered by length and rotation, checked against a first-order closed form (2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; a theory of the survival fraction |
-| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18); **6D-centred injection** — on a cavity ring the beam is centred on the tracked 6D closed orbit (`closedOrbit6`), whose `delta_co` keeps a kicked or wiggling orbit in step with the RF (2026-10-19); **optics on the closed orbit** — the 6D-matched beam's `W` from the tracked turn's Jacobian at that orbit (`orbitMap`), first order in the orbit through the dispersion it makes (2026-10-19); **the 4D path on its orbit, and coupled rings** — a ring without RF is drawn and read in the 4D normal modes (`normalForm4`) of the map on its tracked orbit (`closedOrbit4`) with that map's static dispersion, and a design-coupled ring (skew quadrupole), refused before, injects on both paths (2026-10-20) | **named, not scoped (2026-10-20, the user's choice):** coupled rings in the **whole** editor, the main optics view (mode Twiss along the ring, mode tunes) and per-mode chromaticity for the decoherence prediction (entry *coupled optics in the editor's main view*) |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18); **6D-centred injection** — on a cavity ring the beam is centred on the tracked 6D closed orbit (`closedOrbit6`), whose `delta_co` keeps a kicked or wiggling orbit in step with the RF (2026-10-19); **optics on the closed orbit** — the 6D-matched beam's `W` from the tracked turn's Jacobian at that orbit (`orbitMap`), first order in the orbit through the dispersion it makes (2026-10-19); **the 4D path on its orbit, and coupled rings** — a ring without RF is drawn and read in the 4D normal modes (`normalForm4`) of the map on its tracked orbit (`closedOrbit4`) with that map's static dispersion, and a design-coupled ring (skew quadrupole), refused before, injects on both paths (2026-10-20); **coupled rings in the whole editor** — the package's compaction, `eta` and `Q_s` on a coupled ring and its `mode_chromaticity`; the main view's mode optics along the ring (beam size per plane first, mode beta behind a toggle), mode tunes and compaction; the per-mode chromaticity in the tile and the Injection tab's decoherence prediction (2026-10-20, four commits) | named, not built: `propagate_coupled_twiss` with RF, a cavity between the bends, the metric group on a coupled ring, a coupled beamline |
 
 **Axis W shipped W9 on 2026-10-18**: **`island_chain()`**, the free ring's island chain as a
 package function (`src/accsim/islands.py`, `tests/analytic/test_island_chain.py`, 15 tests,
@@ -1434,6 +1434,66 @@ pre-commitment and code:
   `err:coupled` entry and the guide strip said the editor "stops drawing" coupled optics, which
   this change makes false; they were rewritten here and an `err:degenerate` entry added.
   Change 4 keeps the Injection tab, the chromaticity and the animation.
+
+**Change 4's gates (pre-committed 2026-10-20, before any test code).** What it is: the editor's
+per-mode chromaticity, `modeChromaticity(scenario, a)` (`editor/inject.js`, beside
+`closedOrbit4`, whose tracker it needs): on a coupled ring, the 4D closed orbit of the tracked
+turn at `delta = +-1e-4` (`closedOrbit4` gains a `delta` argument; at `0` its path is unchanged),
+the tracked turn's Jacobian there (central differences, `1e-7`), `normalForm4`'s fractional
+tunes, and their difference wrapped into `(-1/2, 1/2]` over `2 delta` (equal to the full-tune
+difference while a tune moves less than half a unit, which a step of `1e-4` guarantees). A
+different route from the package's (whole turn rather than element by element), to the same
+number. On an uncoupled ring it is `a.chromaticity`, untouched. Refused, with the reason, as the
+package refuses: a bending gradient magnet on a coupled ring, a label swap. Then the consumers:
+`ringOptics.chromaticity` on a coupled ring becomes it (so the Injection tab's decoherence
+envelope and prediction come on); the Injection note reads `xi` and `Q_s` from the injection
+optics instead of the per-plane analysis (a coupled cavity ring would otherwise say "no stable
+synchrotron motion"); the summary tile shows `Q'_1, Q'_2`; the teaching readouts carry them.
+`ringOptics.Qs` on a coupled cavity ring stays the 6D form's third tune (not the lumped value
+change 3 shows in the tile), and `eta` stays null there (only the per-plane sampler reads it).
+The animation stays off on a coupled ring.
+
+- **Gate 1 — the port.** Against `mode_chromaticity` on change 3's five fixtures and change 1's
+  skew ring (as a scenario): measured `rel 3.5e-11 ... 8.2e-9`; gate `rel 3e-8`.
+- **Gate 2 — the uncoupled ring is untouched.** `modeChromaticity` returns `a.chromaticity`
+  itself on every uncoupled ring preset, and on the bend-free ring with exactly equal tunes.
+- **Gate 3 — refusals.** A coupled ring with a bending gradient magnet gives no chromaticity and
+  a reason naming the metric group; `ringOptics.chromaticity` is null there.
+- **Gate 4 — the beam decoheres at the MODE chromaticity.** Change 1's skew ring (no RF), a
+  zero-emittance beam offset `1 mm`, `0.3 mm`, 400 particles, run to `2.6 / sigma_delta` turns:
+  the tracked mode centroid against `|(1/N) sum exp(i 2 pi Q'_k delta_p n)|` misses by
+  `1.49e-3, 2.60e-3` (modes 1, 2) at `sigma_delta = 7.5e-4` and `8.14e-4, 1.21e-3` at
+  `3.75e-4` (ratios `1.83, 2.14`: first order, as the uncoupled gate). The control, the same
+  envelope from the uncoupled ring's per-plane `xi`, misses mode 1 by `0.162` at both: it does
+  not shrink. Gate: mode misses below `3e-3` and `1.5e-3`, ratios in `[1.6, 2.4]`, the control
+  above `0.1` at both, and the envelope really falls (below `0.05` in both modes).
+- **Gate 5 — nothing else moves.** Every existing injection test passes unchanged; on the coupled
+  cavity fixture `ringOptics.Qs` is still the 6D third tune, `eta` still null.
+- **Gate 6 — the page** (headless Chrome): on the coupled skew ring without RF the chromaticity
+  tile reads the two mode values, the Injection note shows the halving prediction with `Q'_1`;
+  on the coupled cavity ring the note takes the RF branch with the 6D `Q_s`; the animation's
+  beam stays off; the console is clean.
+
+**Change 4 shipped 2026-10-20; the entry is complete.** All six gates passed as pre-committed;
+no tolerance moved. `tests/analytic/test_editor_mode_chromaticity.py` (15 tests, about 20 s).
+One correction in test code: the two `inject`-mode cases asked for 4 particles, which the
+moment-matched sampler refuses (it needs more particles than the six coordinates); they use
+16. The page check (headless Chrome, own profile and port) read the mode chromaticity tile, the
+halving prediction with `Q' = -0.1673` on change 1's skew ring, and the RF branch with the 6D
+`Q_s` on the coupled `electron-ring`.
+
+**Named, not built (found by this entry):**
+
+- **`propagate_coupled_twiss` on a ring with a cavity** re-matches the transverse block of the
+  local 6x6 one-turn map, which carries the cavity's slope through the dispersion: a different
+  model from `propagate_twiss` (1.8% in `beta` on the uncoupled `electron-ring`). Should it take
+  the transport's 4D block instead?
+- **A cavity between the bends** makes the 6x6 one-turn map's transverse block non-symplectic
+  (moduli `1.0024`), so the 4D normal form calls the ring unstable, in the package and in the
+  editor. The 6D form is the right tool there.
+- **The metric group for a bending gradient magnet on a coupled ring** (`mode_chromaticity`
+  refuses it).
+- **A coupled beamline** (needs coupled initial conditions in the scenario format).
 
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,

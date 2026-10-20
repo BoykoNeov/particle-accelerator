@@ -685,6 +685,7 @@
         let b1 = 0, b2 = 0;
         for (const p of r.modes.points) { if (p.B[0][0] > b1) b1 = p.B[0][0]; if (p.B[1][1] > b2) b2 = p.B[1][1]; }
         bits.push(`Coupled ring: the mode tunes are Q₁ = ${fmt(r.modes.tunes[0], 5)} and Q₂ = ${fmt(r.modes.tunes[1], 5)}, and each mode's own β peaks at ${fmt(b1, 4)} m (mode 1, x) and ${fmt(b2, 4)} m (mode 2, y).`);
+        if (r.modes.chromaticity) bits.push(`Each mode's tune moves with momentum at its own rate: Q′₁ = ${fmt(r.modes.chromaticity[0], 3)}, Q′₂ = ${fmt(r.modes.chromaticity[1], 3)} (not the uncoupled ξₓ, ξᵧ).`);
         if (ring && r.modes.eta != null) bits.push(`η = ${fmt(r.modes.eta, 3)}, so a higher-momentum particle arrives ${r.modes.eta > 0 ? "later" : "earlier"} each lap.`);
       } else if (r.opticsError) bits.push(`No matched optics: <b>${r.opticsError.code}</b> — ${r.opticsError.message}.`);
       else if (r.twiss) {
@@ -708,6 +709,7 @@
       }
       if (r.modes) {
         bits.push(`modes Q = (${fmt(r.modes.tunes[0], 6)}, ${fmt(r.modes.tunes[1], 6)})`, `α_c = ${fmt(r.modes.alpha_c, 5)}, η = ${fmt(r.modes.eta, 5)}`);
+        if (r.modes.chromaticity) bits.push(`Q′ modes = (${fmt(r.modes.chromaticity[0], 5)}, ${fmt(r.modes.chromaticity[1], 5)})`);
         if (r.modes.Qs != null) bits.push(`Q_s = ${fmt(r.modes.Qs, 5)}`);
       } else if (r.opticsError) bits.push(`opticsError: ${(r.modesError || r.opticsError).code} — ${(r.modesError || r.opticsError).message}`);
       else if (r.tunes) {

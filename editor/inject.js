@@ -90,13 +90,26 @@
    * (a.closedOrbit0), which misses it at second order in the orbit (1.6e-8 m on kicked-ring).
    * The orbit a ring WITHOUT RF closes on: there is no longitudinal fixed point to iterate on.
    * With no transverse kick it is exactly zero and nothing is iterated.
+   *
+   * `delta` (default 0) holds the momentum at that value every turn: the off-momentum orbit
+   * modeChromaticity needs. There Newton starts from the affine orbit plus the design
+   * dispersion times delta, (I - M4)^-1 (k + M[:4, delta] delta); at delta = 0 nothing changes.
    */
-  function closedOrbit4(scenario, a) {
-    if (!a.oneTurnKick.slice(0, 4).some((v) => v !== 0.0)) return [0.0, 0.0, 0.0, 0.0];
-    if (!a.closedOrbit0) throw new Error("the ring has no closed orbit (integer tune)");
-    let x = a.closedOrbit0.slice();
+  function closedOrbit4(scenario, a, delta) {
+    delta = delta || 0.0;
+    let x;
+    if (delta === 0.0) {
+      if (!a.oneTurnKick.slice(0, 4).some((v) => v !== 0.0)) return [0.0, 0.0, 0.0, 0.0];
+      if (!a.closedOrbit0) throw new Error("the ring has no closed orbit (integer tune)");
+      x = a.closedOrbit0.slice();
+    } else {
+      const M = a.oneTurn, k = a.oneTurnKick, L = O._linalg;
+      const I_m4 = L.eye(4).map((row, i) => row.map((v, j) => v - M[i][j]));
+      x = L.solve(I_m4, [X, PX, Y, PY].map((i) => k[i] + M[i][DELTA] * delta));
+      if (x === null) throw new Error("the ring has no closed orbit (integer tune)");
+    }
     const machine = T.build(scenario);
-    const turn = (s) => { const t = s.concat([0.0, 0.0]); T.trackTurn(machine, t); return t.slice(0, 4); };
+    const turn = (s) => { const t = s.concat([0.0, delta]); T.trackTurn(machine, t); return t.slice(0, 4); };
     const h = 1e-8, tol = 1e-14;
     let r = turn(x).map((v, i) => v - x[i]);
     for (let it = 0; it < 50; it++) {
@@ -189,6 +202,42 @@
   }
 
   /**
+   * Per-mode chromaticity (dQ_1/ddelta, dQ_2/ddelta) of a ring: accsim.twiss.mode_chromaticity by
+   * a different route to the same number. On a COUPLED ring: the 4D closed orbit of the tracked
+   * turn at delta = +-step (closedOrbit4), the tracked turn's Jacobian there (orbitMap), the
+   * fractional tunes of its 4D normal form (normalForm4), and their difference wrapped into
+   * (-1/2, 1/2] over 2 step. That equals the full-tune difference the package takes while a tune
+   * moves by less than half a unit, which a step of 1e-4 guarantees. On an UNCOUPLED ring the
+   * modes are the planes and this is a.chromaticity, untouched (and no normal form is taken, so
+   * equal tunes are fine). Returns { chromaticity, error }: refused, as the package refuses, on
+   * a coupled ring with a bending gradient magnet (its tracked map lacks the (1 + h x) metric
+   * group, L4) and where a mode label swaps between the two samples. Gates:
+   * tests/analytic/test_editor_mode_chromaticity.py.
+   */
+  function modeChromaticity(scenario, a, step) {
+    if (!a.coupled) return { chromaticity: a.chromaticity || null, error: a.chromaticity ? null : "no chromaticity for this ring" };
+    step = step || 1e-4;
+    const bend = (a.elements || []).find((el) => el.type === "Dipole" && +el.angle && +el.k1);
+    if (bend) return { chromaticity: null, error: `a bending gradient magnet (${bend.name || "Dipole"}) on a coupled ring: its tracked map lacks the (1 + h x) metric group, so the momentum scan would be wrong by it` };
+    try {
+      const tunes = [+step, -step].map((d) => {
+        const x4 = closedOrbit4(scenario, a, d);
+        const J = orbitMap(scenario, a, x4.concat([0.0, d]));
+        return O.normalForm4([X, PX, Y, PY].map((i) => [X, PX, Y, PY].map((j) => J[i][j]))).tunes;
+      });
+      const wrap = (v) => (((v + 0.5) % 1.0) + 1.0) % 1.0 - 0.5;
+      const dq = [0, 1].map((k) => wrap(tunes[0][k] - tunes[1][k]));
+      const split = Math.abs(wrap(tunes[0][0] - tunes[0][1]));
+      if (Math.max(Math.abs(dq[0]), Math.abs(dq[1])) > 0.5 * split) {
+        return { chromaticity: null, error: "the mode labels swap between the two momentum samples: too close to the coupling resonance for a per-mode slope" };
+      }
+      return { chromaticity: dq.map((v) => v / (2.0 * step)), error: null };
+    } catch (e) {
+      return { chromaticity: null, error: e.message };
+    }
+  }
+
+  /**
    * The ring's optics at the injection point (the start of the lattice), from the editor's
    * own analysis — the same arrays the page draws. Throws if the ring does not close.
    * `orbit0` is the closed orbit as a 6-array: the 6D one where the beam is 6D-matched, else
@@ -197,8 +246,8 @@
    * A ring whose DESIGN planes are coupled (a skew quadrupole, a solenoid, a rolled magnet)
    * has no per-plane Twiss, no tunes, chromaticity or Q_s from the analysis. Its design record
    * is the 4D normal modes of the design matrix (modes4), its tunes are those modes' fractional
-   * tunes, its chromaticity is null (the editor has none for coupled modes: no decoherence
-   * prediction is shown), and Q_s comes from the 6D form's third tune when there is a cavity.
+   * tunes, its chromaticity is each mode's (modeChromaticity, so the decoherence prediction is
+   * the mode's), and Q_s comes from the 6D form's third tune when there is a cavity.
    */
   function ringOptics(scenario) {
     if (scenario.periodic === false) throw new Error("injection needs a ring (periodic) scenario");
@@ -208,12 +257,16 @@
     const coupled = !!a.coupled;
     const design = coupled ? modes4(a.oneTurn) : null;
     const tw = coupled ? design.twiss : a.twiss0;
+    // A coupled ring's chromaticity is each MODE's (modeChromaticity); null with a reason where
+    // it is refused. An uncoupled ring keeps the analysis's per-plane one.
+    const chroma = coupled ? modeChromaticity(scenario, a) : { chromaticity: a.chromaticity || null, error: null };
     const out = {
       ref: a.ref,
       length: a.length,
       coupled,
       tunes: coupled ? design.normal4.tunes : a.tunes,
-      chromaticity: a.chromaticity || null,
+      chromaticity: chroma.chromaticity,
+      chromaticityError: chroma.error,
       Qs: a.Qs == null ? null : a.Qs,
       eta: a.eta == null ? null : a.eta,
       hasRF: (scenario.elements || []).some((e) => e.type === "RFCavity" && +e.voltage !== 0.0),
@@ -603,7 +656,7 @@
   }
 
   return {
-    ringOptics, closedOrbit6, closedOrbit4, orbitMap, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
+    ringOptics, closedOrbit6, closedOrbit4, orbitMap, modeChromaticity, defaults, sampleInjection, matchedBunchLength, whiten, cholesky,
     betatronPart, action, bmag, expectedAction, beamStats, chromaticEnvelope, sidebandNear,
   };
 });

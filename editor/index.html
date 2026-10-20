@@ -782,6 +782,14 @@
     const L = sc.elements.reduce((s, e) => s + O.elementLength(e), 0);
     const step = Math.max(0.02, L / 900);
     state.result = O.analyse(sc, { plotStep: step });
+    // A coupled ring's chromaticity is each mode's, from the tracked turn (inject.js: it needs
+    // the tracker, which the matrix core does not have).
+    const m = state.result.modes;
+    if (m) {
+      const mc = INJ.modeChromaticity(sc, state.result);
+      m.chromaticity = mc.chromaticity;
+      m.chromaticityError = mc.error;
+    }
     anim.onResult();
     inj.onResult();
   }
@@ -980,6 +988,8 @@
       tiles += `<div class="tile tune"${tipAttr("tile:workingpoint")}><span class="label">Working point (modes)</span>${tuneDiagram(m.tunes[0], m.tunes[1])}</div>`;
     }
     if (r.chromaticity) tiles += tile("Chromaticity ξₓ · ξᵧ", `${fmt(r.chromaticity[0], 4)} · ${fmt(r.chromaticity[1], 4)}`, "", `natural ${fmt(r.naturalChromaticity[0], 3)} · ${fmt(r.naturalChromaticity[1], 3)}`, "", "tile:chroma");
+    else if (m && m.chromaticity) tiles += tile("Chromaticity Q′₁ · Q′₂", `${fmt(m.chromaticity[0], 4)} · ${fmt(m.chromaticity[1], 4)}`, "", "each mode's tune vs momentum", "", "tile:chroma");
+    else if (m) tiles += `<div class="tile"${tipAttr("tile:chroma")}><span class="label">Chromaticity Q′₁ · Q′₂</span><span class="empty">—</span><span class="sub">${esc(m.chromaticityError || "")}</span></div>`;
     const lng = m ? m : r; // where the longitudinal numbers are
     if (lng.alpha_c != null) tiles += tile("Momentum compaction αc", fmt(lng.alpha_c, 4), "", lng.gamma_t ? `γₜ = ${fmt(lng.gamma_t, 4)} · η = ${fmt(lng.eta, 3)}` : `η = ${fmt(lng.eta, 3)}`, "", "tile:alphac");
     if (ring) {
@@ -1689,14 +1699,18 @@
       const out = [`<p><b class="off">Radiation damping is off</b>, so nothing here ever shrinks the beam: what is injected stays, and only spreads.</p>`];
       if (coupled) {
         if (!this.opticsFor(sc)) return `<p>The ring's planes are coupled and its normal modes cannot be separated (a coupling resonance, or an unstable ring), so there is no matched beam to inject into.</p>`;
-        out.push(`<p>This ring's <b>planes are coupled</b> (a skew quadrupole, a solenoid or a rolled magnet mixes x and y), so there is no separate x and y motion to match. The beam is matched and measured in the ring's own <b>normal modes</b>, the x-like and y-like motions that each keep their own size; the x and y settings set those modes. The editor has no chromaticity for coupled modes yet, so no smearing prediction is shown.</p>`);
+        out.push(`<p>This ring's <b>planes are coupled</b> (a skew quadrupole, a solenoid or a rolled magnet mixes x and y), so there is no separate x and y motion to match. The beam is matched and measured in the ring's own <b>normal modes</b>, the x-like and y-like motions that each keep their own size; the x and y settings set those modes, and each mode smears at its <b>own</b> chromaticity, which is not the uncoupled ring's.</p>`);
       }
-      const i = this.plane === "x" ? 0 : 1, xi = r.chromaticity ? r.chromaticity[i] : null;
+      // Q' and Q_s from the injection optics (inject.js ringOptics): on an uncoupled ring they are
+      // the analysis's own; on a coupled one they are the modes' (the analysis has none).
+      const opt = this.opticsFor(sc);
+      const i = this.plane === "x" ? 0 : 1, xi = opt && opt.chromaticity ? opt.chromaticity[i] : null;
+      const Qs = opt ? opt.Qs : r.Qs;
       const sd = Math.max(0, +this.settings.sigd_e3 || 0) * 1e-3;
       const hasRF = sc.elements.some((e) => e.type === "RFCavity" && +e.voltage !== 0);
-      if (xi == null) { if (!coupled) out.push(`<p>No chromaticity is available for this ring, so no prediction is shown.</p>`); }
+      if (xi == null) out.push(`<p>No chromaticity is available for this ring${opt && opt.chromaticityError ? ` (${esc(opt.chromaticityError)})` : ""}, so no prediction is shown.</p>`);
       else if (!(Math.abs(xi) * sd > 0)) out.push(`<p>With ${sd > 0 ? "zero chromaticity" : "no energy spread"} every particle turns at the same rate, so the beam keeps its injected shape for good. Add an energy spread (or octupoles) to see it smear.</p>`);
-      else if (hasRF && r.Qs > 0) out.push(`<p>This ring has an <b>RF cavity</b>: each particle's energy swings up and down every ≈${fmt(1 / r.Qs, 3)} turns, so the energy-driven smearing undoes itself. The spread in phase never exceeds 2|Q′|σδ/Qₛ = <b>${fmt(2 * Math.abs(xi) * sd / r.Qs, 2)} rad</b> — the wobble fades only slightly and keeps coming back. Remove the cavity to watch the beam smear out.</p>`);
+      else if (hasRF && Qs > 0) out.push(`<p>This ring has an <b>RF cavity</b>: each particle's energy swings up and down every ≈${fmt(1 / Qs, 3)} turns, so the energy-driven smearing undoes itself. The spread in phase never exceeds 2|Q′|σδ/Qₛ = <b>${fmt(2 * Math.abs(xi) * sd / Qs, 2)} rad</b> — the wobble fades only slightly and keeps coming back. Remove the cavity to watch the beam smear out.</p>`);
       else if (hasRF) out.push(`<p>This ring has an RF cavity but no stable synchrotron motion (check the RF phase), so expect the energies to run away.</p>`);
       else out.push(`<p>No RF cavity: every particle keeps its energy, so the energy spread steadily spreads the phases. The wobble should halve after ≈ <b>${fmt(0.1874 / (Math.abs(xi) * sd), 3)} turns</b> (0.187 / |Q′|σδ, Q′ = ${fmt(xi, 4)}); the dashed curve is the prediction from these particles' own energies.</p>`);
       // A cavity where the dispersion is not zero couples the energy kicks into sideways

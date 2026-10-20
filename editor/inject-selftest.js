@@ -11,6 +11,7 @@
  *                                         (index 0 = before the first turn), and the deltas;
  *   mode "tbt":    { states, turns }  -> turn-by-turn (x, px, y, py) of the given particles
  *                                         (all six coordinates with `full: true`);
+ *   mode "chroma": {}                 -> modeChromaticity (and the analysis's per-plane one);
  *   mode "design": {}                 -> the design one-turn matrix, matched Twiss and affine 4D
  *                                         orbit the editor's analysis uses;
  *   mode "nf6":    { matrix }         -> normalForm6 of the given 6x6 matrix (no scenario);
@@ -36,6 +37,11 @@ function run(c) {
   try {
     if (c.mode === "nf6") return { normal: O.normalForm6(c.matrix) };
     if (c.mode === "nf4") return { normal: O.normalForm4(c.matrix) };
+    if (c.mode === "chroma") {
+      const a = O.analyse(c.scenario, { slicesFor: () => 1 });
+      const res = I.modeChromaticity(c.scenario, a);
+      return { coupled: !!a.coupled, chromaticity: res.chromaticity, error: res.error, analysisChromaticity: a.chromaticity || null };
+    }
     if (c.mode === "design") {
       const a = O.analyse(c.scenario, { slicesFor: () => 1 });
       return { oneTurn: a.oneTurn, twiss0: a.twiss0 || null, closedOrbit0: a.closedOrbit0 || null };
