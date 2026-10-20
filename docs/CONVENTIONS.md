@@ -11716,9 +11716,13 @@ before, goes the same way, with or without a cavity.
   order, so on an uncoupled map the two are the same draw.
 - **Bit-identity, and where it is only round-off.** An **uncoupled kick-free** ring keeps the
   design optics untouched (no `normal4`, `twiss` is `a.twiss0`). An uncoupled **steered** ring
-  (horizontal kicks only) has an exactly uncoupled `J`, and its `W4` equals the per-plane
-  Courant-Snyder matrix to `4.9e-12` / `1.5e-11` of `max |W|`: that is the finite-difference `J`'s
-  own non-symplecticity (`M^-1 = -S M^T S` assumes it away), not the projector arithmetic. A
+  (horizontal kicks only) has an exactly uncoupled `J` (the exact maps keep `y = py = 0`
+  exactly), and such a `J` takes the **per-plane match** (`perPlaneModes`, `W =
+  blockdiag(N_x, N_y)`), not `normalForm4`. `normalForm4` gives the same `W` to `4.9e-12` /
+  `1.5e-11` of `max |W|` there (the finite-difference `J`'s non-symplecticity, which `M^-1 = -S
+  M^T S` assumes away), but it must refuse **equal tunes**, where its projectors divide by
+  zero, and a bend-free FODO ring has `Q_x = Q_y` exactly: steered horizontally it injected
+  before and must still. Coupled and on the difference resonance it is refused, by name. A
   **coupled kick-free** ring has a zero orbit, so `orbitMap` returns the design matrix and `W4`
   is `normalForm4` of it, bit for bit.
 - **Cross-route floors** (against `closed_orbit_nonlinear`, `linearised_one_turn_map`,

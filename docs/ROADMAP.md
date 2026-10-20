@@ -1272,7 +1272,7 @@ geometry, the matrices and the orbit only". What it would take, for the scoping 
 Injection tab, on 2026-10-20**, as two changes: (a) `normalForm4` (`editor/accsim-optics.js`),
 `closedOrbit4` and the no-cavity branch of `ringOptics` (`editor/inject.js`),
 `tests/analytic/test_injection_4d_orbit.py`; (b) design-coupled rings on both paths (`modes4`,
-`Q_s` from the 6D form, the page's note, defaults and labels). The test file has 31 tests (about
+`Q_s` from the 6D form, the page's note, defaults and labels). The test file has 32 tests (about
 25 s); `test_injection.py`'s five affected gates were re-pointed. Full detail in
 `docs/CONVENTIONS.md` -> *The 4D path on its orbit, and coupled rings*. Gates 1 to 13 passed as
 pre-committed on the first run; no tolerance was changed. What changed between pre-commitment
@@ -1294,6 +1294,23 @@ and code:
   so `requestAnimationFrame` runs) loaded the skew-quadrupole ring with and without its cavity
   and `kicked-ring` by share link: each injected, tracked about 330 turns in 4 s, labelled the
   readings "4D modes on the closed orbit" / "6D modes", and threw nothing.
+- **Found after pre-commitment, by the final review: a regression on equal tunes.** A
+  bend-free thin-lens FODO ring has `Q_x = Q_y` exactly; steered horizontally it injected before
+  (per-plane match) and then failed in `normalForm4`, whose projectors divide by `cos mu_x - cos
+  mu_y` (with a misleading "mode off the unit circle": the two equal roots of the quadratic
+  landed a hair below zero discriminant). Fixed: an on-orbit map whose x-y blocks are **exactly**
+  zero takes the per-plane match (`perPlaneModes`), so gate 3 now holds to round-off instead of
+  `1.5e-11`; a round-off-negative discriminant is clamped and refused as degenerate. With a
+  vertical kick too that ring is coupled ON the difference resonance and is refused, the message
+  naming it. Added to the gates (`test_a_steered_ring_with_equal_tunes_still_injects`; on the
+  orbit the tunes differ by `1.6e-9`, inside the refusal band).
+- **The page's coupled-ring text** (`opticsErrorText`, `teach.js` `err:coupled` and the
+  overview) said the editor shows "the geometry, the matrices and the orbit only"; it now names
+  the Injection tab. The note's "a solenoid or a rolled magnet" was probed, not only the skew
+  quadrupole: a 1 m solenoid (`ks = 0.05`) and a QD rolled 10 mrad on `RING` inject, their beams
+  the on-orbit map's fixed point to `3.1e-11` / `2.6e-11` (probe, not a gate).
+- **Not run:** the full analytic suite (2.5 h). Nothing in `src/` changed; the 7 test files that
+  execute the editor's JS were run in full after each change.
 - **Not done, named:** per-mode chromaticity and the main optics view (entry above).
 
 **Tools — the 4D (no-cavity) injected beam's optics on the closed orbit (scoped 2026-10-19,
