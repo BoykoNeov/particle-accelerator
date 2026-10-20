@@ -210,6 +210,26 @@ def _matched_dispersion(one_turn: np.ndarray) -> np.ndarray:
     return np.linalg.solve(np.eye(4) - m4, d)
 
 
+def _periodic_dispersion(one_turn: np.ndarray) -> np.ndarray:
+    """``(D_x, D_px, D_y, D_py)`` of a stable ring, coupled or not.
+
+    An uncoupled map goes through :func:`match_periodic` exactly as before (so its
+    refusals, and every bit of its answer, are unchanged). A coupled one has no per-plane
+    Twiss, but its matched dispersion is the same 4D solve; it is refused only if a mode
+    is unstable, which the per-plane test cannot see (a sum-resonance stop-band).
+    """
+    if _coupling_norm(one_turn) <= 1e-9:
+        tw = match_periodic(one_turn)
+        return np.array([tw.disp_x, tw.disp_px, tw.disp_y, tw.disp_py])
+    eigvals = np.linalg.eigvals(_transverse_4d(one_turn))
+    if not np.allclose(np.abs(eigvals), 1.0, atol=1e-6, rtol=0.0):
+        raise UnstableLatticeError(
+            f"coupled lattice unstable: eigenvalue moduli {np.abs(eigvals)} are not all on "
+            "the unit circle, so there is no matched dispersion."
+        )
+    return _matched_dispersion(one_turn)
+
+
 def match_periodic(one_turn: np.ndarray) -> Twiss:
     """Matched (periodic) Twiss at the start of a ring from its one-turn matrix.
 
@@ -2355,6 +2375,13 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
     **no** ``gamma0`` dependence — it is geometry only (the ``1/gamma0^2`` below
     cancels against the ``R56`` it is paired with).
 
+    **A design-coupled ring is accepted** (a skew quadrupole, a solenoid, a rolled
+    magnet). It has no per-plane Twiss, but the matched dispersion is the 4D solve
+    ``(I - M4)^-1 d`` either way, and on such a ring the dispersion leaks into ``D_y``,
+    so the vertical terms below are not optional. :func:`slip_factor`,
+    :func:`transition_gamma` and :func:`synchrotron_tune` follow. An unstable coupled
+    ring raises :class:`UnstableLatticeError`. Gates: ``test_coupled_compaction.py``.
+
     A :class:`~accsim.elements.wiggler.Wiggler` is a bending magnet for this purpose even
     though it has no *net* bend: the ring's dispersion cancels across it exactly, but its
     **own** dispersion does not, and ``∮ eta h ds = -L theta^2/2`` is exactly the geometric
@@ -2408,20 +2435,21 @@ def momentum_compaction(lattice: Lattice, slices: int = 64, method: str = "ident
                     f"momentum_compaction(method='quadrature') does not follow the roll of the "
                     f"bending Dipole {elem.name!r} (roll={elem.roll}); use method='identity'"
                 )
-    tw0 = closed_twiss(lattice)
+    M = lattice.one_turn_matrix()
+    disp = _periodic_dispersion(M)
     if method == "identity":
-        M = lattice.one_turn_matrix()
-        slip = M[ZETA, X] * tw0.disp_x + M[ZETA, PX] * tw0.disp_px + M[ZETA, DELTA]
+        slip = M[ZETA, X] * disp[0] + M[ZETA, PX] * disp[1] + M[ZETA, DELTA]
         # The vertical pair is added last, so where D_y is exactly zero (every flat
         # ring) the sum is the horizontal one to the bit. Where it is not — a tilted bend
-        # (V1) — the orbit is displaced vertically too and its path length moves with it;
-        # leaving the pair out was a 3e-6 error on V1's dogleg ring, found by the
-        # quadrature route below refusing to agree. (A K2 rolled-bend ring never reached
-        # this line: it is coupled, and closed_twiss refuses it above.)
-        slip += M[ZETA, Y] * tw0.disp_y + M[ZETA, PY] * tw0.disp_py
+        # (V1), or a coupled ring whose skew quadrupole or solenoid leaks D_x into D_y —
+        # the orbit is displaced vertically too and its path length moves with it;
+        # leaving the pair out was a 3e-6 error on V1's dogleg ring and is a 1.7e-3 one
+        # on the coupled ring of test_coupled_compaction.py, both found by the quadrature
+        # route below refusing to agree. The identity holds for any linear map, so a K2
+        # rolled-bend ring (coupled) is answered here too; only the quadrature refuses it.
+        slip += M[ZETA, Y] * disp[2] + M[ZETA, PY] * disp[3]
         return 1.0 / lattice.ref.gamma0**2 - slip / lattice.length
 
-    disp = np.array([tw0.disp_x, tw0.disp_px, tw0.disp_y, tw0.disp_py])
     integral = 0.0  # ∮ D_x h ds
     for elem in lattice.elements:
         M = elem.matrix(lattice.ref)

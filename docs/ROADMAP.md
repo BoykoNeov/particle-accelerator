@@ -1251,7 +1251,67 @@ The findings, in the order they changed the milestone:
 **What W1 leaves open:** W2, Miyamoto's driven optics (shipped 2026-10-08, above). The
 editor and scenario format (refused, asserted).
 
-**Tools — coupled optics in the editor's main view (named 2026-10-20, not scoped).** The user
+**Tools — coupled optics in the editor's main view (scoped 2026-10-20).** Four changes, in
+order, each with its gates pre-committed before its test code and its own commit; the user chose
+the order and that the main plot shows **beam size per lab plane** (`sigma_x^2 = eps_1 B_x1 +
+eps_2 B_x2 + D_x^2 sigma_delta^2`, what a monitor measures), with each mode's own beta behind a
+toggle. Edwards-Teng beside Mais-Ripken is not in scope.
+
+1. **Package: momentum compaction, `eta` and `Q_s` on a design-coupled ring.** Every one of them
+   reaches `closed_twiss`, which refuses coupling; the matched dispersion they need is the 4D
+   solve `(I - M4)^-1 d`, which does not care. Gates below.
+2. **Package: per-mode chromaticity** (scoped when change 1 ships).
+3. **Editor: the mode optics along the ring, the full mode tunes, and change 1's port** (the
+   JS `momentumCompaction` lacks the vertical pair `M[zeta,y] D_y + M[zeta,py] D_py`), in NEW
+   fields beside `twiss` / `twiss0` / `tunes`, so no consumer changes meaning silently.
+4. **Editor: change 2's port and the consumers re-pointed one by one** (animation stays refused
+   on a coupled ring, the Injection tab's decoherence prediction, its `Q_s` source, the teaching
+   layer, `selftest.js`), each with a gate.
+
+**Change 1's gates (pre-committed 2026-10-20, before any test code).** Fixtures: six thin-lens
+FODO cells of the xtrack compaction test's cell (`F = 2.5`, sector bends `L = 1`, `0.15` rad,
+`gamma0 = 5` protons) plus a thin quadrupole `-0.03` that splits the tunes; the coupling comes
+from a thin skew quadrupole `k1sl = 0.05` after the first bend of cell 2 (where `D_x = 2.66`
+leaks into `D_y = 0.245` at the entrance; modes `0.4787, 0.3928`) or, in the second fixture,
+from a solenoid `L = 0.5`, `ks = 0.2` before element 8 (modes `0.4928, 0.4118`). Measured by a
+throwaway probe:
+
+- **Gate 1 — two routes on a coupled ring.** The identity route and the quadrature route
+  (`integral h D_x ds` with the 4D `D` carried through every element) touch disjoint matrix
+  entries. Their miss falls as `1/n^2`: `1.140e-6, 2.850e-7, 7.125e-8` at `32, 64, 128` slices
+  on the skew fixture (ratios `4.000`), `2.78e-7, 6.95e-8` on the solenoid one. Gate: ratio in
+  `[3.9, 4.1]` and the 128-slice miss below `1e-7` on both.
+- **Gate 2 — the vertical pair is load-bearing.** Without `M[zeta,y] D_y + M[zeta,py] D_py`
+  the identity misses the quadrature by `1.711e-3` (skew) and `4.64e-4` (solenoid), three to
+  four orders above the quadrature floor. Gate: the pair's share exceeds `1e3` times the
+  128-slice miss on both, so a port that drops it cannot pass gate 1.
+- **Gate 3 — continuity into the uncoupled ring.** `alpha_c(k1sl) - alpha_c(0)` is second order
+  in the skew strength: `/k1sl^2 = 0.44019, 0.44011, 0.44008, 0.44008` at `0.04 ... 0.005`, still
+  `0.44008` at `1e-4` (the coupled branch). Gate: the coefficient at `1e-2` and `1e-4` agree to
+  `1e-4` relative, and the uncoupled ring (`k1sl = 0`) takes the old path bit for bit.
+- **Gate 4 — xtrack (reference).** `momentum_compaction_factor` of the same thin-lens line
+  (`Multipole(ksl=[0, k1sl])`, bends with edges off) is `0.377405975` against `0.377405973`,
+  `5.9e-9` relative; its `dx, dpx, dy, dpy` agree to all printed digits. Gate: `rel 1e-7` on
+  `alpha_c` and `slip_factor`; dropping the vertical pair would miss by `4.5e-3`.
+- **Gate 5 — `Q_s` follows.** On the skew fixture with a cavity (`h = 10`, `phi_s = pi`: the
+  ring is above transition) `synchrotron_tune` is the lumped formula on the coupled `eta`, and
+  its relative miss from the 6D normal form's third tune is the synchro-betatron order: `-1.185e-5,
+  -2.962e-6, -7.405e-7` at `V = 200, 50, 12.5` kV (ratio `4.00` per quartering, the uncoupled
+  ring's `-1.119e-5 ...` alike). Gate: ratio in `[3.9, 4.1]` both steps; an `eta` from the
+  uncoupled dispersion would leave a floor of about `1.6e-3`.
+- **Gate 6 — refusals.** A coupled ring that is unstable (seven cells: on the sum resonance,
+  eigenvalue moduli `0.896, 1.117`) raises `UnstableLatticeError`, as an uncoupled unstable one
+  does; the quadrature route still refuses a rolled bend.
+
+**Change 1 shipped 2026-10-20.** All six gates passed as pre-committed on the first run; no
+tolerance moved. `_periodic_dispersion` (`src/accsim/twiss.py`) is the only new code: an
+uncoupled map still goes through `match_periodic`, a coupled one gets the 4D solve after a 4D
+stability test. `tests/analytic/test_coupled_compaction.py` (13 tests),
+`tests/reference/test_coupled_compaction_xtrack.py` (2). The 15 analytic files that call these
+functions (308 tests) pass unchanged. A side effect worth knowing: the RF-bucket functions in
+`longitudinal.py` accept a coupled ring now too, since they only need `eta`.
+
+**The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
 not only the Injection tab. Today a ring with a skew quadrupole, a solenoid or a rolled magnet
 makes `analyse` stop at `matchPeriodic` ("lattice is x-y coupled"): no beta, dispersion, beam

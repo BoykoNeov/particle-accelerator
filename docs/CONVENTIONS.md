@@ -3685,6 +3685,35 @@ momentum deviation — a purely **geometric** quantity (no `γ₀`):
   and `slip_factor` (~1e-6). See `tests/analytic/test_momentum_compaction.py` and
   `tests/reference/test_momentum_compaction_xtrack.py`.
 
+### On a design-coupled ring (2026-10-20, change 1 of *coupled optics in the editor's main view*)
+
+`momentum_compaction`, and through it `slip_factor`, `transition_gamma`, `synchrotron_tune`
+and the RF-bucket functions in `longitudinal.py`, **accept a ring whose one-turn map couples
+`x` and `y`** (a skew quadrupole, a solenoid, a rolled magnet). They used to reach
+`closed_twiss` and refuse it. The choice, and why it is safe:
+
+- **The dispersion is the 4D solve `D = (I − M4)⁻¹ d`**, which never needed the planes to be
+  separate (`_periodic_dispersion`). An uncoupled map still goes through `match_periodic`, so
+  its answer is unchanged bit for bit and so are its refusals. A coupled map is refused only
+  when a 4D eigenvalue leaves the unit circle (a sum-resonance stop-band, which the per-plane
+  test cannot see), with `UnstableLatticeError`.
+- **The vertical pair `R53·D_y + R54·D_py` is not optional there.** A skew quadrupole where
+  `D_x` is large leaks it into `D_y` (`0.245` from `2.66` on the test ring) and the bends
+  downstream make `R53, R54` nonzero, so leaving the pair out is a `1.7e-3` error in `α_c`
+  (0.45%). The identity already carried it since V1; the editor's port did not.
+- **Two routes and an external check.** The quadrature route (`∮ h D_x ds` with the 4D `D`
+  carried through every element) converges onto the identity at exactly `1/n²` on a skew ring
+  and on a solenoid ring; xtrack's `momentum_compaction_factor` agrees to `5.9e-9` and its
+  `dx, dpx, dy, dpy` to all digits. `Q_s` (the lumped formula on the coupled `η`) meets the 6D
+  normal form's third tune at the synchro-betatron order, falling as `V`, with no floor.
+- **`α_c` is second order in the skew strength** (`0.44008 k1sl²` on the test ring), so the
+  coupled branch meets the uncoupled ring continuously.
+- **The identity now answers a K2 rolled-bend ring too** (it holds for any linear map); the
+  quadrature route still refuses it, because the rolled bend's exit face is not a rotation
+  of its entrance frame.
+
+Gates: `tests/analytic/test_coupled_compaction.py`, `tests/reference/test_coupled_compaction_xtrack.py`.
+
 ## RF cavity / synchrotron tune (Stage 3 — implemented)
 
 `RFCavity(voltage, frequency, phi_s)` is a **thin** longitudinal kick. In the
