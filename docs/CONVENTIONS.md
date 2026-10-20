@@ -11684,7 +11684,74 @@ about the 6D closed orbit**, not of the design matrix. A ring without RF keeps t
   = 0`, `x = -0.360` mm): the static dispersion at the injection point moves from `1.465` to
   `1.494` m, 1.94%.
 - **Still the design optics:** `twiss4` (the uncoupled Twiss and static dispersion the page
-  quotes beside the 6D dispersion, and the `sampler: "4d"` control) and the whole 4D path.
+  quotes beside the 6D dispersion, and the `sampler: "4d"` control). The 4D path moved onto
+  its orbit on 2026-10-20 (next section).
+
+### The 4D path on its orbit, and coupled rings (2026-10-20, `normalForm4`, `tests/analytic/test_injection_4d_orbit.py`)
+
+A ring **without RF** is now drawn and read the way the cavity path is, one dimension down:
+centred on the **tracked** 4D closed orbit, in the **4D normal modes** of the one-turn map
+linearised about it, with that map's own **static** dispersion. A ring whose **design** planes
+are coupled (a skew quadrupole, a solenoid, a rolled magnet), refused by the Injection tab
+before, goes the same way, with or without a cavity.
+
+- **`closedOrbit4(scenario, a)`** (`editor/inject.js`): a port of `closed_orbit_nonlinear` at
+  `delta = 0`, `zeta = 0` (Newton on the transverse part of the tracked turn, central
+  differences at `1e-8`, tol `1e-14`), started from the affine solve `a.closedOrbit0`, which it
+  corrects at second order (`1.6e-8` m on `kicked-ring`). No transverse kick returns exactly
+  zero with nothing iterated.
+- **`normalForm4(M4)`** (`editor/accsim-optics.js`): `normalForm6`'s route with two modes. The
+  eigenvalues `2 cos mu_k` of `N = M + M^-1` are the roots of `t^2 - e1 t + e2` (`e1 = Tr N / 2`,
+  `e2 = (e1^2 - Tr N^2 / 2) / 2`), taken in the stable form (larger-magnitude root first, the
+  other as `e2 /` it); the projectors are `(N - 2 cos mu_j) / (2 cos mu_k - 2 cos mu_j)`; the
+  eigenvector construction and the phase convention (`W[0,1] = W[2,3] = 0`, own-plane position
+  `> 0`, `a . S . b = 1`) are `normalForm6`'s, so it is the package's `normal_form(M, "4d")`
+  entry for entry (`1e-12` of `max |W|` on every preset's design matrix). It is written
+  **beside** `normalForm6`, not merged with it, so the 6D path cannot move.
+- **The record** (`optics.normal4`): `W`, `W^-1`, the mode tunes and `D = (I - J_4)^-1 J[:4,
+  delta]` of `J = orbitMap(..., [x_co, 0, 0])`. `optics.twiss` becomes the mode Twiss and `D`;
+  the design values stay as `twiss4` / `orbit4`. The sampler draws `x = x_co + D delta + W4 u`,
+  `zeta = 0`, each mode pair `u` exactly as on the 6D path; `betatronPart` reads the mode pair of
+  `W4^-1 (x - x_co - D delta)`. The random columns are the per-plane sampler's in the same
+  order, so on an uncoupled map the two are the same draw.
+- **Bit-identity, and where it is only round-off.** An **uncoupled kick-free** ring keeps the
+  design optics untouched (no `normal4`, `twiss` is `a.twiss0`). An uncoupled **steered** ring
+  (horizontal kicks only) has an exactly uncoupled `J`, and its `W4` equals the per-plane
+  Courant-Snyder matrix to `4.9e-12` / `1.5e-11` of `max |W|`: that is the finite-difference `J`'s
+  own non-symplecticity (`M^-1 = -S M^T S` assumes it away), not the projector arithmetic. A
+  **coupled kick-free** ring has a zero orbit, so `orbitMap` returns the design matrix and `W4`
+  is `normalForm4` of it, bit for bit.
+- **Cross-route floors** (against `closed_orbit_nonlinear`, `linearised_one_turn_map`,
+  `normal_form(J, "4d")`): orbit `2.5e-14` of `max |x_co|`, `J` `4.1e-10` per entry, `W4`
+  `3.2e-11` of `max |W|`, `D` `6.4e-11` of `|D_x|` (and `3.3e-10` against `d x_co / d delta`, a
+  route with no Jacobian). The same floors as the 6D path's.
+- **A design-coupled ring has no per-plane anything in `analyse`** (`matchPeriodic` throws, so
+  no `twiss0`, `tunes`, `chromaticity`, `eta`, `Q_s`). `ringOptics` builds its design record
+  from the 4D modes of the design matrix (`modes4`), reports the **fractional** mode tunes,
+  takes `Q_s` from `normalForm6`'s third tune when there is a cavity (`min(q3, 1 - q3)`), and
+  tries the 6D form on the cavity alone. A coupled cavity ring whose 6D form fails falls back
+  to the **design** 4D modes about the affine orbit, never to per-plane formulas. The
+  harness's per-plane controls (`sampler: "4d"`, `sampler: "design"`) refuse a coupled ring.
+- **Chromaticity on a coupled ring is null**: the editor has none for coupled modes, so the
+  tab shows no decoherence prediction and says so. Named as the next milestone with the
+  coupled main optics view (ROADMAP).
+- **On a coupled ring the aiming-error and shape settings act on MODES.** `dx`, `dpx` (`dy`,
+  `dpy`) are an excursion of the `x`-like (`y`-like) mode, mapped into the lab through `W4`
+  (or `W`): `x = x_co + W4 (N_k^-1 (dx, dpx), ...)`. That is not a lab offset of size `dx`; it
+  carries a `3.5%`-sized share into `y` on the skew-quadrupole fixture. The same choice as the
+  6D path, and the one under which `<J_k> = eps_k Bmag + J(offset)` holds per mode.
+- **What the coupled gates showed.** The drawn beam is the on-orbit map's fixed point to
+  `1.7e-11` (`7e-14` kick-free); the same beam with `W4`'s x-y blocks dropped misses by `0.27`
+  (`0.41` on the coupled cavity ring in 6D). A particle put in mode 1 and tracked 1000 turns
+  keeps `3.7e-11` of its action out of mode 2; placed per plane with the mode-1 Twiss it puts
+  `1.3e-4` there.
+- **Two documented residuals in `test_injection.py` changed owners.** The decoherence `x`
+  residual was `3.4e-3` and is `6.0e-4`: most of it was the design dispersion error (each
+  particle carried `(D_design - D_true) delta` of betatron motion, correlated with its tune).
+  The filament residual was `5.6e-4` and is `1.94e-4`; the rest is first order in the orbit
+  (4.5 with the kicks x4), beyond the linear map (that leaves `-3.8e-7`), and not localised. The
+  no-spread turn average's `2e-5` was the ring's own `6.2e-5` (the centred ring has it) plus a
+  design-optics error; on the orbit it is `6.34e-5`.
 
 ## Toolchain / environment notes
 

@@ -40,7 +40,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
 | W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18); **W9** `island_chain()` — the free ring's island chain as a package function, centred on the closed orbit, filtered by length and rotation, checked against a first-order closed form (2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; a theory of the survival fraction |
-| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18); **6D-centred injection** — on a cavity ring the beam is centred on the tracked 6D closed orbit (`closedOrbit6`), whose `delta_co` keeps a kicked or wiggling orbit in step with the RF (2026-10-19); **optics on the closed orbit** — the 6D-matched beam's `W` from the tracked turn's Jacobian at that orbit (`orbitMap`), first order in the orbit through the dispersion it makes (2026-10-19) | **scoped, not started (2026-10-19):** the same for the 4D (no-cavity) injection path, whose design Twiss and affine orbit miss `kicked-ring`'s on-orbit dispersion by 1.9%. Orientation measured and gates drafted; the user chose to handle orbit-made x-y coupling with a 4D normal form (entry *the 4D injected beam's optics on the closed orbit*) |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18); **6D-centred injection** — on a cavity ring the beam is centred on the tracked 6D closed orbit (`closedOrbit6`), whose `delta_co` keeps a kicked or wiggling orbit in step with the RF (2026-10-19); **optics on the closed orbit** — the 6D-matched beam's `W` from the tracked turn's Jacobian at that orbit (`orbitMap`), first order in the orbit through the dispersion it makes (2026-10-19); **the 4D path on its orbit, and coupled rings** — a ring without RF is drawn and read in the 4D normal modes (`normalForm4`) of the map on its tracked orbit (`closedOrbit4`) with that map's static dispersion, and a design-coupled ring (skew quadrupole), refused before, injects on both paths (2026-10-20) | **named, not scoped (2026-10-20, the user's choice):** coupled rings in the **whole** editor, the main optics view (mode Twiss along the ring, mode tunes) and per-mode chromaticity for the decoherence prediction (entry *coupled optics in the editor's main view*) |
 
 **Axis W shipped W9 on 2026-10-18**: **`island_chain()`**, the free ring's island chain as a
 package function (`src/accsim/islands.py`, `tests/analytic/test_island_chain.py`, 15 tests,
@@ -1251,8 +1251,53 @@ The findings, in the order they changed the milestone:
 **What W1 leaves open:** W2, Miyamoto's driven optics (shipped 2026-10-08, above). The
 editor and scenario format (refused, asserted).
 
+**Tools — coupled optics in the editor's main view (named 2026-10-20, not scoped).** The user
+chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
+not only the Injection tab. Today a ring with a skew quadrupole, a solenoid or a rolled magnet
+makes `analyse` stop at `matchPeriodic` ("lattice is x-y coupled"): no beta, dispersion, beam
+size or tunes along the ring, and `opticsErrorText` (`index.html`) says the editor "shows the
+geometry, the matrices and the orbit only". What it would take, for the scoping session:
+
+- the mode Twiss **along** the ring (the normal form propagated element by element, the
+  package's O2 `NormalFormPoint` / Mais-Ripken `B[plane, mode]` as the arbiter, and
+  `coupled_twiss`'s Edwards-Teng form beside it); the plots would need a mode-vs-plane choice;
+- the mode tunes with their integer parts (the phase advance accumulated along the ring);
+- **per-mode chromaticity** (the slope of the 4D mode tunes with momentum), which the Injection
+  tab's decoherence prediction needs; the package has no closed form for it to arbitrate, so a
+  momentum scan of `normal_form` tunes is the candidate;
+- momentum compaction with the vertical dispersion terms (`M[zeta, y] D_y + M[zeta, py] D_py`;
+  `momentumCompaction` has only the `x` ones, the trap V1 recorded), then `eta` and `Q_s`.
+
+**Tools shipped the 4D injected beam's optics on its tracked orbit, and coupled rings in the
+Injection tab, on 2026-10-20**, as two changes: (a) `normalForm4` (`editor/accsim-optics.js`),
+`closedOrbit4` and the no-cavity branch of `ringOptics` (`editor/inject.js`),
+`tests/analytic/test_injection_4d_orbit.py`; (b) design-coupled rings on both paths (`modes4`,
+`Q_s` from the 6D form, the page's note, defaults and labels). The test file has 31 tests (about
+25 s); `test_injection.py`'s five affected gates were re-pointed. Full detail in
+`docs/CONVENTIONS.md` -> *The 4D path on its orbit, and coupled rings*. Gates 1 to 13 passed as
+pre-committed on the first run; no tolerance was changed. What changed between pre-commitment
+and code:
+
+- **The skew-quadrupole fixture moved from change (a) to change (b) in gates 1, 2 and 5.** The
+  prototype bypassed `analyse`; in the editor `ringOptics` refused a design-coupled ring until
+  (b) lifted it, so (a) shipped with `RING`, `x4`, `RING_ky` and (b) added `RING_sq`. The gates'
+  content did not change.
+- **Gate 8's predictions held.** The moments gate failed by `4.41e-3` in `x` (predicted
+  `4.4e-3`); every other existing injection test passed unchanged before re-pointing (48). The
+  re-pointed values: decoherence `6.0e-4` / `4.7e-4` (halving 1.83 / 1.82; design control
+  `3.37e-3`); filament `1.94e-4` (design `5.56e-4`, kicks x4 `8.74e-4`, ratio 4.50, linear map
+  `-3.8e-7`, centred `-3.0e-5`); no-spread `6.34e-5` against the centred ring's `6.21e-5`.
+- **`test_injection.py`'s filament gate lost its old owner check** (the package's tracked
+  dispersion minus `closed_twiss`'s, `0.0284`): the editor's `D` IS the tracked one now, gated
+  in the new file; the design-sampler control replaces it.
+- **The page** (gate 13): a headless Chrome on its own profile and port (visible to the page,
+  so `requestAnimationFrame` runs) loaded the skew-quadrupole ring with and without its cavity
+  and `kicked-ring` by share link: each injected, tracked about 330 turns in 4 s, labelled the
+  readings "4D modes on the closed orbit" / "6D modes", and threw nothing.
+- **Not done, named:** per-mode chromaticity and the main optics view (entry above).
+
 **Tools — the 4D (no-cavity) injected beam's optics on the closed orbit (scoped 2026-10-19,
-not started; orientation measured, gates drafted, no code written).** On a ring with no live
+shipped 2026-10-20, above; orientation measured, gates pre-committed below).** On a ring with no live
 cavity the editor still draws and reads the injected beam with the **design** Twiss and static
 dispersion (`matchPeriodic` of the design `M`), about the **affine** 4D orbit
 (`a.closedOrbit0`). The cavity path no longer does (entry below). This entry carries the same
