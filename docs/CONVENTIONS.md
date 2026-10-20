@@ -11788,10 +11788,13 @@ nothing that reads them changes meaning by accident), and gets `analyse(...).mod
   pinned by a test, not changed here.
 - **A cavity between the bends breaks the 4D picture in the package too.** With
   `electron-ring`'s cavity moved to mid-ring, the transverse block of the 6x6 one-turn map has
-  eigenvalue moduli `1.0024`: `normal_form(M, "4d")` calls the ring unstable, and the editor's
-  coupled branch would say the same. Every bundled ring puts its cavity last, where the block of
-  the product is the product of the blocks (agreement `7e-15`). Recorded, not changed: the
-  proper treatment of such a ring is the 6D form.
+  eigenvalue moduli `1.0024`: `normal_form(M, "4d")` and `momentum_compaction` call the ring
+  unstable. The editor's `normalForm4` assumes `M^-1 = -S M^T S` and did NOT see it: it drew
+  modes anyway (found by the final review). `coupledOptics` now tests the block's symplecticity
+  first (defect above `1e-9` of its scale) and refuses with its own code, `rf-4d`, whose message
+  says this is not an instability and that the Injection tab's 6D modes still work. Every bundled
+  ring puts its cavity last, where the block of the product is the product of the blocks
+  (agreement `7e-15`). The proper treatment of such a ring is the 6D form.
 
 ### Per-mode chromaticity in the editor (2026-10-20, `modeChromaticity`, `tests/analytic/test_editor_mode_chromaticity.py`)
 

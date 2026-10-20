@@ -1482,6 +1482,18 @@ moment-matched sampler refuses (it needs more particles than the six coordinates
 halving prediction with `Q' = -0.1673` on change 1's skew ring, and the RF branch with the 6D
 `Q_s` on the coupled `electron-ring`.
 
+**Found by the final review, fixed before the entry closed:**
+
+- **A coupled ring with its cavity between the bends** (`electron-ring` with a skew quadrupole,
+  the cavity at element 100): the package refuses it (the one-turn transverse block misses
+  symplecticity by `4.9e-3`), but the editor drew modes with nothing to hold them against
+  (`normalForm4` assumes symplecticity). It now refuses with its own code `rf-4d` and a message
+  that this is not an instability (`test_a_cavity_between_the_bends_is_refused_where_the_package_refuses`).
+- **The Python export** wrote `closed_twiss`/`tunes`/`chromaticity` for every ring, which raises
+  on a coupled one. On a coupled ring it now writes the 4D normal form, the propagated full mode
+  tunes, `mode_chromaticity`, `momentum_compaction` and `synchrotron_tune`; exported from the
+  page for the rolled-`QD` cell and the coupled `electron-ring` and run, both reproduce the tiles.
+
 **Named, not built (found by this entry):**
 
 - **`propagate_coupled_twiss` on a ring with a cavity** re-matches the transverse block of the

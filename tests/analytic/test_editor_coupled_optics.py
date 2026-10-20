@@ -288,6 +288,23 @@ def _equal_tune_ring(k1sl: float) -> dict:
     }
 
 
+def test_a_cavity_between_the_bends_is_refused_where_the_package_refuses() -> None:
+    """Found by the final review: with electron-ring's cavity moved to mid-ring, the one-turn
+    map's transverse block misses symplecticity by 4.9e-3 and the package refuses the ring
+    (momentum_compaction: UnstableLatticeError). Unchecked, the editor drew modes anyway (full
+    tunes 5.7809, 5.5746, with nothing to hold them against); it now refuses with its own code,
+    not as an instability."""
+    sc = copy.deepcopy(FIXTURES["electron-ring+skew"])
+    cav = next(e for e in sc["elements"] if e["type"] == "RFCavity")
+    els = [e for e in sc["elements"] if e["type"] != "RFCavity"]
+    sc["elements"] = [*els[:100], cav, *els[100:]]
+    with pytest.raises(ac.UnstableLatticeError):
+        ac.momentum_compaction(load_scenario(sc).lattice)
+    r = _js(sc)
+    assert r["modes"] is None
+    assert r["modesError"]["code"] == "rf-4d"
+
+
 def test_equal_tunes_just_above_the_threshold_are_refused_as_degenerate() -> None:
     """Gate 6: coupled by the 1e-9 test, but the modes cannot be separated."""
     q = ac.tunes(load_scenario(_equal_tune_ring(0.0)).lattice)

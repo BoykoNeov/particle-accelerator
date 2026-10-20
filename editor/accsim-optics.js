@@ -832,6 +832,22 @@
    */
   function coupledOptics(elements, ref, M, slicesFor) {
     const m4 = transverse4(M);
+    // A cavity between bends feeds the energy kick it gives (through zeta) back into x
+    // downstream, so the 6x6 one-turn map's transverse block is no longer symplectic: there is
+    // no 4D optics to draw (the package's normal_form(M, "4d") and momentum_compaction refuse
+    // such a ring as unstable). normalForm4 assumes M^-1 = -S M^T S, so test it first.
+    const S4 = [[0, 1, 0, 0], [-1, 0, 0, 0], [0, 0, 0, 1], [0, 0, -1, 0]];
+    const defect = matmul(transpose(m4), matmul(S4, m4));
+    let worst = 0.0, scale = 1.0;
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+      worst = Math.max(worst, Math.abs(defect[i][j] - S4[i][j]));
+      scale = Math.max(scale, Math.abs(m4[i][j]) ** 2);
+    }
+    if (worst > 1e-9 * scale) {
+      const e = new Error(`the one-turn map's transverse block is not symplectic (defect ${worst.toPrecision(2)}): an RF cavity sits between bends, where its energy kick feeds back into the sideways motion, so the ring has no separate 4D optics`);
+      e.code = "rf-4d";
+      throw e;
+    }
     const nf = normalForm4(m4);
     const disp0 = solve(eye(4).map((row, i) => row.map((v, j) => v - m4[i][j])), dispersiveKick(M));
     if (disp0 === null) { const e = new Error("integer tune: dispersion does not close"); e.code = "resonant"; throw e; }
