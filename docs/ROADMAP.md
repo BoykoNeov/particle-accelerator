@@ -1501,19 +1501,21 @@ halving prediction with `Q' = -0.1673` on change 1's skew ring, and the RF branc
   user chose a warning:** the editor keeps the package's numbers and adds `rfWarning` with the
   measured miss, shown in the Stability tile (`approx.`) and the plot title; no preset carries it
   (`test_an_uncoupled_ring_with_a_cavity_between_the_bends_is_flagged_approximate`). The
-  package's own behaviour is a named follow-up below.
+  package's own behaviour is a named follow-up below. *(Superseded 2026-10-20 by the next
+  entry: the optics hold the cavity fixed and close, and `rfWarning` is gone.)*
 
 **Named, not built (found by this entry):**
 
 - **`propagate_coupled_twiss` on a ring with a cavity** re-matches the transverse block of the
   local 6x6 one-turn map, which carries the cavity's slope through the dispersion: a different
   model from `propagate_twiss` (1.8% in `beta` on the uncoupled `electron-ring`). Should it take
-  the transport's 4D block instead?
+  the transport's 4D block instead? *(Resolved 2026-10-20 by the next entry: it does.)*
 - **A cavity between the bends** makes the 6x6 one-turn map's transverse block non-symplectic
   (moduli `1.0024`), so the 4D normal form calls the ring unstable, in the package and in the
   editor. The 6D form is the right tool there. On an uncoupled ring the package's `closed_twiss`
   still returns per-plane optics that do not close (0.6% to 2.8% in beta): should it warn or
-  refuse, as the editor now warns?
+  refuse, as the editor now warns? *(Resolved for the per-plane and Edwards-Teng optics
+  2026-10-20 by the next entry; the 4D normal form still reads the full map, named there.)*
 - **The metric group for a bending gradient magnet on a coupled ring** (`mode_chromaticity`
   refuses it).
 - **A coupled beamline** (needs coupled initial conditions in the scenario format).
