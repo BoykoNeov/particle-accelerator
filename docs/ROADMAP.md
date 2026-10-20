@@ -1720,6 +1720,44 @@ with `electron-ring`'s cavity at 100 (`9e-15` with it last), and disagree with
 `propagate_twiss_on_orbit`'s own start, which freezes. Their maps are per element, so the fix is
 the frozen product; it needs its own gate first.
 
+**Tools — the on-orbit Twiss holds the cavity fixed (opened 2026-10-20; the gates below were
+pre-committed before any test code).** Measured by throwaway probes, 2026-10-20: unsteered
+`electron-ring`, the cavity at 100 / 50, `closed_twiss_on_orbit` misses `closed_twiss` by
+`0.23%` / `1.6%` in `beta_x`; with the skew quadrupole (`k1sl = 0.01`) `coupled_twiss_on_orbit`
+misses `coupled_twiss` by the same in `beta_1`. Matched on `_frozen_one_turn` of the same
+per-element on-orbit maps both meet the design optics to `1e-14`. On every periodic preset the
+non-cavity on-orbit maps' `delta` rows are exactly the unit row, so the frozen product's rows 0-4
+are the old product's bit for bit. Changed: `closed_twiss_on_orbit`, `coupled_twiss_on_orbit`
+(so `islands`' plane optics). **Not changed**: `linearised_one_turn_map`, the honest Jacobian of
+the tracked turn that the Taylor map is gated against. The editor needs nothing: its 4D on-orbit
+path (`closedOrbit4` / `orbitMap` / `modes4`) runs only on a ring without RF, and the 6D path
+reads the full map by design.
+
+**Change B is wider than named above.** On `electron-ring` steered by a corrector (`kick_x =
+-6e-5` after element 27) the 4D closed orbit **at `delta = 0`** already moves with the cavity's
+position (`0.6%` at 100, `3.0%` at 50, of its size): the orbit's path-length change reaches the
+cavity as `zeta`, which it turns into `delta` part-way round. So every steered-orbit function at
+the design momentum is in change B's reach too (`closed_orbit_nonlinear`, axis I, O6, the island
+chain, spin), not only the off-momentum ones. On that ring the frozen on-orbit `beta_x` still
+differs from the cavity-last ring's by `-2.5e-6` (100) and `-7.8e-6` (50), **first order in the
+kick** (ratio `1.99`, `2.00` per halving): the orbit's share, left to change B and not gated here.
+
+- **Gate 1 — unsteered, the on-orbit optics are the design optics.** `electron-ring` with the
+  cavity at 100 and 50: `closed_twiss_on_orbit` equals `closed_twiss` (`beta`, `alpha` at `rel
+  1e-12`; `D_x, D_px` at `abs 1e-12`); with the skew quadrupole, `coupled_twiss_on_orbit` equals
+  `coupled_twiss` (`beta_1, beta_2, alpha_1, alpha_2` at `rel 1e-12`). Control: the unfrozen
+  product (`linearised_one_turn_map`) misses `beta_x` / `beta_1` by more than `1e-3` at both.
+- **Gate 2 — the closed form is the propagated start.** On the steered ring above and its skew
+  variant, cavity last, at 100 and at 50, at `delta = 0` and `1e-4`: `closed_twiss_on_orbit` `==`
+  `propagate_twiss_on_orbit(...)[0]` and `coupled_twiss_on_orbit` `==`
+  `propagate_coupled_twiss_on_orbit(...)[0]` (the same floats: one model, one computation).
+- **Gate 3 — nothing else moves.** On every periodic preset (and its skew variant for the
+  coupled function) and on the steered ring with its cavity last: the new results `==` the
+  unfrozen route's. The existing analytic and reference suites pass unchanged.
+- No xtrack gate of its own: unsteered the result *is* `closed_twiss` (gate 1), which
+  `test_rf_frozen_optics_xtrack.py` already holds to xtrack 4D; steered with the cavity mid-ring
+  it rides on the orbit change B has not fixed, so a cross-check would measure that instead.
+
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
 not only the Injection tab. Today a ring with a skew quadrupole, a solenoid or a rolled magnet
