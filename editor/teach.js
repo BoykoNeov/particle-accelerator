@@ -546,9 +546,9 @@
     },
     "err:coupled": {
       t: "The planes are coupled",
-      n: "Something in the machine tips side-to-side motion into up-and-down motion — a tilted lens, a solenoid, or a rotated magnet. Once that happens, 'how wide sideways' and 'how wide vertically' are no longer separate questions, and this editor does not draw them. The geometry, the matrices and the orbit are still right.",
-      s: "A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant–Snyder optics would be wrong. accsim's coupled_twiss handles it in Python; the editor shows the geometry, the matrices and the orbit only.",
-      p: "The off-diagonal norm of the one-turn map exceeds 1e-9. Edwards–Teng (milestone G2) is the Python route; normal-mode tunes, ΔQ_min and the ε_y sharing come with it.",
+      n: "Something in the machine tips side-to-side motion into up-and-down motion — a tilted lens, a solenoid, or a rotated magnet. Once that happens, 'how wide sideways' and 'how wide vertically' are no longer separate questions, and this editor does not draw them. The geometry, the matrices and the orbit are still right, and the Injection tab still works: it follows the ring's own mixed motions.",
+      s: "A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant–Snyder optics would be wrong. accsim's coupled_twiss handles it in Python; the editor shows the geometry, the matrices and the orbit, and the Injection tab matches and measures the beam in the ring's normal modes.",
+      p: "The off-diagonal norm of the one-turn map exceeds 1e-9. Edwards–Teng (milestone G2) is the Python route; normal-mode tunes, ΔQ_min and the ε_y sharing come with it. The Injection tab uses the one-turn map's 4D normal form (6D with a cavity) at the injection point; per-mode chromaticity and the optics along the ring are not in the editor yet.",
     },
     "err:resonant": {
       t: "Integer tune",
@@ -662,7 +662,7 @@
       if (bends) bits.push(`${bends} bending magnet${bends > 1 ? "s" : ""} steer${bends > 1 ? "" : "s"} it and ${quads} lens${quads === 1 ? "" : "es"} keep${quads === 1 ? "s" : ""} it from spreading out.`);
       if (r.opticsError) {
         bits.push(r.opticsError.code === "coupled"
-          ? "Something in it mixes sideways and vertical motion, so the beam-shape curves are switched off — the floor plan and the orbit still work."
+          ? "Something in it mixes sideways and vertical motion, so the beam-shape curves are switched off — the floor plan, the orbit and the Injection tab still work."
           : "Right now the focusing does not settle into a repeating shape, so there are no curves to draw. Try weakening a lens.");
       } else if (r.twiss) {
         let bmax = 0, bs = 0;

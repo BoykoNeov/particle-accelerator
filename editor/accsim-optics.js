@@ -659,8 +659,11 @@
     const half = (A) => 0.5 * A.reduce((s, r, i) => s + r[i], 0.0);
     const p1 = half(N), p2 = half(matmul(N, N));
     const e1 = p1, e2 = 0.5 * (e1 * p1 - p2);
-    // t^2 - e1 t + e2 = 0: both roots real for a stable map.
-    const disc = e1 * e1 - 4.0 * e2;
+    // t^2 - e1 t + e2 = 0: both roots real for a stable map. Two equal roots (equal tunes) land
+    // either side of zero by round-off; a small negative one is that, not instability, and the
+    // equal-tune check below refuses it as degenerate.
+    let disc = e1 * e1 - 4.0 * e2;
+    if (disc < 0.0 && disc > -1e-10 * Math.max(1.0, e1 * e1)) disc = 0.0;
     if (!(disc >= 0.0)) {
       const e = new Error("4D normal form: the one-turn map has a mode off the unit circle");
       e.code = "unstable";

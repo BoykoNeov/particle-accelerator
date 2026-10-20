@@ -143,18 +143,42 @@
     return J;
   }
 
+  /** normalForm4's record for an uncoupled 4x4 map, from the per-plane periodic match:
+   *  W = blockdiag(csBlock(beta_x, alpha_x), csBlock(beta_y, alpha_y)). */
+  function perPlaneModes(M4) {
+    const tw = O.matchPeriodic([0, 1, 2, 3, 4, 5].map((i) => [0, 1, 2, 3, 4, 5].map((j) => (i < 4 && j < 4 ? M4[i][j] : i === j ? 1.0 : 0.0))));
+    const W = O._linalg.eye(4).map((r) => r.fill(0.0)), Winv = O._linalg.eye(4).map((r) => r.fill(0.0));
+    const tunes = [];
+    [[tw.beta_x, tw.alpha_x], [tw.beta_y, tw.alpha_y]].forEach(([b, al], k) => {
+      const N = csBlock(b, al), C = [[M4[2 * k][2 * k], M4[2 * k][2 * k + 1]], [M4[2 * k + 1][2 * k], M4[2 * k + 1][2 * k + 1]]];
+      W[2 * k][2 * k] = N[0][0]; W[2 * k + 1][2 * k] = N[1][0]; W[2 * k + 1][2 * k + 1] = N[1][1];
+      Winv[2 * k][2 * k] = N[1][1]; Winv[2 * k + 1][2 * k] = -N[1][0]; Winv[2 * k + 1][2 * k + 1] = N[0][0]; // det N = 1
+      const cosMu = 0.5 * (C[0][0] + C[1][1]), sinMu = C[0][1] / b;
+      const t = Math.atan2(sinMu, cosMu) / TWO_PI;
+      tunes.push(t - Math.floor(t));
+    });
+    return { W, Winv, tunes, modeBeta: [tw.beta_x, tw.beta_y], modeAlpha: [tw.alpha_x, tw.alpha_y] };
+  }
+
   /**
    * The 4D normal modes of a one-turn map J (6x6; its transverse block, normalForm4) and the
    * static dispersion of that map, D = (I - J_4)^-1 J[:4, delta]: the record a ring without a
    * 6D form is drawn and read with, and the Twiss the page shows for it (the mode Twiss and D).
    * Both are valid whether or not the planes are coupled.
+   *
+   * A map whose x-y blocks are EXACTLY zero (horizontal kicks only: the exact maps keep y = py
+   * = 0 exactly) takes the per-plane periodic match instead, W = blockdiag(N_x, N_y): the same
+   * modes (normalForm4 reproduces them to the finite-difference J's ~1e-11 non-symplecticity),
+   * but it cannot fail where the two tunes are equal, which normalForm4 must refuse (its
+   * projectors divide by cos mu_x - cos mu_y). A bend-free FODO ring has Q_x = Q_y exactly.
    */
   function modes4(J) {
     const L = O._linalg;
     const J4 = [X, PX, Y, PY].map((i) => [X, PX, Y, PY].map((j) => J[i][j]));
     const D = L.solve(L.eye(4).map((row, i) => row.map((v, j) => v - J4[i][j])), [X, PX, Y, PY].map((i) => J[i][DELTA]));
     if (D === null) throw new Error("integer tune: the dispersion does not close");
-    const nf = O.normalForm4(J4);
+    const uncoupled = [X, PX].every((i) => [Y, PY].every((j) => J4[i][j] === 0.0 && J4[j][i] === 0.0));
+    const nf = uncoupled ? perPlaneModes(J4) : O.normalForm4(J4);
     return {
       normal4: { W: nf.W, Winv: nf.Winv, tunes: nf.tunes, dispersion: D },
       twiss: {

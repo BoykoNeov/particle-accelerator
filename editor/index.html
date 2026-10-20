@@ -1163,7 +1163,7 @@
   function opticsErrorText(e) {
     let fallback;
     if (e.code === "unstable") fallback = `<b>No periodic solution.</b><br>${esc(e.message)}. The one-turn map has |½ trace| ≥ 1 in a plane, so no matched β exists. Weaken the focusing or change the cell length; the ½Tr readouts above tell you which plane.`;
-    else if (e.code === "coupled") fallback = `<b>The planes are coupled.</b><br>A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant-Snyder optics would be wrong. accsim's <span class="mono">coupled_twiss</span> handles it in Python; the editor shows the geometry, the matrices and the orbit only.`;
+    else if (e.code === "coupled") fallback = `<b>The planes are coupled.</b><br>A skew quadrupole, a solenoid or a rolled magnet mixes x and y, and the uncoupled Courant-Snyder optics would be wrong. accsim's <span class="mono">coupled_twiss</span> handles it in Python; the editor shows the geometry, the matrices and the orbit, and the <b>Injection</b> tab works in the ring's normal modes.`;
     else if (e.code === "resonant") fallback = `<b>Integer tune.</b><br>The dispersion cannot close on an integer tune.`;
     else return `<b>${esc(e.code)}</b><br>${esc(e.message)}`;
     return TEACH.message("err:" + e.code, state.level, fallback);

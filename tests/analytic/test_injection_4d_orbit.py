@@ -30,11 +30,13 @@ Node-driven; skipped (not failed) without Node.
 from __future__ import annotations
 
 import copy
+import json
 import shutil
+import subprocess
 
 import numpy as np
 import pytest
-from test_injection import PRESETS, RING, _centred_ring, _node
+from test_injection import EDITOR, NODE, PRESETS, RING, _centred_ring, _node
 from test_injection_orbit6 import _scaled_kicks
 
 from accsim.orbit import closed_orbit_6d, closed_orbit_nonlinear, linearised_one_turn_map
@@ -160,9 +162,14 @@ def _cs_block(beta: float, alpha: float) -> np.ndarray:
 def test_on_an_uncoupled_map_w4_is_the_per_plane_courant_snyder_matrix(name: str) -> None:
     """``J`` is exactly uncoupled here (horizontal kicks only), and ``W4`` equals
     ``blockdiag(N(beta_x, alpha_x), N(beta_y, alpha_y))`` from the per-plane periodic match of the
-    same ``J`` to ``1e-10`` of ``max |W|`` (measured ``4.9e-12``, ``1.5e-11``). The floor is the
-    finite-difference ``J``'s own non-symplecticity, which ``M^-1 = -S M^T S`` assumes away. This
-    is what makes the mode sampler and the mode reading the per-plane ones on such a ring."""
+    same ``J`` to ``1e-10`` of ``max |W|``. This is what makes the mode sampler and the mode reading
+    the per-plane ones on such a ring.
+
+    As pre-committed, ``normalForm4`` produced ``W4`` here and met the gate at ``4.9e-12`` /
+    ``1.5e-11`` (the finite-difference ``J``'s own non-symplecticity, which ``M^-1 = -S M^T S``
+    assumes away). After pre-commitment a bend-free ring with ``Q_x = Q_y`` was found to fail
+    in ``normalForm4`` (gate 7 below), so an exactly uncoupled ``J`` now takes the per-plane match
+    itself, and this holds to round-off."""
     o = _editor(RINGS[name])["optics"]
     J = np.array(o["orbitMap"])
     assert np.max(np.abs(J[0:2, 2:4])) == 0.0 and np.max(np.abs(J[2:4, 0:2])) == 0.0
@@ -402,3 +409,54 @@ def test_a_coupled_cavity_ring_is_matched_in_its_6d_modes() -> None:
     assert np.max(np.abs(got - want) / np.abs(want)) < 1e-9
     Dt = np.array([t4["disp_x"], t4["disp_px"], t4["disp_y"], t4["disp_py"]])
     assert np.max(np.abs(Dt - D4)) < 1e-9 * abs(D4[0])
+
+
+# Found after pre-commitment (2026-10-20, the advisor's review): a bend-free thin-lens FODO ring
+# has Q_x = Q_y exactly, where normalForm4 must refuse (its projectors divide by cos mu_x -
+# cos mu_y). With a horizontal corrector it injected before the 4D path moved onto the orbit;
+# the exactly uncoupled on-orbit map now takes the per-plane match and still does.
+def _equal_tune_ring(kick_y: float = 0.0) -> dict:
+    cell = [
+        {"type": "ThinQuadrupole", "name": "QF", "k1l": 0.1},
+        {"type": "Drift", "name": "D", "length": 5.0},
+        {"type": "ThinQuadrupole", "name": "QD", "k1l": -0.1},
+        {"type": "Drift", "name": "D", "length": 5.0},
+    ]
+    els = [dict(e) for _ in range(12) for e in cell]
+    els.insert(3, {"type": "Corrector", "name": "CH", "kick_x": 1e-5, "kick_y": kick_y})
+    return {
+        "format": "accsim-scenario/1",
+        "name": "equal-tunes",
+        "periodic": True,
+        "reference": {"species": "proton", "energy_mode": "total", "energy_eV": 1e10},
+        "beam": {"emit_x": 1e-8, "emit_y": 1e-8, "sigma_delta": 1e-4},
+        "elements": els,
+    }
+
+
+def test_a_steered_ring_with_equal_tunes_still_injects() -> None:
+    """Horizontal kick only: the on-orbit map is exactly uncoupled, the per-plane match builds
+    the modes, and the drawn beam is the package's on-orbit map's fixed point to ``1e-9``. With a
+    vertical kick too the map is coupled ON the coupling resonance (``Q_x = Q_y``), where the
+    modes cannot be separated: refused, and the message says why."""
+    sc = _equal_tune_ring()
+    r = _editor(sc, {"n": 600, "seed": 7})
+    o = r["optics"]
+    assert o["normal4"] is not None
+    # Inside normalForm4's refusal band, |cos mu_x - cos mu_y| < 1e-6 (measured 2e-9: the orbit
+    # moves Q_x by 1.6e-9 off the design's exact equality).
+    qx, qy = o["normal4"]["tunes"]
+    assert abs(np.cos(2 * np.pi * qx) - np.cos(2 * np.pi * qy)) < 1e-6
+    _lat, co, J, _nf, _D = _package(sc)
+    assert _fixed_point_miss(J, _covariance5(r["initial"], co)) < 1e-9
+
+    case = {"scenario": _equal_tune_ring(kick_y=1e-5), "mode": "inject", "inj": {"n": 8}}
+    proc = subprocess.run(
+        [NODE, str(EDITOR / "inject-selftest.js")],
+        input=json.dumps([case]),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    (res,) = json.loads(proc.stdout)
+    assert "coupling resonance" in res["error"]
