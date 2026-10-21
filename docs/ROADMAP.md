@@ -1773,6 +1773,75 @@ reads none of the changed functions); the file re-run passed 7 of 7. That gate's
 `1/sqrt(2N)`, counts one sample's error where the comparison has two, so its "three sigma" is
 about two, and it will trip now and then; recorded, not changed here.
 
+**Tools — change B, the 4D closed orbit holds the cavity fixed (opened 2026-10-21; the user said
+go; the gates below were pre-committed before any package code).** A throwaway probe on
+`electron-ring` (2026-10-21) measured three things:
+
+- **Today's orbit moves with the cavity.** `closed_orbit_nonlinear` misses the cavity-last ring's
+  by `2.7%` / `4.0%` of its size at `delta = 1e-4` (cavity at 100 / 50), and by `0.6%` / `3.0%`
+  steered (`kick_x = -6e-5` after element 27) at `delta = 0`.
+- **One change removes that.** The trial fix re-imposes `delta` after every element of the tracked
+  turn, so the cavity, the only element that reads `zeta` (a grep of `elements/` confirms it),
+  changes nothing transverse. With it the orbit meets the cavity-last ring's to `2.8e-18`.
+- **The live 6D orbit is an arbiter that needs no cavity-last ring.** Without radiation the
+  synchronous cavity gives no kick on its own closed orbit, so `closed_orbit_6d`'s transverse part
+  is the frozen 4D orbit at its own `delta`. The frozen orbit meets it to `1.1e-18`; the live 4D
+  route misses it by `1.3e-6` / `8.3e-6`.
+
+The probe also found a **bug in `closed_orbit_delta` (N5)**. With the cavity mid-ring it returns
+`1.19e-5` / `8.40e-6` against the 6D orbit's `1.366e-5`, which is the same at every cavity
+position. That is 12% and 38% off. Its slip is tracked live from `zeta = 0`, so a mid-ring cavity
+kicks on the part of the slip made before it. Freezing the 4D orbit alone does not fix it
+(`1.20e-5`); the slip has to be read on the frozen turn too.
+
+The change is wider than one function, so it ships in steps, each with its own gates:
+**(1)** the frozen walk; **(2)** the spin closed state; **(3)** the linear orbit theory
+(`closed_orbit`, `propagate_orbit`, the response matrix, `correct_orbit`, taper), which the probe
+shows is skewed the same way (`2.7%` / `0.6%`); **(4)** lifting `mode_chromaticity`'s refusal,
+against xtrack's `dqx`; **(5)** the editor.
+
+**Step (1), the frozen walk.** One shared step, `delta` re-imposed after each element. It runs in
+`closed_orbit_nonlinear`, `propagate_orbit_nonlinear`, the walk inside `linearised_element_maps`,
+the slip `closed_orbit_delta` reads, `closed_orbit_path_length` (which called `Tracker.track`
+live), and the on-orbit RDT walk (O6). Each element's own Jacobian is still taken of its live
+`track()`. **Not changed:** the Taylor map's walk (P1). It is the honest expansion of the live turn
+about a point, and its `compose` is exact only along the live walk; only its default expansion
+point moves. Also unchanged: `closed_orbit_6d` (the arbiter) and the island chain's free-ring
+tracking. Rings used below: `electron-ring`, unsteered and steered as above, the cavity last, at
+100 and at 50.
+
+- **Gate 1: the orbit does not move with the cavity.** At `delta` in `{0, 1e-4, -1e-3}`, the
+  cavity at 100 and 50: `closed_orbit_nonlinear` meets the cavity-last ring's to `abs 1e-16`
+  (orbits are `1.5e-4` to `1.5e-3`). `propagate_orbit_nonlinear` meets it at every boundary to
+  `abs 1e-16`, matched across the inserted cavity, and closes, last point against first, to
+  `abs 1e-16`. Control: the live walk misses by more than `4e-3` of the orbit's size.
+- **Gate 2: the live 6D orbit agrees.** Cavity last, at 100 and at 50, steered: the transverse
+  part of `closed_orbit_6d` meets `closed_orbit_nonlinear` at its `delta` to `abs 1e-16`.
+  `closed_orbit_delta` equals `closed_orbit_6d`'s `delta` to `abs 1e-12` (the secant's floor
+  `1e-15 / alpha_c` and the 6D Newton's `1e-14` lie below it) and is the same at every cavity
+  position, also to `abs 1e-12`. Control: the old values are more than 10% off.
+- **Gate 3: what reads the orbit follows it.** Steered, the cavity at 100 and 50, against the
+  cavity-last ring:
+  - `closed_orbit_path_length` at `delta = 1e-4`, `rel 1e-14`;
+  - `second_order_dispersion`, `disp_*` `abs 1e-12`, `ddisp_*` `abs 1e-10` (the orbit's
+    `1e-19` over `d` and `d^2`);
+  - `closed_twiss_on_orbit` / `propagate_twiss_on_orbit` at `delta` in `{0, 1e-4}`, `beta`
+    `rel 1e-9` and `D` `abs 1e-10`. The leftover was `2.5e-6` / `7.8e-6`. The tolerance is the
+    finite-difference Jacobian's floor, since the cavity's own transverse rows are not exactly
+    the identity row;
+  - `coupled_twiss_on_orbit` with the skew quadrupole, `beta_1`, `beta_2`, `rel 1e-9`.
+- **Gate 4: nothing else moves.** On every periodic preset as shipped, and on the steered
+  cavity-last ring, these results `==` a copy of the live walk kept in the test, bit for bit:
+  `closed_orbit_nonlinear`, `propagate_orbit_nonlinear`, `linearised_element_maps`,
+  `closed_orbit_delta` and `closed_orbit_path_length`. Re-imposing an unchanged `delta` writes the
+  same float. The analytic and reference suites pass unchanged.
+- **Gate 5 (reference): xtrack's 4D orbit.** On `test_rf_frozen_optics_xtrack.py`'s ring plus a
+  horizontal corrector, at `delta0 = 1e-4`, the cavity last and between bends: accsim's orbit
+  along the ring meets `twiss(method="4d")`'s `x`, `px` at both positions. The mid-ring
+  agreement must be no worse than the cavity-last one, the codes' shared floor, times 2. xtrack's
+  own orbit must not move with the cavity, `abs 1e-15`. Control: the live walk misses xtrack by
+  more than `1e-3` of the orbit's size.
+
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,
 not only the Injection tab. Today a ring with a skew quadrupole, a solenoid or a rolled magnet
