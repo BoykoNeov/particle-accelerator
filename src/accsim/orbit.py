@@ -130,6 +130,29 @@ def _affine_4d(M: np.ndarray, k: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return M[np.ix_(_TRANSVERSE, _TRANSVERSE)], k[_TRANSVERSE]
 
 
+def _frozen_one_turn_map(lattice: Lattice) -> tuple[np.ndarray, np.ndarray]:
+    """The one-turn **affine** map with ``delta`` held through every element (change B step 3).
+
+    :meth:`~accsim.lattice.Lattice.transfer_map` composed in the same order, each element's map
+    with its ``delta`` row the unit row and its kick's ``delta`` entry zero: the linear twin of
+    :func:`_step`. A cavity between the bends otherwise reaches ``x`` through its ``zeta ->
+    delta`` row and the dispersion downstream, and the solve below moved with it (2.7% of the
+    orbit at ``delta = 1e-4``, 0.6% steered, cavity at 100 on ``electron-ring``). With the
+    cavity last or absent the rows the solve reads are the same floats.
+    """
+    from .twiss import _rf_frozen
+
+    M = np.eye(DIM)
+    k = np.zeros(DIM)
+    for elem in lattice.elements:
+        Me = _rf_frozen(elem.matrix(lattice.ref))
+        ke = elem.kick(lattice.ref).copy()
+        ke[DELTA] = 0.0
+        M = Me @ M
+        k = Me @ k + ke
+    return M, k
+
+
 def closed_orbit(lattice: Lattice, *, delta: float = 0.0) -> np.ndarray:
     """Closed orbit ``(x, px, y, py)`` at the entrance of a periodic ``lattice``.
 
@@ -155,8 +178,11 @@ def closed_orbit(lattice: Lattice, *, delta: float = 0.0) -> np.ndarray:
     uniqueness the map does not have. It also keeps
     :func:`orbit_response_matrix`'s zeroed baseline on the same code path as its
     unit-kick columns, so the two cannot disagree about whether an orbit exists.
+
+    The one-turn map is the one with ``delta`` held (:func:`_frozen_one_turn_map`), the 4D
+    model's, so an RF cavity between the bends does not move the orbit.
     """
-    one_turn, kick = lattice.one_turn_map()
+    one_turn, kick = _frozen_one_turn_map(lattice)
     m4, k4 = _affine_4d(one_turn, kick)
     rhs = k4 + one_turn[_TRANSVERSE, DELTA] * delta
     A = np.eye(4) - m4
@@ -232,16 +258,40 @@ def _embed(x4: np.ndarray, delta: float = 0.0) -> np.ndarray:
     return state
 
 
+def _step(elem: Element, state: np.ndarray, ref: ReferenceParticle) -> np.ndarray:
+    """One element of the **4D model's** walk: the element's own ``track()``, ``delta`` held.
+
+    The 4D closed orbit lives at a momentum the caller chooses, and on it ``delta`` is a
+    constant (xtrack's ``twiss(method="4d")`` freezes it the same way). Without the hold an
+    :class:`~accsim.elements.rfcavity.RFCavity` between the bends -- the one element that
+    reads ``zeta`` -- turns the orbit's path-length slip into a ``delta`` kick part-way round,
+    and everything downstream rides the wrong momentum: 2.7% / 4.0% of the orbit's size at
+    ``delta = 1e-4`` on ``electron-ring`` with the cavity at 100 / 50 (change B,
+    ``docs/ROADMAP.md``). Every other element leaves ``delta`` alone, so on them this writes
+    back the same float and the walk is the live one bit for bit.
+
+    The Taylor map (:mod:`accsim.taylor`) deliberately does not use this: it expands the
+    live turn, and its ``compose`` is exact only along the live walk.
+    """
+    out = elem.track(state, ref)
+    out[DELTA] = state[DELTA]
+    return out
+
+
+def _frozen_turn(lattice: Lattice, state: np.ndarray) -> np.ndarray:
+    """One turn of the real (element-by-element, nonlinear) map with ``delta`` held, 6D."""
+    for elem in lattice.elements:
+        state = _step(elem, state, lattice.ref)
+    return state
+
+
 def _tracked_turn(lattice: Lattice, x4: np.ndarray, delta: float = 0.0) -> np.ndarray:
     """One turn of the **real** (element-by-element, nonlinear) map, transverse part.
 
-    ``delta`` is re-imposed at the entrance of every call rather than carried, which
+    ``delta`` is imposed at the entrance and held through the turn (:func:`_step`), which
     is what makes the 4D fixed point well posed: see :func:`closed_orbit_nonlinear`.
     """
-    state = _embed(x4, delta)
-    for elem in lattice.elements:
-        state = elem.track(state, lattice.ref)
-    return state[_TRANSVERSE]
+    return _frozen_turn(lattice, _embed(x4, delta))[_TRANSVERSE]
 
 
 def _turn_jacobian(lattice: Lattice, x4: np.ndarray, step: float, delta: float = 0.0) -> np.ndarray:
@@ -310,15 +360,18 @@ def closed_orbit_nonlinear(
     the iteration still starts one order in.
 
     **The 4D subspace is the whole solve.** Newton runs on ``(x, px, y, py)`` with
-    ``zeta = 0`` and ``delta`` held fixed at the entrance, matching
+    ``zeta = 0`` and ``delta`` held fixed through the turn (:func:`_step`), so an RF
+    cavity anywhere in the ring moves nothing transverse, matching
     :func:`closed_orbit`'s contract.
     It is not a restriction that could be lifted by iterating on all six: without
     an RF cavity there *is* no longitudinal fixed point — the drift's ``R56``
     leaves ``zeta -> zeta + const``, so ``J - I`` is exactly singular in the
     longitudinal block and 6D Newton has nothing to converge to. With an RF cavity
     present ``zeta`` slips through the turn and feeds back into ``delta``, so the
-    4D fixed point found here is not the 6D one; the full 6D orbit is out of scope
-    here exactly as it is for the linear solve.
+    4D fixed point found here is not the 6D one -- except at the one momentum,
+    :func:`closed_orbit_delta`, where the slip closes: there the synchronous cavity gives
+    no kick on the orbit, and the transverse part of :func:`closed_orbit_6d` is this
+    function's answer (to ``1e-18``, wherever the cavity sits).
 
     Raises :class:`OrbitConvergenceError` if Newton does not reach ``tol``
     (max-abs residual, in the mixed units of the state vector), and
@@ -389,11 +442,11 @@ def closed_orbit_nonlinear(
 
 
 def _tracked_turn_6d(lattice: Lattice, state: np.ndarray, radiation: str = "off") -> np.ndarray:
-    """One turn of the real map on a **full 6D** state, ``zeta`` and all.
+    """One turn of the real map on a **full 6D** state, ``zeta`` and all, the cavity live.
 
     :func:`_tracked_turn` deliberately throws the longitudinal coordinates away and
-    re-imposes ``delta`` on every call, which is what makes the 4D fixed point well posed.
-    :func:`closed_orbit_delta` needs the half that is thrown away.
+    holds ``delta``, which is what makes the 4D fixed point well posed.
+    :func:`closed_orbit_6d` needs the live turn.
     """
     out = np.asarray(state, dtype=float)
     for elem in lattice.elements:
@@ -448,11 +501,18 @@ def closed_orbit_delta(lattice: Lattice, *, tol: float = 1e-15, max_iter: int = 
     guess: np.ndarray | None = None
 
     def slip(delta: float) -> float:
-        """One turn's change in ``zeta`` on the closed orbit of momentum ``delta``."""
+        """One turn's change in ``zeta`` on the closed orbit of momentum ``delta``.
+
+        Read on the turn with ``delta`` held (:func:`_step`). Tracked live from ``zeta = 0``
+        a cavity between the bends kicks on the share of the slip made before it, and the
+        root moved with the cavity: 12% / 38% low on ``electron-ring`` steered, with the
+        cavity at 100 / 50 (change B). Held, the root is the momentum of the 6D orbit, on
+        which the synchronous cavity gives no kick.
+        """
         nonlocal guess
         guess = closed_orbit_nonlinear(lattice, guess, delta=delta)
         state = _embed(guess, delta)
-        return float(_tracked_turn_6d(lattice, state)[ZETA] - state[ZETA])
+        return float(_frozen_turn(lattice, state)[ZETA] - state[ZETA])
 
     # A momentum small enough to stay inside the linear response and large enough to leave
     # the slip's round-off far behind. The slip is very nearly ``-alpha_c C delta``, so two
@@ -623,9 +683,10 @@ def propagate_orbit_nonlinear(
     defaults to :func:`closed_orbit_nonlinear`, in which case the last point equals
     the first.
 
-    ``zeta`` starts at zero and ``delta`` at the given value; both are carried along
-    but not solved for (see :func:`closed_orbit_nonlinear`), and only the transverse
-    part is returned.
+    ``zeta`` starts at zero and is carried along; ``delta`` is the given value and is
+    held through every element (:func:`_step`), so a cavity between the bends does not
+    move the orbit after it. Neither is solved for (see :func:`closed_orbit_nonlinear`),
+    and only the transverse part is returned.
     """
     o = (
         closed_orbit_nonlinear(lattice, delta=delta)
@@ -637,7 +698,7 @@ def propagate_orbit_nonlinear(
     state = _embed(o, delta)
     points = [state[_TRANSVERSE].copy()]
     for elem in lattice.elements:
-        state = elem.track(state, lattice.ref)
+        state = _step(elem, state, lattice.ref)
         points.append(state[_TRANSVERSE].copy())
     return points
 
@@ -696,7 +757,9 @@ def linearised_element_maps(
 
     ``delta`` linearises about the orbit at that momentum instead of the reference
     one. It has to be given explicitly even when ``orbit0`` is supplied, because a
-    4D transverse vector does not carry the momentum it belongs to.
+    4D transverse vector does not carry the momentum it belongs to. The walk from one
+    element to the next holds it (:func:`_step`); each element's own map is the
+    Jacobian of its live ``track()``, an RF cavity's ``R65`` included.
     """
     o = (
         closed_orbit_nonlinear(lattice, delta=delta)
@@ -710,7 +773,7 @@ def linearised_element_maps(
     maps = []
     for elem in lattice.elements:
         maps.append(jacobian(lambda s, e=elem: e.track(s, ref), state, step=step))
-        state = elem.track(state, ref)
+        state = _step(elem, state, ref)
     return maps
 
 
@@ -726,7 +789,9 @@ def linearised_one_turn_map(
     sextupole produces, or to :func:`~accsim.twiss.match_periodic_coupled` for the
     x-y coupling a *vertically* off-axis one produces.
 
-    This is the **whole** turn's Jacobian, the RF cavity live. The packaged optics
+    This is the **whole** turn's Jacobian, the RF cavity live, taken along the orbit with
+    ``delta`` held (with the cavity last, or absent, that is the live walk bit for bit). The
+    packaged optics
     (:func:`~accsim.twiss.closed_twiss_on_orbit`, :func:`~accsim.twiss.coupled_twiss_on_orbit`)
     multiply the same element maps with the cavity held fixed instead, so on a ring whose
     cavity sits between the bends they are not ``match_periodic`` of this; with the cavity

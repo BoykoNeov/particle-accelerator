@@ -554,6 +554,10 @@ def _closed_state(
     trajectory that does not close. That is N5, and it is why the default is ``None``
     rather than ``0.0``: an explicit ``0.0`` still means "close the orbit at the reference
     momentum", which on a bunched ring is a deliberate off-momentum question.
+
+    ``zeta`` is not always ``0``: on a ring whose cavity sits between the bends the state
+    starts where the cavity sees what a cavity-last ring's sees (:func:`_cavity_timing`),
+    which is what makes it the 6D closed orbit there too. With the cavity last it is ``0.0``.
     """
     from .orbit import closed_orbit_delta, closed_orbit_nonlinear
 
@@ -570,7 +574,34 @@ def _closed_state(
     state = np.zeros(DIM)
     state[[X, PX, Y, PY]] = orbit
     state[DELTA] = delta
+    state[ZETA] = _cavity_timing(lattice, state)
     return state
+
+
+def _cavity_timing(lattice: Lattice, state: np.ndarray) -> float:
+    """The ``zeta`` to start at so the first RF cavity sees what a cavity-last ring's sees.
+
+    The spin is carried around the **live** turn, and the cavity reads ``zeta``. Started at
+    ``zeta = 0`` with the cavity between the bends, it sees the slip made before it, kicks
+    ``delta``, and the state is not a fixed point of that turn (change B step 2,
+    ``docs/ROADMAP.md``). One walk with ``delta`` held gives ``z_c``, the ``zeta`` at the first
+    cavity, and ``s``, the turn's slip; starting at ``s - z_c`` the cavity sees ``s``, which at
+    :func:`~accsim.orbit.closed_orbit_delta` is zero to its stopping test. With the cavity last
+    (or none) ``z_c`` and ``s`` are the same float and this is exactly ``0.0``, so nothing that
+    shipped before moves. With several cavities apart only the first is timed this way.
+    """
+    from .elements.rfcavity import RFCavity
+    from .orbit import _step
+
+    walk = state.copy()
+    z_cavity = None
+    for elem in lattice.elements:
+        if z_cavity is None and isinstance(elem, RFCavity):
+            z_cavity = float(walk[ZETA])
+        walk = _step(elem, walk, lattice.ref)
+    if z_cavity is None:
+        return 0.0
+    return float(walk[ZETA]) - z_cavity
 
 
 def spin_one_turn_matrix(

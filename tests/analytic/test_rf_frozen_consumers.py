@@ -165,12 +165,12 @@ def test_the_6d_normal_form_keeps_the_live_cavity(pos: int, k1sl) -> None:
 
 
 @pytest.mark.parametrize("pos", MID)
-def test_mode_chromaticity_refuses_a_coupled_ring_with_its_cavity_mid_ring(pos: int) -> None:
-    """Gate 3: freezing the maps is not enough there; the off-momentum orbit itself is skewed
-    (change B), and the scan would return -6.09 against -6.42. Refused rather than wrong."""
-    with pytest.raises(NotImplementedError, match="cavity"):
-        ac.mode_chromaticity(_ring(pos, SKEW))
-    ac.mode_chromaticity(_ring(None, SKEW))  # the cavity last is still answered
+def test_mode_chromaticity_answers_a_coupled_ring_with_its_cavity_mid_ring(pos: int) -> None:
+    """Gate 3 as shipped refused here: freezing the maps was not enough, the off-momentum orbit
+    itself was skewed and the scan returned -6.09 against -6.42. Change B step 4 lifted the
+    refusal (``test_rf_frozen_mode_chromaticity.py``); it is now the cavity-last ring's."""
+    want = ac.mode_chromaticity(_ring(None, SKEW))
+    assert ac.mode_chromaticity(_ring(pos, SKEW)) == pytest.approx(want, rel=1e-8)
 
 
 # ---------------------------------------------------------------------- gate 4

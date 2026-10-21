@@ -488,6 +488,26 @@
     return { M, k };
   }
   /**
+   * transferMap with delta held through every element (accsim.orbit._frozen_one_turn_map, change
+   * B step 3): each matrix's delta row the unit row and each kick's delta entry zero, composed in
+   * transferMap's order. The affine closed orbit solves on it, so a cavity between the bends does
+   * not move the orbit (0.6% / 3.0% of it, steered electron-ring, cavity at 100 / 50). With the
+   * cavity last the rows the solve reads are transferMap's floats.
+   */
+  function frozenTransferMap(elements, ref) {
+    let M = eye(6);
+    let k = new Array(6).fill(0.0);
+    for (const el of elements) {
+      const Me = elementMatrix(el, ref).map((row) => row.slice());
+      Me[DELTA] = [0.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+      const ke = elementKick(el, ref).slice();
+      ke[DELTA] = 0.0;
+      M = matmul(Me, M);
+      k = vadd(matvec(Me, k), ke);
+    }
+    return { M, k };
+  }
+  /**
    * The one-turn matrix with delta's row frozen in every element (accsim.twiss._frozen_one_turn):
    * the RF cavity held fixed, the model the matched 4D optics are built on. Left in, a cavity
    * between bends feeds its energy kick back into x through the dispersion and the optics do not
@@ -1048,7 +1068,7 @@
   // ---------------------------------------------------------------- closed orbit
   /** accsim.orbit.closed_orbit at delta = 0: the 4D fixed point of the affine map. */
   function closedOrbit(elements, ref) {
-    const { M, k } = transferMap(elements, ref);
+    const { M, k } = frozenTransferMap(elements, ref);
     const m4 = transverse4(M);
     const rhs = [k[X], k[PX], k[Y], k[PY]];
     if (!rhs.some((v) => v !== 0.0)) return [0.0, 0.0, 0.0, 0.0];
@@ -1135,6 +1155,7 @@
     const { M, k } = transferMap(els, ref);
     out.oneTurn = M;
     out.oneTurnKick = k;
+    out.oneTurnKickFrozen = frozenTransferMap(els, ref).k; // the kick the held-delta orbit sees (change B)
     out.survey = survey(els, slicesFor);
     out.surveyBoundaries = survey(els);
     out.coupled = couplingNorm(M) > 1e-9;
@@ -1200,7 +1221,7 @@
   return {
     CLIGHT, ELECTRON_MASS_EV, PROTON_MASS_EV, SPECIES, CATALOGUE,
     reference, validateElement, resolve, elementLength, elementAngle,
-    elementMatrix, elementKick, transferMap, frozenOneTurn, matchPeriodic, propagateTwiss, tunes,
+    elementMatrix, elementKick, transferMap, frozenTransferMap, frozenOneTurn, matchPeriodic, propagateTwiss, tunes,
     naturalChromaticity, sextupoleFeeddown, chromaticity, momentumCompaction, slipFactor,
     synchrotronTune, closedOrbit, propagateOrbit, survey, sliceElement, analyse, normalForm6, normalForm4,
     propagateNormalForm4, coupledOptics, modeSigma, compactionFromDispersion,

@@ -2629,18 +2629,20 @@ def closed_orbit_path_length(
     exactly-solvable ring (a full circle of sector bends, whose vertical tune is zero, so
     ``I - M4`` is singular) is the case that matters, and it is why this argument exists.
     """
-    from .orbit import closed_orbit_nonlinear
-    from .tracking import Particle, Tracker
+    from . import orbit as _orbit
 
     d = float(delta)
     ref = lattice.ref
-    co = np.asarray(closed_orbit_nonlinear(lattice, delta=d) if orbit is None else orbit, float)
+    co = np.asarray(
+        _orbit.closed_orbit_nonlinear(lattice, delta=d) if orbit is None else orbit, float
+    )
     if co.shape != (4,):
         raise ValueError(f"orbit must be a length-4 (x, px, y, py) vector, got shape {co.shape}")
-    state = Particle(x=co[0], px=co[1], y=co[2], py=co[3], zeta=0.0, delta=d)
-    out = Tracker(lattice).track(state, nonlinear=True)
+    # The turn holds ``delta`` (change B): carried, a cavity between the bends would kick it
+    # part-way round and the ``zeta`` read below would no longer be one momentum's path.
+    out = _orbit._frozen_turn(lattice, _orbit._embed(co, d))
     beta_over_beta0 = (1.0 + d) / math.sqrt(1.0 + ref.beta0**2 * (2.0 * d + d * d))
-    return float((lattice.length - out.state[ZETA]) * beta_over_beta0)
+    return float((lattice.length - out[ZETA]) * beta_over_beta0)
 
 
 def _velocity_coefficients(ref: object) -> tuple[float, float]:
@@ -3590,6 +3592,7 @@ def _rdt_steps_on_orbit(
     what lets the one-turn product be accumulated from *exactly* the blocks the sites are
     then read at, which a thick body's midpoint quadrature would otherwise break.
     """
+    from . import orbit as _orbit
     from .elements.drift import Drift
     from .elements.skew_quadrupole import SkewQuadrupole
     from .orbit import _embed, linearised_element_maps
@@ -3603,7 +3606,7 @@ def _rdt_steps_on_orbit(
         if src is None or src[1] == 0.0:
             cx, cy = _blocks(_decoupled(M))
             steps.append((None, cx, cy))
-            state = elem.track(state, ref)
+            state = _orbit._step(elem, state, ref)  # delta held (change B)
             continue
         n, K = src
         if elem.length == 0.0:
@@ -3612,7 +3615,7 @@ def _rdt_steps_on_orbit(
             z0 = cmath.exp(-1j * elem.roll) * complex(state[X] - elem.dx, state[Y] - elem.dy)
             cx, cy = _blocks(_decoupled(M))
             steps.append((_fed_down(n, K, z0, elem.roll), cx, cy))
-            state = elem.track(state, ref)
+            state = _orbit._step(elem, state, ref)
             continue
         # A thick source is midpoint quadrature, not a lattice: `slices` virtual thin
         # sources at the slice centres while the real body carries the optics. On a
@@ -4179,10 +4182,11 @@ def _mode_tune_scan(lattice: Lattice, delta: float, step: float) -> tuple[float,
     full = []
     for s in (+d, -d):
         maps = _on_orbit_maps(lattice, s, step)
-        one_turn = np.eye(DIM)
-        for m in maps:
-            one_turn = m @ one_turn
-        end = propagate_normal_form(lattice, normal_form(one_turn, method="4d"), maps=maps)[-1]
+        # The start's form from the frozen product, the model propagate_normal_form transports
+        # in. Unfrozen, a cavity between the bends left a 4D block that is not symplectic (the
+        # normal form refuses it) and, with the live orbit, put mode 1 5% off (change B step 4).
+        start = normal_form(_frozen_one_turn(maps), method="4d")
+        end = propagate_normal_form(lattice, start, maps=maps)[-1]
         full.append(np.array(end.mu) / (2.0 * math.pi))
     qp, qm = full
     # Modes are labelled by the plane each lives in. Near the difference resonance that label
@@ -4228,24 +4232,19 @@ def mode_chromaticity(
     Raises :class:`NotImplementedError` on a coupled ring with a **bending gradient magnet**
     (a :class:`~accsim.elements.dipole.Dipole` with both ``angle`` and ``k1``): its tracked
     map lacks the ``(1 + h x)`` metric group (L4, :func:`chromaticity_on_orbit`), so a scan
-    would be wrong by exactly that group. Raises it too on a coupled ring whose **RF cavity
-    sits between bends**: its 4D closed orbit at ``+-delta`` is skewed by the cavity turning
-    the ``zeta`` slip into ``delta`` part-way round (``-6.09`` against ``-6.42`` on the skew
-    ``electron-ring``), named in ``docs/ROADMAP.md`` as change B. Raises :class:`ValueError`
-    where the mode labels swap between the two momentum samples (too close to the coupling
-    resonance).
+    would be wrong by exactly that group. Raises :class:`ValueError` where the mode labels
+    swap between the two momentum samples (too close to the coupling resonance).
+
+    **An RF cavity between the bends is fine** since change B (``docs/ROADMAP.md``): the
+    orbit at ``+-delta`` and the normal form both hold the cavity fixed, so the result is the
+    cavity-last ring's (to ``1e-8``). Before, it was refused: the live orbit and the unfrozen
+    start gave ``-6.09`` against ``-6.42`` in mode 1 on the skew ``electron-ring``.
     """
     from .elements.dipole import Dipole
 
     frozen = _frozen_one_turn(_element_maps(lattice))
     if _coupling_norm(frozen) <= 1e-9:
         return chromaticity(lattice)
-    if not np.array_equal(frozen[:DELTA], lattice.one_turn_matrix()[:DELTA]):
-        raise NotImplementedError(
-            "mode_chromaticity on a coupled ring whose RF cavity sits between bends: the 4D "
-            "closed orbit at +-delta does not yet hold the cavity fixed (docs/ROADMAP.md, "
-            "change B), so the scan would be skewed by it"
-        )
     for elem in lattice.elements:
         if isinstance(elem, Dipole) and elem.angle != 0.0 and elem.k1 != 0.0:
             raise NotImplementedError(

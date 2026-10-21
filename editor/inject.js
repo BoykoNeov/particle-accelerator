@@ -94,6 +94,10 @@
    * `delta` (default 0) holds the momentum at that value every turn: the off-momentum orbit
    * modeChromaticity needs. There Newton starts from the affine orbit plus the design
    * dispersion times delta, (I - M4)^-1 (k + M[:4, delta] delta); at delta = 0 nothing changes.
+   *
+   * The momentum is held THROUGH the turn too (trackTurnHeld, change B), and the seed is the
+   * frozen map's: a cavity between the bends would otherwise kick delta part-way round and move
+   * the orbit. Without RF, or with the cavity last, both are the old floats.
    */
   function closedOrbit4(scenario, a, delta) {
     delta = delta || 0.0;
@@ -103,13 +107,13 @@
       if (!a.closedOrbit0) throw new Error("the ring has no closed orbit (integer tune)");
       x = a.closedOrbit0.slice();
     } else {
-      const M = a.oneTurn, k = a.oneTurnKick, L = O._linalg;
+      const M = a.oneTurnFrozen, k = a.oneTurnKickFrozen, L = O._linalg;
       const I_m4 = L.eye(4).map((row, i) => row.map((v, j) => v - M[i][j]));
       x = L.solve(I_m4, [X, PX, Y, PY].map((i) => k[i] + M[i][DELTA] * delta));
       if (x === null) throw new Error("the ring has no closed orbit (integer tune)");
     }
     const machine = T.build(scenario);
-    const turn = (s) => { const t = s.concat([0.0, delta]); T.trackTurn(machine, t); return t.slice(0, 4); };
+    const turn = (s) => { const t = s.concat([0.0, delta]); T.trackTurnHeld(machine, t); return t.slice(0, 4); };
     const h = 1e-8, tol = 1e-14;
     let r = turn(x).map((v, i) => v - x[i]);
     for (let it = 0; it < 50; it++) {
@@ -140,11 +144,15 @@
    * Taken fresh, not from Newton's last step (that one sits
    * at the previous iterate). An orbit of exactly zero returns the design matrix itself, so a
    * kick-free ring is bit-identical to the design optics.
+   *
+   * `held` takes the Jacobian of the held-delta turn instead (trackTurnHeld): the frozen
+   * product the 4D model reads, for modeChromaticity. The 6D path keeps the live turn.
    */
-  function orbitMap(scenario, a, x0) {
-    if (!x0.some((v) => v !== 0.0)) return a.oneTurn;
+  function orbitMap(scenario, a, x0, held) {
+    if (!x0.some((v) => v !== 0.0)) return held ? a.oneTurnFrozen : a.oneTurn;
     const machine = T.build(scenario);
-    const turn = (s) => { const t = s.slice(); T.trackTurn(machine, t); return t; };
+    const track = held ? T.trackTurnHeld : T.trackTurn;
+    const turn = (s) => { const t = s.slice(); track(machine, t); return t; };
     const h = 1e-7;
     const J = [0, 1, 2, 3, 4, 5].map(() => new Array(6));
     for (let j = 0; j < 6; j++) {
@@ -219,15 +227,12 @@
     step = step || 1e-4;
     const bend = (a.elements || []).find((el) => el.type === "Dipole" && +el.angle && +el.k1);
     if (bend) return { chromaticity: null, error: `a bending gradient magnet (${bend.name || "Dipole"}) on a coupled ring: its tracked map lacks the (1 + h x) metric group, so the momentum scan would be wrong by it` };
-    // As the package refuses: with the cavity between bends the 4D orbit at +-step does not yet
-    // hold the cavity fixed, so the scan would be skewed by it (docs/ROADMAP.md, change B).
-    if ([X, PX, Y, PY, ZETA].some((i) => a.oneTurn[i].some((v, j) => v !== a.oneTurnFrozen[i][j]))) {
-      return { chromaticity: null, error: "an RF cavity between bends on a coupled ring: the off-momentum orbit the scan needs does not yet hold the cavity fixed, so it would be skewed by it" };
-    }
+    // The orbit at +-step and the Jacobian there both hold delta (change B step 5), so a cavity
+    // between the bends gives the cavity-last ring's slopes; it was refused before.
     try {
       const tunes = [+step, -step].map((d) => {
         const x4 = closedOrbit4(scenario, a, d);
-        const J = orbitMap(scenario, a, x4.concat([0.0, d]));
+        const J = orbitMap(scenario, a, x4.concat([0.0, d]), true);
         return O.normalForm4([X, PX, Y, PY].map((i) => [X, PX, Y, PY].map((j) => J[i][j]))).tunes;
       });
       const wrap = (v) => (((v + 0.5) % 1.0) + 1.0) % 1.0 - 0.5;

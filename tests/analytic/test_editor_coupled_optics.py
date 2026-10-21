@@ -334,8 +334,9 @@ def _inject(cases: list[dict]) -> list[dict]:
 @pytest.mark.parametrize("pos", [100, 50])
 def test_the_injection_tabs_design_record_holds_the_cavity_fixed(pos: int) -> None:
     """Gate 5: the Injection tab's design modes (modes4) of the coupled ring with its cavity
-    mid-ring are the cavity-last ring's; its per-mode chromaticity refuses, as the package's
-    mode_chromaticity does, until the off-momentum orbit holds the cavity fixed (change B)."""
+    mid-ring are the cavity-last ring's. Its per-mode chromaticity refused here until change B
+    held the cavity fixed in the off-momentum orbit (the package in step 4, the editor in step
+    5); now both are the cavity-last ring's."""
     mid, last = _inject(
         [
             {"scenario": _skew_with_cavity_at(pos), "mode": "inject", "inj": {"n": 8}},
@@ -345,11 +346,13 @@ def test_the_injection_tabs_design_record_holds_the_cavity_fixed(pos: int) -> No
     np.testing.assert_allclose(mid["optics"]["tunes"], last["optics"]["tunes"], rtol=0, atol=1e-12)
     for f in ("beta_x", "beta_y", "disp_x"):
         assert mid["optics"]["twiss4"][f] == pytest.approx(last["optics"]["twiss4"][f], rel=1e-12)
-    assert mid["optics"]["chromaticity"] is None
-    assert "cavity" in mid["optics"]["chromaticityError"]
-    assert last["optics"]["chromaticity"] is not None
-    with pytest.raises(NotImplementedError, match="cavity"):
-        ac.mode_chromaticity(load_scenario(_skew_with_cavity_at(pos)).lattice)
+    assert mid["optics"]["chromaticityError"] is None
+    np.testing.assert_allclose(
+        mid["optics"]["chromaticity"], last["optics"]["chromaticity"], rtol=1e-8
+    )
+    want = ac.mode_chromaticity(load_scenario(_skew_with_cavity_at(None)).lattice)
+    got = ac.mode_chromaticity(load_scenario(_skew_with_cavity_at(pos)).lattice)
+    assert got == pytest.approx(want, rel=1e-8)
 
 
 def _uncoupled_with_cavity_at(pos: int | None) -> dict:

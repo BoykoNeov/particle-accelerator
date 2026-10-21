@@ -11892,7 +11892,93 @@ Taylor map is gated against, and on a mid-ring-cavity ring the packaged optics a
   closed orbit itself moves with the cavity's position, at `delta = 0` too (`0.6%` / `3.0%` of
   its size with a `-6e-5` corrector, cavity at 100 / 50), so the frozen on-orbit `beta_x` still
   differs from the cavity-last ring's by `-2.5e-6` / `-7.8e-6`, first order in the kick. Not
-  gated against the cavity-last ring; only for self-consistency.
+  gated against the cavity-last ring; only for self-consistency. **Fixed by change B step 1,
+  below.**
+
+### The 4D closed orbit holds the cavity fixed (change B, 2026-10-21/22, `orbit._step`, `tests/analytic/test_rf_frozen_orbit.py`)
+
+**Convention: every walk along the 4D closed orbit holds `delta`.** `orbit._step` is one
+element's live `track()` with `delta` written back afterwards. These walks go through it:
+
+- the Newton turn of `closed_orbit_nonlinear`;
+- `propagate_orbit_nonlinear`;
+- the walk between element maps in `linearised_element_maps`;
+- the slip `closed_orbit_delta` roots;
+- `closed_orbit_path_length` (no longer `Tracker.track`);
+- the O6 on-orbit RDT walk.
+
+The cavity is the only element that reads `zeta` (grep of `elements/`), so holding `delta` is
+the whole of xtrack's `freeze_longitudinal` as far as the transverse orbit goes. On every other
+element it writes back the same float, so cavity-last and cavity-free rings are the live walk bit
+for bit (gated on every periodic preset).
+
+- **What it fixes.** On `electron-ring` with the cavity at 100 / 50, the orbit missed the
+  cavity-last one by `2.7%` / `4.0%` at `delta = 1e-4`, and by `0.6%` / `3.0%` steered at
+  `delta = 0`. It now meets it to `3e-18`. The steered on-orbit optics' `-2.5e-6` / `-7.8e-6`
+  leftover is gone (`rel 1e-9`).
+- **The arbiter needs no second ring.** Without radiation the synchronous cavity gives no kick
+  on its own closed orbit, so `closed_orbit_6d`'s transverse part is the frozen 4D orbit at its
+  `delta`. They agree to `5e-19` at every cavity position, with the 4D solve at `tol = 1e-16`.
+  At its default `1e-14` the cavity-last solve stopped `1.4e-15` short, the 4D Newton's own floor.
+- **`closed_orbit_delta` was wrong mid-ring (N5's function).** Its slip was tracked live from
+  `zeta = 0`, so the cavity kicked on the part of the slip made before it. Steered, it gave
+  `1.19e-5` / `8.40e-6` against the 6D orbit's `1.366e-5`, which does not move with the cavity.
+  It now meets the 6D value to `5.4e-15` at every position. Freezing the 4D orbit alone was not
+  enough (`1.20e-5`).
+- **Not changed, on purpose.**
+  - The Taylor map's walk (`taylor.second_order_element_maps`) stays live. It expands the live
+    turn, and its `compose` is exact only along the live walk; only its default expansion point
+    moved.
+  - `closed_orbit_6d` is the live arbiter.
+  - The island chain tracks the free ring live.
+  - `linearised_element_maps` still differentiates each element's live `track()`, so the
+    cavity's own map keeps its `R65`. Only the state carried *between* elements holds `delta`.
+- **Step 2, the spin closed state (shipped 2026-10-22, `spin._cavity_timing`,
+  `tests/analytic/test_rf_frozen_spin.py`).** The spin is carried around the **live** turn, so
+  its carrier must be a fixed point of it. `_closed_state` now starts at `zeta = s - z_c`: `z_c`
+  is the `zeta` at the first cavity and `s` the turn's slip, both from one held-`delta` walk.
+  The cavity then sees `s`, as a cavity-last ring's does.
+  - With the cavity last, `z_c` and `s` are the same float, so the start is `0.0` exactly, at any
+    `delta`.
+  - Mid-ring the carrier is now the 6D closed orbit, to `8e-15` in five coordinates. In `zeta` it
+    matches to `closed_orbit_delta`'s stopping test, `1e-15 C`. Before, at `zeta = 0`, the live
+    turn kicked `delta` by more than `1e-9`.
+  - The one-turn spin rotation and the spin tune meet the cavity-last ring's to `1e-12`.
+  - It applies at any explicit `delta` too, because `closed_spin_solution` hands its `delta` back
+    to `spin_one_turn_matrix`.
+  - With several cavities apart, only the first is timed.
+- **Step 3, the linear orbit (shipped 2026-10-22, `orbit._frozen_one_turn_map`,
+  `tests/analytic/test_rf_frozen_linear_orbit.py`).** `closed_orbit` solves on the one-turn
+  affine map with `delta` held. That is `Lattice.transfer_map`'s product in its own order, each
+  map with its `delta` row the unit row and its kick's `delta` entry zero, so a cavity-last ring
+  reads the same floats (gated `==` on every preset).
+  - `propagate_orbit` steps 4x4 blocks, which for a cavity are already the identity, so only its
+    default start moved.
+  - The response matrix, `correct_orbit` and `taper()` solve through `closed_orbit`. They now
+    meet the cavity-last ring's to `1e-12`; the old solve missed by more than `4e-3`.
+  - `Lattice.one_turn_map()` itself is **not** frozen, because `orbit.py` detects a cavity by its
+    `[DELTA, ZETA]` entry.
+- **Step 4, `mode_chromaticity` (shipped 2026-10-22,
+  `tests/analytic/test_rf_frozen_mode_chromaticity.py`).** The scan's start is the 4D normal form
+  of the **frozen** product of the on-orbit maps, the model `propagate_normal_form` transports
+  in, and the mid-ring refusal is gone. The skew `electron-ring` with the cavity at 100 / 50 now
+  gives the cavity-last ring's slopes to `1e-8`.
+  - On the reference ring, accsim meets xtrack's 4D `dqx` / `dqy` to `5.04e-7` at every cavity
+    position, and xtrack's own values do not move.
+  - Two old routes, kept as controls. The frozen start on the old live orbit gives `-6.09` against
+    `-6.42`. The held orbit with the **unfrozen** start gives no slope at all: that start's 4D block
+    is not symplectic (eigenvalue moduli `1.0024`), so the normal form refuses it.
+- **Step 5, the editor (shipped 2026-10-22, `tests/analytic/test_editor_rf_frozen_orbit.py`).**
+  The editor mirrors the package:
+  - `closedOrbit` (`accsim-optics.js`) solves on `frozenTransferMap`;
+  - `closedOrbit4` Newtons on `trackTurnHeld` (`accsim-track.js`), seeded from
+    `oneTurnFrozen` / `oneTurnKickFrozen`;
+  - `modeChromaticity` takes `orbitMap(..., held = true)`, the held turn's Jacobian, which *is* the
+    frozen product. Its refusal is gone.
+
+  The main view's orbit meets the package's to `1e-17` (it missed the cavity-last ring's by
+  `0.6%` / `3.0%`). The Injection tab's mode chromaticity meets the package's to `3e-8`. The 6D
+  path (`closedOrbit6`, `orbitMap` without `held`) stays live, by design.
 
 ### Per-mode chromaticity in the editor (2026-10-20, `modeChromaticity`, `tests/analytic/test_editor_mode_chromaticity.py`)
 

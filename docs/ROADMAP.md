@@ -40,7 +40,7 @@ ships.** A session starts by reading the open candidate's entry, not the whole f
 | U | momentum compaction beyond first order | **U1** the path-length series, `gamma_t` (2026-09-07) | — |
 | V | the design tilt — a machine that leaves the horizontal plane | **V1** the tilt, its map, the 3D survey, every horizontal-bend consumer handled or refused (2026-10-07); **V2** vertical emittance from design `D_y` (2026-10-07); **V3** spin through a tilted bend, the spin rotator (2026-10-07) | polarisation through a tilted bend (refused); the AC dipole opened as axis W |
 | W | the AC dipole — a kick that changes every turn, and the beam it drives | **W1** the element, turn-aware tracking, the exact steady state, the ramp law, xtrack + MAD-X (2026-10-08); **W2** the driven optics — Miyamoto's one-plane thin gradient, `driven_twiss` (2026-10-08); **W3** the chromatic driven response — `driven_amplitude(delta)`, the beam's swing bias, decoherence of the transient (2026-10-09); **W4** the amplitude-dependent response — Duffing's cubic in the driven frame, `driven_states`, `driven_fold_kick` (2026-10-10); **W5** the drive-tune sweep — no closed hysteresis loop: following, departure past `driven_fold_tune`, autoresonance above `autoresonance_threshold` (2026-10-10); **W6** the damped sweep — a lumped `Damper`, the damped driven response (`quadrature`, `driven_jump_tunes`), the closed hysteresis loop (2026-10-18); **W7** damped autoresonance — `mu_th(gamma)`, `autoresonance_escape_tune`, the lock that ends (2026-10-18); **W8** the island chain that ends a lock early — the free ring's own six islands at 1/3, phase-dependent survival that falls with the sweep, a reduced model that reproduces it (tests only, 2026-10-18); **W9** `island_chain()` — the free ring's island chain as a package function, centred on the closed orbit, filtered by length and rotation, checked against a first-order closed form (2026-10-18) | named, not opened: editor/scenario support; a skew (coupled) drive; a theory of the survival fraction |
-| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18); **6D-centred injection** — on a cavity ring the beam is centred on the tracked 6D closed orbit (`closedOrbit6`), whose `delta_co` keeps a kicked or wiggling orbit in step with the RF (2026-10-19); **optics on the closed orbit** — the 6D-matched beam's `W` from the tracked turn's Jacobian at that orbit (`orbitMap`), first order in the orbit through the dispersion it makes (2026-10-19); **the 4D path on its orbit, and coupled rings** — a ring without RF is drawn and read in the 4D normal modes (`normalForm4`) of the map on its tracked orbit (`closedOrbit4`) with that map's static dispersion, and a design-coupled ring (skew quadrupole), refused before, injects on both paths (2026-10-20); **coupled rings in the whole editor** — the package's compaction, `eta` and `Q_s` on a coupled ring and its `mode_chromaticity`; the main view's mode optics along the ring (beam size per plane first, mode beta behind a toggle), mode tunes and compaction; the per-mode chromaticity in the tile and the Injection tab's decoherence prediction (2026-10-20, four commits); **the 4D optics hold the cavity fixed** — the matched 4D optics (`closed_twiss`, `coupled_twiss`, `propagate_coupled_twiss`, the editor's `frozenOneTurn`) are built from the one-turn product with `delta`'s row frozen (xtrack's `twiss(method="4d")`), so a cavity between the bends no longer stops them closing; the editor's `approx.` warning is gone (2026-10-20); **the rest of the 4D model holds the cavity fixed** — `momentum_compaction` (it was 5.2% wrong with the cavity mid-ring), the lumped `Q_s`, `normal_mode_tunes`, the 4D normal form and its propagation, and in the editor the compaction tile, the coupled mode view (its `rf-4d` refusal gone) and the Injection tab's design modes (2026-10-20, change A); **the on-orbit Twiss holds the cavity fixed** — `closed_twiss_on_orbit` / `coupled_twiss_on_orbit` match on the frozen product of the on-orbit maps, `==` their propagated start (they were 0.23% to 1.6% off with the cavity mid-ring, unsteered) (2026-10-20) | named, not built: the metric group on a coupled ring, a coupled beamline; **change B** — the 4D closed orbit with the cavity mid-ring, off momentum **and on a steered ring at `delta = 0`** (scoped across five axes; `mode_chromaticity` refuses such a coupled ring until then) |
+| Tools | the lattice editor and the scenario file format | **editor** — `editor/index.html`, `accsim.scenario`, the JS-vs-Python cross-check (2026-09-07); **beam animation** — a marker + matched bunch run the machine, synced across the graphs, the floor plan and a live inset (`editor/animate.js`, 2026-09-23); **injection** — a port of every element's `track()` and an Injection tab that shows a beam filament (`editor/accsim-track.js`, `editor/inject.js`, 2026-10-07); **collimator length** — a thick acceptance boundary is a drift, tested at both faces, package and editor (2026-10-08); **6D-matched injection** — on a ring with a cavity the beam is drawn and measured in the one-turn map's 6D normal modes (`normalForm6`, no eigen-solver), and the default `electron-ring`'s remaining growth is owned by the sideband `Q_x + 3Q_s = 6` (2026-10-18); **6D-centred injection** — on a cavity ring the beam is centred on the tracked 6D closed orbit (`closedOrbit6`), whose `delta_co` keeps a kicked or wiggling orbit in step with the RF (2026-10-19); **optics on the closed orbit** — the 6D-matched beam's `W` from the tracked turn's Jacobian at that orbit (`orbitMap`), first order in the orbit through the dispersion it makes (2026-10-19); **the 4D path on its orbit, and coupled rings** — a ring without RF is drawn and read in the 4D normal modes (`normalForm4`) of the map on its tracked orbit (`closedOrbit4`) with that map's static dispersion, and a design-coupled ring (skew quadrupole), refused before, injects on both paths (2026-10-20); **coupled rings in the whole editor** — the package's compaction, `eta` and `Q_s` on a coupled ring and its `mode_chromaticity`; the main view's mode optics along the ring (beam size per plane first, mode beta behind a toggle), mode tunes and compaction; the per-mode chromaticity in the tile and the Injection tab's decoherence prediction (2026-10-20, four commits); **the 4D optics hold the cavity fixed** — the matched 4D optics (`closed_twiss`, `coupled_twiss`, `propagate_coupled_twiss`, the editor's `frozenOneTurn`) are built from the one-turn product with `delta`'s row frozen (xtrack's `twiss(method="4d")`), so a cavity between the bends no longer stops them closing; the editor's `approx.` warning is gone (2026-10-20); **the rest of the 4D model holds the cavity fixed** — `momentum_compaction` (it was 5.2% wrong with the cavity mid-ring), the lumped `Q_s`, `normal_mode_tunes`, the 4D normal form and its propagation, and in the editor the compaction tile, the coupled mode view (its `rf-4d` refusal gone) and the Injection tab's design modes (2026-10-20, change A); **the on-orbit Twiss holds the cavity fixed** — `closed_twiss_on_orbit` / `coupled_twiss_on_orbit` match on the frozen product of the on-orbit maps, `==` their propagated start (they were 0.23% to 1.6% off with the cavity mid-ring, unsteered) (2026-10-20); **change B, the 4D closed orbit holds the cavity fixed** — every walk along the 4D orbit holds `delta` (`orbit._step`), so a cavity between the bends no longer moves the orbit off momentum or steered (it did by 0.6% to 4%). In five steps: the walk and everything that follows it, including `closed_orbit_delta` (it was 12% / 38% low); the spin carrier timed so it is the 6D closed orbit; the linear orbit; `mode_chromaticity` no longer refuses (against xtrack's `dqx`); the editor (2026-10-22) | named, not built: the metric group on a coupled ring, a coupled beamline |
 
 **Axis W shipped W9 on 2026-10-18**: **`island_chain()`**, the free ring's island chain as a
 package function (`src/accsim/islands.py`, `tests/analytic/test_island_chain.py`, 15 tests,
@@ -1841,6 +1841,148 @@ tracking. Rings used below: `electron-ring`, unsteered and steered as above, the
   agreement must be no worse than the cavity-last one, the codes' shared floor, times 2. xtrack's
   own orbit must not move with the cavity, `abs 1e-15`. Control: the live walk misses xtrack by
   more than `1e-3` of the orbit's size.
+
+**Step (2), the spin closed state (gates pre-committed before the code).** `spin._closed_state`
+with `delta=None` puts the ring at `closed_orbit_delta` (right since step 1) on the frozen 4D
+orbit, but at `zeta = 0`. With the cavity mid-ring the cavity then sees the slip made before it,
+so the state is not a fixed point of the live turn its spin is carried around. Construction:
+one frozen walk from `zeta = 0` gives `z_c`, the `zeta` at the first cavity's entrance, and `s`,
+the whole turn's slip. The state starts at `zeta = s - z_c`, so the cavity sees what a
+cavity-last ring's sees. With the cavity last `z_c` and `s` are the same float, so the start is
+exactly `0.0`. With several cavities apart, only the first is timed this way (stated in the
+docstring, not handled).
+
+- **Gate 1: a fixed point of the live turn.** Steered `electron-ring`, cavity last, at 100 and
+  at 50: the live 6D turn returns the state to `abs 1e-14` in every coordinate, and the state
+  meets `closed_orbit_6d`'s to `abs 1e-14`. That is the 4D solve's own `tol`: step 1 found it
+  stopping `1.4e-15` short on the cavity-last ring. **Except `zeta`**, which closes only to
+  `closed_orbit_delta`'s own stopping test, `|slip| < 1e-15 C`. The first run, before the code,
+  found the untouched cavity-last ring at `3.5e-14` there; the gate had not counted that test.
+  The same holds against `closed_orbit_6d` (`1.9e-14` / `2.7e-14` mid-ring). Its cavity sees
+  `zeta = 0`, this state's sees the slip that test leaves, and every other coordinate meets it to
+  `8e-15`.
+
+**Step (3), the linear orbit theory (gates pre-committed before the code).** `closed_orbit` is the
+only linear orbit function that reads the one-turn product: `lattice.one_turn_map()`, cavity live.
+`propagate_orbit` steps each element's 4x4 block, which for a cavity is the identity, so it is
+held already; only its default start is wrong. `orbit_response_matrix`, `correct_orbit` and
+`taper()` all solve through `closed_orbit`. The fix is the frozen affine product: each element's
+map with its `delta` row the unit row and its kick's `delta` entry zero, composed in
+`Lattice.transfer_map`'s order. With the cavity last, the rows the solve reads are the same floats.
+
+- **Gate 1: the linear orbit does not move with the cavity.** The step-1 cases: steered and
+  unsteered, `delta` in `{0, 1e-4, -1e-3}`, cavity at 100 and 50. `closed_orbit` meets the
+  cavity-last ring's to `abs 1e-17`. `propagate_orbit` closes and meets it at every boundary to
+  `abs 1e-17`, aligned as in step 1. Control: the old solve misses by more than `4e-3` of the
+  orbit's size.
+- **Gate 2: what solves through it follows.** On the unsteered ring with two horizontal
+  correctors (after elements 27 and 60), cavity at 100 and 50: `orbit_response_matrix` meets the
+  cavity-last ring's to `rel 1e-12` of its largest entry. On the steered ring, `correct_orbit`'s
+  corrector changes meet it the same way.
+- **Gate 3: nothing else moves.** On every periodic preset and the steered cavity-last ring,
+  `closed_orbit` at `delta` in `{0, 1e-4}` `==` the old solve (kept in the test), bit for bit.
+  The analytic suite passes unchanged.
+
+**Step (4), `mode_chromaticity` with the cavity mid-ring (gates pre-committed before the code).**
+The scan's orbit is right since step 1, and `propagate_normal_form` already freezes. The one
+leftover is `_mode_tune_scan`, which takes the start's normal form of the unfrozen product of the
+on-orbit maps. The fix: `_frozen_one_turn` there, and the refusal goes.
+
+- **Gate 1: it does not move with the cavity.** The skew `electron-ring` (`k1sl = 0.01`),
+  cavity at 100 and 50: both modes meet the cavity-last ring's to `rel 1e-8`. The only
+  difference is the cavity's finite-difference transverse rows (about `2e-13` per entry), which
+  lands near `1e-10` in the slope. Control: the old start (unfrozen product) gives a mode-1 slope
+  more than 1% off (`-6.09` against `-6.42`).
+- **Gate 2 (reference): xtrack's `dqx` / `dqy`.** On `test_rf_frozen_optics_xtrack.py`'s skew ring
+  with exact bends (`bend-kick-bend`), cavity last, at 8 and at 17: accsim's mode chromaticity
+  meets xtrack's `twiss(method="4d")` `dqx` / `dqy` at each position. The mid-ring miss must be no
+  worse than twice the cavity-last one, and xtrack's own values must not move with the cavity,
+  `rel 1e-6`.
+- **Gate 3: nothing else moves.** Uncoupled rings still return `chromaticity()` unchanged. On the
+  skew cavity-last ring the new slopes meet the old to `rel 1e-9`. That is not `==`: at
+  `delta != 0` the finite-difference `delta` rows are not exactly the unit row (the 2026-10-20
+  finding), and freezing replaces that noise. `test_mode_chromaticity.py` and the editor's
+  mode-chromaticity gates pass unchanged.
+
+**Step (5), the editor (gates pre-committed before the code).** The editor's copies have the
+same three leftovers:
+
+- `closedOrbit` (`accsim-optics.js`), the main view's affine orbit, solves on the live
+  `transferMap`;
+- `closedOrbit4` (`inject.js`) Newtons on the live `trackTurn`, from a live-matrix seed;
+- `modeChromaticity` takes its tunes from `orbitMap`, the live turn's Jacobian, and refuses a
+  coupled ring with the cavity mid-ring.
+
+The fix mirrors the package:
+
+- a frozen affine product for `closedOrbit`;
+- a held-`delta` turn, `trackTurnHeld` (`accsim-track.js`), for `closedOrbit4` and for the
+  scan's Jacobian. The Jacobian of the held turn *is* the frozen product, since holding
+  `delta` after an element replaces its row with the unit row;
+- the refusal goes.
+
+- **Gate 1: the main view's orbit.** Steered `electron-ring` (the step-1 corrector), cavity at
+  100 and 50: the editor's `closedOrbit0` meets the package's `closed_orbit` to `abs 1e-17`, and
+  the editor's cavity-last value to `abs 1e-17`. Control: the first run, before the code, misses
+  the cavity-last value by more than `4e-3` of the orbit.
+- **Gate 2: the editor's mode chromaticity.** The skew `electron-ring`, cavity at 100 and 50:
+  no error. It meets the package's `mode_chromaticity` to `rtol 3e-8` (the existing port gate's)
+  and the editor's cavity-last value to `rel 1e-8`. `test_editor_coupled_optics.py`'s gate 5 now
+  expects a number, not a refusal.
+- **Gate 3: nothing else moves.** Every existing editor and injection gate passes unchanged:
+  `test_editor_*`, `test_injection*`, and the JS-vs-Python cross-check. On a ring with the cavity
+  last, or without RF, the held turn writes back the same `delta` and the frozen product
+  multiplies in `transferMap`'s order, so they are the old floats.
+
+**Change B shipped 2026-10-22, all five steps.** Test files, all in `tests/analytic/` except the
+last:
+
+- `test_rf_frozen_orbit.py` (43 tests);
+- `test_rf_frozen_spin.py` (18);
+- `test_rf_frozen_linear_orbit.py` (36);
+- `test_rf_frozen_mode_chromaticity.py`;
+- `test_editor_rf_frozen_orbit.py`;
+- `tests/reference/test_rf_frozen_orbit_xtrack.py`.
+
+Every gate passed as pre-committed except where listed below. No tolerance was loosened against a
+change-B result; each one moved to a solver's own stopping test. Detail in `docs/CONVENTIONS.md`
+-> *The 4D closed orbit holds the cavity fixed*. What changed between pre-commitment and code:
+
+- **Step 1, gate 2's `abs 1e-16` was below the 4D solve's floor.** At its default `tol = 1e-14`,
+  Newton stopped on the cavity-last ring with a residual of `9.9e-16` and the orbit `1.4e-15`
+  short. That ring is the same bits before and after the change, so this is not the cavity. At
+  `tol = 1e-16` it meets `closed_orbit_6d` to `5e-19`, so the gate solves at that `tol`. The
+  probe had shown the `1.4e-15` and it was missed when the gate was written.
+- **Step 1, gate 5: the xtrack floor was xtrack's bend model.** With xtrack's default for this bend
+  (`rot-kick-rot`), the orbit parted from accsim by `1.3e-6` of its size at every cavity position.
+  With `model = "bend-kick-bend"`, the exact sector bend, the shared floor is `2.2e-16`. The gate
+  now uses the exact model.
+- **Step 2, gate 1's `zeta` closes only to `closed_orbit_delta`'s own stopping test,
+  `1e-15 C`.** This is recorded in the gate above. Both the first pre-commitment (`1e-15`) and the
+  second (`1e-14`) were caught before or on the first run.
+- **Step 4's control was the wrong half of the old route.** The `-6.09` came from a frozen start on
+  the live orbit, and that is now the control. The other half, the held orbit with the unfrozen
+  start, gives no slope at all: its 4D block is not symplectic, so the normal form refuses it.
+  That is gated too.
+- **Found, not fixed:** with several cavities apart, only the first is timed in the spin carrier.
+
+Full suites on the finished code:
+
+- **analytic:** 2538 passed;
+- **reference, full run after step 1:** 529 passed;
+- **reference, the 15 files that read anything steps 2 to 5 changed:** 128 passed. These cover
+  spin, polarisation, feed-down, orbit, RDT, the second-order map, taper and mode chromaticity.
+
+Old gates re-pointed, because the refusal they asserted is gone:
+`test_rf_frozen_consumers.py::test_mode_chromaticity_answers_a_coupled_ring_with_its_cavity_mid_ring`
+and `test_editor_coupled_optics.py`'s gate 5.
+  Control: at `zeta = 0` the `delta` residual mid-ring exceeds `1e-9`.
+- **Gate 2: the spin does not move with the cavity.** On the same rings,
+  `spin_one_turn_matrix` (default `delta`) and the spin tune meet the cavity-last ring's to
+  `abs 1e-12`.
+- **Gate 3: nothing else moves.** On every periodic preset and the steered cavity-last ring,
+  `_closed_state(lattice, None)` `==` the state built at `zeta = 0`, bit for bit. The analytic
+  suite passes unchanged.
 
 **The entry as named, for reference.** The user
 chose, when the entry below shipped, to make design-coupled rings work in the **whole** editor,

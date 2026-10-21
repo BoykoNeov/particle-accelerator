@@ -487,6 +487,26 @@
   }
 
   /**
+   * trackTurn with delta held: each element's step, then delta written back (accsim.orbit._step,
+   * change B). The 4D closed orbit lives at a fixed momentum; without the hold a cavity between
+   * the bends turns the orbit's zeta slip into a delta kick part-way round. Only a cavity changes
+   * delta, so on any other ring this is trackTurn bit for bit. Its Jacobian is the frozen one-turn
+   * product: holding delta after an element replaces that element's delta row with the unit row.
+   */
+  function trackTurnHeld(machine, s) {
+    const { steps, survive, thick } = machine;
+    const d = s[5];
+    for (let i = 0; i < steps.length; i++) {
+      const t = survive[i];
+      if (thick[i] && !t(s)) return i;
+      steps[i](s);
+      s[5] = d;
+      if (t !== null && !t(s)) return i;
+    }
+    return -1;
+  }
+
+  /**
    * Track a bunch for `nTurns`. `states` is an array of 6-arrays (updated in place), `lost`
    * an Int32Array of the turn each particle was lost on (-1 = alive) — a lost particle is
    * frozen where it was lost, exactly as `track_bunch_losses` does. `onTurn(turn)` is
@@ -504,7 +524,7 @@
   }
 
   return {
-    build, trackTurn, trackBunch,
+    build, trackTurn, trackTurnHeld, trackBunch,
     _maps: {
       driftExact, thickQuad, exactSectorBend, expandedCfd, wedgeMap, hardEdgeFringe,
       multipoleFringe, solenoid, wiggler, rfCavity, sRotate,
