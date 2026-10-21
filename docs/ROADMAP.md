@@ -1842,7 +1842,7 @@ tracking. Rings used below: `electron-ring`, unsteered and steered as above, the
   own orbit must not move with the cavity, `abs 1e-15`. Control: the live walk misses xtrack by
   more than `1e-3` of the orbit's size.
 
-**Step (2), the spin closed state (gates pre-committed before the code).** `spin._closed_state`
+**Step (2), the spin closed state (gates written before the code, committed with it in `d93713b`).** `spin._closed_state`
 with `delta=None` puts the ring at `closed_orbit_delta` (right since step 1) on the frozen 4D
 orbit, but at `zeta = 0`. With the cavity mid-ring the cavity then sees the slip made before it,
 so the state is not a fixed point of the live turn its spin is carried around. Construction:
@@ -1862,7 +1862,7 @@ docstring, not handled).
   `zeta = 0`, this state's sees the slip that test leaves, and every other coordinate meets it to
   `8e-15`.
 
-**Step (3), the linear orbit theory (gates pre-committed before the code).** `closed_orbit` is the
+**Step (3), the linear orbit theory (gates written before the code, committed with it in `d93713b`).** `closed_orbit` is the
 only linear orbit function that reads the one-turn product: `lattice.one_turn_map()`, cavity live.
 `propagate_orbit` steps each element's 4x4 block, which for a cavity is the identity, so it is
 held already; only its default start is wrong. `orbit_response_matrix`, `correct_orbit` and
@@ -1883,7 +1883,7 @@ map with its `delta` row the unit row and its kick's `delta` entry zero, compose
   `closed_orbit` at `delta` in `{0, 1e-4}` `==` the old solve (kept in the test), bit for bit.
   The analytic suite passes unchanged.
 
-**Step (4), `mode_chromaticity` with the cavity mid-ring (gates pre-committed before the code).**
+**Step (4), `mode_chromaticity` with the cavity mid-ring (gates written before the code, committed with it in `d93713b`).**
 The scan's orbit is right since step 1, and `propagate_normal_form` already freezes. The one
 leftover is `_mode_tune_scan`, which takes the start's normal form of the unfrozen product of the
 on-orbit maps. The fix: `_frozen_one_turn` there, and the refusal goes.
@@ -1904,7 +1904,7 @@ on-orbit maps. The fix: `_frozen_one_turn` there, and the refusal goes.
   finding), and freezing replaces that noise. `test_mode_chromaticity.py` and the editor's
   mode-chromaticity gates pass unchanged.
 
-**Step (5), the editor (gates pre-committed before the code).** The editor's copies have the
+**Step (5), the editor (gates written before the code, committed with it in `d93713b`).** The editor's copies have the
 same three leftovers:
 
 - `closedOrbit` (`accsim-optics.js`), the main view's affine orbit, solves on the live
@@ -1964,7 +1964,17 @@ change-B result; each one moved to a solver's own stopping test. Detail in `docs
   the live orbit, and that is now the control. The other half, the held orbit with the unfrozen
   start, gives no slope at all: its 4D block is not symplectic, so the normal form refuses it.
   That is gated too.
+- **Found, not fixed: the spin off the closed momentum.** The step-2 timing closes the carrier
+  only at `closed_orbit_delta`; step 2's gate 2 checked only that default. At an explicit
+  `delta = 1e-4` the slip is not small, a mid-ring cavity still kicks part-way round, and the
+  spin tune moves by `6.3e-6` / `8.8e-6` (cavity at 100 / 50) from the cavity-last ring's. At the
+  default it moves by `2e-16`. Fixing it means carrying the spin turn with `delta` held, which
+  spin's live tracking does not do. The docs had first claimed it held at any `delta`; corrected
+  in the follow-up.
 - **Found, not fixed:** with several cavities apart, only the first is timed in the spin carrier.
+- **The step 2 to 5 gates were written into this file before their code but committed with it**
+  (`d93713b`); only step 1's have a commit of their own (`0c27a64`). Step 2's two tolerance
+  corrections above happened after a first test run.
 
 Full suites on the finished code:
 

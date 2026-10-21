@@ -11944,8 +11944,14 @@ for bit (gated on every periodic preset).
     matches to `closed_orbit_delta`'s stopping test, `1e-15 C`. Before, at `zeta = 0`, the live
     turn kicked `delta` by more than `1e-9`.
   - The one-turn spin rotation and the spin tune meet the cavity-last ring's to `1e-12`.
-  - It applies at any explicit `delta` too, because `closed_spin_solution` hands its `delta` back
-    to `spin_one_turn_matrix`.
+  - The timing is applied at any explicit `delta`, which is needed because
+    `closed_spin_solution` hands its `delta` back to `spin_one_turn_matrix`. **But it closes the
+    state only at `closed_orbit_delta`.** At any other momentum the turn's slip `s` is not near
+    zero, so a mid-ring cavity still kicks `delta` part-way round, while a cavity-last one kicks
+    after the last element and changes nothing. Measured on the steered ring at `delta = 1e-4`:
+    the spin tune moves by `6.3e-6` / `8.8e-6` (cavity at 100 / 50) from the cavity-last value. At
+    the default it moves by `2e-16`. **Named leftover, not fixed:** the off-`delta_co` spin
+    turn would have to be carried with `delta` held, the 4D model, and spin tracking is live.
   - With several cavities apart, only the first is timed.
 - **Step 3, the linear orbit (shipped 2026-10-22, `orbit._frozen_one_turn_map`,
   `tests/analytic/test_rf_frozen_linear_orbit.py`).** `closed_orbit` solves on the one-turn

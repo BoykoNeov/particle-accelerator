@@ -589,6 +589,11 @@ def _cavity_timing(lattice: Lattice, state: np.ndarray) -> float:
     :func:`~accsim.orbit.closed_orbit_delta` is zero to its stopping test. With the cavity last
     (or none) ``z_c`` and ``s`` are the same float and this is exactly ``0.0``, so nothing that
     shipped before moves. With several cavities apart only the first is timed this way.
+
+    It closes the state only at ``closed_orbit_delta``. At any other ``delta`` the slip ``s``
+    is not small, so a mid-ring cavity still kicks part-way round: the spin tune at
+    ``delta = 1e-4`` on the steered ``electron-ring`` moves by ``6.3e-6`` (cavity at 100) from
+    the cavity-last ring's. That is a named leftover of change B (``docs/ROADMAP.md``).
     """
     from .elements.rfcavity import RFCavity
     from .orbit import _step
