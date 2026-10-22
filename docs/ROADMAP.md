@@ -1849,8 +1849,8 @@ so the state is not a fixed point of the live turn its spin is carried around. C
 one frozen walk from `zeta = 0` gives `z_c`, the `zeta` at the first cavity's entrance, and `s`,
 the whole turn's slip. The state starts at `zeta = s - z_c`, so the cavity sees what a
 cavity-last ring's sees. With the cavity last `z_c` and `s` are the same float, so the start is
-exactly `0.0`. With several cavities apart, only the first is timed this way (stated in the
-docstring, not handled).
+exactly `0.0`. With several cavities apart, only the first can be timed this way; such a ring
+is refused (see the shipped notes below).
 
 - **Gate 1: a fixed point of the live turn.** Steered `electron-ring`, cavity last, at 100 and
   at 50: the live 6D turn returns the state to `abs 1e-14` in every coordinate, and the state
@@ -1971,7 +1971,20 @@ change-B result; each one moved to a solver's own stopping test. Detail in `docs
   default it moves by `2e-16`. Fixing it means carrying the spin turn with `delta` held, which
   spin's live tracking does not do. The docs had first claimed it held at any `delta`; corrected
   in the follow-up.
-- **Found, not fixed:** with several cavities apart, only the first is timed in the spin carrier.
+- **Found, then refused: spread cavities in the spin carrier.** Only the first cavity can be
+  timed. On the steered `electron-ring` with its cavity halved at elements 50 and 100 the carrier
+  missed by `6e-6` after one live turn and the spin tune moved `6e-7`, with no warning; with one
+  half last and one at 100 the spin tune came out right to the bit while the carrier missed by
+  `1.5e-6`, so the gate's witness is the orbit. No start can fix it: the ring's 6D closed orbit
+  changes `delta` between the cavities. `spin._refuse_spread_cavities` now raises
+  `NotImplementedError` from every spin entry point (the six in `spin`, and `radiation`'s
+  `polarization_integrals` and `depolarization_integrals`) when a later cavity's held-walk `zeta`
+  differs from the first's by more than `1e-15 C`. Measured margin: spread cavities differ by
+  `8e-5` to `1e-4`, cavities together by `0.0`, first and last (joined by the turn) by `3.5e-14`,
+  and the unsteered ring, closed at `delta = 0`, by `0.0` wherever they sit
+  (`tests/analytic/test_rf_spread_cavities_spin.py`). No preset has more than one cavity. This is
+  separate from the off-momentum leftover above, which stays unrefused because N4's `dn/ddelta`
+  needs explicit momenta.
 - **The step 2 to 5 gates were written into this file before their code but committed with it**
   (`d93713b`); only step 1's have a commit of their own (`0c27a64`). Step 2's two tolerance
   corrections above happened after a first test run.

@@ -11952,7 +11952,10 @@ for bit (gated on every periodic preset).
     the spin tune moves by `6.3e-6` / `8.8e-6` (cavity at 100 / 50) from the cavity-last value. At
     the default it moves by `2e-16`. **Named leftover, not fixed:** the off-`delta_co` spin
     turn would have to be carried with `delta` held, the 4D model, and spin tracking is live.
-  - With several cavities apart, only the first is timed.
+  - Only the first cavity can be timed, so a ring whose cavities see different `zeta` on the
+    held walk (by more than `1e-15 C`) is **refused** with `NotImplementedError` from every spin
+    entry point (`spin._refuse_spread_cavities`). Cavities together, or first and last, are served.
+    The off-momentum leftover above is a different gap and is not refused.
 - **Step 3, the linear orbit (shipped 2026-10-22, `orbit._frozen_one_turn_map`,
   `tests/analytic/test_rf_frozen_linear_orbit.py`).** `closed_orbit` solves on the one-turn
   affine map with `delta` held. That is `Lattice.transfer_map`'s product in its own order, each

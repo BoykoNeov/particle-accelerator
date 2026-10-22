@@ -588,25 +588,52 @@ def _cavity_timing(lattice: Lattice, state: np.ndarray) -> float:
     cavity, and ``s``, the turn's slip; starting at ``s - z_c`` the cavity sees ``s``, which at
     :func:`~accsim.orbit.closed_orbit_delta` is zero to its stopping test. With the cavity last
     (or none) ``z_c`` and ``s`` are the same float and this is exactly ``0.0``, so nothing that
-    shipped before moves. With several cavities apart only the first is timed this way.
+    shipped before moves.
+
+    Only one cavity can be timed this way, so a ring whose cavities see different ``zeta`` on
+    the held walk is refused (:func:`_refuse_spread_cavities`) rather than answered.
 
     It closes the state only at ``closed_orbit_delta``. At any other ``delta`` the slip ``s``
     is not small, so a mid-ring cavity still kicks part-way round: the spin tune at
     ``delta = 1e-4`` on the steered ``electron-ring`` moves by ``6.3e-6`` (cavity at 100) from
-    the cavity-last ring's. That is a named leftover of change B (``docs/ROADMAP.md``).
+    the cavity-last ring's. That is a named leftover of change B (``docs/ROADMAP.md``), and it
+    is not refused: N4's ``dn/ddelta`` needs explicit momenta.
     """
     from .elements.rfcavity import RFCavity
     from .orbit import _step
 
     walk = state.copy()
-    z_cavity = None
+    z_cavities = []
     for elem in lattice.elements:
-        if z_cavity is None and isinstance(elem, RFCavity):
-            z_cavity = float(walk[ZETA])
+        if isinstance(elem, RFCavity):
+            z_cavities.append(float(walk[ZETA]))
         walk = _step(elem, walk, lattice.ref)
-    if z_cavity is None:
+    if not z_cavities:
         return 0.0
-    return float(walk[ZETA]) - z_cavity
+    _refuse_spread_cavities(lattice, z_cavities)
+    return float(walk[ZETA]) - z_cavities[0]
+
+
+def _refuse_spread_cavities(lattice: Lattice, z_cavities: list[float]) -> None:
+    """Refuse a ring whose cavities do not all see the first one's ``zeta`` on the held walk.
+
+    A later cavity at another ``zeta`` kicks ``delta`` part-way round, so the carrier is not a
+    fixed point of the live turn whatever its start: the ring's 6D closed orbit then changes
+    ``delta`` between the cavities and is no held-``delta`` 4D orbit. On the steered
+    ``electron-ring`` with its cavity halved at elements 50 and 100 the carrier missed by
+    ``6e-6`` after one turn and the spin tune moved ``6e-7``, with no warning. The bound is
+    ``closed_orbit_delta``'s own stopping test, ``1e-15 C``: cavities together see the same
+    float, and a first and a last cavity (which the turn joins) differ by the closed slip.
+    """
+    bound = 1e-15 * lattice.length
+    spread = max(abs(z - z_cavities[0]) for z in z_cavities)
+    if spread > bound:
+        raise NotImplementedError(
+            f"the spin calculation needs every RF cavity to see the same timing, but this "
+            f"ring's cavities are spread out (their zeta differs by {spread:.3g} m, bound "
+            f"{bound:.3g} m): a later cavity kicks the momentum part-way round and the spin's "
+            f"carrier does not close. Put the cavities together, or use one."
+        )
 
 
 def spin_one_turn_matrix(
